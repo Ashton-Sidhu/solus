@@ -123,12 +123,24 @@ export function hostPolicies(): HostPolicies {
 export type SessionCloudSyncRefusal = 'person-not-signed-in' | 'setting-off' | 'policy-forbids' | 'policy-not-available'
 export type SessionCloudSyncDecision = { allowed: true } | { allowed: false; reason: SessionCloudSyncRefusal }
 
-/** Answer at push or fetch time. A missing organization policy stops cloud sync. */
+/**
+ * Why no conversation of this organization's work leaves this host, or null
+ * when it may: the host switch **Save sessions to Solus Cloud**, then the
+ * policy. A host that has not received the policy cannot infer that the
+ * organization allows it. This one answer governs the transcript rows, the turn
+ * diffs, the Insights texts, and the session repository of a session
+ * (docs/session-cloud-copy.md).
+ */
+export function sessionCloudCopyRefusal(organizationId: string): Exclude<SessionCloudSyncRefusal, 'person-not-signed-in'> | null {
+  if (!getServerSettings().hostConfig.sessionCloudSync) return 'setting-off'
+  const policy = hostPolicies().forWork(organizationId)
+  if (policy.refusal) return 'policy-not-available'
+  return policy.sessionCloudSync()?.value === false ? 'policy-forbids' : null
+}
+
+/** Answer at push or fetch time, for the person whose token carries the copy. */
 export function sessionCloudSyncDecision(organizationId: string, actingPerson: { accountId: string } | null): SessionCloudSyncDecision {
   if (!actingPerson) return { allowed: false, reason: 'person-not-signed-in' }
-  if (!getServerSettings().hostConfig.sessionCloudSync) return { allowed: false, reason: 'setting-off' }
-  const policy = hostPolicies().forWork(organizationId)
-  if (policy.refusal) return { allowed: false, reason: 'policy-not-available' }
-  if (policy.sessionCloudSync()?.value === false) return { allowed: false, reason: 'policy-forbids' }
-  return { allowed: true }
+  const reason = sessionCloudCopyRefusal(organizationId)
+  return reason ? { allowed: false, reason } : { allowed: true }
 }

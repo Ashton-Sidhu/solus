@@ -1,10 +1,10 @@
 <script lang="ts">
   import { GitPullRequestIcon } from "../ui/octicons";
   import { prStatusBadge, REQUIRED_CHECKS_FAILING_BADGE } from "../prs/lib/pr-utils";
-  import { taskPrMenuTitle } from "./lib/task-pr-menu";
-  import type { TaskPrChoice } from "./lib/task-list";
+  import { prMenuTitle } from "./lib/pr-menu";
+  import type { PrChoice } from "./lib/sidebar-rows";
 
-  let { choice }: { choice: TaskPrChoice } = $props();
+  let { choice }: { choice: PrChoice } = $props();
   const badge = $derived(
     choice.requiredChecksFail ? REQUIRED_CHECKS_FAILING_BADGE : prStatusBadge(choice.pullRequest),
   );
@@ -16,7 +16,7 @@
 <span class="flex size-4 shrink-0 items-center justify-center" style:color={badge?.tone ?? "var(--muted-foreground)"} aria-hidden="true">
   <StateIcon size={14} />
 </span>
-<span class="min-w-0 flex-1 truncate text-foreground">{taskPrMenuTitle(choice)}</span>
+<span class="min-w-0 flex-1 truncate text-foreground">{prMenuTitle(choice)}</span>
 {#if badge}
   <span class="sr-only">{badge.label}</span>
 {/if}

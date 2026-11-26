@@ -43,7 +43,7 @@ export interface SelfTestFacts {
   /** Why the link or its connector failed, as the host last recorded it. */
   linkError: string | null
   isTunnelTurnedOffByPolicy: boolean
-  /** Null on a link with no connector: a provisioned machine is reached directly. */
+  /** Null on a link with no connector: the host is reached at its own address. */
   connector: ConnectorFacts | null
   listener: { expectedPort: number; boundPort: number; isAnswering: boolean | null } | null
   cloud: AddressProbe | null
@@ -263,7 +263,7 @@ function canOpenTcp(host: string, port: number): Promise<boolean> {
 export interface HostSelfTestDeps {
   installationId: () => string
   status: () => UplinkStatus
-  /** The link has no connector: a provisioned machine is reached directly. */
+  /** The link has no connector: the host is reached at its own address. */
   isReachedDirectly: () => boolean
   isTunnelTurnedOffByPolicy: () => boolean
   /** The port the proxied listener is bound to; 0 when the bind failed. */

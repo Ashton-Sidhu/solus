@@ -8,7 +8,7 @@
   import { Search as MagnifyingGlassIcon, X as CloseIcon } from "@lucide/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import type { Task, TaskLink } from "@solus/contracts/task-types";
+  import type { Issue, IssueLink } from "@solus/contracts/task-types";
   import type { SessionMeta } from "@solus/contracts/types";
   import {
     getPullRequestsContext,
@@ -118,7 +118,7 @@
   // Newest work first, and the row now states the date it is sorted by, so the
   // order is readable rather than something you have to take on trust.
   const tasks = $derived(
-    session.tasksStore.tasks.toSorted(
+    session.issuesStore.tasks.toSorted(
       (a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id),
     ),
   );
@@ -149,8 +149,8 @@
   // The sidebar already knows every session linked to a task — links, mounted
   // tabs and their attention — so the picker asks it rather than keeping a
   // second model of the same tree.
-  function sessionsFor(task: Task): SidebarSessionChild[] {
-    return sidebarStore.sessionsForPickableTask(task);
+  function sessionsFor(task: Issue): SidebarSessionChild[] {
+    return sidebarStore.sessionsForPickableIssue(task);
   }
   // A session row's live state, so a running session reads as running in
   // every row shape. A session no task claims has no sidebar child, so the
@@ -349,7 +349,7 @@
         void session.automationsStore.loadAll();
       }
     });
-    void session.tasksStore.ensureLoaded();
+    void session.issuesStore.ensureLoaded();
     blurActiveTextInputOnMobile();
     tick().then(() => {
       // The cursor is not pinned to a row here: until the reader moves it, it
@@ -439,7 +439,7 @@
   }
 
   /** ⏎ on a task: open its task page. */
-  function select(task: Task): void {
+  function select(task: Issue): void {
     session.goToTask(task.id, "click");
     close();
   }
@@ -450,7 +450,7 @@
     void sidebarStore.selectChild(child);
   }
 
-  function startDraft(task: Task): void {
+  function startDraft(task: Issue): void {
     close();
     void session.opening.openTaskSession(task);
   }
@@ -473,24 +473,24 @@
     if (shouldScroll) void scrollSelectionIntoView();
   }
 
-  function openTaskPage(task: Task): void {
+  function openTaskPage(task: Issue): void {
     const taskId = task.id;
     close();
     session.goToTask(taskId);
   }
 
-  function resumeTask(task: Task): void {
+  function resumeTask(task: Issue): void {
     close();
     void session.opening.openTaskLinkedSession(task);
   }
 
-  function openOnProvider(task: Task): void {
+  function openOnProvider(task: Issue): void {
     if (!task.url) return;
     close();
     void localApi.openExternal(task.url);
   }
 
-  function openLinkedItem(task: Task, link: TaskLink): void {
+  function openLinkedItem(task: Issue, link: IssueLink): void {
     close();
     openPickerLinkedItem(session, task, link);
   }
@@ -510,10 +510,10 @@
     if (selectedPullRequestUrl) openLinkedExternal(selectedPullRequestUrl);
   }
 
-  async function unlinkItem(link: TaskLink): Promise<void> {
+  async function unlinkItem(link: IssueLink): Promise<void> {
     try {
-      await session.tasksStore
-        .get(link.taskId)
+      await session.issuesStore
+        .get(link.issueId)
         .unlink(link.kind, link.targetKey, link.targetScope);
     } catch (error) {
       toasts.error("Couldn't unlink item", {
@@ -631,7 +631,7 @@
     type: resultType,
     query,
     scopeLabel: scopeProjectKey === CHATS_GROUP_KEY ? "Chats" : (scopeProject?.label ?? null),
-    tasksLoading: session.tasksStore.loading,
+    tasksLoading: session.issuesStore.loading,
     everySession: searches.everySession,
     sessionSearch: {
       loading: searches.sessions.loading,

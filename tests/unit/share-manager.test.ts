@@ -62,7 +62,7 @@ afterAll(() => {
 
 const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
 const REMOTE_OWNER: Principal = { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud' }
-const member = (userId: string, teamIds: string[] = [], organizationRole: 'owner' | 'member' = 'member', hostKind: 'personal' | 'managed' | 'cloud' = 'managed', organizationId = 'org1'): Principal => ({
+const member = (userId: string, teamIds: string[] = [], organizationRole: 'owner' | 'member' = 'member', hostKind: 'personal' | 'cloud' | 'api' = 'cloud', organizationId = 'org1'): Principal => ({
   kind: 'org-member', userId, organizationId, organizationRole, teamIds, hostKind, displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
 })
 
@@ -190,7 +190,7 @@ describe('ownership', () => {
     const work = { kind: 'work', id: 'w1' } as const
     await seed('work', 'w1', 'bob', 'org1')
     expect(await shares.roleFor(OWNER, work)).toBe('owner')
-    expect(await shares.roleFor(member('admin', [], 'owner', 'managed'), work)).toBe('editor')
+    expect(await shares.roleFor(member('admin', [], 'owner', 'cloud'), work)).toBe('editor')
     expect(await shares.roleFor(member('admin', [], 'owner', 'personal'), work)).toBe('none')
   })
 
@@ -199,8 +199,8 @@ describe('ownership', () => {
     // A member reads the records of the organization their grant names.
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const
-    const bob = member('bob', [], 'member', 'cloud', 'org1')
-    const eve = member('eve', [], 'member', 'cloud', 'org2')
+    const bob = member('bob', [], 'member', 'api', 'org1')
+    const eve = member('eve', [], 'member', 'api', 'org2')
     await seed('work', 'w1', 'bob', 'org1')
     await shares.setEntries({ resource: work, entries: [{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }] }, bob)
     expect(await shares.roleFor(bob, work)).toBe('owner')
@@ -235,7 +235,7 @@ describe('ACL entries', () => {
     // The highest entry wins; a member of another organization is admitted by none.
     expect(await shares.roleFor(member('cara', ['team-a']), doc)).toBe('editor')
     expect(await shares.roleFor(member('dan', ['team-b']), doc)).toBe('viewer')
-    expect(await shares.roleFor(member('eve', [], 'member', 'managed', 'org2'), doc)).toBe('none')
+    expect(await shares.roleFor(member('eve', [], 'member', 'cloud', 'org2'), doc)).toBe('none')
   })
 
   test('the host\'s own work on a managed host is its user\'s: members reach it through entries, an administrator edits it', async () => {
@@ -364,7 +364,7 @@ describe('one decision per check', () => {
 })
 
 describe('tasks', () => {
-  const cloud = (userId: string) => member(userId, [], 'member', 'cloud')
+  const cloud = (userId: string) => member(userId, [], 'member', 'api')
 
   test('a task is not a share resource: a request that names one is refused before it reaches the share manager', async () => {
     // WHY (provider-owned-tasks.md §4.3): GitHub or Jira decides who opens a task.
@@ -430,9 +430,9 @@ describe('works of a session', () => {
     await seed('session', 's1', 'alice', 'org2')
     await seed('work', 'w1', 'alice', 'org1')
     await link('w1', 's1')
-    await shares.setEntries({ resource: { kind: 'session', id: 's1' }, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'editor' }] }, member('alice', [], 'member', 'managed', 'org2'))
-    expect(await shares.roleFor(member('bob', [], 'member', 'managed', 'org2'), { kind: 'work', id: 'w1' })).toBe('none')
-    expect(await shares.filterVisible(member('bob', [], 'member', 'managed', 'org2'), 'work', [{ id: 'w1' }], (work) => work.id)).toEqual([])
+    await shares.setEntries({ resource: { kind: 'session', id: 's1' }, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'editor' }] }, member('alice', [], 'member', 'cloud', 'org2'))
+    expect(await shares.roleFor(member('bob', [], 'member', 'cloud', 'org2'), { kind: 'work', id: 'w1' })).toBe('none')
+    expect(await shares.filterVisible(member('bob', [], 'member', 'cloud', 'org2'), 'work', [{ id: 'w1' }], (work) => work.id)).toEqual([])
   })
 })
 
@@ -491,7 +491,7 @@ describe('the link and guests', () => {
     const opened = (await shares.openLink(link.secret))!
     expect(opened.share).toEqual((await shares.resolveLinkSecret(link.secret))!)
     expect(opened.runnerHostId).toBe('host-a')
-    for (const principal of [member('alice'), member('bob', ['web']), member('carol'), member('dave'), member('erin', [], 'owner'), member('bob', ['web'], 'member', 'managed', 'org2')]) {
+    for (const principal of [member('alice'), member('bob', ['web']), member('carol'), member('dave'), member('erin', [], 'owner'), member('bob', ['web'], 'member', 'cloud', 'org2')]) {
       expect(opened.standingOf(principal)).toEqual(await shares.standingFor(principal, session))
     }
     expect(await shares.openLink('nope')).toBeNull()

@@ -8,9 +8,9 @@
   import HostStateIcon from "./HostStateIcon.svelte";
   import { isZoneFull, routeInUseLabel, machineMatches, machinesByZone, rollup, tileFill, toneOf, ZONES, type FleetMachine, type FleetZoneId, type TileColorMode, type ZoneAnswers } from "./lib/fleet-model";
 
-  /** The map in a narrow pane (D4): the same routes as a tree, with this device
+  /** The map in a narrow pane: the same routes as a tree, with this device
    *  at the top. A full zone is one row of small tiles that opens the zone. The
-   *  found machines (D7) are one row at the end, which opens the Add page. A
+   *  found machines are one row at the end, which opens the Add page. A
    *  machine known only through a link is a dashed row under your machines
    *  that connects this device. */
   interface Props {
@@ -82,7 +82,7 @@
                   style:opacity={machineMatches(machine, query) ? 1 : 0.35}
                 >
                   <FleetLoadRing cpu={machine.cpu} tone={toneOf(machine.state)}>
-                    <HostOperatingSystemIcon os={machine.os} managed={machine.isManaged} size={13} />
+                    <HostOperatingSystemIcon os={machine.os} cloud={machine.isCloud} size={13} />
                   </FleetLoadRing>
                   <span class="flex min-w-0 flex-1 flex-col">
                     <span class="truncate text-[0.8125rem] font-medium">{machine.label}</span>

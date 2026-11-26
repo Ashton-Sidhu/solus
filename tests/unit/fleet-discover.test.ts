@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { foundMachines } from '@solus/workspace-ui/components/fleet/lib/discover'
 
-// WHY: docs/plans/host-fleet.md D7. Discover lists what this device can see but has
+// WHY: Discover lists what this device can see but has
 // not added, from four sources, each with the one action that adds it. A machine
 // already added must not show up again as "found", or the person adds it twice.
 

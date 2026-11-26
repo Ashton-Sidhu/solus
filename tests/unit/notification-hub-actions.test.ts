@@ -11,7 +11,7 @@ import { FakeNotificationSource } from './helpers/fake-notification-source'
 // is pending, nor at all while its source is offline or has revoked the row.
 
 const row = (resource: NotificationResource, patch: Partial<HubNotification> = {}): HubNotification => ({
-  id: 'n', eventId: 'e', organizationId: 'org-a', facts: { kind: 'task.assigned' }, resource, by: { kind: 'system' },
+  id: 'n', eventId: 'e', organizationId: 'org-a', facts: { kind: 'issue.assigned' }, resource, by: { kind: 'system' },
   createdAt: 1, summary: { title: 'Spec' }, readAt: null, archivedAt: null, ...patch,
 })
 
@@ -20,7 +20,7 @@ const pr = { host: 'github.com', owner: 'acme', repo: 'api', number: 7, url: 'ht
 describe('notification destinations', () => {
   const resources: NotificationResource[] = [
     { kind: 'work', workId: 'w1', revisionId: 4 },
-    { kind: 'task', taskId: 't1' },
+    { kind: 'issue', issueId: 't1' },
     { kind: 'pr', pr },
     { kind: 'review_job', job: 'lens', pr, lensId: 'security' },
     { kind: 'automation', automationId: 'a1', runId: 'r1' },

@@ -1,3 +1,4 @@
+import { checkoutStatus, type GitRepositoryStatus } from "@solus/contracts/git-types";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 import { EnvironmentId } from "@t3tools/contracts";
 import { AtomRegistry } from "effect/reactivity";
@@ -6,7 +7,9 @@ import { listCheckoutRefs } from "./checkout-refs";
 import { checkoutVcsQueries } from "./checkout-git-queries";
 
 const calls = vi.hoisted(() => ({
-  gitRepositoryStatus: vi.fn(async () => ({
+  gitRepositoryStatus: vi.fn(async (): Promise<GitRepositoryStatus> => ({
+    hasCommits: true,
+    primaryRemoteUrl: null,
     isRepository: true,
     primaryRemoteName: "origin",
     branch: "topic",
@@ -18,6 +21,14 @@ const calls = vi.hoisted(() => ({
     { name: "topic", isDefault: false, remoteOnly: false },
   ]),
 }));
+vi.mock("../state/mobile-host", async () => {
+  const { Atom } = await import("effect/reactivity");
+  return {
+    mobileHost: Atom.family((id: string) => Atom.make(id === "modern"
+      ? { canProjectCheckout: true, events: { subscribe: () => () => {} } }
+      : null)),
+  };
+});
 vi.mock("./runtime", () => {
   const changes = { subscribe: () => () => {} };
   return {
@@ -56,6 +67,21 @@ it("shares the checkout read while the working tree scan is pending", async () =
     registry.dispose();
   }
 });
+it("opens the Git status sheet with one request to a host with checkout projection", async () => {
+  const registry = AtomRegistry.make();
+  const target = { environmentId: EnvironmentId.make("modern"), input: { cwd: "/repo", includeDetails: false } };
+  const repo = { isRepository: true, primaryRemoteName: "origin", branch: "topic", hasCommits: true, primaryRemoteUrl: null };
+  calls.gitRepositoryStatus.mockClear().mockResolvedValueOnce({ ...repo, checkout: checkoutStatus(repo, null) });
+  calls.gitRefreshState.mockClear();
+  try {
+    expect(await executeAtomQuery(registry, checkoutVcsQueries.status(target))).toMatchObject({ value: { refName: "topic" } });
+    expect(calls.gitRepositoryStatus).toHaveBeenCalledExactlyOnceWith("/repo", { checkout: "summary" });
+    expect(calls.gitRefreshState).not.toHaveBeenCalled();
+  } finally {
+    registry.dispose();
+  }
+});
+
 it("serves search and remaining branch pages from one host read of the checkout", async () => {
   const registry = AtomRegistry.make();
   const environmentId = EnvironmentId.make("mac");

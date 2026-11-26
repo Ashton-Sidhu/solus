@@ -92,9 +92,9 @@ describe('stack merge', () => {
 describe('workflow approval', () => {
   const fork = { ...allowed('approve-workflows'), headRepo: { owner: 'fork', repo: 'r', isFork: true } }
 
-  test('the waiting runs of an open fork pull request are part of the detail and of its device copy', async () => {
+  test.each([fork, allowed('approve-workflows')])('keeps the waiting runs in the detail and its device copy (%j)', async (fields) => {
     const runs = { headSha: 'head-7', runs: [{ id: 1, name: 'CI', url: null }] }
-    const api = detailApi(new FakeApi(), () => pullRequest(7, fork)).on('prPendingWorkflowRuns', () => runs)
+    const api = detailApi(new FakeApi(), () => pullRequest(7, fields)).on('prPendingWorkflowRuns', () => runs)
     const { directory, cache } = await setup(api)
     await directory.loadDetail(PR_REF)
     expect(shownValue(directory.detailOf(PR_REF))?.workflowRuns).toEqual(runs)
@@ -112,8 +112,8 @@ describe('workflow approval', () => {
     expect(shownValue(detail)?.missing).toEqual(['workflowRuns'])
   })
 
-  test('a pull request that is not from a fork asks nothing', async () => {
-    const api = detailApi(new FakeApi(), () => pullRequest(7, allowed('approve-workflows')))
+  test('a host without workflow approval skips the read', async () => {
+    const api = detailApi(new FakeApi(), () => pullRequest(7))
     const { directory } = await setup(api)
     await directory.loadDetail(PR_REF)
     expect(api.callsOf('prPendingWorkflowRuns')).toHaveLength(0)

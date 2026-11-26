@@ -47,9 +47,9 @@ export class CloudAgentSeatsStore {
   }
 }
 
-/** Only managed hosts receive the account vault's logins; personal machines keep their own. */
+/** Only cloud machines receive the account vault's logins; personal machines keep their own. */
 export function usesCloudAgentSeats(serverId: string): boolean {
-  return cloudAccount() !== null && serverConnections.connectionFor(serverId)?.target.uplink?.kind === 'managed'
+  return cloudAccount() !== null && serverConnections.connectionFor(serverId)?.target.uplink?.kind === 'cloud'
 }
 
 export const cloudAgentSeatsStore = new CloudAgentSeatsStore()

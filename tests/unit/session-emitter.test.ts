@@ -399,7 +399,10 @@ describe.serial('session emitter', () => {
     })
   })
 
-  test('uses Codex timestamps, outcomes, cumulative usage deltas, and rerouted model', () => {
+  test('uses Codex timestamps, outcomes, cumulative usage deltas, and rerouted model', async () => {
+    // The price of the model the turn was rerouted to, as the host's price list gives it.
+    const pricing = await import('@solus/server/execution/observability/model-pricing')
+    pricing.replaceModelPrices(new Map([['gpt-5.6-sol', { standard: { input: 5e-6, cachedInput: 5e-7, cacheWrite: 6.25e-6, output: 3e-5 }, longContext: [] }]]))
     const emitter = new emitterModule.SessionEmitter()
     emitter.beginTurn({ sessionId: 'codex-1', prompt: 'search', promptSource: 'dispatch', startedAt: 2_000 })
     emitter.completeSetup('codex-1', {

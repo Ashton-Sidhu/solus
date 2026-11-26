@@ -7,18 +7,19 @@
 
 import { z } from 'zod'
 import { mcpAppReferenceSchema, type McpAppReference } from './mcp-apps'
-import type { TaskEventKind, TaskLinkKind } from './task-types'
+import type { IssueEventKind, IssueLinkKind } from './task-types'
 import type { AgentId, PermissionDecision, RateLimitDecisionAction } from './types'
 import { attributionSchema, userIdSchema, userSchema, type Attribution, type User, type UserId } from './user'
+import { agentIdSchema } from './types'
 
 export interface ActivitySubject {
-  kind: 'session' | 'task' | 'work'
+  kind: 'session' | 'issue' | 'work'
   id: string
 }
 
 /** What a task change points at: a linked item or a started session. */
 export interface TaskEventTarget {
-  kind: TaskLinkKind | 'session'
+  kind: IssueLinkKind | 'session'
   scope?: string
   key?: string
   title?: string
@@ -54,9 +55,10 @@ export type ActivityKind =
   | { kind: 'queued_prompt_changed'; queueId: string; change: 'removed' | 'edited'; author?: User }
   /** No longer recorded; rows stored before still parse and are not drawn. */
   | { kind: 'seat_needed'; provider: AgentId }
-  /** An agent or an automation (`by`) sent a prompt into the session. Not
-   *  drawn: a history read folds `by` onto the user row whose text has this
-   *  hash, as its `sender` (docs/plans/prompt-sender.md). */
+  /** An agent, an automation, or a person (`by`) sent a prompt into the
+   *  session. Not drawn: a history read folds `by` onto the user row whose
+   *  text has this hash, as its `sender`, or as its `author` for a person
+   *  (docs/plans/prompt-sender.md). */
   | { kind: 'prompt_sent'; promptHash: string }
   // any subject
   | { kind: 'renamed'; title: string }
@@ -64,7 +66,7 @@ export type ActivityKind =
   | { kind: 'mentioned'; userId: UserId; threadId?: string }
   // tasks: a field change, a link or a started session; `from`/`to` are the
   // values already stringified (`labels_changed` holds JSON).
-  | { kind: 'task_changed'; change: TaskEventKind; from?: string | null; to?: string | null; target?: TaskEventTarget }
+  | { kind: 'task_changed'; change: IssueEventKind; from?: string | null; to?: string | null; target?: TaskEventTarget }
 
 /** What became of an offer to move the session into the agent's worktree. */
 export type WorktreeOfferResolution =
@@ -81,7 +83,6 @@ export type Activity = {
   turnId?: string
 } & ActivityKind
 
-const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 
 const taskEventKindSchema = z.enum([
   'created', 'status_changed', 'priority_changed', 'assignee_changed',
@@ -133,7 +134,7 @@ export const activityKindSchema: z.ZodType<ActivityKind> = z.discriminatedUnion(
 export const activitySchema: z.ZodType<Activity> = z.intersection(
   z.object({
     id: z.string(),
-    subject: z.object({ kind: z.enum(['session', 'task', 'work']), id: z.string() }),
+    subject: z.object({ kind: z.enum(['session', 'issue', 'work']), id: z.string() }),
     at: z.number(),
     by: attributionSchema,
     turnId: z.string().optional(),

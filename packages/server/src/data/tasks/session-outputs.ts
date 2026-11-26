@@ -1,4 +1,4 @@
-import type { TaskLinkInput } from '@solus/contracts/task-types'
+import type { IssueLinkInput } from '@solus/contracts/task-types'
 import type { RecordScope } from '../../admission/principal'
 import { listPlanRefsForSessions } from '../../plans/plan-index'
 import { automationsOfSession } from '../automations/automations-store'
@@ -19,18 +19,18 @@ import { listWorkRefsForSessions } from '../works/works'
  * them: most are read once, so an artifact is on a task only when its maker
  * explicitly linked it from the interface.
  */
-export async function readSessionOutputs(scope: RecordScope, sessionId: string): Promise<TaskLinkInput[]> {
+export async function readSessionOutputs(scope: RecordScope, sessionId: string): Promise<IssueLinkInput[]> {
   const [works, plans] = await Promise.all([
     listWorkRefsForSessions(scope, [sessionId]),
     listPlanRefsForSessions(scope, [sessionId]),
   ])
   return [
     ...works.filter((work) => work.type !== 'artifact')
-      .map((work): TaskLinkInput => ({ kind: 'work', targetKey: work.id, title: work.title })),
-    ...plans.map((plan): TaskLinkInput => ({
+      .map((work): IssueLinkInput => ({ kind: 'work', targetKey: work.id, title: work.title })),
+    ...plans.map((plan): IssueLinkInput => ({
       kind: 'plan', targetScope: plan.sessionId, targetKey: plan.planToolUseId, title: plan.title,
     })),
     ...automationsOfSession(sessionId)
-      .map((automation): TaskLinkInput => ({ kind: 'automation', targetKey: automation.id, title: automation.name })),
+      .map((automation): IssueLinkInput => ({ kind: 'automation', targetKey: automation.id, title: automation.name })),
   ]
 }

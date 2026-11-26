@@ -422,6 +422,8 @@ export interface BrowserPage {
    *  headless has no picker of its own, so a client answers with files it
    *  uploaded first (`browserFileUploadToken`). */
   fileChooser?: BrowserFileChooser | null
+  /** Identifies an open streamed select menu. Its choices go only to the requesting viewer. */
+  selectMenuId?: string
   /** The last files the page downloaded, newest last, at most
    *  `BROWSER_DOWNLOADS_KEPT`. Each is a host asset a client can save. */
   downloads?: BrowserDownload[]
@@ -800,7 +802,7 @@ export interface BrowserSnapshotRef {
  * a capture ends up on the wrong repository.
  */
 export type BrowserEvidenceTarget =
-  | { kind: 'task'; taskId: string }
+  | { kind: 'task'; issueId: string }
   | { kind: 'pr'; number: number; cwd: string }
 
 /** What a capture became. */
@@ -925,7 +927,8 @@ export type BrowserInteractOp =
   // CSS-viewport coordinate the client mapped its pointer to. `insertText` types
   // into whatever a preceding `clickAt` focused, so a streamed keyboard needs no
   // selector either.
-  | { kind: 'clickAt'; x: number; y: number }
+  | { kind: 'clickAt'; x: number; y: number; selectMenu?: true }
+  | { kind: 'answerSelectMenu'; id: string; index: number | null }
   | { kind: 'scrollAt'; x: number; y: number; deltaY: number }
   | { kind: 'insertText'; text: string }
 
@@ -934,6 +937,18 @@ export interface BrowserInteractResult {
   /** JSON-serialized result of `evaluate`/`waitFor`. */
   value?: string
   message?: string
+  selectMenu?: BrowserSelectMenu
+}
+
+export interface BrowserSelectMenu {
+  id: string
+  options: { label: string; disabled: boolean }[]
+  selectedIndex: number
+  /** The select's bounds in guest viewport CSS pixels. */
+  x: number
+  y: number
+  width: number
+  height: number
 }
 
 export interface BrowserOpenRequest {

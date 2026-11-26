@@ -57,7 +57,7 @@ describe('the share link door', () => {
       host: '127.0.0.1',
       port: 0,
       isApiMode: true,
-      pairingDisabled: true,
+      pairingDisabled: () => true,
       verifyAccessToken: async (token): Promise<TokenVerdict> => {
         const claims = TOKENS[token]
         return claims ? { ok: true, claims } : { ok: false, reason: 'malformed' }

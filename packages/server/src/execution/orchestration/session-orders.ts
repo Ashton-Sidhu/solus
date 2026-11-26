@@ -61,6 +61,8 @@ export interface CreateSessionOrder {
   contextWindow: number | null
   cwd: string
   worktreeBaseBranch?: string | null
+  /** The branch at the source commit for other repositories, or null to use their defaults. */
+  worktreeSiblingBaseBranch?: string | null
   /** The codebase the new session starts with: a child gets the codebase of its sender (docs/plans/codebases.md decision 5). */
   codebaseId: string | null
   exchangeIds?: string[]
@@ -133,9 +135,10 @@ export interface OrchestratedRuntime {
   recordedSessionMeta?(sessionId: string): Promise<SessionMeta | null>
   createSession(order: CreateSessionOrder): Promise<{ sessionId: string }>
   promptSession(sessionId: string, prompt: string, delivery: PromptDelivery, order: PromptOrder): Promise<PromptDisposition>
-  /** Releases the rate-limit hold of a session, for the person that `senderSessionId` works for; false when no limit holds it. */
-  releaseRateLimit(sessionId: string, senderSessionId: string): boolean
-  /** `senderSessionId` is the agent session that asked for the stop. */
+  /** Releases the rate-limit hold of a session, for the person that `senderSessionId` works for; false when no limit holds it.
+   *  With no sender session (an outside app), for the tool call's person. */
+  releaseRateLimit(sessionId: string, senderSessionId: string | undefined): boolean
+  /** `senderSessionId` is the agent session that asked for the stop; none for a person, the host, or an outside app. */
   stopSession(id: string, senderSessionId?: string): boolean
   /** Answers a permission the asking session is waiting on; false when it is not. */
   respondToPermission(askingSessionId: string, questionId: string, optionId: string, updatedPlan?: string): boolean
@@ -195,8 +198,9 @@ export interface SpawnedSession {
  *  (docs/plans/cross-host-sessions.md). */
 export interface RemoteTarget {
   host: RemoteHost
-  /** This host's session that starts it, as the target host shows it. */
-  origin: SessionStarterFromHost
+  /** This host's session that starts it, as the target host shows it. None for an
+   *  outside app's work: the target host records the person who started it. */
+  origin?: SessionStarterFromHost
 }
 
 /** The longest a tool call may wait on a session, in milliseconds. */

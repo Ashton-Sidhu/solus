@@ -54,6 +54,7 @@ function uploadingFile() {
 function harness(opts: { status?: Session['status'] } = {}) {
   const turns: SentTurn[] = []
   const errors: string[] = []
+  const scrollRequests: Array<{ sent?: { firstMessageId?: string } }> = []
   const session = {
     id: 'session-1',
     status: opts.status ?? 'idle',
@@ -70,7 +71,7 @@ function harness(opts: { status?: Session['status'] } = {}) {
     runHosts: { promptFields: () => ({}), confirm: () => {}, followRunningHost: () => {} },
     promptComposer: new PromptComposer({} as never, {} as never),
     settings: { activeAgent: 'claude-code' },
-    tasksStore: { taskForSession: () => null },
+    issuesStore: { taskForSession: () => null },
     eventReducer: {
       closeAgentConversationTurn: () => {},
       handleError: (_sessionId: string, error: { message: string }) => {
@@ -89,14 +90,14 @@ function harness(opts: { status?: Session['status'] } = {}) {
     // Dispatch asks the conversation to scroll with a DOM event; nothing listens here.
     const scope = globalThis as unknown as { window?: unknown }
     const previousWindow = scope.window
-    scope.window = { dispatchEvent: () => true }
+    scope.window = { dispatchEvent: (event: CustomEvent) => { scrollRequests.push(event.detail); return true } }
     try {
       return internal.dispatchPrompt('tab-1', session, text, '/repo', 'steer')
     } finally {
       scope.window = previousWindow
     }
   }
-  return { session, turns, errors, send }
+  return { session, turns, errors, send, scrollRequests }
 }
 
 /** Let every queued step of the send run. */
@@ -195,5 +196,92 @@ describe('send while an attachment uploads', () => {
     expect(attachmentUploads.sendBlocker([chip])).toBe('Retry or remove the failed upload.')
     attachmentUploads.cancel(chip.id)
     expect(attachmentUploads.sendBlocker([chip])).toBeNull()
+  })
+})
+
+// The Enter frame paints the message, the cleared composer, and the busy row.
+// Composing the prompt and writing its outbox record grow with the prompt and
+// its images, so they run after that paint, never before it.
+describe('a send paints before it goes to the host', () => {
+  function frames() {
+    const scope = globalThis as unknown as { requestAnimationFrame?: unknown; cancelAnimationFrame?: unknown }
+    const previous = { requestAnimationFrame: scope.requestAnimationFrame, cancelAnimationFrame: scope.cancelAnimationFrame }
+    const pending = new Map<number, FrameRequestCallback>()
+    let next = 0
+    scope.requestAnimationFrame = (callback: FrameRequestCallback) => { pending.set(++next, callback); return next }
+    scope.cancelAnimationFrame = (frame: number) => { pending.delete(frame) }
+    return {
+      paint: () => {
+        const callbacks = [...pending.values()]
+        pending.clear()
+        for (const callback of callbacks) callback(0)
+      },
+      restore: () => {
+        if (previous.requestAnimationFrame === undefined) delete scope.requestAnimationFrame
+        else scope.requestAnimationFrame = previous.requestAnimationFrame
+        if (previous.cancelAnimationFrame === undefined) delete scope.cancelAnimationFrame
+        else scope.cancelAnimationFrame = previous.cancelAnimationFrame
+      },
+    }
+  }
+
+  test('the message shows at once, and the turn goes to the host after the frame paints', async () => {
+    const display = frames()
+    try {
+      const { session, turns, send } = harness()
+      expect(send('hello')).toBe(true)
+      expect(session.messages.map((message) => message.content)).toEqual(['hello'])
+      expect(session.status).toBe('connecting')
+      await settle()
+      expect(turns).toEqual([])
+
+      display.paint()
+      display.paint()
+      await settle()
+      expect(turns.map((turn) => turn.displayPrompt)).toEqual(['hello'])
+    } finally {
+      display.restore()
+    }
+  })
+
+  test('a second send before the paint reaches the host after the first', async () => {
+    const display = frames()
+    try {
+      const { turns, send } = harness()
+      send('First')
+      send('Second')
+      display.paint()
+      display.paint()
+      await settle()
+      expect(turns.map((turn) => turn.displayPrompt)).toEqual(['First', 'Second'])
+    } finally {
+      display.restore()
+    }
+  })
+})
+
+// T3 Code moves a sent message to the top of the view only when it opens the
+// thread. In a session with history, the conversation above stays in view.
+describe('where a send moves the conversation', () => {
+  test('only the first message of a session goes to the top of the view', () => {
+    const { session, send, scrollRequests } = harness()
+    send('First')
+    session.status = 'idle'
+    send('Second')
+    expect(scrollRequests.map((request) => request.sent?.firstMessageId)).toEqual([session.messages[0]?.id, undefined])
+    // Both are sends, so both glide to the end.
+    expect(scrollRequests.every((request) => request.sent !== undefined)).toBe(true)
+  })
+
+  test('the first prompt of a fork keeps the copied history above it in view', () => {
+    // WHY: a fork starts a new thread, but its transcript shows the turns it
+    // copied. Moving the prompt to the top hid them, as in an existing session.
+    const { session, send, scrollRequests } = harness()
+    const forked = session as unknown as { forked: boolean; forkedFromSessionId: string | null }
+    forked.forked = true
+    forked.forkedFromSessionId = null
+    session.messages.push({ id: 'copied-prompt', role: 'user', content: 'Earlier question', timestamp: 1 }, { id: 'copied-reply', role: 'assistant', content: 'Earlier answer', timestamp: 2 })
+    send('Follow up in the fork')
+    expect(scrollRequests.at(-1)?.sent).toEqual({ firstMessageId: undefined })
   })
 })

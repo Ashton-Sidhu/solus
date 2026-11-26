@@ -86,7 +86,7 @@ async function catalogWith(input: { listings?: HostListing[]; credentials?: Reco
 }
 
 const managedRow = (managedState: DirectoryHost['managedState'], url = 'https://h-cloud.solus.test'): DirectoryHost => ({
-  hostId: 'h_cloud', installationId: 'managed:h_cloud', label: 'Cloud · Acme', kind: 'managed', category: 'managed', organizationIds: ['org-1'],
+  hostId: 'h_cloud', installationId: 'managed:h_cloud', label: 'Cloud · Acme', kind: 'cloud', hasManagedCompute: true, organizationIds: ['org-1'],
   managedState, routes: [{ kind: 'tunnel', url }],
 })
 
@@ -107,9 +107,9 @@ describe('saved server identity', () => {
   })
 
   test('a managed host is proven by its grant, not by the id its server made for itself', () => {
-    const managed = { hostId: 'bills', directoryUrl: 'https://app.solus.sh', kind: 'managed' as const, category: 'managed' as const, organizationIds: ['org'], managedState: 'ready' as const }
+    const managed = { hostId: 'bills', directoryUrl: 'https://app.solus.sh', kind: 'cloud' as const, hasManagedCompute: true, organizationIds: ['org'], managedState: 'ready' as const }
     expect(installationIdDecision('managed:bills', 'a37b55ff', managed)).toBe('match')
-    expect(installationIdDecision('inst-a', 'someone-else', { ...managed, kind: 'personal', category: 'personal' })).toBe('mismatch')
+    expect(installationIdDecision('inst-a', 'someone-else', { ...managed, kind: 'personal' })).toBe('mismatch')
   })
 })
 
@@ -195,7 +195,7 @@ describe('lazily created connections', () => {
     const connections = connectionsWith({
       id: serverId, label: 'Managed', installationId: serverId, sessionToken: '', lastConnected: 0,
       routes: [{ kind: 'lan', url: 'http://10.0.0.1:3000', source: 'host' }, { kind: 'tunnel', url: tunnelUrl }],
-      uplink: { hostId: 'managed', directoryUrl: 'https://app.solus.test', kind: 'managed', managedState: 'ready' },
+      uplink: { hostId: 'managed', directoryUrl: 'https://app.solus.test', kind: 'cloud', hasManagedCompute: true, managedState: 'ready' },
     })
     try {
       connections.apiFor(serverId)
@@ -208,7 +208,7 @@ describe('lazily created connections', () => {
 
   test('does not connect to a known alias for the local installation', async () => {
     startedTransports.length = 0
-    const { catalog } = await catalogWith({ directory: [{ hostId: 'h_local', installationId: 'local-installation', label: 'This Mac through Uplink', kind: 'personal', category: 'personal', organizationIds: [], routes: [{ kind: 'tunnel', url: 'https://local.example' }] }] })
+    const { catalog } = await catalogWith({ directory: [{ hostId: 'h_local', installationId: 'local-installation', label: 'This Mac through Uplink', kind: 'personal', organizationIds: [], routes: [{ kind: 'tunnel', url: 'https://local.example' }] }] })
     catalog.addPageHost(localMachine('local-installation'))
     const connections = new ServerConnections(catalog)
 
@@ -280,7 +280,7 @@ describe('lazily created connections', () => {
     const { catalog } = await catalogWith({
       // The key lets the http route be asked: without it a credential could never go there.
       listings: [{ id: 'studio', label: 'Studio', installationId: 'inst-studio', lastConnected: 1, routes: [], identityKey: identityKeyFor('inst-studio') }],
-      directory: [{ hostId: 'h_studio', installationId: 'inst-studio', label: 'Studio', kind: 'personal', category: 'personal', organizationIds: [], routes: [{ kind: 'lan', url: direct }, { kind: 'tunnel', url: tunnel }] }],
+      directory: [{ hostId: 'h_studio', installationId: 'inst-studio', label: 'Studio', kind: 'personal', organizationIds: [], routes: [{ kind: 'lan', url: direct }, { kind: 'tunnel', url: tunnel }] }],
     })
     const healthAsked: string[] = []
     const previousFetch = globalThis.fetch

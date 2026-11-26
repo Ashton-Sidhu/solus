@@ -1,7 +1,7 @@
 <script lang="ts">
   import { SvelteSet } from "svelte/reactivity";
-  import type { TaskMoveTarget } from "@solus/contracts/task-types";
-  import type { Task } from "../../contexts/tasks/task.svelte";
+  import type { IssueMoveTarget } from "@solus/contracts/task-types";
+  import type { Issue } from "../../contexts/tasks/task.svelte";
   import {
     ListGroup,
     ListRailRow,
@@ -33,10 +33,10 @@
     /** The page's multi-select: each row draws its checkbox from it. */
     selection: ListSelection;
     selectedKey: string | null;
-    taskFor: (taskId: string) => Task | undefined;
-    onOpen: (task: Task) => void;
-    onMove: (task: Task, target: TaskMoveTarget) => void;
-    onContextMenu: (event: MouseEvent, task: Task) => void;
+    taskFor: (taskId: string) => Issue | undefined;
+    onOpen: (task: Issue) => void;
+    onMove: (task: Issue, target: IssueMoveTarget) => void;
+    onContextMenu: (event: MouseEvent, task: Issue) => void;
   }
   let { groups, height, recordRows, split, selection, selectedKey, taskFor, onOpen, onMove, onContextMenu }: Props =
     $props();

@@ -31,7 +31,7 @@ const { registerSessionHandlers } = await import('@solus/server/transport/handle
 const { withActor } = await import('./helpers/actors')
 
 const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
-const member = (userId: string, hostKind: 'personal' | 'managed' = 'managed'): Principal => ({
+const member = (userId: string, hostKind: 'personal' | 'cloud' = 'cloud'): Principal => ({
   kind: 'org-member', userId, organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind, displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
 })
 

@@ -173,7 +173,7 @@ class WebhooksStore {
       if (serverConnections.readinessFor(serverId).readiness !== 'ready') return
       if (settings) {
         this.hostSettings.set(serverId, settings)
-        // The reachability text names a personal computer: its category is in the host's standing.
+        // The reachability text names a personal computer: its kind is in the host's standing.
         if (settings.linked && !organizationsStore.statusFor(serverId)) void organizationsStore.refresh(serverId)
       }
       const liveKeys = new Set<string>()

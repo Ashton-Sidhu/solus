@@ -5,7 +5,7 @@ import { parseReferenceTokens, serializeReferenceToken } from '@solus/workspace-
 import { hostReferenceContext, hostReferenceMarkdown, parseHostHref } from '@solus/contracts/host-link'
 import { stripInjectedContext } from '@solus/contracts/injected-context'
 
-// WHY: docs/plans/host-fleet.md D12. "Ask an agent" starts a session about a
+// WHY: "Ask an agent" starts a session about a
 // host. A session on a host that does not answer never starts, so the choice of
 // where it runs decides whether the feature works at all for a host that is
 // down. The prompt is what the agent knows: a wrong request or a missing
@@ -16,7 +16,8 @@ const base: FleetMachineInput = {
   label: 'studio-mini',
   os: 'linux',
   isThisDevice: false,
-  isManaged: false,
+  isCloud: false,
+  hasManagedCompute: false,
   principal: 'local-owner',
   readiness: 'ready',
   routeKind: 'tailnet',
@@ -37,7 +38,7 @@ describe('where a session about a host runs', () => {
     for (const readiness of ['unreachable', 'reconnecting', 'checking'] as const) {
       expect(hostToAskOn([fleetMachine({ ...base, readiness })], 'device')).toBe('device')
     }
-    expect(hostToAskOn([fleetMachine({ ...base, isManaged: true, managedState: 'stopped' })], 'device')).toBe('device')
+    expect(hostToAskOn([fleetMachine({ ...base, isCloud: true, hasManagedCompute: true, managedState: 'stopped' })], 'device')).toBe('device')
   })
 
   test('on this device for several hosts, and the Run on host decides when this client has no device host', () => {
@@ -53,7 +54,7 @@ describe('what a session about a host is asked', () => {
     expect(hostAskOf(fleetMachine({ ...base, readiness: 'reconnecting' }))).toBe('reconnecting')
     expect(hostAskOf(fleetMachine({ ...base, needsSetup: true, hasUpdate: true }))).toBe('signin')
     expect(hostAskOf(fleetMachine({ ...base, hasUpdate: true }))).toBe('update')
-    expect(hostAskOf(fleetMachine({ ...base, isManaged: true, managedState: 'stopped' }))).toBe('stopped')
+    expect(hostAskOf(fleetMachine({ ...base, isCloud: true, hasManagedCompute: true, managedState: 'stopped' }))).toBe('stopped')
     expect(hostAskOf(fleetMachine(base))).toBe('check')
   })
 

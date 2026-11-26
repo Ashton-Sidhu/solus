@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import type { AgentRunRequest, AgentRunSessionState } from '@solus/server/execution/agents/agent-runner'
 import type { AgentBackend, RunHandle } from '@solus/server/execution/agents/agent-backend'
 import { storeAttachmentBytes } from '@solus/server/data/assets/attachment-store'
 import type { IpcContext, NormalizedEvent, PromptOptions, QueuedPromptSnapshot } from '@solus/contracts/types'
@@ -154,6 +154,60 @@ describe('queue author', () => {
     const snapshot = plane.scheduler.queuedPromptsForSession('s1')
     expect(snapshot.map((prompt) => [prompt.clientPromptId, prompt.author])).toEqual([['p-cara', cara], [undefined, undefined]])
   })
+
+  // The provider's transcript keeps only the text of a prompt. In a session that
+  // two people drive, a reload names each prompt's author only from this record.
+  test('the host keeps the person who wrote a sent prompt, and nobody for a message that no person wrote', async () => {
+    const backend = holdingBackend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]))
+    plane.on('error', () => {})
+    cleanups.push(() => { backend.releaseAll(); plane.shutdown() })
+    const { activityFor } = await import('@solus/server/data/activity/activity')
+    const { ANY_ORGANIZATION } = await import('@solus/server/admission/principal')
+    const { promptHash } = await import('@solus/server/data/activity/prompt-senders')
+    const keptFor = (sessionId: string) => activityFor(ANY_ORGANIZATION, { kind: 'session', id: sessionId }, { kind: 'prompt_sent' })
+    /** The record is written beside the launch, so a read waits for it. */
+    const settled = async (sessionId: string) => {
+      for (let attempt = 0; attempt < 50 && (await keptFor(sessionId)).length === 0; attempt++) await new Promise((resolve) => setTimeout(resolve, 5))
+      return keptFor(sessionId)
+    }
+
+    await plane.dispatch.submitPrompt(ctx('by-bob'), { prompt: '[Attached file: /tmp/a.log]\n\nRead this log', displayPrompt: 'Read this log' }, { clientId: 'c-bob', actor: actors.memberActor('bob', 'Bob') })
+    const kept = await settled('by-bob')
+    expect(kept.map((entry) => entry.by)).toEqual([{ kind: 'user', user: actors.accountUser('bob', 'Bob') }])
+    // The key is what the person typed, which is what a client shows.
+    expect(kept[0]).toMatchObject({ kind: 'prompt_sent', promptHash: promptHash('Read this log') })
+
+    await plane.dispatch.submitPrompt(ctx('by-host'), { prompt: 'start' }, { clientId: 'c-owner', actor: HOST_ACTOR })
+    await plane.dispatch.submitPrompt(ctx('by-solus'), { prompt: 'The command ended.', via: 'background-command' }, { clientId: 'c-bob', actor: actors.memberActor('bob', 'Bob') })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(await keptFor('by-host')).toEqual([])
+    expect(await keptFor('by-solus')).toEqual([])
+  })
+})
+
+// WHY: a composer sends only the typed text for display. Without the paths,
+// every client that did not send the prompt shows it with no file at all.
+test('the echo of a prompt names its files for the clients that did not send it', async () => {
+  const backend = holdingBackend()
+  const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]))
+  plane.on('error', () => {})
+  cleanups.push(() => { backend.releaseAll(); plane.shutdown() })
+  const sent: NormalizedEvent[] = []
+  plane.on('event', (_sessionId: string, event: NormalizedEvent) => sent.push(event))
+
+  await plane.dispatch.submitPrompt(ctx('with-file'), {
+    prompt: '[Attached file: /tmp/clip.mp4]\n\nIt still loads', displayPrompt: 'It still loads', clientPromptId: 'phone-1',
+  }, { clientId: 'c-phone', actor: HOST_ACTOR })
+  // send_session has no display text: its lines are in the text already.
+  await plane.dispatch.submitPrompt(ctx('from-agent'), { prompt: '[Attached file: /tmp/a.log]\n\nRead this' }, { actor: HOST_ACTOR })
+
+  const echoes = sent.filter((event) => event.type === 'user_message')
+  expect(echoes).toMatchObject([
+    { text: 'It still loads', attachedFilePaths: ['/tmp/clip.mp4'] },
+    { text: '[Attached file: /tmp/a.log]\n\nRead this' },
+  ])
+  expect(echoes[1]).not.toHaveProperty('attachedFilePaths')
 })
 
 test('a prompt sent after Stop waits for the stopped provider run to exit', async () => {
@@ -488,8 +542,8 @@ describe('whose turn asks, and what was chosen', () => {
 
 describe('host restart continuation', () => {
   async function recoveryDirectory(): Promise<string> {
-    const { resetHostCategoryForTests } = await import('@solus/server/host/host-category')
-    resetHostCategoryForTests()
+    const { resetMachineKindForTests } = await import('@solus/server/host/machine-kind')
+    resetMachineKindForTests()
     const { setHostConfig } = await import('@solus/server/host/settings')
     setHostConfig({ continueSessionsAfterHostRestart: true })
     const root = mkdtempSync(join(tmpdir(), 'solus-restart-queue-'))
@@ -728,19 +782,19 @@ describe('host restart continuation', () => {
     expect(runtime.restarts.restartRuns!.get('exchange-run')?.options).toBeUndefined()
   })
 
-  test('managed cloud hosts discard recovery intent without launching a provider', async () => {
+  test('a cloud machine discards recovery intent without launching a provider', async () => {
     const queueDirectory = await recoveryDirectory()
     const { RunLedger } = await import('@solus/server/data/sessions/run-ledger')
-    const { adoptProvisionedRegistration, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
+    const { adoptRegistration, resetMachineKindForTests } = await import('@solus/server/host/machine-kind')
     const backend = holdingBackend('claude-code', 'restart-cloud')
     const runtime = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
     runtime.on('error', () => {})
-    cleanups.push(() => { runtime.shutdown(); backend.releaseAll(); resetHostCategoryForTests() })
+    cleanups.push(() => { runtime.shutdown(); backend.releaseAll(); resetMachineKindForTests() })
     await runtime.dispatch.submitPrompt(ctx('cloud-disabled'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
     await Promise.resolve()
     runtime.shutdown()
     await Promise.resolve()
-    adoptProvisionedRegistration({ organizationId: 'organization' })
+    adoptRegistration({ organizationId: 'organization' })
     const next = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
     next.on('error', () => {})
     cleanups.push(() => next.shutdown())
@@ -898,4 +952,88 @@ describe('host restart continuation', () => {
     expect(next.scheduler.sessionQueue(ctx('restart-failure')).entries).toHaveLength(1)
   })
 
+})
+
+// WHY: a turn blocked on a card cannot take a steer. A person who writes instead
+// of answering ("can we get it from wrangler?") must reach the agent now, not
+// queue behind a card that no one will answer. The message declines each card
+// that the composer does not take as its answer; an explicit queue keeps them all.
+describe('a message sent while a card is open', () => {
+  /** A Claude turn that is running on a backend that can steer, with what each card was answered. */
+  async function runningTurn(sessionId: string) {
+    const backend = holdingBackend('claude-code', sessionId)
+    const value = backend.value as AgentBackend & { steerSession: AgentBackend['steerSession'] }
+    value.steerSession = async (threadId) => value.getSessionHandle(threadId) ?? null
+    // As a real backend does, the handle names its session, so the provider's init binds the turn.
+    const startRun = value.startRun.bind(value)
+    value.startRun = (request: AgentRunRequest, state?: AgentRunSessionState) => Object.assign(startRun(request), { sessionId: state?.sessionId })
+    const chosen: string[] = []
+    const answered: Array<Record<string, string>> = []
+    value.permissions.respondToPermission = (_questionId: string, optionId: string) => { chosen.push(optionId); return true }
+    value.permissions.respondToQuestion = (_questionId: string, answers: Record<string, string>) => { answered.push(answers); return true }
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', value]]))
+    plane.on('error', () => {})
+    cleanups.push(() => { plane.shutdown(); backend.releaseAll() })
+    await plane.dispatch.submitPrompt(ctx(sessionId), { prompt: 'Deploy it' }, { actor: HOST_ACTOR })
+    await Promise.resolve()
+    const threadId = `${sessionId}-1`
+    const emit = (event: NormalizedEvent) => { value.emit('normalized', threadId, event) }
+    const send = (options: PromptOptions) => plane.dispatch.submitPrompt(ctx(sessionId, threadId), options, { actor: HOST_ACTOR })
+    return { plane, emit, send, chosen, answered, status: () => plane.activeSessions.get(sessionId)?.status }
+  }
+
+  const permission = (questionId: string, toolName = 'Bash'): NormalizedEvent => ({
+    type: 'permission_request', questionId, toolName,
+    options: [{ id: 'allow', label: 'Allow', kind: 'allow' }, { id: 'deny', label: 'Deny', kind: 'deny' }],
+  })
+
+  test('a sent message declines every secret on a secret card and steers the turn', async () => {
+    const { requestSecrets } = await import('@solus/server/execution/sessions/secret-requests')
+    const turn = await runningTurn('secret-steer')
+    const outcome = requestSecrets({
+      provider: 'claude-code', cwd: projectDir, sessionId: () => 'secret-steer', abortSignal: new AbortController().signal,
+      parentToolUseId: () => undefined, emit: turn.emit,
+    }, [{ name: 'BETTER_AUTH_SECRET', reason: 'To sign grants.' }, { name: 'Cloudflare token', reason: 'For wrangler.' }])
+    expect(turn.status()).toBe('awaiting_input')
+    expect((await turn.send({ prompt: 'Can we not get it from wrangler?' })).disposition).toBe('steered')
+    expect(await outcome).toEqual({ secrets: [
+      { name: 'BETTER_AUTH_SECRET', status: 'declined' },
+      { name: 'Cloudflare token', status: 'declined' },
+    ] })
+  })
+
+  test('a permission, an Add machine card, and an MCP elicitation are declined; the message steers', async () => {
+    const turn = await runningTurn('cards-steer')
+    turn.emit(permission('q-bash'))
+    let addMachine: Record<string, string> | null = null
+    inputRequestsModule.answerToolQuestionWith('q-host', (answers) => { addMachine = answers })
+    turn.emit({ type: 'question_request', questionId: 'q-host', kind: 'host-link', hostLink: { reason: 'To run tests on Windows.' },
+      questions: [{ header: 'Add a machine', question: 'To run tests on Windows.', options: [], multiSelect: false }] })
+    turn.emit({ type: 'question_request', questionId: 'q-mcp', kind: 'mcp_form',
+      questions: [{ id: 'name', question: 'Name', options: [], multiSelect: false }] })
+    expect(turn.status()).toBe('awaiting_input')
+
+    expect((await turn.send({ prompt: 'Use the staging database instead' })).disposition).toBe('steered')
+    expect(turn.chosen).toEqual(['deny'])
+    expect(addMachine).toEqual({ status: 'declined' })
+    expect(turn.answered).toEqual([{ __action: 'decline' }])
+    expect(turn.status()).toBe('running')
+  })
+
+  test('a queued message, or one Solus sends, leaves the cards open; a plan and a question stay for the composer', async () => {
+    const turn = await runningTurn('cards-kept')
+    turn.emit(permission('q-bash'))
+    expect((await turn.send({ prompt: 'After that, tag the release', delivery: 'queue' })).disposition).toBe('queued')
+    await turn.send({ prompt: 'Report back', via: 'session-report' })
+    expect(turn.chosen).toEqual([])
+
+    // The composer sends text as a plan's revision or a question's answer, so the host leaves them.
+    const other = await runningTurn('plan-kept')
+    other.emit(permission('q-plan', 'ExitPlanMode'))
+    other.emit({ type: 'question_request', questionId: 'q-ask', questions: [{ question: 'Which database?', options: [], multiSelect: false }] })
+    expect((await other.send({ prompt: 'Something else' })).disposition).toBe('queued')
+    expect(other.chosen).toEqual([])
+    expect(other.answered).toEqual([])
+    expect(other.status()).toBe('awaiting_input')
+  })
 })

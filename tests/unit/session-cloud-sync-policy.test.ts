@@ -60,6 +60,37 @@ describe.serial('session cloud sync gate', () => {
     expect(policy.sessionCloudSyncDecision('org-missing', actor)).toEqual({ allowed: false, reason: 'policy-not-available' })
   })
 
+  test('one answer says why no conversation of a work leaves this host: the host switch, then the policy', () => {
+    // WHY: the transcript rows, the turn diffs, the Insights texts, and the session
+    // repository must follow one setting. If each asked its own question, a part of a
+    // conversation could go to Solus Cloud when the organization keeps its sessions on hosts.
+    const standing = (limits: { sessionCloudSync?: boolean }) => policy.useHostPolicyStore(new policy.HostPolicyStore({ mdm: null, standing: () => ({
+      hostId: 'host-1', kind: 'personal', owner: null, hostOwnerOrganizationId: null, refreshedAt: 1,
+      organizations: [{ organizationId: 'globex', name: 'Globex', shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true },
+        policy: { schemaVersion: 1, organization: { name: 'Globex' }, sessions: { limits } }, hostPolicy: null }],
+    }) }))
+    try {
+      standing({})
+      expect(policy.sessionCloudCopyRefusal('globex')).toBeNull()
+      expect(policy.sessionCloudCopyRefusal('local')).toBeNull()
+      standing({ sessionCloudSync: false })
+      expect(policy.sessionCloudCopyRefusal('globex')).toBe('policy-forbids')
+      // The rule of one organization does not change the work of a person or of another organization.
+      expect(policy.sessionCloudCopyRefusal('local')).toBeNull()
+      // A host that has not received the policy cannot infer that the organization saves its sessions.
+      expect(policy.sessionCloudCopyRefusal('org-missing')).toBe('policy-not-available')
+      // The answer does not need a person: a published session with no owner follows it too.
+      expect(policy.sessionCloudSyncDecision('globex', null)).toEqual({ allowed: false, reason: 'person-not-signed-in' })
+      standing({})
+      settings.setHostConfig({ sessionCloudSync: false })
+      expect(policy.sessionCloudCopyRefusal('globex')).toBe('setting-off')
+      expect(policy.sessionCloudCopyRefusal('local')).toBe('setting-off')
+    } finally {
+      settings.setHostConfig({ sessionCloudSync: true })
+      policy.useHostPolicyStore(new policy.HostPolicyStore({ mdm: null, standing: () => null }))
+    }
+  })
+
   test('organization policy stops its work without locking the host-wide switch', () => {
     // WHY: an organization limit must not change the choice for Local work.
     const set: PolicySet = { mdm: null, hostOwnerOrganizationId: null, organizations: {
@@ -69,7 +100,7 @@ describe.serial('session cloud sync gate', () => {
     expect(policies.forWork('globex').sessionCloudSync()?.value).toBe(false)
     expect(sessionCloudSyncSwitchState(policies, true)).toEqual({ checked: true, lockedBy: null })
     policy.useHostPolicyStore(new policy.HostPolicyStore({ mdm: null, standing: () => ({
-      hostId: 'host-1', category: 'personal', owner: null, hostOwnerOrganizationId: null, refreshedAt: 1,
+      hostId: 'host-1', kind: 'personal', owner: null, hostOwnerOrganizationId: null, refreshedAt: 1,
       organizations: [{ organizationId: 'globex', name: 'Globex', shared: false,
         hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true }, policy: organizationDocument, hostPolicy: null }],
     }) }))

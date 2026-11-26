@@ -56,12 +56,12 @@ const vmKey = await generateHostKey()
 
 /** The access token Bob's client presented to the VM: the account plane checks it names this VM. */
 function bobsTokenForVm(): string {
-  return signed({ iss: accountOrigin, aud: hostAudience(VM), sub: 'bob', grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-desktop', access: 'org-member', organizations: [{ id: 'org_a', role: 'member', teamIds: [] }], hostKind: 'personal' })
+  return signed({ iss: accountOrigin, aud: hostAudience(VM), sub: 'bob', grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-desktop', access: 'org-member', organizations: [{ id: 'org_a', role: 'member', teamIds: [] }], hostKind: 'cloud' })
 }
 
 /** What the account plane issues the VM for Bob in one organization: the VM acts, Bob is the subject. */
 function delegatedFor(subject: string, organizationId: string): string {
-  return signed({ iss: accountOrigin, aud: [SOLUS_API_AUDIENCE, ACCOUNT_AUDIENCE], sub: subject, grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: CLIENT.clientId, access: 'org-member', organizationId, organizationRole: 'member', teamIds: [], hostKind: 'cloud', email: 'bob@example.test', act: { sub: CLIENT.clientId, host_id: VM } })
+  return signed({ iss: accountOrigin, aud: [SOLUS_API_AUDIENCE, ACCOUNT_AUDIENCE], sub: subject, grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: CLIENT.clientId, access: 'org-member', organizationId, organizationRole: 'member', teamIds: [], hostKind: 'api', email: 'bob@example.test', act: { sub: CLIENT.clientId, host_id: VM } })
 }
 
 beforeAll(async () => {
@@ -170,10 +170,10 @@ describe('an organization run on a VM, through the real Solus API', () => {
       await expect(operations.publishWork(context, work.id, {})).rejects.toMatchObject({ status: 400, message: expect.stringContaining('never been published') })
       await expect(operations.pullWorkUpstream(context, work.id)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('not linked to an upstream document') })
       // A task is GitHub's or Jira's: the API holds only what Solus attaches to it. The link is made in Bob's organization, with no copy of the task.
-      const taskKey = 'github:I_flow'
-      await operations.putLink(context, { from: { kind: 'task', id: taskKey }, to: { kind: 'work', id: work.id }, originSessionId: 'solus-flow' })
+      const issueKey = 'github:I_flow'
+      await operations.putLink(context, { from: { kind: 'task', id: issueKey }, to: { kind: 'work', id: work.id }, originSessionId: 'solus-flow' })
       const { taskAttachments } = await import('@solus/server/data/tasks/task-attachments')
-      expect((await taskAttachments('org_a', taskKey)).links).toMatchObject([{ kind: 'work', targetKey: work.id, createdBy: { kind: 'agent', sessionId: 'solus-flow', for: { id: { kind: 'account', accountId: 'bob' } } } }])
+      expect((await taskAttachments('org_a', issueKey)).links).toMatchObject([{ kind: 'work', targetKey: work.id, createdBy: { kind: 'agent', sessionId: 'solus-flow', for: { id: { kind: 'account', accountId: 'bob' } } } }])
 
       // 4. The API's record of the session: owned by Bob from the admission, never by the facts or the linker.
       for (let attempt = 0; attempt < 400 && queue.deliveryDestinations().length > 0; attempt++) await new Promise((resolve) => setTimeout(resolve, 5))
@@ -227,7 +227,7 @@ describe('an organization run on a VM, through the real Solus API', () => {
     const forVm = await fetch(`${apiOrigin}/v1/capabilities`, { headers: { authorization: `Bearer ${bobsTokenForVm()}`, 'solus-organization': 'org_a' } })
     expect(forVm.status).toBe(401)
     // A person's own API token, with no host acting for them, cannot deliver as a runner.
-    const own = signed({ iss: accountOrigin, aud: SOLUS_API_AUDIENCE, sub: 'bob', grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-desktop', access: 'org-member', organizations: [{ id: 'org_a', role: 'member', teamIds: [] }], hostKind: 'cloud' })
+    const own = signed({ iss: accountOrigin, aud: SOLUS_API_AUDIENCE, sub: 'bob', grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-desktop', access: 'org-member', organizations: [{ id: 'org_a', role: 'member', teamIds: [] }], hostKind: 'api' })
     const deliver = (token: string, hostId: string) => fetch(`${apiOrigin}/runner/deliver`, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },

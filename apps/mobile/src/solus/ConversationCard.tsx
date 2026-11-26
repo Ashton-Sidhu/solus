@@ -1,22 +1,14 @@
-import { useState, useSyncExternalStore, type ReactNode } from "react";
-import { msg, useMessages } from "gt-react-native";
-import { modelLabelFor, REASONING_EFFORT_LABELS } from "@solus/contracts/types";
-import { PROVIDERS } from "@solus/contracts/provider-model-settings";
-import { formatModelSlugName } from "@t3tools/shared/model";
-import { ProviderIcon } from "../components/ProviderIcon";
-import { modelInstanceId } from "./model-picker-catalog";
-import { agentCardStatus } from "@solus-mobile/features/conversation/lib/agent-cards";
-import { Alert, Pressable, View } from "react-native";
+import { useState, type ReactNode } from "react";
+import { useMessages } from "gt-react-native";
+import { Pressable, View } from "react-native";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import type { TranscriptItem } from "@solus-mobile/features/conversation/lib/transcript-model";
 import { mayWorkLocallyDuringSetup } from "@solus/contracts/setup-card";
 import { RequestActionButton } from "@solus-mobile/features/threads/RequestActionButton";
 import { compactionDividerText } from "@solus/contracts/context-compaction";
+import { browserSnapshotLabel } from "@solus/client-core/browser-snapshot-label";
 import { handoffDividerText } from "@solus-mobile/features/conversation/lib/provider-handoff";
-import { rememberSession } from "./session-record";
-import { threadKey } from "@solus-mobile/features/threads/thread-directory";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { useOpenLinkedThread, useOpenLinkedThreadRead } from "../features/threads/useOpenLinkedThread";
+import { EnvironmentId } from "@t3tools/contracts";
 import { useTranscriptItem } from "@solus-mobile/features/threads/use-transcript-items";
 import {
   toolFullDetail,
@@ -27,7 +19,6 @@ import { WorktreeOfferCard } from "@solus-mobile/features/threads/WorktreeOfferC
 import { ThreadToolAudio } from "@solus-mobile/features/threads/ThreadToolAudio";
 import { AppText } from "../components/ui/AppText";
 import {
-  startedSessionStateMark,
   stateMarkLabel,
   subagentStateMark,
   toolStateMark,
@@ -36,9 +27,6 @@ import {
 import { StateMarkView } from "../features/threads/StateMark";
 import { ConversationMedia, conversationImageSource } from "./ConversationMedia";
 import { PlanCard } from "./PlanCard";
-import { ArtifactCard, ArtifactGroupCard } from "./ArtifactCards";
-import type { ArtifactGroup } from "./artifact-groups";
-import { solus } from "./runtime";
 
 function Details({
   title,
@@ -74,85 +62,6 @@ function Details({
       </Pressable>
       {open && children}
     </View>
-  );
-}
-
-function AgentCard({
-  store,
-  item,
-}: {
-  store: ConversationStore;
-  item: Extract<TranscriptItem, { kind: "agent" }>;
-}) {
-  const openThread = useOpenLinkedThread();
-  const openLinked = useOpenLinkedThreadRead();
-  const [loading, setLoading] = useState(false);
-  const hostId = store.controller.hostId;
-  const messages = useMessages();
-  const agent = useSyncExternalStore(store.meta.subscribe, () =>
-    item.serverId && item.serverId !== hostId ? undefined :
-      store.metaSnapshotOf().runOptions.agents?.find(({ id }) => id === item.provider),
-  );
-  const provider = agent?.label ?? PROVIDERS.find(({ id }) => id === item.provider)?.label ?? item.provider;
-  const model = agent?.models.find(({ id }) => id === item.model)?.label
-    ?? (item.model && agent?.modelProfiles?.[item.model]?.label)
-    ?? modelLabelFor(item.provider, item.model);
-  const modelName = model && model === item.model ? formatModelSlugName(model) : model;
-  const effort = Object.entries(REASONING_EFFORT_LABELS).find(([id]) => id === item.reasoningEffort)?.[1] ?? item.reasoningEffort;
-  // The started session's own live facts, as its thread row reads them.
-  const key = threadKey(item.serverId ?? hostId, item.sessionId);
-  const activity = useSyncExternalStore(solus.threadList.changes.subscribe, () =>
-    solus.threadList.facts().agentActivity?.get(key),
-  );
-  const awaitingApproval = useSyncExternalStore(
-    solus.threadList.changes.subscribe,
-    () => solus.threadList.facts().awaitingApprovals?.has(key) === true,
-  );
-  const mark = startedSessionStateMark(agentCardStatus(item), item.startedAt, {
-    activity,
-    awaitingApproval,
-  });
-  const open = async () => {
-    if (loading) return;
-    setLoading(true);
-    try {
-      const head = solus.cloudSessions.headFor(item.sessionId);
-      const childHost = head?.lastRunServerId ?? head?.lastRunHostId ?? item.serverId ?? hostId;
-      if (childHost !== hostId && solus.connections.state(childHost)?.readiness !== "ready") {
-        openLinked({environmentId: EnvironmentId.make(childHost), threadId: ThreadId.make(item.sessionId)},
-          {viaEnvironmentId: EnvironmentId.make(hostId), label: solus.registry.host(childHost)?.label ?? childHost}, item.title);
-        return;
-      }
-      await rememberSession(childHost, item.sessionId);
-      openThread({ environmentId: childHost, threadId: item.sessionId });
-    } catch (error) {
-      Alert.alert("Could not open session", error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoading(false);
-    }
-  };
-  const title = item.title || "Agent session";
-  const subtitle = [provider, modelName || messages(msg("Not reported")), effort].filter(Boolean).join(" · ");
-  return (
-    <Pressable
-      accessible
-      accessibilityRole="link"
-      accessibilityLabel={[title, stateMarkLabel(mark, messages), subtitle].join(", ")}
-      accessibilityHint={messages(msg("Opens this agent's thread"))}
-      accessibilityState={{ busy: loading, disabled: loading }}
-      disabled={loading}
-      onPress={() => void open()}
-      className="mb-2 gap-1 rounded-2xl border border-border bg-card p-3 active:bg-subtle"
-    >
-      <View className="flex-row items-center gap-2">
-        <AppText className="min-w-0 shrink font-medium">{title}</AppText>
-        <StateMarkView mark={mark} environmentId={EnvironmentId.make(hostId)} />
-      </View>
-      <View className="min-w-0 flex-row items-center gap-1.5">
-        {item.provider && <ProviderIcon provider={modelInstanceId(item.provider)} size={12} />}
-        <AppText numberOfLines={1} className="min-w-0 shrink text-xs text-foreground-muted">{subtitle}</AppText>
-      </View>
-    </Pressable>
   );
 }
 
@@ -223,18 +132,7 @@ function ToolCard({
   );
 }
 
-export function ConversationCard({
-  store,
-  id,
-  superseded = false,
-  artifactGroup,
-}: {
-  store: ConversationStore;
-  id: string;
-  superseded?: boolean;
-  /** The group card of the saved works of one turn, shown at its first member. */
-  artifactGroup?: ArtifactGroup;
-}) {
+export function ConversationCard({ store, id }: { store: ConversationStore; id: string }) {
   const item = useTranscriptItem(store, id);
   if (!item) return null;
   switch (item.kind) {
@@ -258,17 +156,13 @@ export function ConversationCard({
     case "assistant":
       return null; // The upstream feed renders the message.
     case "artifact":
-      return artifactGroup ? (
-        <ArtifactGroupCard store={store} group={artifactGroup} />
-      ) : (
-        <ArtifactCard store={store} item={item} superseded={superseded} />
-      );
+      return null; // The upstream feed renders the saved version as an `html_render` row.
     case "mcp_app":
       return <ThreadMcpApp store={store} id={id} />;
     case "tool":
       return <ToolCard item={item} store={store} />;
     case "agent":
-      return <AgentCard item={item} store={store} />;
+      return null; // T3 renders the child session in a subagent group.
     case "image":
       return (
         <ConversationMedia
@@ -281,7 +175,7 @@ export function ConversationCard({
       return (
         <ConversationMedia
           store={store}
-          label={item.snapshot.title || "Browser screenshot"}
+          label={browserSnapshotLabel(item.snapshot)}
           source={{ assetId: item.snapshot.assetId }}
         />
       );

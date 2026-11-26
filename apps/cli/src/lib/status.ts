@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { UplinkStatus } from '@solus/contracts/uplink'
 import type { HostUpdateStatus } from '@solus/contracts/host-update-types'
+import { describeReach, readCloudMachineRecord, readLinkReach } from './cloud-machine'
 import { readReleaseManifest } from './server-release'
 import { withLocalRpc } from './local-rpc'
 import { isProcessAlive, localConnectHost, readLockFile, type RuntimePaths } from './runtime'
@@ -21,6 +22,14 @@ export async function reportStatus(paths: RuntimePaths, log: (line: string) => v
   reportService(paths, log)
 
   if (!running) return
+  const cloudMachine = readCloudMachineRecord(paths.dataDir)
+  if (cloudMachine) {
+    // A cloud host refuses the local socket, so nothing below can be asked.
+    log(`Solus Cloud: cloud host of organization ${cloudMachine.registration.organizationId}`)
+    log(`  ${cloudMachine.tunnel ? describeReach(cloudMachine.tunnel, cloudMachine.reach, cloudMachine.registration.hasManagedCompute === true) : 'Not linked yet'}`)
+    log('  Live status is not available from the command line on a cloud host. Run `solus connect status` for its records.')
+    return
+  }
   try {
     const serverUrl = `http://${hostForUrl(localConnectHost(lock!.host))}:${lock!.port}`
     const status = await withLocalRpc<HostUpdateStatus>(serverUrl, (call) => call('hostUpdateStatus'))
@@ -28,7 +37,9 @@ export async function reportStatus(paths: RuntimePaths, log: (line: string) => v
     const operation = status.serverUpdate?.operation
     if (operation) log(`Update: ${operation.phase} (${operation.version})${operation.message ? ` — ${operation.message}` : ''}`)
     const uplink = await withLocalRpc<UplinkStatus>(serverUrl, (call) => call('uplinkStatus'))
-    log(`Solus Cloud: ${uplink.registration.registered ? 'registered' : 'not registered'} · ${uplink.link.linked ? `tunnel ${uplink.link.state.observed}` : 'not linked'}`)
+    log(`Solus Cloud: ${uplink.registration.registered ? 'registered' : 'not registered'} · ${uplink.link.linked ? `link ${uplink.link.state.observed}` : 'not linked'}`)
+    // The live status does not say which way the link goes; the link record in the data directory does.
+    if (uplink.link.linked) log(`  ${describeReach(uplink.link.tunnel, readLinkReach(paths.dataDir))}`)
     for (const provider of status.providers) {
       log(`  ${provider.agent}: ${provider.installedVersion ?? 'not installed'}${provider.check.kind === 'available' ? ` (${provider.check.latestVersion} available)` : ''}`)
     }

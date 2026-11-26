@@ -15,19 +15,19 @@
   import { cn } from "@solus/workspace-ui/lib/tw";
   import { formatResetClock } from "../../lib/sessionUtils";
   import {
-    TASK_SNOOZE_CHOICES,
+    SNOOZE_CHOICES,
     customSnoozeUntil,
     limitResetSnoozeUntil,
     snoozePickerValue,
-    taskSnoozeAnchorTarget,
-    taskSnoozeUntil,
-    type TaskSnoozeAnchor,
-  } from "./lib/task-snooze";
+    snoozeAnchorTarget,
+    snoozeUntilFor,
+    type SnoozeAnchor,
+  } from "./lib/snooze";
 
   interface Props {
     taskTitle: string;
     /** The control the menu drops from, or the point a context menu opened at. */
-    anchor: TaskSnoozeAnchor;
+    anchor?: SnoozeAnchor;
     /** The context submenu already offered presets; open its custom form directly. */
     customTime?: boolean;
     /** While the session is rate limited: when its provider window reopens,
@@ -48,12 +48,12 @@
   // The custom time opens on the "Tomorrow morning" preset, the usual
   // starting point for a time of one's own.
   let isCustomOpen = $state(false);
-  let customValue = $state(snoozePickerValue(taskSnoozeUntil("tomorrow", new Date(openedAt))));
+  let customValue = $state(snoozePickerValue(snoozeUntilFor("tomorrow", new Date(openedAt))));
   const customUntil = $derived(customSnoozeUntil(customValue, openedAt));
   let rowsEl: HTMLDivElement | undefined = $state();
   let customEl = $state<HTMLElement | null>(null);
   const noteId = $props.id();
-  const anchorTarget = $derived(taskSnoozeAnchorTarget(anchor));
+  const anchorTarget = $derived(anchor && snoozeAnchorTarget(anchor));
 
   /** Presets take focus on open, so the menu answers ↓/↑/⏎ the way every other
    *  menu does. The note is one Shift+Tab away for the rarer case. */
@@ -121,7 +121,7 @@
       </Dialog.Content>
     </Dialog.Portal>
   </Dialog.Root>
-{:else}
+{:else if anchorTarget}
 <Popover.Root bind:open onOpenChange={(next) => { if (!next) onClose(); }}>
   <Popover.Content
     data-solus-ui
@@ -161,12 +161,12 @@
           <span class="shrink-0 text-(--solus-text-tertiary)">{formatResetClock(limitResetUntil)}</span>
         </button>
       {/if}
-      {#each TASK_SNOOZE_CHOICES as choice (choice.preset)}
+      {#each SNOOZE_CHOICES as choice (choice.preset)}
         {@const ChoiceIcon = choice.isRelative ? ClockIcon : MoonIcon}
         <button
           type="button"
           class={cn(menuRowVariants(), "w-full")}
-          onclick={() => onConfirm(taskSnoozeUntil(choice.preset), note.trim())}
+          onclick={() => onConfirm(snoozeUntilFor(choice.preset), note.trim())}
         >
           <ChoiceIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
           <span class="min-w-0 flex-1 truncate text-left">{choice.label}</span>

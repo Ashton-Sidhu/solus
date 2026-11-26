@@ -7,7 +7,6 @@ import type {
 } from './generated'
 import type {
   ConfigReadResponse,
-  DynamicToolSpec,
   GetAccountResponse,
   GetAccountRateLimitsResponse,
   ModelListResponse,
@@ -66,10 +65,7 @@ export type CodexSkillsListResponse = SkillsListResponse
 export type CodexThreadGoalResponse = ThreadGoalGetResponse | ThreadGoalSetResponse
 export type CodexThreadGoalClearResponse = ThreadGoalClearResponse
 
-export type CodexDynamicTool = Extract<DynamicToolSpec, { type: 'namespace' }>
-
 export type CodexThreadConfigExtras = {
-  dynamicTools?: CodexDynamicTool[]
   experimentalRawEvents?: boolean
   persistExtendedHistory?: boolean
   reasoning_effort?: string

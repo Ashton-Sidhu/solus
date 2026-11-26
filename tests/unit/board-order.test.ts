@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { Task } from '@solus/contracts/task-types'
+import type { Issue } from '@solus/contracts/task-types'
 import { orderColumn } from '@solus/workspace-ui/components/tasks/lib/board-order'
 
 /**
@@ -10,9 +10,9 @@ import { orderColumn } from '@solus/workspace-ui/components/tasks/lib/board-orde
  * sort. That falls out of `sort` being stable, which is exactly the kind of
  * load-bearing language guarantee a test should pin rather than a comment.
  */
-const task = (id: string): Pick<Task, 'id'> => ({ id })
+const task = (id: string): Pick<Issue, 'id'> => ({ id })
 
-const ids = (tasks: Array<Pick<Task, 'id'>>) => tasks.map((t) => t.id)
+const ids = (tasks: Array<Pick<Issue, 'id'>>) => tasks.map((t) => t.id)
 
 describe('orderColumn', () => {
   it('leaves an untouched column entirely to the page sort', () => {

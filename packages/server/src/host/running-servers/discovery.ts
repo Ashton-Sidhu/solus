@@ -11,7 +11,7 @@ import { probeServerUrl, type ProbeResult } from './probe'
 import { defaultJobStop, type JobStopDeps } from './stop-job'
 import { notifyCommandStop } from './command-stops'
 
-interface KnownProcess { identity: string; serverId: string }
+interface KnownProcess { identity: string; serverId: string; startedBy: RunningServer['startedBy'] }
 interface ConfiguredUrl { cwd: string; url: string }
 export interface DiscoveryDeps {
   listeners: () => Promise<Listener[]>
@@ -57,7 +57,7 @@ export class ServerDiscovery {
       while (parent && facts.has(parent) && !relevant.has(parent)) { relevant.add(parent); parent = facts.get(parent)?.parentPid }
     }
     const [directories] = await Promise.all([this.deps.directories(pids), this.deps.tags(facts, [...relevant])])
-    for (const pid of this.known.keys()) if (!pids.includes(pid)) this.known.delete(pid)
+    for (const [pid, known] of this.known) if (facts.get(pid)?.identity !== known.identity) this.known.delete(pid)
     const byPort = new Map<number, Set<number>>()
     for (const listener of listeners) {
       const owners = byPort.get(listener.port) ?? new Set<number>()
@@ -70,13 +70,11 @@ export class ServerDiscovery {
     const add = (listener: Listener, explicit?: ConfiguredUrl): RunningServer | null => {
       const fact = facts.get(listener.pid)
       if (fact?.protected) return null
-      const owned = isOwned(fact)
-      if (!owned && !explicit) return null
       const key = listener.pid ? String(listener.pid) : `${explicit?.cwd}:${explicit?.url}`
       const found = servers.get(key)
       if (found) return found
       const server = this.createServer(listener, fact, directories, explicit)
-      servers.set(key, server)
+      if (server) servers.set(key, server)
       return server
     }
     for (const listener of unique) {
@@ -131,20 +129,24 @@ export class ServerDiscovery {
 
   listeningPorts(): ReadonlySet<number> { return this.ports }
 
-  private createServer(listener: Listener, fact: ProcessFacts | undefined, directories: Map<number, string>, explicit?: ConfiguredUrl): RunningServer {
+  private createServer(listener: Listener, fact: ProcessFacts | undefined, directories: Map<number, string>, explicit?: ConfiguredUrl): RunningServer | null {
     const identity = fact?.identity ?? ''
     let known = this.known.get(listener.pid)
+    const startedBy = serverOwner(fact, identity && known?.identity === identity ? known.startedBy : undefined)
+    if (startedBy.kind === 'configured' && !explicit) return null
     if (listener.pid && (!known || known.identity !== identity)) {
-      known = { identity, serverId: randomUUID() }
+      known = { identity, serverId: randomUUID(), startedBy }
       this.known.set(listener.pid, known)
+    } else if (known) {
+      known.startedBy = startedBy
     }
     const cwd = processDirectory(listener.pid, fact, directories, explicit)
     return {
       serverId: known?.serverId ?? `configured:${explicit?.cwd}:${explicit?.url}`,
       process: { pid: listener.pid, name: fact?.name || listener.command || 'Configured server', workingDirectory: cwd },
       location: { projectRoot: null, worktreePath: null, branch: null },
-      startedBy: serverOwner(fact), endpoints: [],
-      actions: { canStop: isOwned(fact) && !!identity && !fact?.protected },
+      startedBy, endpoints: [],
+      actions: { canStop: hasStopAttribution(fact) && !!identity && !fact?.protected },
     }
   }
 
@@ -189,12 +191,17 @@ async function attributeToWorktree(server: RunningServer): Promise<void> {
 }
 
 
-function serverOwner(fact: ProcessFacts | undefined): RunningServer['startedBy'] {
+function serverOwner(fact: ProcessFacts | undefined, remembered: RunningServer['startedBy'] | undefined): RunningServer['startedBy'] {
+  if (remembered?.kind === 'terminal') return remembered
+  if (remembered?.kind === 'agent') {
+    if (!fact || fact.terminalId || (remembered.sessionId && remembered.provider)) return remembered
+    return { kind: 'agent', sessionId: remembered.sessionId ?? fact.sessionId, provider: remembered.provider ?? fact.provider }
+  }
   if (fact?.terminalId) return { kind: 'terminal', terminalId: fact.terminalId, sessionId: fact.sessionId }
-  if (fact?.sessionId || fact?.agentOwned) return { kind: 'agent', sessionId: fact.sessionId }
+  if (fact?.sessionId || fact?.agentOwned || fact?.provider) return { kind: 'agent', sessionId: fact.sessionId, provider: fact.provider }
   return { kind: 'configured' }
 }
-function isOwned(fact: ProcessFacts | undefined): boolean { return !!(fact?.sessionId || fact?.terminalId || fact?.agentOwned) }
+function hasStopAttribution(fact: ProcessFacts | undefined): boolean { return !!(fact?.sessionId || fact?.terminalId || fact?.agentOwned) }
 function processDirectory(pid: number, fact: ProcessFacts | undefined, directories: Map<number, string>, explicit?: ConfiguredUrl): string | null {
   return directories.get(pid) ?? fact?.launchDirectory ?? explicit?.cwd ?? null
 }

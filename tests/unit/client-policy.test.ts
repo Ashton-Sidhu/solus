@@ -127,14 +127,13 @@ describe('organization rows', () => {
     registered: true,
     hostId: 'host-bob',
     apiUrl: null,
-    category: 'personal',
+    kind: 'personal',
     owner: null,
     organizations: [
       { organizationId: 'acme', name: 'Acme', shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true } },
       { organizationId: 'globex', name: 'Globex', shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: false } },
     ],
     insightsOptIn: ['globex'],
-    attachedAt: null,
     delivery: [],
     deliveryError: null,
   }
@@ -148,5 +147,18 @@ describe('organization rows', () => {
     const rows = organizationRows(status, null)
     expect(rows.map((row) => row.insightsManaged)).toEqual([false, false])
     expect(rows.map((row) => row.personalHostsNotAllowed)).toEqual([false, true])
+  })
+})
+
+// WHY: an organization chooses which outside apps its members may connect
+// (plans/035 §10). With no rule every app is allowed; a rule names the apps.
+describe('outside apps an organization allows', () => {
+  test('every app is allowed until a policy names some, and then only those', () => {
+    const narrowed = source('organization', 'globex', { organization: { name: 'Globex' }, sessions: { limits: { apps: { allowed: ['claude', 'local'] } } } })
+    const set: PolicySet = { mdm: null, hostOwnerOrganizationId: null, organizations: { acme: { state: 'ready', policy: acme, hostPolicy: null }, globex: { state: 'ready', policy: narrowed, hostPolicy: null } } }
+    const policies = new HostPolicies(set)
+    expect(policies.forWork('acme').appDenial('grok-bot')).toBeNull()
+    expect(policies.forWork('globex').appDenial('claude')).toBeNull()
+    expect(policies.forWork('globex').appDenial('grok-bot')?.message).toBe('Globex does not allow Grok Bot to use Solus.')
   })
 })

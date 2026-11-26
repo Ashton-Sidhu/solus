@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  prHostAnswered,
   showsPrDetailPanel,
   showsPrPageSkeleton,
 } from '@solus/workspace-ui/components/prs/lib/pr-list-loading'
@@ -36,6 +37,33 @@ describe('pull request page skeleton', () => {
   // behind a spinner that never resolves.
   test('an empty list that is not reading falls through to its own surface', () => {
     expect(showsPrPageSkeleton('idle', false, 0, false)).toBe(false)
+  })
+})
+
+describe('pull request list answer', () => {
+  const answered = { loading: false, error: null, filter: { query: 'is:merged' } }
+
+  // WHY: a filter change starts a new read, but the rows still on screen
+  // answer the previous filter. Filtered locally they can come to nothing, and
+  // the list must say it is loading, not that nothing matches.
+  test('a project still reading the new filter has not answered', () => {
+    expect(prHostAnswered([{ ...answered, loading: true }], 'is:merged')).toBe(false)
+  })
+
+  test('rows read for another search have not answered this one', () => {
+    expect(prHostAnswered([{ ...answered, filter: { query: '' } }], 'is:merged')).toBe(false)
+  })
+
+  test('every project read with this search has answered', () => {
+    expect(prHostAnswered([answered, answered], 'is:merged')).toBe(true)
+  })
+
+  // WHY: the host is never asked again about a folder with no pull requests,
+  // so its filter never moves. Waiting for it would hold every project's list
+  // on a loading state that never ends.
+  test('a project with no pull requests to read does not hold the list', () => {
+    const plainFolder = { loading: false, error: { kind: 'unavailable' }, filter: { query: '' } }
+    expect(prHostAnswered([answered, plainFolder], 'is:merged')).toBe(true)
   })
 })
 

@@ -14,7 +14,7 @@ import { resetApiModeForTests } from '@solus/server/host/api-mode'
 // host, an organization owner's).
 
 const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
-const MEMBER: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'managed', displayName: 'Bob', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud' }
+const MEMBER: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Bob', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud' }
 const ORG_OWNER_MANAGED: Principal = { ...MEMBER, userId: 'alice', organizationRole: 'owner' }
 const ORG_OWNER_PERSONAL: Principal = { ...ORG_OWNER_MANAGED, hostKind: 'personal' }
 const GUEST: Principal = { kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', share: { resource: { kind: 'session', id: 's1' }, role: 'viewer', sharedByUserId: 'alice', linkSecretHash: 'h' }, expiresAt: 0, deviceLabel: 'Guest link' }
@@ -40,10 +40,9 @@ describe('the action tables', () => {
     expect(Object.keys(RESOURCE_LOCATORS).sort()).toEqual(Object.keys(RESOURCE_ACTION_OF_METHOD).sort())
     // A method that names a session or a work in its name must carry a resource verb
     // unless it is a catalog read (listSessions, listWorks) or a creation. A workflow run is not a work.
-    // `tasksPrepareForSession` binds a task before any session exists; `tasksSessions` lists the
-    // session links of tasks in the caller's scope; `appSessions` lists the sessions linked to
+    // `issuesPrepareForSession` binds an issue before any session exists; `appSessions` lists the sessions linked to
     // an app of the host's owner; the others list or create.
-    const catalog = new Set(['appSessions', 'sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'tasksSessions', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'workReviewInbox', 'workReviewStates', 'workUpload'])
+    const catalog = new Set(['appSessions', 'sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'issuesPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'workReviewInbox', 'workReviewStates', 'workUpload'])
     const unclassified = RPC_INVOKE_METHODS.filter((method) => /session|work(?!tree|space|flow)/i.test(method) && !catalog.has(method) && !isResourceMethod(method))
     expect(unclassified).toEqual([])
   })
@@ -128,7 +127,7 @@ describe('the host itself', () => {
     const RUNNER: Principal = { kind: 'runner', hostId: 'h1', organizationId: 'org1', ownerUserId: 'bob', deviceId: 'h1', expiresAt: 0, deviceLabel: 'Runner' }
     const report = [{ sessionId: 's1', provider: 'claude-code', projectPath: '-p', lastActivityAt: 1 }]
     await expect(assertRpcAccess('sessionRecordUpsert', RUNNER, report)).resolves.toBeUndefined()
-    for (const method of ['tasksSidebarSnapshot', 'connectionsGetServerInfo', 'configUpdate', 'shareGet'] as const) {
+    for (const method of ['issuesList', 'connectionsGetServerInfo', 'configUpdate', 'shareGet'] as const) {
       await expect(assertRpcAccess(method, RUNNER, [{}])).rejects.toThrow(/not available to a runner/)
     }
     await expect(assertRpcAccess('loadWorkRevisions', RUNNER, ['w1'], resources({ 'work:w1': 'owner' }))).rejects.toThrow(/not available to a runner/)
@@ -310,33 +309,33 @@ describe('tasks', () => {
     // task, through the caller's own connection. A share table that gated a task
     // method would refuse a person whom the provider permits.
     const noShares = resources({})
-    const forSession = new Set(['tasksForSession', 'tasksLinkSession', 'tasksUnlinkSession'])
+    const forSession = new Set(['issuesForSession', 'issuesLinkSession', 'issuesUnlinkSession'])
     for (const method of TASK_METHODS) {
       if (forSession.has(method)) continue
       expect(isResourceMethod(method)).toBe(false)
       await expect(assertRpcAccess(method, MEMBER, ['github:I_1', 's1'], noShares)).resolves.toBeUndefined()
     }
-    for (const method of ['tasksGet', 'tasksUpdate', 'tasksComment', 'tasksDelete', 'tasksLink'] as const) expect(permissionOf(method)).toBe('host.use')
-    expect(permissionOf('tasksSidebarSnapshot')).toBe('host.sessions.read')
+    for (const method of ['issuesGet', 'issuesUpdate', 'issuesComment', 'issuesDelete', 'issuesLink'] as const) expect(permissionOf(method)).toBe('host.use')
+    expect(permissionOf('issuesList')).toBe('host.sessions.read')
   })
 
   test('a session link is the session\'s: to link or unlink takes an editor of the session, to read its tasks takes a reader', async () => {
     // WHY: the link shows on the session and starts work in it. The task has no
     // owner in Solus, so the session's role is the only gate there is.
     const table = resources({ 'session:s1': 'viewer', 'session:s2': 'editor' })
-    for (const method of ['tasksLinkSession', 'tasksUnlinkSession'] as const) {
+    for (const method of ['issuesLinkSession', 'issuesUnlinkSession'] as const) {
       await expect(assertRpcAccess(method, MEMBER, ['github:I_1', 's1'], table)).rejects.toThrow(RpcAccessError)
       await expect(assertRpcAccess(method, MEMBER, ['github:I_1', 's2'], table)).resolves.toBeUndefined()
     }
-    await expect(assertRpcAccess('tasksForSession', MEMBER, ['s1'], table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('tasksForSession', MEMBER, ['s9'], table)).rejects.toThrow(/not shared/)
+    await expect(assertRpcAccess('issuesForSession', MEMBER, ['s1'], table)).resolves.toBeUndefined()
+    await expect(assertRpcAccess('issuesForSession', MEMBER, ['s9'], table)).rejects.toThrow(/not shared/)
   })
 
   test('a guest reads the task listing and no task: a link opens a session or a work, never the host\'s tasks', async () => {
     // WHY: a guest has no provider connection on this host. The listing gate stays
     // open so the shared session renders; each other task method is refused.
-    await expect(assertRpcAccess('tasksSidebarSnapshot', GUEST, [], resources({}))).resolves.toBeUndefined()
-    for (const method of ['tasksGet', 'tasksAttachments', 'tasksComment', 'tasksLink'] as const) {
+    await expect(assertRpcAccess('issuesList', GUEST, [], resources({}))).resolves.toBeUndefined()
+    for (const method of ['issuesGet', 'issuesAttachments', 'issuesComment', 'issuesLink'] as const) {
       await expect(assertRpcAccess(method, GUEST, ['github:I_1'], resources({}))).rejects.toThrow(/not available to a guest/)
     }
   })

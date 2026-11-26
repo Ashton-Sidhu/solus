@@ -8,7 +8,7 @@ import { desktopRefusal } from '../../apps/cli/src/lib/desktop-commands'
 
 const folders: string[] = []
 afterEach(() => { for (const path of folders.splice(0)) rmSync(path, { recursive: true, force: true }) })
-function harness() {
+function harness(answer?: (method: string, args: unknown[]) => unknown) {
   const folder = mkdtempSync(join(tmpdir(), 'solus-cli-hosts-'))
   folders.push(folder)
   const calls: Array<{ method: string; args: unknown[] }> = []
@@ -22,7 +22,7 @@ function harness() {
         if (frame.t === 'hello') socket.send(JSON.stringify({ t: 'welcome', epoch: 'test', seq: 0, recovered: false }))
         else if (frame.t === 'rpc') {
           calls.push({ method: frame.method, args: frame.args })
-          const result = frame.method === 'hostsListPaired' ? { hosts: [host], forgotten: [] } : frame.method === 'hostsForget' ? { removed: true } : host
+          const result = answer?.(frame.method, frame.args) ?? (frame.method === 'hostsListPaired' ? { hosts: [host], forgotten: [] } : frame.method === 'hostsForget' ? { removed: true } : host)
           socket.send(JSON.stringify({ t: 'result', id: frame.id, result }))
         }
       },
@@ -58,5 +58,36 @@ describe('the host CLI uses the running server', () => {
       await expect(runHostCommand(['pair', 'http://10.0.0.2:3000', '--code', 'http://other:3000/pair#token=secret', ...end], () => {})).rejects.toThrow('different server')
       expect(h.calls).toEqual([])
     } finally { await h.remote.stop(true) }
+  })
+
+  // docs/ssh-machines.md, "Identity file": a cloud VM's key is a path on this host,
+  // and a key that SSH refuses for its permissions is fixed only when the person asks.
+  test('add-ssh sends the key path, and fixes a readable key only with --fix-key-permissions', async () => {
+    const forwarded = { installationId: 'ec2', label: 'ec2', sshTarget: 'ubuntu@3.91.20.4', route: { kind: 'forwarded', url: 'http://127.0.0.1:50000', viaHostId: 'self' }, identityKey: 'key', state: 'open', startedBySolus: true, isLinked: false }
+    let isKeyFixed = false
+    const h = harness((method, args) => {
+      if (method !== 'hostsAddOverSsh') return undefined
+      // The fake host fixes the key when the request asks for it, as the real one does.
+      const [request] = args as [{ fixIdentityFilePermissions?: boolean }]
+      isKeyFixed ||= request.fixIdentityFilePermissions === true
+      return !isKeyFixed ? { status: 'key-permissions', identityFile: '~/.ssh/aws.pem', message: 'Other users can read ~/.ssh/aws.pem.' } : { status: 'forwarded', host: forwarded, sessionToken: 't' }
+    })
+    const output: string[] = []
+    try {
+      const end = ['--data-dir', h.folder]
+      await runHostCommand(['add-ssh', 'ubuntu@3.91.20.4', '--identity-file', '~/.ssh/aws.pem', ...end], (line) => output.push(line))
+      expect(h.calls.map((call) => call.method)).toEqual(['hostsAddOverSsh'])
+      expect(h.calls[0]?.args[0]).toMatchObject({ sshTarget: 'ubuntu@3.91.20.4', identityFile: '~/.ssh/aws.pem' })
+      expect(output[0]).toContain('--fix-key-permissions')
+      expect(process.exitCode).toBe(1)
+      process.exitCode = 0
+      await runHostCommand(['add-ssh', 'ubuntu@3.91.20.4', '--identity-file', '~/.ssh/aws.pem', '--fix-key-permissions', ...end], (line) => output.push(line))
+      expect(h.calls.map((call) => call.method)).toEqual(['hostsAddOverSsh', 'hostsAddOverSsh'])
+      expect(h.calls[1]?.args[0]).toMatchObject({ identityFile: '~/.ssh/aws.pem', fixIdentityFilePermissions: true })
+      expect(output.at(-1)).toContain('Added ec2')
+    } finally {
+      process.exitCode = 0
+      await h.remote.stop(true)
+    }
   })
 })

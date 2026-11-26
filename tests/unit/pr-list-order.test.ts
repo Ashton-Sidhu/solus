@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { PullRequest } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
-import { rankPrsByMergeReadiness, type PrChecksState } from '@solus/workspace-ui/components/prs/lib/pr-utils'
 import { arrangePrList } from '@solus/workspace-ui/components/prs/lib/pr-list-arrange'
 import { parsePrSearchQuery } from '@solus/workspace-ui/components/prs/lib/pr-search-query'
 import { emptyListView, prSections, type PrRowContext } from '@solus/workspace-ui/components/prs/lib/prs-list-view'
@@ -9,41 +8,6 @@ import { emptyListView, prSections, type PrRowContext } from '@solus/workspace-u
 function pr(number: number, overrides: Partial<PullRequest> = {}): PullRequest {
   return pullRequestFixture(number, { additions: 10, deletions: 0, updatedAt: '2026-09-01T00:00:00Z', ...overrides })
 }
-
-describe('merge readiness order', () => {
-  const checks = new Map<number, PrChecksState>()
-  const checksState = (item: PullRequest) => checks.get(item.number) ?? null
-
-  test('green and approved first, then green, then other open work, then finished, then conflicts', () => {
-    // WHY: the default queue is "what can I land next". A conflict is never
-    // ready whatever its checks and review say, so it sinks below even
-    // finished work; a draft is open work its author has not made ready.
-    const conflicted = pr(1, { mergeable: false, reviewStatus: 'approved' })
-    const merged = pr(2, { state: 'merged' })
-    const draft = pr(3, { draft: true })
-    const failing = pr(4)
-    const passing = pr(5)
-    const ready = pr(6, { reviewStatus: 'approved' })
-    checks.set(1, 'passing')
-    checks.set(4, 'failing')
-    checks.set(5, 'passing')
-    checks.set(6, 'passing')
-
-    const order = rankPrsByMergeReadiness([conflicted, merged, draft, failing, passing, ready], checksState)
-    expect(order.map((item) => item.number)).toEqual([6, 5, 3, 4, 2, 1])
-  })
-
-  test('inside a tier the smaller diff wins, an unknown size goes last, and recency breaks ties', () => {
-    // WHY: small green changes are the quickest to land; a row whose size the
-    // host has not reported yet cannot claim to be small.
-    const large = pr(1, { additions: 400, deletions: 100 })
-    const small = pr(2, { additions: 5, deletions: 5 })
-    const unknown = pr(3, { additions: 0, deletions: 0 })
-    const smallNewer = pr(4, { additions: 6, deletions: 4, updatedAt: '2026-09-02T00:00:00Z' })
-    expect(rankPrsByMergeReadiness([unknown, large, small, smallNewer], () => null).map((item) => item.number))
-      .toEqual([4, 2, 1, 3])
-  })
-})
 
 describe('pull request sections', () => {
   const context: Pick<PrRowContext, 'isMine' | 'isReviewRequested'> = {
@@ -118,10 +82,10 @@ describe('pull request sections', () => {
 })
 
 describe('PR list defaults', () => {
-  test('opens on merge readiness, showing open work with drafts', () => {
-    // WHY: the page is a review queue first; drafts stay visible by default
-    // and are ranked below ready work rather than hidden.
-    expect(emptyListView().sortMode).toBe('ready')
+  test('opens on Recently updated, showing open work with drafts', () => {
+    // WHY: the list sorts as T3 Code does on every client, so desktop, web,
+    // and the phone open on the same order.
+    expect(emptyListView().sortMode).toBe('updated')
     expect(emptyListView().statusKeys).toEqual(['open', 'draft'])
   })
 })

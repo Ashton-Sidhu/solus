@@ -12,12 +12,13 @@ import {
 // elsewhere instead of resetting it.
 
 describe('mobile worker model choices', () => {
-  test('the first row turns the setting off, and both providers follow', () => {
+  test('the first row turns the setting off, and each provider that runs a whole session follows', () => {
     const choices = workerModelChoices(null, 'No fallback')
     expect(choices[0]).toEqual({ key: 'off', label: 'No fallback', selection: null })
     expect(isWorkerModelChoiceSelected(choices[0]!, null)).toBe(true)
     const providers = new Set(choices.slice(1).map((choice) => choice.selection?.provider))
-    expect([...providers]).toEqual(['claude-code', 'codex'])
+    // A worker reports back when its turn ends, with no Solus tool: Antigravity can be one.
+    expect([...providers]).toEqual(['claude-code', 'codex', 'antigravity'])
   })
 
   test('a saved model that the list does not offer keeps its row', () => {

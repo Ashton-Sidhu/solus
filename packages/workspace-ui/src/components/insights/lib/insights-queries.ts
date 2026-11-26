@@ -33,7 +33,7 @@ export const TURN_SELECT_COLUMNS = [
   'origin',
   'prompt',
   'prompt_source',
-  'task',
+  'issue',
   'cost_usd',
   'input_tokens',
   'output_tokens',
@@ -56,7 +56,7 @@ const TURN_COLUMN_TYPES = {
   origin: 'string',
   prompt: 'string',
   prompt_source: 'string',
-  task: 'string',
+  issue: 'string',
   cost_usd: 'number',
   input_tokens: 'number',
   output_tokens: 'number',
@@ -96,7 +96,7 @@ export function taskTurnsSql(taskId: string, range: TimeRange): string {
   return [
     `select ${TURN_SELECT_COLUMNS.join(', ')}`,
     'from turns',
-    `where task_id = '${taskId.replace(/'/g, "''")}'`,
+    `where issue_id = '${taskId.replace(/'/g, "''")}'`,
     `  and ${rangeCondition(range)}`,
     'order by started_at desc',
   ].join('\n')

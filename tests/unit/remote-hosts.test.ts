@@ -17,7 +17,7 @@ function host(hostId: string, label: string, overrides: Partial<DirectoryHost> =
   return {
     hostId, installationId: `install-${hostId}`, label,
     routes: [{ kind: 'tunnel', url: `https://${hostId}.example` }],
-    kind: 'personal', category: 'personal', organizationIds: [],
+    kind: 'personal', organizationIds: [],
     ...overrides,
   }
 }
@@ -91,7 +91,7 @@ describe('the hosts a person reaches', () => {
   })
 
   test('a managed host that is not running is refused before any connection', async () => {
-    const hosts = hostsOf([host('h-cloud', 'Cloud', { kind: 'managed', category: 'managed', managedState: 'stopped' })])
+    const hosts = hostsOf([host('h-cloud', 'Cloud', { kind: 'cloud', hasManagedCompute: true, managedState: 'stopped' })])
     const found = await hosts.find(OWNER, 'Cloud')
     if ('error' in found) throw new Error(found.error)
     expect(hosts.connect(found)).toEqual({ error: 'Cloud is stopped. Start it first, then try again.' })
@@ -99,7 +99,7 @@ describe('the hosts a person reaches', () => {
 
   test('managed targets exclude internal addresses from the directory and discovery', async () => {
     const hosts = hostsOf([host('h-cloud', 'Cloud', {
-      kind: 'managed', category: 'managed', managedState: 'ready',
+      kind: 'cloud', hasManagedCompute: true, managedState: 'ready',
       routes: [{ kind: 'lan', url: 'http://10.0.0.1:3000' }, { kind: 'tunnel', url: 'https://cloud.example' }],
     })], { nearby: [nearbyHost('install-h-cloud', '10.0.0.1')] })
     const found = await hosts.find(OWNER, 'Cloud')

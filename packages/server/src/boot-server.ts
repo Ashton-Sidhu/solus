@@ -3,6 +3,7 @@ import { registerHostPairingHandlers } from './transport/handlers/host-pairing-h
 import { registerPairApprovalHandlers } from './transport/handlers/pair-approval-handlers'
 import { PairApprovals } from './admission/pair-approvals'
 import { setHostPairingTools } from './execution/agents/tools/host-pairing-tools'
+import { setCloudMachineTools } from './execution/agents/tools/cloud-machine-tools'
 import { initRunningServers } from './host/running-servers/registry'
 import { registerRunningServerHandlers } from './transport/handlers/running-server-handlers'
 import { onHostRecordRemoved, readHostList } from './host/host-list'
@@ -34,6 +35,7 @@ import { RemoteUpdateService } from './updates/remote-update-service'
 import type { ServerUpdateSupport, SupervisorMessage } from '@solus/contracts/server-update'
 import { UpdateStatusService } from './updates/update-status-service'
 import { ModelProfilesService, downloadModelProfiles } from './updates/model-profiles-service'
+import { ModelPricesService, downloadLiteLlmPrices } from './updates/model-prices-service'
 import { detectInstallKind } from './updates/install-kind'
 import { fetchLatestRelease } from './updates/release-sources'
 import { rmSync } from 'fs'
@@ -46,8 +48,8 @@ import { answerSocketRequest } from './transport/solus-api/router'
 import { AccessTokenVerifier, type TokenVerdict } from './admission/access-tokens'
 import { CloudflaredConnector, resolveCloudflaredBinary } from './transport/uplink/connector'
 import { createHostSelfTest } from './transport/uplink/self-test'
-import { readStoredTunnel, registerAndLink, splitLegacyLinkRecord, UplinkLinkManager, type WebhookDrainReason } from './transport/uplink/link'
-import { HostRegistrar, readStoredRegistration } from './host/host-registration'
+import { readStoredTunnel, registerAndLink, UplinkLinkManager, type WebhookDrainReason } from './transport/uplink/link'
+import { HostRegistrar, HostRegistrationError, enrollAtBoot, readStoredCloudMachine, readStoredRegistration } from './host/host-registration'
 import { createWebhookServices } from './execution/webhooks/webhook-runtime'
 import { createWebhookService } from './execution/webhooks/webhook-service'
 import { onWebhookChanged, onWebhookDelivery } from './execution/webhooks/webhook-events'
@@ -61,7 +63,6 @@ import { RunnerDelivery } from './sync/runner-delivery'
 import { unattendedOrganizationRefusal, type TurnOrganizationDeps } from './execution/sessions/turn-organization'
 import { Delegations, type DelegationScope } from './sync/delegations'
 import { remoteWorkspaceOperations } from './sync/remote-operations'
-import { useOrganizationAttachment } from './host/organization-attachment'
 import { applyRunnerDelivery } from './sync/runner-intake'
 import { insightsEligible, useInsightsPolicy } from './sync/mirror/insight-mirror'
 import { HostOrganizations } from './host/organizations'
@@ -71,11 +72,10 @@ import { removeDepartedMembers } from './host/departed-members'
 import { ManagedHostActivity } from './host/managed-host-activity'
 import { LiveActivityRelay } from './host/live-activity-relay'
 import { activityLeases } from './execution/activity-leases'
-import { adoptProvisionedRegistration, applyHostCategory, hostCategory, provisionedOrganizationId } from './host/host-category'
+import { adoptRegistration, cloudOrganizationId, hasManagedCompute, machineKind } from './host/machine-kind'
 import { getInsightsOptIn, hostUserSettings } from './host/settings'
 import { followHostAccount } from './host/host-user-rows'
 import { registerOrganizationHandlers } from './transport/handlers/organization-handlers'
-import { enrollHostCategorySchema, type EnrollHostCategory } from '@solus/contracts/uplink'
 import { TranscriptMirror, listOwnInterruptedSessions, listUnmirroredCloudSessions } from './sync/mirror/transcript-mirror'
 import { mirrorTurnDiff } from './sync/mirror/turn-diff-mirror'
 import { applyApiMode, isApiMode, apiModeConfig } from './host/api-mode'
@@ -144,6 +144,7 @@ import { IntegrationOAuth, type IntegrationConnectionEvents } from './integratio
 import { setIntegrationGateway } from './integrations/integration-tools'
 import { cliSkipLog } from './integrations/cli-skips'
 import { AgentProfileManager, hostProfileHomes, type AgentProfileTarget } from './execution/seats/agent-profile'
+import { antigravityProfileFilesHome } from './execution/agents/acp/antigravity-skills'
 import { profileIntegrations } from './integrations/profile-integrations'
 import { listInstalledSkills } from './skills/skills-provider'
 import { RegistrySkillCache } from './skills/registry-skill-cache'
@@ -186,7 +187,7 @@ import { isLoopbackHost, resolveEffectiveServerOptions } from './transport/bind-
 import { isTrustedRequesterAddress } from './transport/trusted-requesters'
 import { remoteAddressAdmission } from './transport/private-network-access'
 import type { RemoteAccessMode } from '@solus/contracts/host-api'
-import { readHostLinkEnv } from './host/host-link-env'
+import { readBootLinkCode } from './host/boot-link-code'
 import { attachWebSocketTransport, isHostSocketPath } from './transport/websocket'
 import { ResponseReceiptBudget } from './transport/response-receipt-cache'
 import { ClientEventRegistry } from './transport/events/client-event-registry'
@@ -200,6 +201,12 @@ import { SshDeviceHost, sshDeviceTarget } from './devices/ssh-device-host'
 import { SshClient } from './platform/ssh'
 import { registerDeviceHandlers } from './transport/handlers/device-handlers'
 import type { SessionRuntime } from './execution/session-runtime'
+import { setAgentToolEndpointUrl } from './execution/agents/tools/agent-tool-endpoint'
+import { installAppAccessChecks } from './admission/app-sign-in'
+import { LOCAL_POLICY_ORGANIZATION_ID } from '@solus/contracts/policy'
+
+/** How long a member's access holds after the host renewed their token: their app stops within this after they lose access. */
+const MEMBER_ACCESS_CHECK_MS = 5 * 60 * 1000
 import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '@solus/contracts/types'
 import type { HostEventMap } from '@solus/contracts/host-events'
 import type { AgentId, IpcContext } from '@solus/contracts/types'
@@ -212,7 +219,7 @@ import { fetchSessionBundle } from './execution/sessions/session-bundle-source'
 import { chooseSessionRepositorySource, fetchSessionArtifacts, type SessionReadAccess } from './execution/sessions/session-artifacts-source'
 import { sessionCloudSyncDecision } from './host/policy/host-policy-store'
 import { insightsAccountOf } from './admission/actor'
-import { getSessionRecord } from './data/sessions/session-records'
+import { getSessionRecord, hasSessionRecords, sessionIdsLastActiveBetween, sessionRecordsIndexing } from './data/sessions/session-records'
 import { readSessionStorage } from './data/sessions/session-storage'
 import { registerWorktreeHandlers } from './transport/handlers/worktree-handlers'
 import { registerGitPublishHandlers } from './transport/handlers/git-publish-handlers'
@@ -230,9 +237,10 @@ import { localGuideSource, prGuideSource } from './review/guide-sources'
 import { registerAutomationHandlers } from './transport/handlers/automation-handlers'
 import { startAutomationScheduler, stopAutomationScheduler } from './execution/automations/automation-scheduler'
 import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundSessionDispatcher, setAutomationWorktreeCreator } from './execution/automations/automation-runner'
-import { nextAutomationDueAt, onAutomationsChanged, pauseAutomationsOf } from './data/automations/automations-store'
-import { setRemoteHosts, setSessionController, setSessionOrchestration } from './execution/agents/tools/session-tools'
-import { RemoteHosts } from './execution/orchestration/remote-hosts'
+import { listRuns, nextAutomationDueAt, onAutomationsChanged, pauseAutomationsOf } from './data/automations/automations-store'
+import { setRemoteHosts, setSessionController, setSessionOrchestration, type ReachCaller } from './execution/agents/tools/session-tools'
+import { RemoteHosts, reachOfPrincipal } from './execution/orchestration/remote-hosts'
+import { organizationApisOf } from './execution/orchestration/remote-session-read'
 import { hostMesh } from './execution/orchestration/host-mesh'
 import { LocalClientDoor, type LocalClient } from './transport/local-client'
 import { IntroducedHosts } from './execution/orchestration/introduced-hosts'
@@ -246,7 +254,6 @@ import { onWorkReviewsChanged } from './data/works/work-reviews'
 import { registerWorkReviewHandlers } from './transport/handlers/work-review-handlers'
 import { registerNotificationHubHandlers } from './transport/handlers/notification-hub-handlers'
 import { publishNotificationChanges } from './notifications/hub-events'
-import { publishTaskSnoozeChanges } from './transport/events/task-snooze-events'
 import { PersonConnections } from './transport/events/person-connections'
 import { publishSessionViewChanges } from './transport/events/session-view-events'
 import { StreamedProse } from './transport/events/streamed-prose'
@@ -292,11 +299,16 @@ import { publishPersonHistoryChanges } from './transport/events/person-history-e
 import { publishPersonalDocumentChanges } from './transport/events/personal-document-events'
 import { loadPersonSettings, startPersonSettingsPulls, usePersonSettingsAccount } from './execution/person-settings'
 import { registerLiveActivityHandlers } from './transport/handlers/live-activity-handlers'
+import { registerSessionDirectoryHandler } from './transport/handlers/session-directory-handler'
+import { registerSessionShellHandler, sessionShellReads } from './transport/handlers/session-shell-handler'
+import { SessionShell } from './transport/events/session-shell'
+import { onPinnedSessionChanged } from './data/sessions/pinned-sessions'
+import { HistoryPrewarm } from './execution/sessions/history-prewarm'
 import { registerProjectConfigHandlers } from './transport/handlers/project-config-handlers'
 import { registerCodebaseHandlers } from './transport/handlers/codebase-handlers'
 import { onCodebasesChanged } from './data/codebases/codebases'
 import { onWorkspaceProjectsChanged } from './projects/workspace-projects'
-import { onProjectsChanged } from './project-config/projects-manifest'
+import { listProjects, onProjectsChanged } from './project-config/projects-manifest'
 import { registerTasksHandlers } from './transport/handlers/tasks-handlers'
 import { setVoiceModelStatusListener } from './model-downloader'
 import { createLogger, isDebugEnabled } from './logger'
@@ -349,12 +361,6 @@ export interface BootOptions {
   sessionRuntime: SessionRuntime
   /** Part C supplies the read-token client here when its host access module is merged. */
   sessionReadAccess?: SessionReadAccess
-  /**
-   * What kind of machine this process is (organization-scope §3.1): the desktop
-   * app's own execution host is `personal`; the standalone server declares
-   * `self-hosted`. A managed host is `managed` whatever is passed.
-   */
-  hostCategory?: EnrollHostCategory
   /** Optional dependencies provided by the Electron host. Headless mode passes none of these. */
   windowDeps?: WindowDeps
   /** Optional host-owned RPC groups, registered only by clients with native capabilities. */
@@ -408,17 +414,28 @@ export const DEFAULT_TUNNEL_LISTENER_PORT = parseInt(process.env.SOLUS_TUNNEL_PO
 
 const systemErrorSchema = z.object({ code: z.string().optional() })
 
-/** The registration this machine starts with: the environment's, which is read once and stripped, else the one stored on disk. */
-function adoptStartupRegistration(): void {
-  splitLegacyLinkRecord()
-  const provisioned = readHostLinkEnv()
-  adoptProvisionedRegistration(provisioned ? provisioned.registration : readStoredRegistration())
+/**
+ * The registration this machine starts with: the one it makes now with the link code in
+ * its environment, else the one stored on disk. Answers a registration only when this
+ * boot made it.
+ */
+async function adoptStartupRegistration(): Promise<HostRegistration | null> {
+  // The link code leaves the environment first, whatever happens next.
+  const code = readBootLinkCode()
+  // The Solus API service is no machine: it registers nowhere.
+  if (isApiMode()) return null
+  // A data directory that was a cloud machine's stays one, also with no registration.
+  adoptRegistration(readStoredCloudMachine())
+  const enrolled = code
+    ? await enrollAtBoot({ code, machine: { installationId: getInstallationId(), label: hostDisplayName(), os: hostOperatingSystem() }, holdsWork: hasSessionRecords })
+    : null
+  adoptRegistration(enrolled ?? readStoredRegistration())
+  return enrolled
 }
 
-/** What this process is to its clients: a person's machine, one the cloud provisioned, or the cloud's own workspace service. */
+/** What this process is to its clients: a person's machine, a cloud machine of an organization, or the Solus API service. */
 function resolveHostKind(apiMode: boolean): HostKind {
-  if (apiMode) return 'cloud'
-  return hostCategory() === 'managed' ? 'managed' : 'personal'
+  return apiMode ? 'api' : machineKind()
 }
 
 /** The workspace service serves the collaboration plane and nothing else, whatever SOLUS_ROLES says. */
@@ -526,21 +543,19 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const phaseDone = (phase: 'db_opened' | 'host_handlers_registered' | 'domain_handlers_registered' | 'update_services_ready'): void => {
     log.info('server_boot_phase', { phase, elapsedMs: Math.round(performance.now() - bootStartedAt) })
   }
-  // Before the database, the listeners, or any child process: a provisioned
-  // machine's link leaves the environment first (managed-hosts.md §1, §2), and the
-  // link — that one, or the one stored since — says whether Solus provisioned this
-  // machine, which decides that no credential-free door opens on it.
-  adoptStartupRegistration()
-  // The environment may name the category for a test run of the standalone server; the boot's own declaration otherwise.
-  const declaredCategory = enrollHostCategorySchema.safeParse(process.env.SOLUS_HOST_CATEGORY)
-  applyHostCategory(declaredCategory.success ? declaredCategory.data : opts.hostCategory ?? 'personal')
+  // Before the listeners or any child process: a machine with a link
+  // code in its environment enrolls with it (plans/034-one-cloud-machine-kind.md §3),
+  // and the registration — that one, or the one stored before — says whether this is
+  // a cloud machine, which decides that no credential-free door opens on it.
+  const enrolledAtBoot = await adoptStartupRegistration()
   // And the workspace service refuses to start half-configured (cloud-service-model.md §15).
   applyApiMode()
   const apiMode = isApiMode()
   const apiSettings = solusApiSettings(apiMode, getInstallationId())
-  const hostKind = resolveHostKind(apiMode)
-  // A managed host and the workspace service demand a credential on every listener, whatever the bind policy says.
-  const credentialAlwaysRequired = hostKind !== 'personal'
+  // Asked each time: a server becomes a cloud machine when it registers with an organization code.
+  const hostKind = () => resolveHostKind(apiMode)
+  // A cloud machine and the workspace service demand a credential on every listener, whatever the bind policy says.
+  const credentialAlwaysRequired = () => hostKind() !== 'personal'
   // The machine's MDM policy is read before anything listens; one this host cannot enforce stops the boot (plans/030 §5.1).
   let standingSource: () => HostStanding | null = () => null
   const policyStore = new HostPolicyStore({ mdm: await loadMachinePolicy(), standing: () => standingSource() })
@@ -555,7 +570,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const allowRemoteAddress = remoteAddressAdmission(effectiveRemoteAccess)
   let host = initial.host
   let boundRemoteAccess = effectiveRemoteAccess()
-  let requireAuth = initial.requireAuth || credentialAlwaysRequired
+  let requireAuth = initial.requireAuth
+  const isCredentialRequired = () => requireAuth || credentialAlwaysRequired()
   const port = opts.port ?? WEB_UI_PORT
   let actualPort = port
   let tunnelPort = 0
@@ -754,7 +770,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onWorkReviewsChanged((change) => events.broadcast('workReviews.changed', change)),
     // A client with no socket principal is the desktop's own IPC connection: the local owner.
     publishNotificationChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL),
-    publishTaskSnoozeChanges(events, personConnections),
     publishSessionViewChanges(events, personConnections),
     publishPersonHistoryChanges(events, personConnections),
     publishPersonalDocumentChanges(events, personConnections),
@@ -769,10 +784,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onTasksChanged((taskId) => {
       // A task's links reach sessions and works: room members are checked again.
       events.forgetRoomAdmissions()
-      void events.broadcast('tasks.invalidated', taskId ? { taskId } : {})
+      void events.broadcast('issues.invalidated', taskId ? { issueId: taskId } : {})
     }),
     // The end of a source read: a client reads the state of its sources again.
-    onTaskSourcesChanged((sourceKeys) => { void events.broadcast('tasks.sourcesChanged', { sourceKeys }) }),
+    onTaskSourcesChanged((sourceKeys) => { void events.broadcast('issues.sourcesChanged', { sourceKeys }) }),
     // `registerTasksHandlers` starts the timer that keeps the wanted sources fresh.
     stopTaskSourcePolling,
     // A task reads the pull requests of its sessions, so a session's change is
@@ -1178,6 +1193,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // the CLI's own `~/.claude` and `~/.codex` in their home; elsewhere the seat folder.
     homeFor: (target, provider) => {
       const seat = profileSeat(target)
+      // An Antigravity profile keeps its global skills under `config` (docs/plans/antigravity-provider.md §7.1).
+      if (provider === 'antigravity') return antigravityProfileFilesHome(seats.homeFor(seat, provider))
       if (memberUsers && seat.kind === 'user') return join(memberUserOf(seat).home, provider === 'claude-code' ? '.claude' : '.codex')
       return seats.homeFor(seat, provider)
     },
@@ -1187,7 +1204,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     integrations: profileIntegrations({ store: integrations, gateway: integrationGateway, connections: integrationConnections, events }),
     integrationOwnerFor: (target) => target.kind === 'member'
       ? { organizationId: target.organizationId, ownerKey: target.userId }
-      : { organizationId: provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID, ownerKey: hostUserKey() },
+      : { organizationId: cloudOrganizationId() ?? LOCAL_ORGANIZATION_ID, ownerKey: hostUserKey() },
     account: {
       reads: accountReadsOfServer,
       userFor: (target) => target.kind === 'member' ? target.userId : hostOrganizations.owner()?.userId ?? null,
@@ -1202,7 +1219,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
    */
   const memberProfileTarget = (userId: string): AgentProfileTarget | null => {
     const held = delegations?.holders().find((holder) => holder.userId === userId && holder.scope !== 'personal')?.scope
-    const organizationId = (held && held !== 'personal' ? held.organizationId : null) ?? provisionedOrganizationId()
+    const organizationId = (held && held !== 'personal' ? held.organizationId : null) ?? cloudOrganizationId()
     return organizationId ? { kind: 'member', userId, organizationId } : null
   }
   const integrationCatalog = new IntegrationCatalog()
@@ -1310,13 +1327,26 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     return { account: owner ? { userId: owner.userId, scope: 'personal' } : null, isOwner: true }
   }
   // A caller's reach: the owner's own, a member's organization, and nothing for anyone else.
-  const reachOf = (principal: Principal): ReachRequest | null => principal.kind === 'org-member'
-    ? { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
-    : principal.kind === 'owner' ? ownerReach() : null
+  const reachOf = (principal: Principal): ReachRequest | null => reachOfPrincipal(principal, ownerReach)
+  // The person an agent tool reaches for: the calling session's current turn, or an outside
+  // app's person. Null for the host's own turn, which has no person.
+  const reachingPrincipal = (caller: ReachCaller): Principal | null => {
+    if ('principal' in caller) return caller.principal
+    const actor = opts.sessionRuntime.activeRunRequests.get(caller.sessionId)?.actor
+    return actor?.user ? actor.principal : null
+  }
   const hostPairings = new HostPairings(getInstallationId, hostDisplayName)
   const pairApprovals = new PairApprovals()
   domainEventUnsubscribes.push(registerPairApprovalHandlers(server, pairApprovals, { broadcast: (topic, payload) => events.broadcast(topic, payload) }))
   setHostPairingTools(hostPairings)
+  // The cloud machine and organization tools act as the person of the turn, with the token this host holds for them (plans/035 §5).
+  setCloudMachineTools({
+    reads: accountReadsOfServer,
+    holders: () => apiMode ? [] : delegations?.holders() ?? [],
+    thisHost: () => ({ hostId: registrar.current()?.hostId ?? null, installationId: getInstallationId() }),
+    ssh,
+    accountOrigin: () => hostOrganizationsDeps.registration()?.directoryUrl ?? null,
+  })
   const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts, fetch, hostPairings, readHostList)
   // This host introduces the machines it holds to each other, so a machine that no
   // device reaches still joins the person's other machines (host-reach.md §4.4).
@@ -1379,30 +1409,19 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     },
     permissionModeFor: (sessionId) => opts.sessionRuntime.activeSessions.get(sessionId)?.runInput?.permissionMode ?? opts.sessionRuntime.sessionPermissionModes.get(sessionId),
     codebaseIdFor: (sessionId) => opts.sessionRuntime.sessionFolders.codebaseIdOf(sessionId),
-    // A turn reaches other hosts for its own person (host-reach.md §3.2): the owner through
-    // their personal delegation and the introduced hosts; a member only through the
-    // organization they work in here; anyone else not at all.
-    reachRequestFor: (sessionId): ReachRequest | null => {
-      const actor = opts.sessionRuntime.activeRunRequests.get(sessionId)?.actor
-      const principal = actor?.principal
-      if (!actor?.user || principal?.kind === 'owner') return ownerReach()
-      if (principal?.kind === 'org-member') return { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
-      return null
+    // A turn, or an outside app's call, reaches other hosts for its own person by `reachOf`
+    // (host-reach.md §3.2; plans/035 §0.6): the owner through their personal delegation and
+    // the introduced hosts; a member only through their organization; anyone else not at all.
+    // The host's own turn, with no person, reaches as the owner.
+    reachRequestFor: (caller): ReachRequest | null => {
+      const principal = reachingPrincipal(caller)
+      return principal ? reachOf(principal) : ownerReach()
     },
     // The same people and scopes read their organizations' Solus APIs: the owner every
     // organization this host holds a delegation for, a member only their own.
-    organizationApisFor: (sessionId) => {
-      const actor = opts.sessionRuntime.activeRunRequests.get(sessionId)?.actor
-      const principal = actor?.principal
-      const owner = !actor?.user || principal?.kind === 'owner'
-      const ownerId = owner ? delegations?.holders().find((holder) => holder.scope === 'personal')?.userId : undefined
-      return (delegations?.holders() ?? []).flatMap((holder) => {
-        if (holder.scope === 'personal') return []
-        const reads = owner
-          ? holder.userId === ownerId
-          : principal?.kind === 'org-member' && holder.userId === principal.userId && holder.scope.organizationId === principal.organizationId
-        return reads ? [{ organizationId: holder.scope.organizationId, client: delegations!.apiClient(holder.userId, holder.scope) }] : []
-      })
+    organizationApisFor: (caller) => {
+      const held = delegations
+      return held ? organizationApisOf(reachingPrincipal(caller), held.holders(), (userId, scope) => held.apiClient(userId, scope)) : []
     },
     listAgentTargets: async () => Promise.all(
       opts.sessionRuntime
@@ -1466,6 +1485,35 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let insightPull: InsightPull | null = null
   registerObservabilityHandlers(server, { sessionRuntime: opts.sessionRuntime, insightPull: () => insightPull })
   registerProjectConfigHandlers(server)
+  const historyPrewarm = new HistoryPrewarm(opts.sessionRuntime)
+  registerSessionDirectoryHandler(server, historyPrewarm)
+  // The phone's session list as a snapshot and the changes after it (docs/plans/mobile-session-shell.md §5).
+  // Published host events and the personal changes that no connection may hear move its keys.
+  const sessionShell = new SessionShell({
+    reads: sessionShellReads(server),
+    publish: (clientId, changes) => { void events.publish(clientId, 'sessionShell.changed', changes) },
+    hostProjects: listProjects,
+    sessionsStartedBy: async (automationId) => (await listRuns(automationId)).flatMap(run => run.sessionId ? [run.sessionId] : []),
+    sessionsLastActiveBetween: sessionIdsLastActiveBetween,
+  })
+  // A session leaves the list 30 days after its last activity, with no event: check once an hour.
+  const sessionShellIdleCheck = setInterval(() => { void sessionShell.checkIdleSessions() }, 60 * 60_000)
+  sessionShellIdleCheck.unref?.()
+  sessionShell.attentionChanged(opts.sessionRuntime.attention.list())
+  domainEventUnsubscribes.push(
+    events.observe((event) => sessionShell.observe(event)),
+    onSessionRecordChanged((record) => sessionShell.sessionChanged(record.sessionId)),
+    onSessionRecordDeleted((sessionId) => sessionShell.sessionChanged(sessionId)),
+    onSessionViewChanged((change) => sessionShell.sessionChanged(change.sessionId)),
+    onSessionReadStateChanged((change) => sessionShell.sessionChanged(change.sessionId)),
+    onPinnedSessionChanged((change) => sessionShell.sessionChanged(change.sessionId)),
+    () => clearInterval(sessionShellIdleCheck),
+  )
+  registerSessionShellHandler(server, sessionShell)
+  // A turn changes the provider file: read the session's first page again before it is next opened.
+  opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => {
+    if (event.status === 'completed' || event.status === 'failed' || event.status === 'interrupted') historyPrewarm.afterTurn(event.sessionId)
+  })
   registerCodebaseHandlers(server, opts.sessionRuntime.sessionFolders, opts.sessionRuntime.taskFolders)
   registerTasksHandlers(server)
   registerOutboxHandlers(server)
@@ -1556,7 +1604,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const updatesAllowed = () => hostPolicies().hostSetting('updates')?.value.mode !== 'off'
   const hostUpdates = new UpdateStatusService({
     currentVersion: packageJson.version,
-    install: hostCategory() === 'managed' ? 'cloud' : detectInstallKind(),
+    install: hasManagedCompute() ? 'cloud' : detectInstallKind(),
     latest: () => fetchLatestRelease(packageJson.version),
     automaticUpdates: () => getServerSettings().hostConfig.agentAutoUpdates,
     canCheck: updatesAllowed,
@@ -1612,13 +1660,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     publish: (status) => { events.broadcast('host.modelProfilesChanged', status) },
     onProfilesChanged: () => { void hostUpdates.refreshProviders() },
   })
-  if (opts.sessionRuntime.getBackendIds().includes('claude-code')) {
-    opts.sessionRuntime.backendFor('claude-code').on('models-reported', () => { events.broadcast('host.modelProfilesChanged', modelProfiles.status) })
+  // Claude Code and an ACP agent report models the published list does not know; clients read them from the metadata.
+  for (const id of opts.sessionRuntime.getBackendIds()) {
+    opts.sessionRuntime.backendFor(id).on('models-reported', () => { events.broadcast('host.modelProfilesChanged', modelProfiles.status) })
   }
   server.register('modelProfilesStatus', () => modelProfiles.status)
   server.register('modelProfilesRefresh', () => modelProfiles.refresh())
   server.register('modelProfilesCheck', () => modelProfiles.checkIfStale())
   modelProfiles.start()
+  const modelPrices = new ModelPricesService({ cachePath: join(solusDir(), 'model-prices.json'), download: downloadLiteLlmPrices })
+  modelPrices.start()
   const setup = registerSetupHandlers(server, { events, checkouts: opts.sessionRuntime.checkouts,
     agents: hostUpdates.agents,
     assertNewWorkAllowed: () => opts.sessionRuntime.assertNewWorkAllowed(),
@@ -1631,7 +1682,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     adopt: (sessionId, path, addToCodebase) => {
       return opts.sessionRuntime.sessionFolders.adoptCreated(sessionId, path, addToCodebase, opts.sessionRuntime.actorOfSession(sessionId) ?? HOST_ACTOR)
     },
-    // The project and codebase tools send the RPC of a person's client, through its gate.
+    // The project, codebase, sharing, and host tools send the RPC of a person's client, through its gate.
     rpc: {
       listProjects: (args, caller) => server.handle('listProjects', args, caller),
       projectConfigLoad: (args, caller) => server.handle('projectConfigLoad', args, caller),
@@ -1641,6 +1692,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       codebaseSave: (args, caller) => server.handle('codebaseSave', args, caller),
       codebaseMembers: (args, caller) => server.handle('codebaseMembers', args, caller),
       codebaseScanFolder: (args, caller) => server.handle('codebaseScanFolder', args, caller),
+      shareGet: (args, caller) => server.handle('shareGet', args, caller),
+      shareSet: (args, caller) => server.handle('shareSet', args, caller),
+      shareSetLink: (args, caller) => server.handle('shareSetLink', args, caller),
+      shareLinkOrigin: (args, caller) => server.handle('shareLinkOrigin', args, caller),
+      hostSelfTest: (args, caller) => server.handle('hostSelfTest', args, caller),
+      hostResources: (args, caller) => server.handle('hostResources', args, caller),
     },
   })
   // A Run on prompt copies its repository before its run starts (docs/run-on.md).
@@ -1716,6 +1773,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Filtering is async; the chain keeps each client's snapshots in the order the changes happened.
   let attentionDelivery = Promise.resolve()
   opts.sessionRuntime.attention.onChange((entries) => {
+    sessionShell.attentionChanged(entries)
     attentionDelivery = attentionDelivery.then(() => Promise.all(clientEvents.routableClientIds().map(async (clientId) => {
       const principal = ws?.principalOf(clientId)
       const visible = principal ? await attentionVisibleTo(principal, entries, shares) : entries
@@ -1804,6 +1862,25 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     : Promise.resolve({ ok: false, reason: 'not-linked' })
   let runnerDelivery: RunnerDelivery | null = null
   let delegations: Delegations | null = null
+  // An outside app's organization may allow only some apps, and a member's app stops when
+  // the member loses access: the host acts for them only while it can renew their token (plans/035 §0.3).
+  const memberAccessCache = new Map<string, number>()
+  installAppAccessChecks({
+    appDenial: (app, approver) => hostPolicies().forWork(approver.kind === 'member' ? approver.organizationId : LOCAL_POLICY_ORGANIZATION_ID).appDenial(app)?.message ?? null,
+    memberHasAccess: async (approver) => {
+      const key = `${approver.userId}:${approver.organizationId}`
+      if ((memberAccessCache.get(key) ?? 0) > Date.now()) return true
+      try {
+        await delegations?.accessToken(approver.userId, { organizationId: approver.organizationId }, { kind: 'api' })
+        if (!delegations) return false
+        memberAccessCache.set(key, Date.now() + MEMBER_ACCESS_CHECK_MS)
+        return true
+      } catch {
+        memberAccessCache.delete(key)
+        return false
+      }
+    },
+  })
   // A registration again under the same host id is a new generation with a new OAuth client.
   const registrationKey = (registration: HostRegistration | null) => registration ? `${registration.hostId}:${registration.generation}` : null
   let registeredKey = registrationKey(readStoredRegistration())
@@ -1811,8 +1888,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const followRegistration = (registration: HostRegistration | null): void => {
     if (apiMode) return
     tokenVerifier = tokenVerifierFor(registration)
-    // A provisioned machine's registration names the organization it was made for (organization-scope §3, R9).
-    adoptProvisionedRegistration(registration)
+    // A cloud machine's registration names the organization it works for (organization-scope §3, R9).
+    adoptRegistration(registration)
     // Another registration is another OAuth client: nothing the old one held acts for anyone now.
     if (registrationKey(registration) !== registeredKey) delegations?.clear()
     registeredKey = registrationKey(registration)
@@ -1838,7 +1915,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     owner: () => hostOrganizations.owner(),
     onRegistrationChanged: followRegistration,
     onStatusChanged: broadcastUplinkStatus,
-    provisionedLink: readHostLinkEnv,
+    isDesktopApp: () => detectInstallKind() === 'desktop',
+    holdsWork: async () => {
+      // The index may still find sessions on this disk; an answer now could be wrong.
+      if (sessionRecordsIndexing()) throw new HostRegistrationError('register-rejected', 'This server is still reading its session history. Try again in a moment.')
+      return hasSessionRecords()
+    },
   })
   const uplinkConnector = new CloudflaredConnector({
     resolveBinary: resolveCloudflaredBinary,
@@ -1852,12 +1934,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // The connector registers after `uplinkLink` has answered: the Access tab's
     // status line follows this instead of waiting for a reload.
     onStatusChanged: broadcastUplinkStatus,
-    provisionedLink: readHostLinkEnv,
     onOnline: (reason) => drainWebhooks(reason),
   })
   followRegistration(registrar.current())
-  // The attachment is stored with the registration (organization-vms §4): a deleted host is personal again.
-  useOrganizationAttachment(() => registrar.attachedAt())
   // A registered host shared with an organization delivers its cloud-owned writes and
   // its session records to the organization's workspace service (§16).
   hostOrganizationsDeps.registration = () => registrar.current()
@@ -1904,6 +1983,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         void integrationGateway.close()
         if (scope === 'personal') {
           sessionPusher?.signedOut()
+          githubCredentials().forgetOwnerAccountCopy()
           log.info('delegation_revoked', { userId, scope, refusal })
           return
         }
@@ -1979,24 +2059,20 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       transcriptMirror,
       interruptSweep,
     })
-    // A standing change (a share made, a policy edited) is the moment to ask for grants
-    // again; a standing that shows the machine attached is recorded before the next
-    // organization work is admitted (organization-vms §4).
+    // A standing change (a share made, a policy edited) is the moment to ask for grants again.
     domainEventUnsubscribes.push(hostOrganizations.onChanged((standing) => {
       // Registered: the host's user becomes the owner's account, and its rows follow (U5).
       if (standing?.owner) {
         void followHostAccount(getDatabase(), standing.owner)
       }
-      if (standing?.organizations.some((entry) => entry.shared)) registrar.markAttached()
       // The registration status names the account it belongs to.
       broadcastUplinkStatus()
       // The owner's client in this process presents its token again when a delegation is missing.
       localClient.standingChanged(standing?.owner?.userId ?? null)
     }))
-    // Organization runs on an attached machine (organization-vms §3, §4): the host acts
+    // Organization runs on a cloud machine (organization-vms §3, §4): the host acts
     // for the person behind each turn, and its tools use the Solus API as them.
     turnAdmission.delegations = hostDelegations
-    turnAdmission.markAttached = () => { registrar.markAttached() }
     remoteToolOperations = (sessionId) => {
       const actor = hostDelegations.actorOf(sessionId)
       if (!actor) return null
@@ -2127,12 +2203,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     name: hostDisplayName,
     getHost: () => host,
     getPort: () => actualPort,
-    requireAuth: () => requireAuth,
+    requireAuth: isCredentialRequired,
     isTrustedRequester: isTrustedRequesterAddress,
     allowRemoteAddress,
     isTunnelRequest,
     deviceHub: devices.hubProxy,
-    // No pairing door on a managed host or the workspace service: a grant is the only credential there.
+    // No pairing door on a cloud machine or the workspace service: a grant is the only credential there.
     pairingDisabled: credentialAlwaysRequired,
     pairApprovals,
     enableTailscaleServe: async (port) => ({ url: (await enableServe(port)).url }),
@@ -2256,7 +2332,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     browserFrames,
     verifyAccessToken: verifyHostAccessToken,
     doors,
-    requireAuth: () => requireAuth,
+    requireAuth: isCredentialRequired,
     isTrustedRequester: isTrustedRequesterAddress,
     allowRemoteAddress,
     isTunnelRequest,
@@ -2267,6 +2343,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       opts.sessionRuntime.requestSessionIndexRefresh()
     },
     onClientDisconnected: ({ clientId }) => {
+      sessionShell.disconnected(clientId)
       prSync.dropConnection(clientId)
       handlePresenceDisconnected(clientId)
       workLive.disconnected(clientId)
@@ -2350,6 +2427,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
 
   actualPort = await listenWithRetries(port)
+  // A harness on this host reaches its run's tools over loopback, whatever address the server binds.
+  setAgentToolEndpointUrl(`http://127.0.0.1:${actualPort}/mcp`)
   const serveSetting = getServerSettings().tailscaleServe
   if (serveSetting.enabled && effectiveRemoteAccess() !== 'off') {
     void tailscaleServe.enable(serveSetting.port, actualPort).then(async () => {
@@ -2380,7 +2459,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   if (!apiMode) {
     tunnelPort = await bindTunnelListener(tunnelHttp, readStoredTunnel()?.proxiedPort ?? DEFAULT_TUNNEL_LISTENER_PORT)
     // A policy that turns the tunnel off keeps a stored link from resuming (plans/030 §6.7).
-    void registrar.resumeUntilAnswered((remote, isRetrying) => hostPolicies().hostSetting('cloudTunnel')?.value === false ? Promise.resolve() : uplinkManager.resume(remote, isRetrying)).catch((err) => {
+    void registrar.resumeUntilAnswered(async (remote, isRetrying) => {
+      // A policy that turns the tunnel off does not stop a link at the host's own address, which has no tunnel.
+      if (hostPolicies().hostSetting('cloudTunnel')?.value === false && !uplinkManager.isReachedDirectly()) return
+      await uplinkManager.resume(remote, isRetrying)
+      // A personal host that enrolled at this boot is linked as one that a person registers is: at its first registration.
+      // A cloud machine with no link asks by itself (`UplinkLinkManager.resume`).
+      if (enrolledAtBoot && !enrolledAtBoot.organizationId && !uplinkManager.currentTunnel()) {
+        await uplinkManager.link().catch((error) => uplinkManager.noteLinkFailure(error instanceof Error ? error.message : String(error)))
+      }
+    }).catch((err) => {
       log.warn('uplink_resume_failed', { error: err instanceof Error ? err.message : String(err) })
     }).finally(() => {
       runnerDelivery?.start()
@@ -2417,7 +2505,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       await tailscaleServe.removeMappingsToPort(actualPort)
     }
     const next = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess, ...remoteBindOptions() })
-    const nextRequireAuth = next.requireAuth || credentialAlwaysRequired
+    const nextRequireAuth = next.requireAuth
     if (next.host === host && nextRequireAuth === requireAuth && remoteAccess === boundRemoteAccess) return
     host = next.host
     requireAuth = nextRequireAuth
@@ -2430,6 +2518,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     try { ws.close() } catch (err) { log.warn('ws_close_failed_during_rebind', { error: err instanceof Error ? err.message : String(err) }) }
     await new Promise<void>((resolve) => http.close(() => resolve()))
     actualPort = await listenWithRetries(actualPort)
+    setAgentToolEndpointUrl(`http://127.0.0.1:${actualPort}/mcp`)
     const serveSettingAfterBind = getServerSettings().tailscaleServe
     if (remoteAccess !== 'off' && serveSettingAfterBind.enabled) {
       void tailscaleServe.enable(serveSettingAfterBind.port, actualPort)
@@ -2444,7 +2533,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       browserFrames,
       verifyAccessToken: verifyHostAccessToken,
       doors,
-      requireAuth: () => requireAuth,
+      requireAuth: isCredentialRequired,
       isTrustedRequester: isTrustedRequesterAddress,
       allowRemoteAddress,
       isTunnelRequest,
@@ -2454,6 +2543,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         opts.sessionRuntime.requestSessionIndexRefresh()
       },
       onClientDisconnected: ({ clientId }) => {
+        sessionShell.disconnected(clientId)
         prSync.dropConnection(clientId)
         handlePresenceDisconnected(clientId)
         workLive.disconnected(clientId)
@@ -2470,7 +2560,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     })
     lock = acquireLock(host, actualPort)
     if (!lock) log.warn('lock_acquisition_failed_after_rebind')
-    log.info('server_rebound', { host, port: actualPort, requireAuth })
+    log.info('server_rebound', { host, port: actualPort, requireAuth: isCredentialRequired() })
   }
   // A policy change applies at once (plans/030 §5.2): the bind moves, the tunnel closes, telemetry export follows.
   policyStore.onChanged(() => {
@@ -2486,16 +2576,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   // Every admitted socket may present the person's account token: renewal and `accountPresent` keep their delegation (ADR 0001 §6 item 5).
   registerAuthHandlers(server, establishPresented ? { verify: verifyHostAccessToken, establish: establishPresented } : null)
-  registerRemoteMachinesHandlers(server, { provisioner: sshProvisioner, wslProvisioner, listWslDistros: () => listWslDistros(runDeviceCommand), forwardedHosts, ssh, broadcast: (topic, payload) => events.broadcast(topic, payload) })
+  registerRemoteMachinesHandlers(server, { provisioner: sshProvisioner, wslProvisioner, listWslDistros: () => listWslDistros(runDeviceCommand), forwardedHosts, ssh, hostName: hostDisplayName, broadcast: (topic, payload) => events.broadcast(topic, payload) })
   registerConnectionsHandlers(server, {
     getServerInfo: () => ({
       host,
       port: actualPort,
       allowLan: !isLoopbackHost(host),
       remoteAccess: effectiveRemoteAccess(),
-      requireAuth,
+      requireAuth: isCredentialRequired(),
       trustLocalNetwork: effectiveTrustLocalNetwork(),
-      hostKind,
+      hostKind: hostKind(),
       roles: [...roles],
     }),
     tunnelUrl: tunnelOrigin,
@@ -2517,7 +2607,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     setRemoteAccess: async (remoteAccess) => {
       const next = setRemoteAccess(remoteAccess)
       await rebind(next.remoteAccess)
-      return { ...next, host, port: actualPort, allowLan: !isLoopbackHost(host), requireAuth }
+      return { ...next, host, port: actualPort, allowLan: !isLoopbackHost(host), requireAuth: isCredentialRequired() }
     },
     getTailscaleServe: () => {
       const setting = getServerSettings().tailscaleServe
@@ -2543,10 +2633,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     registrar,
     manager: uplinkManager,
     status: uplinkStatus,
+    // One second for the answer of the registration to reach its caller, whose connection ends too.
+    onBecameCloudMachine: () => { setTimeout(() => ws.disconnectWhere((principal) => principal.kind === 'owner', 'became-cloud-machine'), 1_000).unref() },
     selfTest: createHostSelfTest({
       installationId: getInstallationId,
       status: uplinkStatus,
-      isReachedDirectly: () => readHostLinkEnv() !== null,
+      isReachedDirectly: () => uplinkManager.isReachedDirectly(),
       isTunnelTurnedOffByPolicy: () => hostPolicies().hostSetting('cloudTunnel')?.value === false,
       boundPort: () => tunnelPort,
       connector: () => uplinkConnector.inspect(),
@@ -2588,6 +2680,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         serverTunnels.close()
         hostUpdates.stop()
         modelProfiles.stop()
+        modelPrices.stop()
         remoteUpdates.stop()
         stopSupervisor?.()
         codeIntel.dispose()

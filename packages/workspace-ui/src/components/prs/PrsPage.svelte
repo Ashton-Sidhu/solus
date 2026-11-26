@@ -25,7 +25,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { hostKey } from "@solus/client-core/host-key";
   import { isWaitingForHost } from "@solus/client-core/host-readiness";
-  import { Button } from "../ui/button";
+  import { PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import {
     ListEmpty,
     ListPage,
@@ -39,6 +39,7 @@
   import { arrangePrList } from "./lib/pr-list-arrange";
   import {
     showsPrDetailPanel,
+    prHostAnswered,
     showsPrPageSkeleton,
     type ScopeSwitchPhase,
   } from "./lib/pr-list-loading";
@@ -244,11 +245,11 @@
   );
   // Has the host answered the search in the field? Until it has, the rows on
   // screen are the previous answer, narrowed here by the typed text.
+  // While it has not, an empty list is still loading: it must not say that
+  // nothing matches.
   const hostAnswered = $derived(
-    !activeScopeReading &&
-      (pageScope.allProjects ? allProjectScopes : shown ? [shown] : []).every(
-        (project) => (project.filter.query ?? "") === search.typedHostQuery,
-      ),
+    !(pageScope.allProjects && hostsConnecting) &&
+      prHostAnswered(pageScope.allProjects ? allProjectScopes : shown ? [shown] : [], search.typedHostQuery),
   );
   // A failed project keeps its last-safe rows. Partial failures use a toast;
   // when no rows loaded, the error takes the page.
@@ -318,7 +319,7 @@
   }
   const { searched, filtered, sectioned, sections } = $derived(arranged);
   const showPageSkeleton = $derived(
-    showsPrPageSkeleton(scopeSwitch, activeLoading, filtered.length, listView.query.trim() !== ""),
+    showsPrPageSkeleton(scopeSwitch, activeLoading, activeItems.length, listView.query.trim() !== ""),
   );
 
   const rowKeyOf = $derived(pageScope.allProjects ? aggregateKeyFor : undefined);
@@ -432,8 +433,8 @@
 
   // The row lookups (checks, guides) key on the project alone, but
   // `pageScope.ctx()` builds a whole request context from the active tab, its
-  // run, settings and the status bar. Called per row — inside the sort
-  // comparator — that froze the list and made it depend on every session
+  // run, settings and the status bar. Called per row — inside the list
+  // filters — that froze the list and made it depend on every session
   // event. Build it once per project, untracked.
   const lookupCtx = $derived.by(() => {
     void pageScope.projectPath;
@@ -1029,11 +1030,11 @@
     sortOptions={SORT_OPTIONS}
     {filterGroups}
     projectFilter={splitList ? undefined : projectFilter}
+    savedViews={splitList ? undefined : savedViews}
     projectFilterActive={!splitList && !pageScope.allProjects && !!pageScope.pageKey}
     onClearFilters={clearMenuFilters}
     onSearchFocusChange={fold.searchFocusChanged}
   />
-  <PrSavedViews filters={capturePrView(listView, pullRequests.view.hostFilterId, pageScope.serverId && pageScope.projectPath ? { hostId: pageScope.serverId, projectPath: pageScope.projectPath } : null)} onApply={(filters) => void applySavedView(filters)} />
   {#if pullRequests.view.hostFilterId}<button type="button" class="rounded-md px-2 py-1 text-workspace-chrome hover:bg-muted" onclick={() => pullRequests.view.hostFilterId = null}>Host: {serversStore.servers.find((server) => server.id === pullRequests.view.hostFilterId)?.label ?? pullRequests.view.hostFilterId} · Clear</button>{/if}
 
 {/snippet}
@@ -1048,9 +1049,13 @@
     emptyLabel={pageScope.allProjects ? "All projects" : "No project"}
     onSelect={selectProject}
     onSelectAll={() => session.setProjectPageScope({ kind: "all" })}
-    onSelectCurrent={() => session.scopePageToCurrentProject()}
+    currentKey={session.currentProjectKey}
     onRemoveProject={workspace ? removeProject : undefined}
   />
+{/snippet}
+
+{#snippet savedViews()}
+  <PrSavedViews filters={capturePrView(listView, pullRequests.view.hostFilterId, pageScope.serverId && pageScope.projectPath ? { hostId: pageScope.serverId, projectPath: pageScope.projectPath } : null)} onApply={(filters) => void applySavedView(filters)} />
 {/snippet}
 
 {#snippet condensedCrumbs()}
@@ -1116,36 +1121,29 @@
           serverId={pageScope.serverId}
           {projectsFailure}
           hasItems={activeItems.length > 0}
+          narrowed={search.hostQuery !== "" || fetchScope !== "open"}
           loading={activeLoading}
           onRetry={() => readList({ force: true })}
           onShowAll={() => session.setProjectPageScope({ kind: "all" })}
         >
-        {#if groups.length === 0 && activeLoading}
-          <!-- A search read with nothing to show yet. The page keeps its
-               toolbar, so the search field keeps focus. -->
+        {#if groups.length === 0 && !hostAnswered}
+          <!-- A search or filter read with nothing to show yet: the rows on
+               screen answer the previous question. The page keeps its
+               toolbar, so the search field and the Filters menu stay. -->
           <PrListLoading />
         {:else if groups.length === 0}
           <ListEmpty title="Nothing matches">
             Clear the filters or widen the search.
             {#snippet actions()}
-              <Button
-                type="button"
-                class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-workspace-chrome font-medium text-muted-foreground transition-colors hover:text-foreground"
-                onclick={clearFilters}
-              >
+              <button type="button" class={PAGE_SECONDARY_BTN} onclick={clearFilters}>
                 Clear filters
-              </Button>
+              </button>
               <!-- The rows loaded so far may all be filtered out while the host
                    still has more, so the next page can be asked for from here. -->
               {#if hasMorePullRequests && !loadCapped}
-                <Button
-                  type="button"
-                  class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-workspace-chrome font-medium text-muted-foreground transition-colors hover:text-foreground"
-                  disabled={loadingMorePullRequests}
-                  onclick={loadMoreAll}
-                >
-                  {loadingMorePullRequests ? "Loading more" : "Load more pull requests"}
-                </Button>
+                <button type="button" class={PAGE_SECONDARY_BTN} onclick={loadMoreAll}>
+                  Load more pull requests
+                </button>
               {/if}
             {/snippet}
           </ListEmpty>

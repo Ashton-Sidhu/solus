@@ -13,6 +13,8 @@ export interface SshAddForm {
   identityFile: string
   /** The person chose to link the new host to their Solus account. */
   linkToAccount: boolean
+  /** The person chose Fix permissions: the host first lets only its owner read the key. */
+  fixIdentityFilePermissions?: boolean
   password: string
   deviceLabel: string
   requestId: string
@@ -27,9 +29,28 @@ export function sshAddRequest(form: SshAddForm, link: SshAddLink | null): SshAdd
   }
   const identityFile = form.identityFile.trim()
   if (identityFile) request.identityFile = identityFile
+  if (identityFile && form.fixIdentityFilePermissions) request.fixIdentityFilePermissions = true
   if (form.linkToAccount && link) request.link = link
   if (form.password) request.authSecret = form.password
   return request
+}
+
+/**
+ * The host refused the identity file because it has no such file. The field
+ * of the key shows it, not the add: the person fixes the path.
+ */
+export function isMissingIdentityFile(message: string): boolean {
+  return /\bNo file at /.test(message)
+}
+
+/**
+ * Why a discovered server was not added, for an answer its flow does not expect.
+ * That flow names no key, so it offers no fix for one: it says what is wrong.
+ */
+export function discoveredAddFailure(result: SshAddResult, serverName: string): string {
+  return result.status === 'key-permissions'
+    ? result.message
+    : `${serverName} could not be added at the address it was found at. Pair it with a code instead.`
 }
 
 export interface SshAddContext {
@@ -48,6 +69,8 @@ export type SshAddOutcome =
   | { kind: 'linked'; message: string }
   /** SSH refused the key or the secret: the person can give a password. */
   | { kind: 'ask-password'; message: string }
+  /** Other users can read the key, so SSH refuses it; nothing was sent. The person can fix its permissions. */
+  | { kind: 'key-permissions'; identityFile: string; message: string }
   | { kind: 'failed'; message: string }
 
 /** What one answer of `hostsAddOverSsh` means for a machine that was not discovered. */
@@ -61,6 +84,8 @@ export function sshAddOutcome(result: SshAddResult, context: SshAddContext): Ssh
       return { kind: 'linked', message: `${result.label} is linked to your Solus account.` }
     case 'needs-auth':
       return { kind: 'ask-password', message: `${result.message} Enter the password for ${result.sshTarget}.` }
+    case 'key-permissions':
+      return { kind: 'key-permissions', identityFile: result.identityFile, message: result.message }
     case 'needs-target':
       return { kind: 'failed', message: result.message }
     case 'session':

@@ -46,16 +46,21 @@ The new project is a complete, checked app: **Notes**. Read all of it before you
 | `migrations/0001_notes.sql` | The table and its index. |
 | `src/App.tsx` | The window: a wordmark with a live status, a headline from config, a composer, a list of notes with search and a count, a detail page, a delete with a confirm `<dialog>`, a `/` shortcut, and the loading, empty, no-match, saving, and error states. |
 | `src/route.ts` | Pages in the address after `#`. |
-| `src/styles.css` | The app's own theme (a cream page, hairlines, and a dark green accent) for light and dark, with `light-dark()`. |
+| `src/styles.css` | How a theme is set up: tokens in `@theme`, each with a light and a dark value from `light-dark()`. Its values are a sample for Notes. |
 
-Make it into the app the user asked for: change the table, the schema, the operations, and the UI, and keep the patterns. Keep the type-only import of `app` in the UI, the shared schema, the route by address, and the states. Do not keep a part of Notes that the new app does not need, and do not keep its look: give each app a palette and a face that fit its subject, and a larger app gets a sidebar and more pages ([design](references/design.md)).
+Make it into the app the user asked for. The starter has two kinds of parts:
+
+- **Wiring to keep.** The type-only import of `app` in the UI, the shared schema, the operations' shape, the route by address, and the loading, empty, error, and saving states.
+- **A sample to replace.** The look of Notes: its palette, its face, its wordmark, its single-column layout, and its headline. They are there to show that the wiring works, not as a house style. Write the app's own `@theme` values, shell, and components from the brief ([design](references/design.md)); do not change Notes' look a little at a time.
+
+Do not keep a part of Notes that the new app does not need. A larger app gets a sidebar and more pages.
 
 `@solus/app` and `@solus/app/backend` are files of the project (`src/solus-app.ts`, `src/solus-app-backend.ts`), not npm packages: import them, do not install them, and do not edit them.
 
 ## Steps
 
 1. Start the project with the initializer.
-2. Design the app as a product before you write components: read [design](references/design.md).
+2. Design the app as a product before you write components: read [design](references/design.md) and write its brief.
 3. Write the backend, the data, and the UI. Read only the topics the app needs (below).
 4. Check it: `preview_app` with `path` (the project folder). The host builds the folder and gives you a screenshot. A build error comes back with the build's own text. Fix what you see. Check each page with `route`, and check about 390px wide and dark mode too.
 5. Save it: `save_app` with `path`. A save commits the source as a revision and changes nothing that runs. The receipt says the app's slug.
@@ -84,4 +89,4 @@ Do not use `render_artifact` for an app. `npm run bundle` checks the types and t
 
 ## Done
 
-Look at each preview as the user will: would a person take this for a product that a team shipped? If it reads as a form, a debug view, or a default page, design it again before you deploy. Show real data; never put a hard-coded array where live data belongs. Say which behavior you did not check.
+Look at each preview as the user will: would a person take this for a product that a team shipped? If it reads as a form, a debug view, a default page, or Notes with new words, design it again before you deploy. Compare it with the brief. Show real data; never put a hard-coded array where live data belongs. Say which behavior you did not check.

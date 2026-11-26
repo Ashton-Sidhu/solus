@@ -104,6 +104,8 @@ import { createSwipeRowActivation } from "./swipe-row-activation";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-swipe-actions";
 import { useFabScroll } from "./FabScrollContext";
 import { holdLaunchSplashForHomeRows, settleLaunchSplashHomeRows } from "./home-launch-splash";
+import { useFirstLayoutItems } from "./first-layout-items";
+import { markStart } from "@solus-mobile/lib/start-trace";
 import { useWorkspaceTabs } from "../layout/workspace/WorkspaceTabsContext";
 import { ThreadListFilters } from "./ThreadListFilters";
 import { deriveHomeEmptyState } from "./home-empty-state";
@@ -456,6 +458,11 @@ export function HomeScreen(props: HomeScreenProps) {
     onSelectThread(thread);
   };
   useThreadJumpShortcuts(threadListV2Items, selectThread, props.onSelectPendingTask);
+  // The launch splash waits for the list's first layout: keep its rows still until then.
+  const [firstLayoutDone, setFirstLayoutDone] = useState(false);
+  const listItems = useFirstLayoutItems(threadListV2Items, firstLayoutDone);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- records each new list for the start trace (a no-op unless the trace build is on)
+  useEffect(() => markStart(`rows_changed:${threadListV2Items.length}`), [threadListV2Items]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the list's visible range after commit to enable swipe gestures on those rows
   useEffect(() => {
     if (swipeEnabled) activateVisibleRows(threadListV2Items);
@@ -618,6 +625,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const hasRowsToLayOut = props.visible && hasAnyThreads && threadListV2Items.length > 0;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- holds the native launch splash, which is outside React, until the rows are gone or this list unmounts; a layout effect runs before the splash hides in this commit
   useLayoutEffect(() => {
+    if (hasRowsToLayOut) markStart("home_rows");
     return hasRowsToLayOut ? holdLaunchSplashForHomeRows() : undefined;
   }, [hasRowsToLayOut]);
   const selectedEnvironmentLabel =
@@ -768,14 +776,16 @@ export function HomeScreen(props: HomeScreenProps) {
                 itemLayoutAnimation={THREAD_LIST_ROW_LAYOUT}
                 ref={listRef}
                 onLoad={() => {
+                  markStart("list_loaded");
                   settleLaunchSplashHomeRows();
-                  activateVisibleRows(threadListV2Items);
+                  setFirstLayoutDone(true);
+                  activateVisibleRows(listItems);
                 }}
                 onTouchStart={(event) => trackListTouches(event, true)}
                 onTouchEnd={(event) => trackListTouches(event, false)}
                 onTouchCancel={(event) => trackListTouches(event, false)}
                 renderScrollComponent={Platform.OS === "ios" ? renderHomeScrollView : undefined}
-                data={threadListV2Items}
+                data={listItems}
                 renderItem={renderV2Item}
                 keyExtractor={v2KeyExtractor}
                 getItemType={(item) => item.type}

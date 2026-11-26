@@ -3,7 +3,7 @@ import { workspaceToolAuthority } from '../../admission/workspace-tool-authority
 import { INTERNAL_PRINCIPAL, organizationForNew, recordScopeOf } from '../../admission/principal'
 import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import { SolusApiError } from '../../admission/workspace-error'
-import { isOrganizationAttached } from '../../host/organization-attachment'
+import { machineKind } from '../../host/machine-kind'
 import { getSessionRecord, isOrganizationWork } from '../sessions/session-records'
 import { sessionIdentityOf } from '../sessions/session-identity'
 
@@ -46,19 +46,19 @@ export async function workspaceToolContext(sessionId?: string): Promise<Workspac
   // row says so before the provider starts and its record is written.
   const identity = sessionId ? await sessionIdentityOf(sessionId) : null
   const home = isOrganizationWork(identity) ? identity : null
-  if (sessionId && home && isOrganizationAttached()) {
+  if (sessionId && home && machineKind() === 'cloud') {
     const operations = installed.remote?.(sessionId)
     if (!operations) throw new SolusApiError(503, 'CAPABILITY_UNAVAILABLE', 'This organization session holds no authority for its Solus API right now. Send the next message from Solus to continue; nothing was saved on this machine.')
     return { operations, remote: true, deliveryActor: home.ownerKey ?? '', context: {
       principal, home: { kind: 'organization', serviceId: 'remote', organizationId: home.organizationId },
-      scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write'],
+      scopes: ['issues:read', 'issues:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write'],
       actingAgent: { sessionId, organizationId: home.organizationId },
     } }
   }
   const session = sessionId ? await getSessionRecord(recordScopeOf(principal), sessionId) : null
   return { operations: installed.operations, remote: false, context: {
     principal, home: { kind: 'local', hostId: installed.hostId },
-    scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write'],
+    scopes: ['issues:read', 'issues:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write'],
     actingAgent: { sessionId, organizationId: session?.organizationId ?? organizationForNew(principal) },
   } }
 }

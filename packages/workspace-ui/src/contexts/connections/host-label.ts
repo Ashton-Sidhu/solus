@@ -11,8 +11,8 @@ import type { KnownHostUplink } from '@solus/client-core/known-host'
  * record does: it rides the authenticated connection and reloads on every
  * reconnect.
  *
- * A managed host reads its name as given on the account site, which members can
- * change (docs/plans/managed-hosts.md); the cloud icon beside it says where it runs.
+ * A cloud machine reads its name as given on the account site, which members can
+ * change (docs/plans/managed-hosts.md); the cloud icon beside it says what it is.
  * Its machine name is an identifier nobody chose, so when the saved label is only
  * that identifier the row says "Cloud host". It never names the organization.
  *
@@ -31,7 +31,7 @@ export function hostRowLabel(
   reportedName: string | undefined,
 ): string {
   if (saved.hasUserLabel) return saved.label
-  if (saved.uplink?.kind === 'managed') {
+  if (saved.uplink?.kind === 'cloud') {
     return saved.label && saved.label !== reportedName ? saved.label : CLOUD_HOST_LABEL
   }
   return reportedName || saved.label

@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
+import { useCSSVariable } from "uniwind";
 import { z } from "zod";
 import type { HostApi } from "@solus/client-core/host-api";
 import { nativeMcpAppDocument, nativeMcpAppPost } from "@solus/client-core/mcp-app-document";
@@ -11,8 +12,7 @@ import type { McpAppCancelReason, McpAppLiveDocument, McpAppRequest, McpAppSnaps
 
 import { useApp } from "../../app/app-context";
 import { AppText as Text } from "../../components/AppText";
-import { useUniwindTheme } from "../../lib/useUniwindTheme";
-import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { useAppearancePreferences } from "../../../src/features/settings/appearance/AppearancePreferencesProvider";
 import type { ConversationStore } from "../conversation/conversation-store";
 
 const relayMessageSchema = z.object({ secret: z.string(), json: z.string().optional(), navigated: z.boolean().optional() });
@@ -60,8 +60,8 @@ export function McpAppWebView(props: {
 }) {
   const { snapshot, call, savedCall, api, store, title, hostRef, displayMode, availableDisplayModes, safeAreaInsets } = props;
   const app = useApp();
-  const theme = useUniwindTheme();
-  const { themeAppearance } = useAppearancePreferences();
+  const { themeVariables: theme, themeAppearance } = useAppearancePreferences();
+  const [info, success] = useCSSVariable(["--color-adaptive-sky-600-400", "--color-adaptive-emerald-600-400"]);
   const webView = useRef<WebView<object>>(null);
   const host = hostRef;
   const [secret] = useState(() => app.platform.uuid());
@@ -88,9 +88,9 @@ export function McpAppWebView(props: {
       textTertiary: theme["--color-foreground-tertiary"],
       border: theme["--color-border"],
       accent: theme["--color-focus"],
-      info: theme["--color-adaptive-sky-600-400"],
+      info: typeof info === "string" ? info : theme["--color-focus"],
       danger: theme["--color-danger-foreground"],
-      success: theme["--color-adaptive-emerald-600-400"],
+      success: typeof success === "string" ? success : theme["--color-update-foreground"],
       warning: theme["--color-warning-foreground"],
       fontSans: "-apple-system,system-ui,sans-serif",
       fontMono: "ui-monospace,Menlo,monospace",

@@ -1,59 +1,19 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 import {
-  finishThreadFeedSubmission,
   resolveThreadFeedSubmissionAnchor,
+  threadOpeningBottomInset,
   resolveThreadWorkGroupInitialScroll,
 } from "./thread-feed-scroll-position";
 
-describe("finishThreadFeedSubmission", () => {
-  const setup = () => ({
-    scope: new AbortController().signal,
-    keyboardVisible: true,
-    blurEditor: vi.fn(),
-    dismissKeyboard: vi.fn(async () => {}),
-    scrollToEnd: vi.fn(async () => {}),
-  });
-
-  it("lets the closing viewport reveal the follow-up before checking whether to scroll", async () => {
-    const commands = setup();
-    const keyboard = Promise.withResolvers<void>();
-    commands.dismissKeyboard.mockReturnValueOnce(keyboard.promise);
-    const finished = finishThreadFeedSubmission(commands);
-    expect(commands.dismissKeyboard).toHaveBeenCalledOnce();
-    expect(commands.scrollToEnd).not.toHaveBeenCalled();
-    keyboard.resolve();
-    await finished;
-    expect(commands.scrollToEnd).toHaveBeenCalledOnce();
-    expect(commands.blurEditor).not.toHaveBeenCalled();
-  });
-
-  it("dismisses the keyboard once when the first prompt lands in a draft", async () => {
-    const commands = setup();
-    await finishThreadFeedSubmission({ ...commands, scrollToEnd: null });
-    expect(commands.dismissKeyboard).toHaveBeenCalledOnce();
-    expect(commands.scrollToEnd).not.toHaveBeenCalled();
-    expect(commands.blurEditor).not.toHaveBeenCalled();
-  });
-
-  it("blurs a hardware keyboard's input and follows without dismissing a soft keyboard", async () => {
-    const commands = setup();
-    await finishThreadFeedSubmission({ ...commands, keyboardVisible: false });
-    expect(commands.blurEditor).toHaveBeenCalledOnce();
-    expect(commands.scrollToEnd).toHaveBeenCalledOnce();
-    expect(commands.dismissKeyboard).not.toHaveBeenCalled();
-  });
-
-  it("does not scroll a different conversation after the keyboard closes", async () => {
-    const commands = setup();
-    const scope = new AbortController();
-    const keyboard = Promise.withResolvers<void>();
-    commands.dismissKeyboard.mockReturnValueOnce(keyboard.promise);
-    const finished = finishThreadFeedSubmission({ ...commands, scope: scope.signal });
-    scope.abort();
-    keyboard.resolve();
-    await finished;
-    expect(commands.scrollToEnd).not.toHaveBeenCalled();
-  });
+it("keeps opening rows above the composer as the keyboard closes", () => {
+  const viewportEnd = 800;
+  const composerInset = 64;
+  const visibleEnd = (composerKeyboardTranslation: number) =>
+    viewportEnd - threadOpeningBottomInset(composerInset, composerKeyboardTranslation);
+  expect(visibleEnd(-266)).toBe(470);
+  expect(visibleEnd(-133)).toBe(603);
+  expect(visibleEnd(0)).toBe(736);
+  expect(visibleEnd(7)).toBe(736);
 });
 
 describe("tool-group scroll restoration", () => {

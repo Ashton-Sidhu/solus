@@ -1,117 +1,133 @@
+import { z } from 'zod'
 import type { UsageData } from '@solus/contracts/types'
 
-export interface TokenPricesUsdPerMillion {
+/** Token prices in USD per token. */
+export interface TokenPrices {
   input: number
   cachedInput: number
   cacheWrite: number
   output: number
 }
 
-interface ModelTokenPricing {
-  standard: TokenPricesUsdPerMillion
-  longContext?: TokenPricesUsdPerMillion & { thresholdTokens: number }
+const tokenPricesSchema = z.object({ input: z.number(), cachedInput: z.number(), cacheWrite: z.number(), output: z.number() })
+
+/** A model's prices: the standard rate, and the rates of a request whose input passes a threshold, largest threshold first. */
+export const modelTokenPricingSchema = z.object({
+  standard: tokenPricesSchema,
+  longContext: z.array(tokenPricesSchema.extend({ thresholdTokens: z.number() })),
+})
+export type ModelTokenPricing = z.infer<typeof modelTokenPricingSchema>
+
+/**
+ * The model makers' own APIs in LiteLLM's names. A bare name is the maker's
+ * own too. A cloud's or a reseller's price (`azure/`, `vertex_ai/`, …) is never
+ * read: it can carry a markup.
+ */
+const FIRST_PARTY_PREFIXES = ['openai/', 'gemini/', 'anthropic/'] as const
+
+const liteLlmDocumentSchema = z.string().transform((text, context) => {
+  try {
+    return z.record(z.string(), z.json()).parse(JSON.parse(text))
+  } catch {
+    context.addIssue({ code: 'custom', message: 'The price list is not a JSON object.' })
+    return z.NEVER
+  }
+})
+const priceSchema = z.number().finite().nonnegative()
+const priceFieldsSchema = z.record(z.string(), z.json()).transform((entry) => {
+  const fields = new Map<string, number>()
+  for (const [name, value] of Object.entries(entry)) {
+    const price = priceSchema.safeParse(value)
+    if (price.success) fields.set(name, price.data)
+  }
+  return fields
+})
+const LONG_CONTEXT_INPUT = /^input_cost_per_token_above_(\d{1,7})k_tokens$/
+
+/** A rate LiteLLM leaves out is the input rate, scaled as the standard rates are when there are some. */
+function pricesOf(fields: Map<string, number>, suffix: string, standard?: TokenPrices): TokenPrices | null {
+  const input = fields.get(`input_cost_per_token${suffix}`)
+  const output = fields.get(`output_cost_per_token${suffix}`) ?? standard?.output
+  if (input === undefined || output === undefined) return null
+  const scaled = (rate: keyof TokenPrices) => standard && standard.input > 0 ? standard[rate] / standard.input * input : input
+  return {
+    input,
+    output,
+    cachedInput: fields.get(`cache_read_input_token_cost${suffix}`) ?? scaled('cachedInput'),
+    cacheWrite: fields.get(`cache_creation_input_token_cost${suffix}`) ?? scaled('cacheWrite'),
+  }
+}
+
+function pricingOf(fields: Map<string, number>): ModelTokenPricing | null {
+  const standard = pricesOf(fields, '')
+  if (!standard) return null
+  const longContext: ModelTokenPricing['longContext'] = []
+  for (const name of fields.keys()) {
+    const threshold = LONG_CONTEXT_INPUT.exec(name)?.[1]
+    const prices = threshold ? pricesOf(fields, `_above_${threshold}k_tokens`, standard) : null
+    if (prices) longContext.push({ ...prices, thresholdTokens: Number(threshold) * 1_000 })
+  }
+  longContext.sort((a, b) => b.thresholdTokens - a.thresholdTokens)
+  return { standard, longContext }
 }
 
 /**
- * OpenAI list prices per million tokens for every Codex model Solus supports.
- * Keep this catalog beside the cost calculation so a model cannot silently
- * fall back to zero. Prices were checked against the official model pages on
- * 2026-09-04, and the GPT-6.1 and GPT-6.2 rows on 2026-11-23. Cache writes use
- * the ordinary input rate unless OpenAI publishes a separate rate; GPT-5.6,
- * GPT-6.1 Terra, and GPT-6.2 Astra writes cost 1.25x input. Over 272K input tokens, input and
- * cache rates double and output costs 1.5x.
+ * The first-party prices in LiteLLM's `model_prices_and_context_window.json`,
+ * by lower-case name. A model with no input or output rate is left out, so its
+ * cost reads as unknown, not as zero.
  */
-export const CODEX_TOKEN_PRICING = {
-  'gpt-6.2-astra': {
-    standard: { input: 8, cachedInput: 0.4, cacheWrite: 10, output: 40 },
-    longContext: { thresholdTokens: 272_000, input: 16, cachedInput: 0.8, cacheWrite: 20, output: 60 },
-  },
-  'gpt-6.2-sol': {
-    standard: { input: 2, cachedInput: 0.1, cacheWrite: 2, output: 10 },
-    longContext: { thresholdTokens: 272_000, input: 4, cachedInput: 0.2, cacheWrite: 4, output: 15 },
-  },
-  'gpt-6.1-terra': {
-    standard: { input: 1, cachedInput: 0.05, cacheWrite: 1.25, output: 5 },
-    longContext: { thresholdTokens: 272_000, input: 2, cachedInput: 0.1, cacheWrite: 2.5, output: 7.5 },
-  },
-  'gpt-6.1-sol': {
-    standard: { input: 2, cachedInput: 0.1, cacheWrite: 2, output: 10 },
-    longContext: { thresholdTokens: 272_000, input: 4, cachedInput: 0.2, cacheWrite: 4, output: 15 },
-  },
-  'gpt-6-astra': {
-    standard: { input: 10, cachedInput: 1, cacheWrite: 10, output: 50 },
-  },
-  'gpt-6-sol': {
-    standard: { input: 2, cachedInput: 0.2, cacheWrite: 2, output: 10 },
-  },
-  'gpt-6-luna': {
-    standard: { input: 0.1, cachedInput: 0.01, cacheWrite: 0.1, output: 0.5 },
-  },
-  'gpt-5.6-sol': {
-    standard: { input: 5, cachedInput: 0.5, cacheWrite: 6.25, output: 30 },
-    longContext: { thresholdTokens: 272_000, input: 10, cachedInput: 1, cacheWrite: 12.5, output: 45 },
-  },
-  'gpt-5.6-terra': {
-    standard: { input: 2.5, cachedInput: 0.25, cacheWrite: 3.125, output: 15 },
-    longContext: { thresholdTokens: 272_000, input: 5, cachedInput: 0.5, cacheWrite: 6.25, output: 22.5 },
-  },
-  'gpt-5.6-luna': {
-    standard: { input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 6 },
-    longContext: { thresholdTokens: 272_000, input: 2, cachedInput: 0.2, cacheWrite: 2.5, output: 9 },
-  },
-  'gpt-5.5': {
-    standard: { input: 5, cachedInput: 0.5, cacheWrite: 5, output: 30 },
-    longContext: { thresholdTokens: 272_000, input: 10, cachedInput: 1, cacheWrite: 10, output: 45 },
-  },
-  'gpt-5.5-pro': {
-    standard: { input: 30, cachedInput: 30, cacheWrite: 30, output: 180 },
-    longContext: { thresholdTokens: 272_000, input: 60, cachedInput: 60, cacheWrite: 60, output: 270 },
-  },
-  'gpt-5.4': {
-    standard: { input: 2.5, cachedInput: 0.25, cacheWrite: 2.5, output: 15 },
-    longContext: { thresholdTokens: 272_000, input: 5, cachedInput: 0.5, cacheWrite: 5, output: 22.5 },
-  },
-  'gpt-5.4-mini': {
-    standard: { input: 0.75, cachedInput: 0.075, cacheWrite: 0.75, output: 4.5 },
-  },
-  'gpt-5.3-codex': {
-    standard: { input: 1.75, cachedInput: 0.175, cacheWrite: 1.75, output: 14 },
-  },
-} satisfies Record<string, ModelTokenPricing>
+export function parseLiteLlmPrices(text: string): Map<string, ModelTokenPricing> {
+  const prices = new Map<string, ModelTokenPricing>()
+  const entries = liteLlmDocumentSchema.safeParse(text)
+  if (!entries.success) return prices
+  for (const [name, entry] of Object.entries(entries.data)) {
+    const key = name.trim().toLowerCase()
+    if (key.includes('/') && !FIRST_PARTY_PREFIXES.some((prefix) => key.startsWith(prefix))) continue
+    const fields = priceFieldsSchema.safeParse(entry)
+    const pricing = fields.success ? pricingOf(fields.data) : null
+    if (pricing) prices.set(key, pricing)
+  }
+  return prices
+}
 
-const codexTokenPricingByModel = new Map<string, ModelTokenPricing>(
-  Object.entries(CODEX_TOKEN_PRICING),
-)
+/** The prices in effect: empty until the host has read its cached list or downloaded one (`updates/model-prices-service.ts`). */
+let modelPrices: ReadonlyMap<string, ModelTokenPricing> = new Map()
+
+export function replaceModelPrices(prices: ReadonlyMap<string, ModelTokenPricing>): void {
+  modelPrices = prices
+}
+
+/** A model's prices: its own name first, then the maker's API names. */
+export function modelPricing(model: string): ModelTokenPricing | null {
+  const key = model.trim().toLowerCase()
+  if (!key) return null
+  for (const candidate of [key, ...FIRST_PARTY_PREFIXES.map((prefix) => `${prefix}${key}`)]) {
+    const pricing = modelPrices.get(candidate)
+    if (pricing) return pricing
+  }
+  return null
+}
 
 function tokenCount(value: number | undefined): number {
   return value !== undefined && Number.isFinite(value) && value > 0 ? value : 0
 }
 
 /**
- * What a turn's tokens cost. Returns no value for an unknown model instead of
- * recording a false zero. The long-context rate is per request: a turn sums
+ * What a turn's tokens cost. Returns no value for a model with no price instead
+ * of recording a false zero. The long-context rate is per request: a turn sums
  * many requests, so its token totals pass the threshold when no request did.
  * `requestInputTokens` is the largest request's input, which the context fill
  * at the end of the turn stands for; unknown, the turn is billed at the
  * standard rate.
  */
-export function codexTokenCostUsd(model: string, usage: UsageData, requestInputTokens?: number): number | undefined {
-  const pricing = codexTokenPricingByModel.get(model)
+export function modelTokenCostUsd(model: string, usage: UsageData, requestInputTokens?: number): number | undefined {
+  const pricing = modelPricing(model)
   if (!pricing) return undefined
-
   const input = tokenCount(usage.inputTokens)
   const cachedInput = tokenCount(usage.cacheReadTokens)
   const cacheWrite = tokenCount(usage.cacheCreationTokens)
   const output = tokenCount(usage.outputTokens)
   if (input + cachedInput + cacheWrite + output === 0) return undefined
-  const prices = pricing.longContext && requestInputTokens !== undefined && requestInputTokens > pricing.longContext.thresholdTokens
-    ? pricing.longContext
-    : pricing.standard
-
-  return (
-    input * prices.input
-    + cachedInput * prices.cachedInput
-    + cacheWrite * prices.cacheWrite
-    + output * prices.output
-  ) / 1_000_000
+  const prices = (requestInputTokens !== undefined && pricing.longContext.find((tier) => requestInputTokens > tier.thresholdTokens)) || pricing.standard
+  return input * prices.input + cachedInput * prices.cachedInput + cacheWrite * prices.cacheWrite + output * prices.output
 }

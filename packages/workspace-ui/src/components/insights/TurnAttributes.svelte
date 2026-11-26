@@ -115,7 +115,7 @@
                         {...props}
                         type="button"
                         class="block w-full truncate cursor-pointer border-0 bg-transparent p-0 text-left text-insights-chrome leading-[1.5] text-primary underline decoration-primary/35 underline-offset-4 select-text transition-colors hover:decoration-primary focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)] active:scale-[0.96]"
-                        title="Open task in the trailing pane"
+                        title="Open issue in the trailing pane"
                         onclick={() => onOpenTask(attribute.destination!.taskId)}
                       >{attribute.value}</button
                       >

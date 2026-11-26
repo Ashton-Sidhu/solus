@@ -1,6 +1,7 @@
 import { localApi } from '@solus/client-core/local-api'
 import { cloudAccount } from '@solus/client-core/cloud-account'
 import type { AccountState, SignInEnd } from '@solus/contracts/account-types'
+import type { CloudAddressChange, CloudAddressState } from '@solus/contracts/cloud-address'
 import { askBeforeDiscardingUnsent } from '../works/work-live-discard'
 
 /**
@@ -17,6 +18,9 @@ class AccountStore {
   hasAnswered = $state(false)
   /** True when the client shell can hold a Solus account (desktop today). */
   readonly isAvailable = localApi.accountState !== undefined
+  /** The Solus Cloud address this device signs in to (docs/solus-cloud-address.md). Null on the web, where
+   *  the control plane serves the client, and until the shell answers. */
+  cloudAddress = $state<CloudAddressState | null>(null)
   private hasStarted = false
   private isSigningIn = false
 
@@ -41,6 +45,8 @@ class AccountStore {
       this.state = state
       this.hasAnswered = true
     })
+    localApi.onCloudAddressChange((address) => { this.cloudAddress = address })
+    void localApi.cloudAddress().then((address) => { this.cloudAddress = address })
   }
 
   get isSignedIn(): boolean {
@@ -71,6 +77,14 @@ class AccountStore {
     if (!account) return
     await account.signOut()
     location.reload()
+  }
+
+  /** Changes this device's Solus Cloud address; `null` goes back to the hosted one. Null where the shell holds no account. */
+  async setCloudAddress(address: string | null): Promise<CloudAddressChange | null> {
+    if (!this.isAvailable) return null
+    const change = await localApi.setCloudAddress(address)
+    if (change.ok) this.cloudAddress = change.address
+    return change
   }
 
   async retryVerify(): Promise<void> {

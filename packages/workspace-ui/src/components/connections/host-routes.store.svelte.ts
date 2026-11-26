@@ -46,9 +46,9 @@ class HostRoutesStore {
       : []
   }
 
-  /** Whether this client can change the host's routes: Solus cloud owns a managed host's. */
+  /** Whether this client can change the host's routes: the control plane owns a cloud machine's. */
   canChange(serverId: string): boolean {
-    return !this.isLocal(serverId) && !!this.known(serverId) && this.known(serverId)?.uplink?.kind !== 'managed'
+    return !this.isLocal(serverId) && !!this.known(serverId) && this.known(serverId)?.uplink?.kind !== 'cloud'
   }
 
   /**

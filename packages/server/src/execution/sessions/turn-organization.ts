@@ -4,14 +4,13 @@ import { isHostOwner, LOCAL_ORGANIZATION_ID, type Principal } from '../../admiss
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { assignSessionOrganization, getSessionRecord, isOrganizationWork } from '../../data/sessions/session-records'
 import { claimSessionOwner, sessionIdentityOf, type SessionBirthOptions } from '../../data/sessions/session-identity'
-import { isOrganizationAttached } from '../../host/organization-attachment'
 import { sessionIdOfThread } from '../../data/sessions/session-lineage'
 import { isChat } from '@solus/contracts/chat'
 import { parseUserKey } from '@solus/contracts/user'
 import { hostKeyOf, hostUserKey, isHostUserKey } from '../../host/host-user'
 import type { HostOrganizations } from '../../host/organizations'
-import { hostCategory } from '../../host/host-category'
-import type { HostCategory, HostRules } from '@solus/contracts/uplink'
+import { cloudOrganizationId, machineKind } from '../../host/machine-kind'
+import type { HostRules, MachineKind } from '@solus/contracts/uplink'
 import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
 import type { TurnRefusal } from '@solus/contracts/organization-scope'
@@ -28,13 +27,12 @@ import { TurnRefusedError } from './turn-refusal'
  *    follows its source. The admission births the session's row
  *    (`session-identity.ts`): there is no in-memory record of a session that
  *    is not written yet, and a restart finds the same answer in the row.
- * 2. **Attached machine.** On a machine attached for organization work, a new
- *    root needs an organization — the member's, or the one the owner's window
- *    selected — and the Solus API must accept the session before its provider
- *    starts. The session is born published, owned by that person, and the host
- *    acts for them with its delegation. New personal roots are refused there; a session
- *    admitted before the attachment keeps its Local home.
- * 3. **Assignment.** Elsewhere, an unassigned Local session is assigned to the
+ * 2. **Cloud machine.** On a cloud machine every session is its organization's
+ *    work (plans/034-one-cloud-machine-kind.md §2). A new root starts in the
+ *    member's organization, and the Solus API must accept the session before its
+ *    provider starts. The session is born published, owned by that person, and
+ *    the host acts for them with its delegation. Nobody starts personal work there.
+ * 3. **Assignment.** On a personal machine, an unassigned Local session is assigned to the
  *    sending window's organization once: the organization of the person who
  *    started it. It is a fact about the session, not its home and not a share;
  *    only publication makes it organization work (`isOrganizationWork`). The
@@ -66,8 +64,6 @@ export interface TurnOrganizationDeps {
   hostOrganizations: HostOrganizations
   /** Absent where the host cannot run organization work: the desktop's own host, a host with no link. */
   delegations?: DelegationPort
-  /** Persists the attachment the first time a member is admitted for organization work (organization-vms §4). */
-  markAttached?: () => void
   /** Gives a new organization session its owner and, unless it is a chat, the organization's editor grant on this machine (organization-vms §1; plan 004 D14). */
   adoptSession?: (sessionId: string, organizationId: string, ownerKey: string, options: { shareWithOrganization: boolean }) => Promise<void>
 }
@@ -86,13 +82,11 @@ export interface TurnAdmissionContext {
 /** The organization the turn's session belongs to after admission, `local` included. */
 export async function admitTurnOrganization(ctx: TurnAdmissionContext, actor: Actor, deps: TurnOrganizationDeps): Promise<string> {
   const principal = actor.principal
-  // A member reaches this machine only through a grant its attachment allows: the attachment is recorded before their work is admitted.
-  if (principal.kind === 'org-member') deps.markAttached?.()
   // A fork follows the record of the session it branches from; a child, its parent's.
   const forkSource = ctx.session.forked && ctx.session.agentSessionId ? sessionIdOfThread(ctx.session.agentSessionId) : null
   const record = await getSessionRecord(ANY_ORGANIZATION, forkSource ?? ctx.parentSessionId ?? ctx.session.sessionId)
-  const admitted = isOrganizationAttached()
-    ? await admitOnAttachedMachine(ctx, principal, deps, record)
+  const admitted = machineKind() === 'cloud'
+    ? await admitOnCloudMachine(ctx, principal, deps, record)
     : await admitOnPersonalMachine(ctx, principal, deps, record)
   // A new session belongs to the person its first turn is for (docs/plans/access-model.md §2.2):
   // a child session, an automation's run, and a client's new session alike; a turn nobody is
@@ -133,17 +127,18 @@ interface TurnAdmission {
 }
 
 /**
- * An attached machine (organization-vms §1): an existing session continues where
- * it lives; a new root starts in an organization on the Solus API, or not at all.
- * A fork or a child is new work that follows the session it comes from.
+ * A cloud machine (plans/034-one-cloud-machine-kind.md §2): an existing session
+ * continues under its record; a new root starts in the member's organization on the
+ * Solus API, or not at all. A fork or a child is new work in the organization of the
+ * session it comes from.
  */
-async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Principal, deps: TurnOrganizationDeps, record: StoredRecord): Promise<TurnAdmission> {
+async function admitOnCloudMachine(ctx: TurnAdmissionContext, principal: Principal, deps: TurnOrganizationDeps, record: StoredRecord): Promise<TurnAdmission> {
   const sessionId = ctx.session.sessionId
   const forked = ctx.session.forked === true || ctx.parentSessionId !== undefined
   if (record && !forked) {
-    // A continuation keeps its saved home. An organization session on the Solus API
+    // A continuation keeps its record's organization. An organization session on the Solus API
     // is the host acting for the person, and every token the host asks for checks them again,
-    // so a removed membership or attachment stops new work.
+    // so a removed membership stops new work.
     if (isOrganizationWork(record)) {
       await actForPerson(principal, deps, { sessionId, organizationId: record.organizationId, admit: false })
     }
@@ -152,13 +147,12 @@ async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Prin
   // A session the API admitted whose provider has not started: the row holds the admission, so a later prompt asks nothing more.
   const admitted = forked ? null : await sessionIdentityOf(sessionId)
   if (admitted?.admittedAt !== null && admitted?.admittedAt !== undefined) return { organizationId: admitted.organizationId, decided: false }
-  // A fork follows its source: a personal session forks into personal work, which
-  // uploads nothing; an organization session forks into a new organization session.
-  // A child follows its parent the same way, for its parent's person.
-  if (forked && record?.organizationId === LOCAL_ORGANIZATION_ID) return { organizationId: LOCAL_ORGANIZATION_ID, decided: true }
-  const organizationId = forked && record ? record.organizationId : windowOrganization(ctx, principal)
-  if (!organizationId) {
-    throw new TurnRefusedError('ORGANIZATION_REQUIRED', 'This machine runs new work for an organization. Choose an organization in Solus, then send again.')
+  // A fork is a new session in the organization of its source. A child follows its
+  // parent the same way, for its parent's person.
+  const organizationId = forked && record ? record.organizationId : memberOrganization(ctx, principal)
+  // The machine works for the one organization its registration names, whatever a token or a record says.
+  if (!organizationId || organizationId !== cloudOrganizationId()) {
+    throw new TurnRefusedError('ORGANIZATION_REQUIRED', 'This machine runs new work for one organization. Choose that organization in Solus, then send again.')
   }
   // A chat is still organization work, but only its owner sees it until they share it (plan 004 D14).
   const isPrivate = isChat(ctx.session.workingDirectory)
@@ -174,22 +168,21 @@ async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Prin
   return { organizationId, decided: true, birth: { ownerKey: hostKeyOf(userId), published: true, admittedAt: Date.now() } }
 }
 
-/** The organization a new root starts in on an attached machine: the member's own, or the owner's window selection. */
-function windowOrganization(ctx: TurnAdmissionContext, principal: Principal): string | null {
+/** The organization a new root starts in on a cloud machine: the member's own. A window that selected another one is refused. */
+function memberOrganization(ctx: TurnAdmissionContext, principal: Principal): string | null {
+  if (principal.kind !== 'org-member') return null
   const selected = ctx.session.organizationId
-  if (principal.kind === 'org-member') return !selected || selected === principal.organizationId ? principal.organizationId : null
-  if (principal.kind !== 'owner' || principal.via !== 'grant') return null
-  return selected && selected !== LOCAL_ORGANIZATION_ID ? selected : null
+  return !selected || selected === principal.organizationId ? principal.organizationId : null
 }
 
 /**
- * The account this host acts for in a turn: a member's or the owner's own. A link
- * guest has none of its own: its turn on a session that exists runs for the person
- * who shared the link, on their seat (host-sharing.md §4.2 step 5; `seatFor`), so
- * it needs their authority. A guest never starts organization work.
+ * The account this host acts for in a turn on a cloud machine: the member's own. A
+ * link guest has none of its own: its turn on a session that exists runs for the
+ * person who shared the link, on their seat (host-sharing.md §4.2 step 5; `seatFor`),
+ * so it needs their authority. A guest never starts organization work.
  */
 function accountActedFor(principal: Principal, deps: TurnOrganizationDeps, admit: boolean): string | null {
-  if (principal.kind === 'org-member' || (principal.kind === 'owner' && principal.via === 'grant')) return principal.userId
+  if (principal.kind === 'org-member') return principal.userId
   if (principal.kind !== 'guest' || admit) return null
   const sharer = principal.share.sharedByUserId
   if (isHostUserKey(sharer)) return deps.hostOrganizations.owner()?.userId ?? null
@@ -198,8 +191,8 @@ function accountActedFor(principal: Principal, deps: TurnOrganizationDeps, admit
 }
 
 /**
- * This host acting for the person behind the turn. A pairing connection, a guest, or
- * the host itself has no account to act as, so it cannot start organization work.
+ * This host acting for the person behind the turn. A guest or the host itself has no
+ * account to act as, so it cannot start organization work.
  */
 async function actForPerson(principal: Principal, deps: TurnOrganizationDeps, input: { sessionId: string; organizationId: string; admit: boolean; record?: AdmittedRecord }): Promise<string> {
   const userId = accountActedFor(principal, deps, input.admit)
@@ -220,8 +213,8 @@ async function actForPerson(principal: Principal, deps: TurnOrganizationDeps, in
 }
 
 /**
- * A person's own machine, and a server not attached: a new session takes the
- * organization of the person who starts it. A row that is Local — started or
+ * A personal machine: a new session takes the organization of the person who
+ * starts it. A row that is Local — started or
  * born by a claim before this turn — is assigned it once (R10); a session with
  * no row yet is born in it by the claim that follows.
  */
@@ -235,12 +228,12 @@ async function admitOnPersonalMachine(ctx: TurnAdmissionContext, principal: Prin
 
 /**
  * Whether this person may answer a new approval or question of a session
- * (organization-vms §4): on an attached machine the host must be able to act for
- * them in the session's organization, so a person whose membership or the machine's
- * attachment was removed cannot let a run continue past a new question.
+ * (organization-vms §4): on a cloud machine the host must be able to act for them in
+ * the session's organization, so a person whose membership was removed cannot let a
+ * run continue past a new question.
  */
 export async function mayAnswerFor(principal: Principal, sessionId: string, deps: TurnOrganizationDeps): Promise<boolean> {
-  if (!isOrganizationAttached()) return true
+  if (machineKind() !== 'cloud') return true
   const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
   if (!isOrganizationWork(record)) return true
   try {
@@ -295,10 +288,10 @@ export function unattendedOrganizationRefusal(
   /** What governs the work; it decides the unverified rule (an MDM policy decides it for personal work too). */
   work: WorkPolicy,
   unverified: boolean,
-  category: HostCategory = hostCategory(),
+  kind: MachineKind = machineKind(),
 ): UnattendedWorkRefusal | null {
-  if (hostRules && category === 'personal' && !hostRules.allowsPersonalHosts) {
-    return { code: 'PERSONAL_HOSTS_NOT_ALLOWED', message: 'This organization does not allow its work to start on a personal computer. Set up the webhook on a cloud or self-hosted machine of the organization.' }
+  if (hostRules && kind === 'personal' && !hostRules.allowsPersonalHosts) {
+    return { code: 'PERSONAL_HOSTS_NOT_ALLOWED', message: 'This organization does not allow its work to start on a personal computer. Set up the webhook on a cloud machine of the organization.' }
   }
   if (unverified && !work.allowsUnverifiedWebhooks()) {
     return { code: 'ORGANIZATION_NOT_ALLOWED', message: 'A policy does not allow unverified webhooks here. Choose a verification scheme.' }

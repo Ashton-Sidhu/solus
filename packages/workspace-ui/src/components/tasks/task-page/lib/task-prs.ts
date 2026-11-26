@@ -1,5 +1,5 @@
 // Shaping for the task page's Pull requests section.
-import type { TaskLink } from '@solus/contracts/task-types'
+import type { IssueLink } from '@solus/contracts/task-types'
 import type { LinkedPr } from '../../../../contexts/prs/linked-pr'
 
 /** Lifecycle for a linked PR, as the PR store knows it. Null when nothing has
@@ -22,7 +22,7 @@ export function prLifecycleOf(
 
 export interface TaskPrRow {
   key: string
-  link: TaskLink
+  link: IssueLink
   /** The PR number; 0 when a legacy link stored something that is not one. */
   number: number
   ref: string
@@ -54,15 +54,15 @@ export function titleWithoutPrRef(title: string, ref: string): string {
  * at all. `PrsStore` supplies the live title once some surface has read
  * the PR; until then the snapshot is all there is.
  */
-export function linkedPrTitle(link: TaskLink, ref: string, liveTitle?: string): string {
+export function linkedPrTitle(link: IssueLink, ref: string, liveTitle?: string): string {
   return titleWithoutPrRef(liveTitle || link.liveTitle || link.title, ref)
 }
 
 /** Newest PR first — the most recent one is the work in flight, and the older
  *  ones are the trail behind it. */
 export function taskPrRows(
-  links: TaskLink[],
-  readPr: (link: TaskLink) => LinkedPr | null,
+  links: IssueLink[],
+  readPr: (link: IssueLink) => LinkedPr | null,
 ): TaskPrRow[] {
   return links
     .filter((link) => link.kind === 'pr')

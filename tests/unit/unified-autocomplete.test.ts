@@ -327,23 +327,6 @@ describe('session result context', () => {
     ).toBe('Why is this slow? Please inspect the picker.')
   })
 
-  test('the opening prompt preview removes appended task context', () => {
-    // WHY: task bindings are transport context, not prompt content. Showing the
-    // packet duplicates internal instructions and makes the preview unreadable.
-    expect(
-      sessionRefPreview(
-        sessionMeta({
-          firstMessage: [
-            'Can you improve session search?',
-            '',
-            '[Working On Task "Session Search" (task_id: task-1)]',
-            'Call read_task with task_id "task-1" to read the latest status.',
-          ].join('\n'),
-        }),
-      ),
-    ).toBe('Can you improve session search?')
-  })
-
   test('the opening prompt is offered only inside the sessions category', () => {
     // WHY: the block is drawn under the whole list, not beside its row. In a
     // mixed band — browse, Recent, best matches — it reads as a stray paragraph

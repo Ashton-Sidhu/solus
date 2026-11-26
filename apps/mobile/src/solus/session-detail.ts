@@ -8,9 +8,8 @@ const sessionDetails = Atom.family((scope: string) =>
       Atom.make((get) => {
         if (solus.sessionCache.scope() !== scope) return null;
         const thread = solus.threads.thread(hostId, sessionId);
-        const store =
-          solus.openConversation(hostId, sessionId) ??
-          (thread ? solus.conversation(hostId, { record: thread.record }) : null);
+        const retained = solus.openConversation(hostId, sessionId);
+        const store = retained ?? (thread ? solus.conversation(hostId, { record: thread.record }) : null);
         if (store) get.addFinalizer(solus.observeConversation(store));
         else {
           get.addFinalizer(solus.threads.changes.subscribe(() => get.refreshSelf()));

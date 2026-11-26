@@ -68,31 +68,40 @@ describe('run-on host selection', () => {
   })
 })
 
-describe('managed hosts in the picker', () => {
-  // WHY: docs/plans/managed-hosts.md — a managed host is "Cloud" and the name its
-  // owner gave it, never its organization; while its compute is not ready it is
-  // listed (the state is the information) but takes no work.
-  const managed = { hostId: 'h', directoryUrl: 'https://app.example.test', kind: 'managed' as const }
+describe('cloud hosts in the picker', () => {
+  // WHY: docs/plans/managed-hosts.md — a cloud host is "Cloud" and the name its
+  // members gave it, never its organization; while its managed compute is not ready
+  // it is listed (the state is the information) but takes no work.
+  const managed = { hostId: 'h', directoryUrl: 'https://app.example.test', kind: 'cloud' as const, hasManagedCompute: true }
 
-  test('a ready managed host reads the name members gave it, never names an organization, and takes work', () => {
-    expect(hostRowLabel({ label: 'Build box', uplink: { kind: 'managed' } }, '89451eb6d07536')).toBe('Build box')
+  test('a ready cloud host reads the name members gave it, never names an organization, and takes work', () => {
+    expect(hostRowLabel({ label: 'Build box', uplink: { kind: 'cloud' } }, '89451eb6d07536')).toBe('Build box')
     // The machine name is an identifier nobody chose: with only that, the row is "Cloud".
-    expect(hostRowLabel({ label: '89451eb6d07536', uplink: { kind: 'managed' } }, '89451eb6d07536')).toBe('Cloud host')
-    expect(hostRowLabel({ label: '', uplink: { kind: 'managed' } }, undefined)).toBe('Cloud host')
+    expect(hostRowLabel({ label: '89451eb6d07536', uplink: { kind: 'cloud' } }, '89451eb6d07536')).toBe('Cloud host')
+    expect(hostRowLabel({ label: '', uplink: { kind: 'cloud' } }, undefined)).toBe('Cloud host')
     expect(hostRowLabel({ label: 'Mac mini', uplink: { kind: 'personal' } }, 'Ashton’s Mac mini')).toBe('Ashton’s Mac mini')
-    expect(hostRowLabel({ label: 'Studio', hasUserLabel: true, uplink: { kind: 'managed' } }, undefined)).toBe('Studio')
+    expect(hostRowLabel({ label: 'Studio', hasUserLabel: true, uplink: { kind: 'cloud' } }, undefined)).toBe('Studio')
     expect(managedHostStateLabel({ ...managed, managedState: 'ready' })).toBeNull()
     expect(canRunOnHost({ ...managed, managedState: 'ready' })).toBe(true)
   })
 
-  test('a managed host with no known state takes no work', () => {
-    // WHY: the directory names a state for every managed host. A missing state
+  test('a cloud host that its operator runs has no lifecycle: no state line, always dispatchable', () => {
+    // WHY: only compute that Solus Cloud operates waits for a start. A machine an
+    // operator runs has no state in the directory; a row that waits for one never takes work.
+    const operatorRun = { hostId: 'h', directoryUrl: 'https://app.example.test', kind: 'cloud' as const }
+    expect(hostRowLabel({ label: '', uplink: operatorRun }, undefined)).toBe('Cloud host')
+    expect(managedHostStateLabel(operatorRun)).toBeNull()
+    expect(canRunOnHost(operatorRun)).toBe(true)
+  })
+
+  test('managed compute with no known state takes no work', () => {
+    // WHY: the directory names a state for every machine with managed compute. A missing state
     // is one this client could not read, and sending work there could fail.
     expect(canRunOnHost(managed)).toBe(false)
     expect(managedHostStateLabel(managed)).toBeNull()
   })
 
-  test('a managed host that is not ready shows its state and is disabled for dispatch', () => {
+  test('managed compute that is not ready shows its state and is disabled for dispatch', () => {
     for (const state of ['provisioning', 'starting', 'stopping', 'stopped', 'failed', 'deleting'] as const) {
       const label = `${state[0]!.toUpperCase()}${state.slice(1)}`
       expect(managedHostStateLabel({ ...managed, managedState: state })).toBe(label)

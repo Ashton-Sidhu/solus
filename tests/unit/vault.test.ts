@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { z } from 'zod'
-import { adoptProvisionedRegistration, resetHostCategoryForTests } from '@solus/server/host/host-category'
+import { adoptRegistration, resetMachineKindForTests } from '@solus/server/host/machine-kind'
 import { useHostUser } from '@solus/server/host/host-user'
 import { AccountReads } from '@solus/server/vault/account-reads'
 import { credentialLocationOf, LINEAR_REF, TYPESAFE_REF, Vault, type McpCredentialRef } from '@solus/server/vault/vault'
@@ -20,7 +20,7 @@ const githubSchema = z.object({ accessToken: z.string(), scope: z.string() })
 
 afterEach(() => {
   useHostUser(null)
-  resetHostCategoryForTests()
+  resetMachineKindForTests()
 })
 
 /** A vault on a host that acts for alice; every account call carries her delegated token as the bearer (ADR 0001 §2.2 rule 7). */
@@ -54,7 +54,7 @@ describe('where a credential is', () => {
     expect(credentialLocationOf('bob')).toEqual({ kind: 'account', accountId: 'bob' })
     expect(credentialLocationOf('guest:maya')).toEqual({ kind: 'none' })
     expect(credentialLocationOf('local:other')).toEqual({ kind: 'none' })
-    adoptProvisionedRegistration({ organizationId: 'org' })
+    adoptRegistration({ organizationId: 'org' })
     expect(credentialLocationOf('alice')).toEqual({ kind: 'account', accountId: 'alice' })
   })
 })

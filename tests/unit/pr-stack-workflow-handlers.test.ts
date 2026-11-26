@@ -191,24 +191,26 @@ describe('merging a stack through the host', () => {
   })
 })
 
-describe('approving the workflow runs of a fork', () => {
+describe('approving workflow runs', () => {
   const fork = { owner: 'newcomer', repo: 'repo', isFork: true }
 
-  test('lists runs only for an open fork pull request', async () => {
+  test('lists runs only for open pull requests on hosts that support approval', async () => {
     hostFacts.set(12, facts(12, { headRepo: fork }))
     hostFacts.set(13, facts(13))
+    hostFacts.set(14, facts(14, { state: 'closed' }))
     const solus = server()
 
     expect(await solus.handle('prPendingWorkflowRuns', [{ repo: repo, number: 12 }], TEST_HANDLER_CTX))
       .toEqual({ headSha: 'sha-12', runs: [{ id: 1, name: 'CI', url: null }] })
     expect(await solus.handle('prPendingWorkflowRuns', [{ repo: repo, number: 13 }], TEST_HANDLER_CTX))
-      .toEqual({ headSha: 'sha-13', runs: [] })
-    expect(calls).toEqual(['list-runs'])
+      .toEqual({ headSha: 'sha-13', runs: [{ id: 1, name: 'CI', url: null }] })
+    expect(await solus.handle('prPendingWorkflowRuns', [{ repo, number: 14 }], TEST_HANDLER_CTX))
+      .toEqual({ headSha: 'sha-14', runs: [] })
+    expect(calls).toEqual(['list-runs', 'list-runs'])
   })
 
   test('refuses when the head moved after the viewer looked', async () => {
-    // WHY: an approval runs the fork's code with the repository's secrets. A
-    // push after the viewer read the change must not ride on their approval.
+    // A push after the viewer read the change must not use their approval.
     hostFacts.set(12, facts(12, { headRepo: fork, headSha: 'pushed-later' }))
 
     await expect(server().handle('prApproveWorkflowRuns', [{ repo: repo, number: 12 }, 'sha-12'], TEST_HANDLER_CTX))
@@ -216,8 +218,18 @@ describe('approving the workflow runs of a fork', () => {
     expect(calls).toEqual([])
   })
 
-  test('approves for the head the viewer saw', async () => {
-    hostFacts.set(12, facts(12, { headRepo: fork }))
+  test('refuses a viewer without repository approval permission', async () => {
+    const current = facts(12)
+    current.viewerPermissions.actions = current.viewerPermissions.actions.filter((action) => action !== 'approve-workflows')
+    hostFacts.set(12, current)
+
+    await expect(server().handle('prApproveWorkflowRuns', [{ repo, number: 12 }, 'sha-12'], TEST_HANDLER_CTX))
+      .rejects.toThrow('You do not have permission to approve workflow runs in this repository.')
+    expect(calls).toEqual([])
+  })
+
+  test.each([fork, { owner: repo.owner, repo: repo.repo, isFork: false }])('approves for the head the viewer saw (%j)', async (headRepo) => {
+    hostFacts.set(12, facts(12, { headRepo }))
 
     expect(await server().handle('prApproveWorkflowRuns', [{ repo: repo, number: 12 }, 'sha-12'], TEST_HANDLER_CTX)).toEqual({ approved: 1 })
     expect(calls).toEqual(['approve-runs'])

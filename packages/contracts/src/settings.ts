@@ -20,7 +20,7 @@ import { prSavedViewsSchema } from './pr-views'
 // not make. Device storage heals one bad key to its default.
 
 import { z } from 'zod'
-import { taskSavedViewsSchema } from './task-views'
+import { issueSavedViewsSchema } from './task-views'
 import { DEFAULT_VOICE_DICTIONARY, voiceDictionarySchema } from './voice-dictionary'
 import type { SavedLens } from './review'
 import { DEFAULT_MODEL_ROUTING, modelRoutingSchema } from './model-routing'
@@ -30,7 +30,10 @@ import {
   notificationPreferencesPatchSchema,
 } from './notification-types'
 import {
+  AGENT_IDS,
   DEFAULT_SOURCE_CONTROL_WRITING,
+  SESSION_AGENT_IDS,
+  SOLUS_TOOL_AGENT_IDS,
   EDITOR_IDS,
   PERMISSION_MODES,
   TERMINAL_APP_IDS,
@@ -43,7 +46,7 @@ import {
 } from './types'
 import { DEFAULT_WORKTREE_BRANCH_NAMING, worktreeBranchNamingSchema } from './worktree-branch-naming'
 import { DEFAULT_CODEBASE_NAMING, codebaseNamingSchema } from './codebases'
-import { MAX_TASK_SOURCES, taskSourceSchema } from './task-sources'
+import { MAX_ISSUE_SOURCES, issueSourceSchema } from './task-sources'
 import { THEME_CSS_MAX_LENGTH, themeCssLoadsFiles } from './theme-css'
 
 // ─── Vocabulary ───
@@ -98,9 +101,11 @@ export const DEFAULT_REVIEW_AGENT: AgentId = 'codex'
 export const DEFAULT_REVIEW_MODEL = 'gpt-6-luna'
 export const DEFAULT_REVIEW_REASONING: ReasoningEffort = 'max'
 
+/** Each writer's cheap model, in fallback order: Antigravity last, since each agy launch is slow. */
 export const DEFAULT_TEXT_GENERATION_MODELS = {
   codex: 'gpt-6-luna',
   'claude-code': 'claude-haiku-5-5',
+  antigravity: 'gemini-3.8-flash',
 } as const
 
 export interface ModelOptions {
@@ -132,7 +137,6 @@ export function isFontPreset(key: FontPreferenceKey, value: string): boolean {
   return (FONT_PRESETS[key] as readonly string[]).includes(value)
 }
 
-const AGENT_IDS = ['claude-code', 'codex', 'opencode', 'replay'] as const satisfies readonly AgentId[]
 const REASONING_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const satisfies readonly ReasoningEffort[]
 const MAX_INSTRUCTIONS = 20_000
 const MAX_MODEL_ID = 200
@@ -144,13 +148,13 @@ const MAX_SIDEBAR_APPS = 32
 const MAX_SIDEBAR_APP_REF = 200
 
 const modelSelectionSchema = z.object({
-  provider: z.enum(['codex', 'claude-code']),
+  provider: z.enum(SOLUS_TOOL_AGENT_IDS),
   model: z.string().trim().min(1).max(MAX_MODEL_ID),
 }).strict()
 
 /** A worker model, with the reasoning level it runs at; none runs at the model's default. */
 const workerModelSelectionSchema = z.object({
-  provider: z.enum(['codex', 'claude-code']),
+  provider: z.enum(SESSION_AGENT_IDS),
   model: z.string().trim().min(1).max(MAX_MODEL_ID),
   reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
 }).strict().transform((selection) => ({ provider: selection.provider, model: selection.model, reasoningEffort: selection.reasoningEffort }))
@@ -231,10 +235,9 @@ export const PERSONAL_SETTING_SCHEMAS = {
     host: z.string().min(1).max(MAX_SIDEBAR_APP_REF),
     appId: z.string().min(1).max(MAX_SIDEBAR_APP_REF),
   }).strict()).max(MAX_SIDEBAR_APPS).describe('The apps pinned in the places column of the sidebar on desktop and web, below the Solus places, in order. host: the installation id of the host that runs the app.'),
-  taskSources: z.array(taskSourceSchema).max(MAX_TASK_SOURCES).describe('Where the person reads tasks from: GitHub repositories, GitHub Projects, Jira projects, Jira boards and Linear teams. Tasks belong to no Solus project (docs/tasks.md).'),
+  issueSources: z.array(issueSourceSchema).max(MAX_ISSUE_SOURCES).describe('Where the person reads issues from: GitHub repositories, GitHub Projects, Jira projects, Jira boards and Linear teams. Tasks belong to no Solus project (docs/tasks.md).'),
   prSavedViews: prSavedViewsSchema.describe('Named personal PR filters, synced across clients.'),
-  taskSavedViews: taskSavedViewsSchema.describe('Named personal task filters, synced across clients.'),
-  agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).describe('What agents can do to the status of a task. none: no status changes. moderate: any status except done. autonomous: any status, done included.'),
+  issueSavedViews: issueSavedViewsSchema.describe('Named personal issue filters, synced across clients.'),
   delegationInstructions: z.string().max(MAX_INSTRUCTIONS).describe('Additional instructions for an agent when it delegates work.'),
   workerModel: workerModelSelectionSchema.nullable().describe('The default provider, model, and reasoning for child sessions. Applies when the caller specifies neither a provider nor a model.'),
   fallbackModel: workerModelSelectionSchema.nullable().describe('The provider, model, and reasoning for a session that start_sessions starts with neither a provider nor a model while the provider of its default model is out of usage. Null: no fallback.'),
@@ -332,10 +335,9 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   projectPanelHiddenItems: [],
   sidebarPlaces: { order: [], hidden: [] },
   sidebarApps: [],
-  taskSources: [],
-  taskSavedViews: [],
+  issueSources: [],
+  issueSavedViews: [],
   prSavedViews: [],
-  agentTaskLifecyclePolicy: 'moderate',
   delegationInstructions: '',
   workerModel: null,
   fallbackModel: null,
@@ -378,9 +380,8 @@ export const EXECUTION_PREFERENCE_KEYS = [
   'autoRenameSessions',
   'extraInstructions',
   'modelInstructions',
-  'agentTaskLifecyclePolicy',
   // An agent on the host lists and creates tasks in the person's own sources.
-  'taskSources',
+  'issueSources',
   'delegationInstructions',
   'workerModel',
   'fallbackModel',

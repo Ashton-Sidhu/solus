@@ -7,20 +7,21 @@ import { createLogger } from '../../logger'
 import { agentAttribution } from '../stored-attribution'
 import type { OutboxOp, WorkUpdateOpPayload } from '@solus/contracts/outbox-types'
 import { z } from 'zod'
+import { agentIdSchema } from '@solus/contracts/types'
 
 const log = createLogger('folio', 'work-applier.ts')
 const workCreatePayloadSchema = z.object({
-  taskId: z.string().optional(),
+  issueId: z.string().optional(),
   title: z.string(),
   docType: z.enum(['doc', 'slides', 'artifact']),
   content: z.string(),
-  agentProvider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
+  agentProvider: agentIdSchema.optional(),
   originSessionId: z.string().optional(),
   cwd: z.string().optional(),
   linkToSessionTask: z.boolean().optional(),
 })
 const workUpdatePayloadSchema = z.object({
-  taskId: z.string().optional(),
+  issueId: z.string().optional(),
   content: z.string(),
   title: z.string().optional(),
   expectedContentVersion: z.number().int().min(0),
@@ -74,8 +75,8 @@ export function registerWorkOutboxApplier(): void {
         ))
       }
       const originSessionId = payload.originSessionId ?? op.sessionId
-      const link = payload.taskId
-        ? linkTask(organizationId, payload.taskId, {
+      const link = payload.issueId
+        ? linkTask(organizationId, payload.issueId, {
             kind: 'work',
             targetScope: '',
             targetKey: op.resourceId,
@@ -88,7 +89,7 @@ export function registerWorkOutboxApplier(): void {
       await link?.catch((error) => {
         log.warn('work_op_task_link_failed', {
           opId: op.id,
-          taskId: payload.taskId ?? null,
+          issueId: payload.issueId ?? null,
           workId: op.resourceId,
           error: error instanceof Error ? error.message : String(error),
         })

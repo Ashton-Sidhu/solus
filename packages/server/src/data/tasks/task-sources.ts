@@ -1,5 +1,5 @@
-import { taskSourceKey, type TaskSource } from '@solus/contracts/task-sources'
-import type { TaskSourceState } from '@solus/contracts/task-types'
+import { issueSourceKey, type IssueSource } from '@solus/contracts/task-sources'
+import type { IssueSourceState } from '@solus/contracts/task-types'
 import { createLogger } from '../../logger'
 import { captureActingScope, withActingScope, type ActingScope } from '../../vault/acting-scope'
 import { classifyProviderFailure } from './providers/failures'
@@ -21,7 +21,7 @@ import { emitChanged } from './task-store'
  * The one owner of the freshness of task sources
  * (docs/plans/provider-owned-tasks.md §5). A task source belongs to no
  * project: the client sends the sources of the person's settings
- * (`tasksSources`). The host reads each source that is not fresh, one read at
+ * (`issuesSources`). The host reads each source that is not fresh, one read at
  * a time for each source, and reads the wanted sources again on a timer. Two
  * people who want one source cause one read. A read runs with the credentials
  * of the person who asked, and only a read that the provider answered lets
@@ -40,7 +40,7 @@ export const SOURCE_WANTED_MS = 15 * 60_000
 const MAX_NAMED_CHANGES = 5
 
 interface SourceWant {
-  source: TaskSource
+  source: IssueSource
   personKey: string
   /** Whose credentials a later read of the timer uses. Null outside a request. */
   scope: ActingScope | null
@@ -52,7 +52,7 @@ const wants = new Map<string, Map<string, SourceWant>>()
 /** The one read in flight for each source. */
 const reads = new Map<string, Promise<void>>()
 /** The people who asked while another person's read was in flight, and have no access yet. */
-const waiting = new Map<string, Map<string, TaskSource>>()
+const waiting = new Map<string, Map<string, IssueSource>>()
 /** When each person's last read of a source started, so a source that fails is not read on each call. */
 const attempts = new Map<string, number>()
 const changeListeners = new Set<(sourceKeys: string[]) => void>()
@@ -62,7 +62,7 @@ function attemptKey(personKey: string, sourceKey: string): string {
   return `${personKey}\0${sourceKey}`
 }
 
-/** Hear each end of a source read: what `tasks.sourcesChanged` carries. */
+/** Hear each end of a source read: what `issues.sourcesChanged` carries. */
 export function onTaskSourcesChanged(listener: (sourceKeys: string[]) => void): () => void {
   changeListeners.add(listener)
   return () => changeListeners.delete(listener)
@@ -80,13 +80,13 @@ function announce(sourceKeys: string[]): void {
 
 function sourceState(
   sourceKey: string,
-  source: TaskSource,
+  source: IssueSource,
   stored: StoredTaskSource | undefined,
   access: TaskSourceAccess | undefined,
-): TaskSourceState {
+): IssueSourceState {
   // The cache is shared, but a person sees what a source holds only after their own connection read it.
   const visible = stored && access?.checkedAt != null && stored.fetchedAt !== null ? stored : null
-  const state: TaskSourceState = {
+  const state: IssueSourceState = {
     sourceKey,
     source,
     label: visible?.label ?? taskSourceLabel(source),
@@ -110,16 +110,16 @@ function sourceState(
  * answered with no columns and `refreshing`; the read that this call starts
  * gives its `health`.
  */
-export async function tasksSources(
-  sources: readonly TaskSource[],
+export async function issuesSources(
+  sources: readonly IssueSource[],
   personKey: string,
   options: { refresh?: 'stale' | 'force'; now?: number } = {},
-): Promise<TaskSourceState[]> {
+): Promise<IssueSourceState[]> {
   const now = options.now ?? Date.now()
   const scope = captureActingScope()
   // The same board twice would show each of its tasks twice.
-  const listed = new Map<string, TaskSource>()
-  for (const source of sources) if (!listed.has(taskSourceKey(source))) listed.set(taskSourceKey(source), source)
+  const listed = new Map<string, IssueSource>()
+  for (const source of sources) if (!listed.has(issueSourceKey(source))) listed.set(issueSourceKey(source), source)
   const sourceKeys = [...listed.keys()]
   for (const [sourceKey, source] of listed) {
     await ensureTaskSource(sourceKey, source)
@@ -145,8 +145,8 @@ export async function tasksSources(
  * connection can give them access. A failed read keeps the tasks the host had.
  * Never rejects: the result is the person's `health` of the source.
  */
-export function readTaskSource(source: TaskSource, personKey: string, now = Date.now()): Promise<void> {
-  const sourceKey = taskSourceKey(source)
+export function readTaskSource(source: IssueSource, personKey: string, now = Date.now()): Promise<void> {
+  const sourceKey = issueSourceKey(source)
   const inFlight = reads.get(sourceKey)
   if (inFlight) {
     let queue = waiting.get(sourceKey)
@@ -164,7 +164,7 @@ export function readTaskSource(source: TaskSource, personKey: string, now = Date
   return read
 }
 
-async function runSourceRead(sourceKey: string, source: TaskSource, personKey: string): Promise<void> {
+async function runSourceRead(sourceKey: string, source: IssueSource, personKey: string): Promise<void> {
   try {
     const hadAccess = (await loadTaskSourceAccess(personKey, [sourceKey])).get(sourceKey)?.checkedAt != null
     const answer = await taskAdapters().source(source.kind).read(source)
@@ -186,8 +186,8 @@ async function runSourceRead(sourceKey: string, source: TaskSource, personKey: s
 }
 
 /** Append one explicit page. Concurrent clicks share a read; a failed page retains its cursor and rows. */
-export function loadMoreTaskSource(source: TaskSource, personKey: string): Promise<void> {
-  const sourceKey = taskSourceKey(source)
+export function loadMoreTaskSource(source: IssueSource, personKey: string): Promise<void> {
+  const sourceKey = issueSourceKey(source)
   const held = reads.get(sourceKey)
   if (held) return held
   const read = (async () => {
@@ -196,7 +196,8 @@ export function loadMoreTaskSource(source: TaskSource, personKey: string): Promi
     if (!access?.checkedAt) throw new Error('Read this source before loading more tasks.')
     if (!stored?.nextCursor) return
     try {
-      const page = await taskAdapters().source(source.kind).read(source, stored.nextCursor)
+      const held = { label: stored.label, columns: stored.columns, writeState: stored.writeState }
+      const page = await taskAdapters().source(source.kind).read(source, stored.nextCursor, held)
       await storeSourceRead(source, page, Date.now(), true)
       await recordTaskSourceAccess(personKey, sourceKey, { checkedAt: Date.now() })
       emitChanged()

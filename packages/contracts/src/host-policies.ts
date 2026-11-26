@@ -15,6 +15,7 @@ import {
   modelDeniedMessage,
   permissionCeilingMessage,
   providerDeniedMessage,
+  appDeniedMessage,
   settingManagedMessage,
   summarizePolicySet,
   type ManagedHostKey,
@@ -26,9 +27,9 @@ import {
   type PolicySource,
   type ProviderLaunchPin,
   type SessionLimits,
-  POLICY_PROVIDER_IDS,
 } from './policy'
-import type { AgentId, PermissionMode } from './types'
+import { AGENT_IDS, type AgentId, type PermissionMode } from './types'
+import type { OutsideAppId } from './outside-apps'
 
 /** Why a policy refuses something, in the words every client shows. */
 export interface PolicyRefusal {
@@ -65,7 +66,6 @@ export interface LaunchPolicy {
 
 type LockedSetting<K extends ManagedSessionSettingKey> = Exclude<ManagedSessionSettings[K], undefined>
 type HostSetting<K extends ManagedHostKey> = NonNullable<ManagedHostSettings[K]>
-type PolicyProviderId = (typeof POLICY_PROVIDER_IDS)[number]
 
 /** Everything that governs work on one host: the MDM policy and each organization's policies. */
 export class HostPolicies {
@@ -225,6 +225,14 @@ export class WorkPolicy {
     return { code: 'MODEL_NOT_ALLOWED', message: modelDeniedMessage(rule.source, model) }
   }
 
+  /** Why an outside app may not reach this work's host, or null when it may. Every app is allowed until a policy names some. */
+  appDenial(app: OutsideAppId): PolicyRefusal | null {
+    if (this.refusal) return this.refusal
+    const rule = this.limit('apps')
+    if (!rule || rule.value.allowed.includes(app)) return null
+    return { code: 'APP_NOT_ALLOWED', message: appDeniedMessage(rule.source, app) }
+  }
+
   /** Why work cannot be saved or switched to this provider (and model), or null when it can. */
   selectionDenial(provider: AgentId, model?: string | null): PolicyRefusal | null {
     return model ? this.modelDenial(provider, model) : this.providerDenial(provider)
@@ -284,7 +292,7 @@ export class WorkPolicy {
 }
 
 /** The entry of a by-provider record for `provider`; the record names only the providers a policy can name. */
-function byProvider<Value>(record: Partial<Record<PolicyProviderId, Value>> | undefined, provider: AgentId): Value | undefined {
-  const id = POLICY_PROVIDER_IDS.find((candidate) => candidate === provider)
+function byProvider<Value>(record: Partial<Record<AgentId, Value>> | undefined, provider: AgentId): Value | undefined {
+  const id = AGENT_IDS.find((candidate) => candidate === provider)
   return id && record ? record[id] : undefined
 }

@@ -87,12 +87,14 @@ export interface OAuthSessionLog {
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>
 
 export interface OAuthSessionDeps {
-  /** The account origin, which is also the issuer. */
+  /** The account origin, which is also the issuer. `useCloudOrigin` moves a signed-out session to another one. */
   cloudOrigin: string
   clientId: string
   store: TokenStore
   /** Absent where the client has no browser step (the CLI's device grant). */
   authorizer?: BrowserAuthorizer
+  /** Sent as `machine_name` with the authorize request, so the sign-in page can name this machine. */
+  machineName?: string
   fetch: FetchLike
   now: () => number
   log?: OAuthSessionLog
@@ -172,6 +174,9 @@ const idTokenSchema = z.object({
   nonce: z.string().optional(),
 })
 
+/** The issuer of a stored ID token. */
+const grantIssuerSchema = z.object({ iss: z.string().min(1) })
+
 interface CachedToken {
   token: string
   expiresAt: number
@@ -198,14 +203,58 @@ export class OAuthSession {
   private authorization: BrowserAuthorization | null = null
   private isEnding = false
   private readonly listeners = new Set<(state: AccountState) => void>()
+  /** The account origin this session signs in to. */
+  private origin: string
 
   constructor(private readonly deps: OAuthSessionDeps) {
-    this.grant = deps.store.load()
+    this.origin = deps.cloudOrigin
+    this.grant = this.storedGrant()
     this.current = this.grant ? this.signedIn(this.grant, false) : { kind: 'signed-out' }
   }
 
   state(): AccountState {
     return this.current
+  }
+
+  get cloudOrigin(): string {
+    return this.origin
+  }
+
+  /**
+   * Signs in to another account origin from now on. Each token belongs to the origin
+   * that issued it, so only a session that holds no grant and runs no sign-in can
+   * move: sign out first. False when it did not move.
+   */
+  useCloudOrigin(origin: string): boolean {
+    if (this.grant || this.authorization || this.isEnding) return false
+    if (origin === this.origin) return true
+    this.origin = origin
+    this.discoveryRead = null
+    this.clearStartup()
+    this.cache.clear()
+    this.hostTokens.clear()
+    this.refusals.clear()
+    this.grant = this.storedGrant()
+    this.setState(this.grant ? this.signedIn(this.grant, false) : { kind: 'signed-out' })
+    this.log('info', 'oauth_origin_changed')
+    return true
+  }
+
+  /**
+   * The stored grant, when this origin issued it. A refresh token goes only to the
+   * origin its ID token names (`iss`); a grant of another origin reads as no sign-in
+   * and stays in the store until a sign-in or a sign-out here replaces it. Every grant
+   * this class saved has a readable issuer (`identityOf` checked it).
+   */
+  private storedGrant(): StoredGrant | null {
+    const grant = this.deps.store.load()
+    if (!grant) return null
+    const issuer = decodeJwtClaims(grant.idToken, grantIssuerSchema)?.iss
+    if (issuer !== undefined && issuer.replace(/\/$/, '') !== this.origin) {
+      this.log('info', 'oauth_stored_grant_of_other_origin')
+      return null
+    }
+    return grant
   }
 
   /** One reader takes each login snapshot. Refresh and later opens use the APIs. */
@@ -246,7 +295,7 @@ export class OAuthSession {
   /** Reads the store again when no grant is held: a store can become readable after start (the desktop keychain). */
   reload(): void {
     if (this.grant) return
-    const grant = this.deps.store.load()
+    const grant = this.storedGrant()
     if (!grant) return
     this.grant = grant
     this.setState(this.signedIn(grant, false))
@@ -316,6 +365,7 @@ export class OAuthSession {
     query.set('nonce', pending.nonce)
     query.set('code_challenge', challenge)
     query.set('code_challenge_method', 'S256')
+    if (this.deps.machineName) query.set('machine_name', this.deps.machineName)
     query.append('resource', ACCOUNT_AUDIENCE)
     query.append('resource', SOLUS_API_AUDIENCE)
     this.setState({ kind: 'signing-in', authorizeUrl: authorizeUrl.toString() })
@@ -670,7 +720,7 @@ export class OAuthSession {
   }
 
   private signedIn(grant: StoredGrant, isStale: boolean): AccountState {
-    return { kind: 'signed-in', identity: grant.identity, consoleUrl: this.deps.cloudOrigin, signedInAt: grant.signedInAt, isStale }
+    return { kind: 'signed-in', identity: grant.identity, consoleUrl: this.origin, signedInAt: grant.signedInAt, isStale }
   }
 
   private setState(state: AccountState): void {
@@ -699,12 +749,13 @@ export class OAuthSession {
   private discovery(): Promise<Discovery> {
     if (!this.discoveryRead) {
       const read = (async () => {
-        const response = await this.deps.fetch(`${this.deps.cloudOrigin}/.well-known/openid-configuration`, {
+        const origin = this.origin
+        const response = await this.deps.fetch(`${origin}/.well-known/openid-configuration`, {
           headers: { accept: 'application/json' },
           signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         })
         if (!response.ok) throw new Error(`discovery_failed_${response.status}`)
-        return this.fromIssuer(discoverySchema.parse(await response.json()))
+        return fromIssuer(discoverySchema.parse(await response.json()), origin)
       })()
       this.discoveryRead = read
       read.catch(() => {
@@ -712,12 +763,6 @@ export class OAuthSession {
       })
     }
     return this.discoveryRead
-  }
-
-  /** OIDC Discovery §4.3: the issuer is the origin the metadata was read from. */
-  private fromIssuer(discovery: Discovery): Discovery {
-    if (discovery.issuer.replace(/\/$/, '') !== this.deps.cloudOrigin) throw new Error('discovery_issuer_mismatch')
-    return discovery
   }
 
   private post(url: string, form: { [name: string]: string } | Array<[string, string]>): Promise<Response> {
@@ -743,6 +788,12 @@ export class OAuthSession {
   private log(level: 'info' | 'warn', event: string, data?: { [key: string]: string | number | boolean | null }): void {
     this.deps.log?.[level](event, data)
   }
+}
+
+/** OIDC Discovery §4.3: the issuer is the origin the metadata was read from. */
+function fromIssuer(discovery: Discovery, origin: string): Discovery {
+  if (discovery.issuer.replace(/\/$/, '') !== origin) throw new Error('discovery_issuer_mismatch')
+  return discovery
 }
 
 export function base64Url(bytes: Uint8Array): string {

@@ -13,7 +13,7 @@ function status(version: string | null): HostUpdateStatus {
     check: version ? { kind: 'available', latestVersion: version, checkedAt: 0 } : { kind: 'up-to-date', checkedAt: 0 }, providers: [] }
 }
 
-async function fixture(hostKind: 'personal' | 'managed' = 'personal') {
+async function fixture(uplink?: { kind: 'cloud'; hasManagedCompute?: boolean }) {
   const { HostUpdatesStore } = await import('@solus/workspace-ui/contexts/updates/host-updates.store.svelte')
   let current = status('2.0.0')
   let connected: LinkReadiness = 'ready'
@@ -23,7 +23,7 @@ async function fixture(hostKind: 'personal' | 'managed' = 'personal') {
   const store = new HostUpdatesStore({
     resolveId: (id) => id, readinessFor: () => ({ readiness: connected, away: false, unreachableReason: null, refusedReason: null, lastSeenAt: null }), capabilitiesFor: async () => ({ hostUpdates: supports }),
     apiFor: () => ({ hostUpdateStatus: () => read(), hostCheckForUpdates: () => read(), hostInstallUpdate: () => read(), hostCancelUpdate: () => read() }),
-    connectionFor: () => ({ target: { uplink: hostKind === 'managed' ? { kind: 'managed' } : undefined } }),
+    connectionFor: () => ({ target: { uplink } }),
     serverIds: () => ['host'], onConnectionCreated: () => () => {},
     onReadinessChange: (callback) => { listener = callback; return () => {} },
   })
@@ -38,7 +38,7 @@ test('a cloud host on an older image never yields a notice, a count, or a provid
   // WHY: the control plane replaces a cloud host's image, so nothing on it is the
   // user's to update. An image built before `install: 'cloud'` still checks and
   // still reports a Codex release; the client must not turn that into a toast.
-  const f = await fixture('managed')
+  const f = await fixture({ kind: 'cloud', hasManagedCompute: true })
   const reported = status('2.0.0')
   reported.providers = [{ agent: 'codex', installedVersion: '1.0.0', check: { kind: 'available', latestVersion: '1.1.0', checkedAt: 0 } }]
   f.set(reported)
@@ -49,6 +49,15 @@ test('a cloud host on an older image never yields a notice, a count, or a provid
   expect(f.store.pendingCount).toBe(0)
   expect(f.store.hostUpdateFor('host')).toMatchObject({ install: 'cloud', check: { kind: 'idle', reason: 'Kept up to date by Solus cloud.' } })
   expect(f.store.providerUpdatesFor('host')).toEqual([{ agent: 'codex', installedVersion: '1.0.0', check: { kind: 'idle', reason: null } }])
+})
+
+test('a cloud host that its operator runs reports its own updates', async () => {
+  // WHY: Solus cloud replaces only the image of compute it operates. An operator who
+  // runs a cloud host in their own environment must see that a release waits there.
+  const f = await fixture({ kind: 'cloud' })
+  await f.store.load('host')
+  expect(f.store.pendingCountFor('host')).toBe(1)
+  expect(f.store.hostUpdateFor('host')).toMatchObject({ install: 'managed', check: { kind: 'available', latestVersion: '2.0.0' } })
 })
 
 test('the settings badge counts every pending update on every host', async () => {

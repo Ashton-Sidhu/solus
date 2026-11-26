@@ -4,6 +4,7 @@ import { getHostConfig } from '../../../host/settings'
 import type { AgentId, NormalizedEvent } from '@solus/contracts/types'
 import { downscalePng } from './bounded-png'
 import { compactToolSchema } from './compact-tool-schema'
+import type { ToolAccess } from './tool-access'
 
 export interface AgentToolResult {
   ok: boolean
@@ -51,6 +52,9 @@ export interface AgentToolContext {
   /** The session id: what every record the tool writes names
    *  (docs/plans/session-identity.md). */
   sessionId: () => string | undefined
+  /** An outside app's requester key (`client:<grantId>`) when no session calls
+   *  (plans/035 §8): the work it starts is keyed by it, and only it reads that work. */
+  requesterKey?: () => string | undefined
   abortSignal: AbortSignal
   parentToolUseId: () => string | undefined
   emit: (event: NormalizedEvent) => void
@@ -73,6 +77,15 @@ export interface AgentTool<TFields extends ZodFieldMap = ZodFieldMap> {
   passthroughInput?: boolean
   /** Refuse extra input fields before parsing can discard a retired argument. */
   strictInput?: boolean
+  /** Who may call a tool that is made for one run (an integration's or an app's). A Solus tool's rule is in `TOOL_ACCESS`. */
+  access?: ToolAccess
+  /**
+   * False when this tool is not for the person of the turn: the catalog leaves it out,
+   * and a call is refused (plans/035-cloud-machine-tools.md §7). It reads the person
+   * with `workspaceToolAuthority()`, which `credentialScopedAgentTools` sets for the
+   * turn, so a tool list with no person does not offer it.
+   */
+  isOffered?: () => boolean
   execute(
     input: z.output<z.ZodObject<TFields>>,
     context: AgentToolContext,
@@ -97,6 +110,10 @@ export async function executeAgentTool<Input>(
   if (!isSolusToolEnabled(agentTool.name, getHostConfig().config.solusTools)) {
     return { ok: false, text: `${agentTool.name} is disabled in Settings → Tools on this host.` }
   }
+  // Checked again at the call: the person can sign out during a run.
+  if (agentTool.isOffered && !agentTool.isOffered()) {
+    return { ok: false, text: `${agentTool.name} is not available to you on this host. Sign in to Solus to use it.` }
+  }
   const schema = agentTool.passthroughInput ? z.looseObject(agentTool.inputFields ?? {}) : z.object(agentTool.inputFields)
   const parsed = (agentTool.strictInput ? schema.strict() : schema).safeParse(input)
   if (!parsed.success) {
@@ -116,8 +133,8 @@ export function advertisedInputSchema(agentTool: AgentTool): z.core.JSONSchema.J
   return compactToolSchema(agentTool.inputFields)
 }
 
-/** Apply host choices when a provider builds its tool catalog. Execution rechecks them. */
+/** Apply host choices and the turn's person when a provider builds its tool catalog. Execution rechecks them. */
 export function enabledAgentTools(tools: AgentTool[]): AgentTool[] {
   const { solusTools } = getHostConfig().config
-  return tools.filter((tool) => isSolusToolEnabled(tool.name, solusTools))
+  return tools.filter((tool) => isSolusToolEnabled(tool.name, solusTools) && tool.isOffered?.() !== false)
 }

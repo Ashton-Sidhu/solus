@@ -62,13 +62,13 @@ beforeEach(async () => {
 })
 
 const memberPrincipal = (userId: string): Extract<Principal, { kind: 'org-member' }> => ({
-  kind: 'org-member', userId, organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'cloud',
+  kind: 'org-member', userId, organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'api',
   displayName: userId, deviceId: `${userId}-device`, deviceLabel: 'Browser', expiresAt: Date.now() + 300_000,
 })
 const member = (userId: string): WorkspaceRequestContext => ({
   principal: memberPrincipal(userId),
   home: { kind: 'organization', organizationId: 'org1', serviceId: 'api' },
-  scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read'],
+  scopes: ['issues:read', 'issues:write', 'works:read', 'works:write', 'sessions:read'],
 })
 const alice = member('alice')
 const user = (accountId: string): User => ({ id: { kind: 'account', accountId }, displayName: accountId })
@@ -156,8 +156,8 @@ describe('task assignment', () => {
     await notifyTaskAssignments(assigned, 'carol', async () => 'carol-on-github')
 
     expect(await inbox('bob', 'local')).toMatchObject([{
-      facts: { kind: 'task.assigned' },
-      resource: { kind: 'task', taskId: 'github:I_1' },
+      facts: { kind: 'issue.assigned' },
+      resource: { kind: 'issue', issueId: 'github:I_1' },
       by: { kind: 'upstream', provider: 'github' },
       summary: { title: 'Ship it' },
     }])

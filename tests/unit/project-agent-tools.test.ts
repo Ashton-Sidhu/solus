@@ -19,7 +19,7 @@ const { createProjectAgentTool, cloneProjectAgentTool, setProjectToolHost } = aw
 const owner = TEST_HANDLER_CTX.principal
 const member: Principal = {
   kind: 'org-member', userId: 'user_project_tools', organizationId: 'org-1', organizationRole: 'member',
-  teamIds: [], hostKind: 'managed', displayName: 'Member', deviceId: 'test', deviceLabel: 'Test', expiresAt: Date.now() + 60_000,
+  teamIds: [], hostKind: 'cloud', displayName: 'Member', deviceId: 'test', deviceLabel: 'Test', expiresAt: Date.now() + 60_000,
 }
 const guest: Principal = {
   kind: 'guest', guestId: 'guest-1', displayName: 'Guest', deviceId: 'guest-1', deviceLabel: 'Test', expiresAt: Date.now() + 60_000,

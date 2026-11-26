@@ -26,7 +26,11 @@
 # Flags, for one-line setup (`curl -fsSL <url> | sh -s -- --link CODE`):
 #   --setup                 run `solus setup` after installing
 #   --link CODE             run `solus setup --link CODE`: start the service and
-#                           link this host to Solus Cloud with a code from onboarding
+#                           link this host to Solus Cloud with a code from onboarding.
+#                           The code decides the kind: a personal host, or a cloud
+#                           host of an organization
+#   --address URL           optional: the HTTPS address of this machine. The internet
+#                           reaches the host there. Without it the host gets a tunnel
 #   --cloud-url URL         the Solus Cloud origin that issued the code
 
 set -eu
@@ -122,6 +126,7 @@ verify_sha256() {
 parse_args() {
   RUN_SETUP=""
   LINK_CODE=""
+  MACHINE_ADDRESS=""
   CLOUD_URL=""
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -129,6 +134,9 @@ parse_args() {
       --link)
         [ $# -ge 2 ] && [ -n "$2" ] || die "--link requires a code"
         LINK_CODE="$2"; RUN_SETUP=1; shift ;;
+      --address)
+        [ $# -ge 2 ] && [ -n "$2" ] || die "--address requires a URL"
+        MACHINE_ADDRESS="$2"; shift ;;
       --cloud-url)
         [ $# -ge 2 ] && [ -n "$2" ] || die "--cloud-url requires a URL"
         CLOUD_URL="$2"; shift ;;
@@ -141,6 +149,7 @@ parse_args() {
 run_setup() {
   set -- setup
   [ -z "$LINK_CODE" ] || set -- "$@" --link "$LINK_CODE"
+  [ -z "$MACHINE_ADDRESS" ] || set -- "$@" --address "$MACHINE_ADDRESS"
   [ -z "$CLOUD_URL" ] || set -- "$@" --cloud-url "$CLOUD_URL"
   log ""
   progress setup

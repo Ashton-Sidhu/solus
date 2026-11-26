@@ -10,12 +10,13 @@ import { dialHostSocket } from '@solus/client-core/host-socket'
 // though these tests never open it. Same seam tunnel-listener.test.ts uses.
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
-const hostCategory = await import('@solus/server/host/host-category')
-const hostLinkEnv = await import('@solus/server/host/host-link-env')
+const machine = await import('@solus/server/host/machine-kind')
+const bootLinkCode = await import('@solus/server/host/boot-link-code')
 const { isTrustedRequesterAddress } = await import('@solus/server/transport/trusted-requesters')
 const { isLanDiscoveryDisabled } = await import('@solus/server/transport/lan-discovery')
 const { assertRpcAccess, RpcAccessError } = await import('@solus/server/admission/access-policy')
 const { buildHttpServer } = await import('@solus/server/transport/http')
+const { createDoors } = await import('@solus/server/admission/doors')
 const { attachWebSocketTransport } = await import('@solus/server/transport/websocket')
 const { SolusServer } = await import('@solus/server/transport/server')
 const { ClientEventRegistry } = await import('@solus/server/transport/events/client-event-registry')
@@ -24,11 +25,12 @@ const { projectsVisibleTo } = await import('@solus/server/transport/handlers/set
 const { projectsRootFor } = await import('@solus/server/workspace')
 const { setupProjectsRoot } = await import('@solus/server/workspace')
 
-// docs/plans/managed-hosts.md §1: on a managed host nothing is trusted by network
-// position, pairing does not exist, the link is system-owned, and the link tokens
-// in the environment never reach a child process. A host is managed because its
-// link names the organization Solus provisioned it for; no switch says so.
-describe('managed host', () => {
+// plans/034-one-cloud-machine-kind.md §2, §3, docs/plans/managed-hosts.md §1: on a cloud
+// machine nothing is trusted by network position, pairing does not exist, the link is
+// system-owned, and the link code in the environment never reaches a child process. A
+// machine is a cloud machine because its registration names the organization it
+// works for; no switch says so.
+describe('cloud machine', () => {
   const originalEnv = { ...process.env }
   const originalDataDir = process.env.SOLUS_DATA_DIR
   let dataDir: string
@@ -36,62 +38,62 @@ describe('managed host', () => {
   beforeEach(() => {
     dataDir = mkdtempSync(join(tmpdir(), 'solus-managed-mode-test-'))
     process.env.SOLUS_DATA_DIR = dataDir
-    hostCategory.resetHostCategoryForTests()
-    hostCategory.adoptProvisionedRegistration({ organizationId: 'org_1' })
-    hostLinkEnv.resetHostLinkEnvForTests()
+    machine.resetMachineKindForTests()
+    machine.adoptRegistration({ organizationId: 'org_1' })
+    bootLinkCode.resetBootLinkCodeForTests()
     auth.resetAuthStateForTests()
   })
 
   afterEach(() => {
     auth.resetAuthStateForTests()
-    for (const key of ['SOLUS_HOST_LINK', 'SOLUS_PROJECTS_ROOT']) {
+    for (const key of ['SOLUS_LINK_CODE', 'SOLUS_MACHINE_ADDRESS', 'SOLUS_PROJECTS_ROOT']) {
       if (originalEnv[key] === undefined) delete process.env[key]
       else process.env[key] = originalEnv[key]
     }
-    hostCategory.resetHostCategoryForTests()
-    hostLinkEnv.resetHostLinkEnvForTests()
+    machine.resetMachineKindForTests()
+    bootLinkCode.resetBootLinkCodeForTests()
     rmSync(dataDir, { recursive: true, force: true })
     if (originalDataDir === undefined) delete process.env.SOLUS_DATA_DIR
     else process.env.SOLUS_DATA_DIR = originalDataDir
   })
 
-  const envLink = {
-    registration: { hostId: 'abcdefghijklmnop', issuer: 'https://app.example.test', jwksUrl: 'https://app.example.test/api/auth/jwks', directoryUrl: 'https://app.example.test', generation: 1 },
-    tunnel: { hostname: 'h-abcdefghijklmnop.example.test', proxiedPort: 34118 },
-    credentialTicket: 'hct_secret',
-  }
-
-  test('the environment link is read once and its one-time ticket leaves process.env on first read', () => {
-    // WHY: agent processes inherit process.env; the ticket must not (§2).
-    process.env.SOLUS_HOST_LINK = JSON.stringify(envLink)
-    expect(hostLinkEnv.readHostLinkEnv()).toEqual(envLink)
-    expect(process.env.SOLUS_HOST_LINK).toBeUndefined()
+  test('the link code and the machine address are read once, and both leave process.env on that first read', () => {
+    // WHY: agent processes inherit process.env; the one-use ticket must not reach them (§3).
+    process.env.SOLUS_LINK_CODE = '  org_ticket@app.example.test '
+    process.env.SOLUS_MACHINE_ADDRESS = ' https://vm.example.test '
+    expect(bootLinkCode.readBootLinkCode()).toEqual({ code: 'org_ticket@app.example.test', address: 'https://vm.example.test' })
+    expect(process.env.SOLUS_LINK_CODE).toBeUndefined()
+    expect(process.env.SOLUS_MACHINE_ADDRESS).toBeUndefined()
     // The second read answers from memory, not from the (now empty) environment.
-    expect(hostLinkEnv.readHostLinkEnv()).toEqual(envLink)
+    expect(bootLinkCode.readBootLinkCode()).toEqual({ code: 'org_ticket@app.example.test', address: 'https://vm.example.test' })
   })
 
-  test('an environment link that is not one is dropped, not stored', () => {
-    process.env.SOLUS_HOST_LINK = '{"registration":{"hostId":"x"}}'
-    expect(hostLinkEnv.readHostLinkEnv()).toBeNull()
-    expect(process.env.SOLUS_HOST_LINK).toBeUndefined()
+  test('a code with no address is a machine whose address the control plane has, or that gets a tunnel', () => {
+    process.env.SOLUS_LINK_CODE = 'org_ticket@app.example.test'
+    process.env.SOLUS_MACHINE_ADDRESS = '   '
+    expect(bootLinkCode.readBootLinkCode()).toEqual({ code: 'org_ticket@app.example.test', address: null })
+    expect(process.env.SOLUS_MACHINE_ADDRESS).toBeUndefined()
   })
 
-  test('the link decides the category: one that names an owning organization is a managed host, one that names none is not', () => {
-    // WHY: the category decides whether any credential-free door opens; a flag in the
-    // environment could be missing or wrong, the provisioned link cannot be.
-    expect(hostCategory.hostCategory()).toBe('managed')
-    expect(hostCategory.provisionedOrganizationId()).toBe('org_1')
-    hostCategory.applyHostCategory('self-hosted')
-    hostCategory.adoptProvisionedRegistration({})
-    expect(hostCategory.hostCategory()).toBe('self-hosted')
-    hostCategory.adoptProvisionedRegistration(null)
-    expect(hostCategory.provisionedOrganizationId()).toBeNull()
+  test('a machine that a person sets up has no code: an address alone enrolls nothing, and still leaves the environment', () => {
+    delete process.env.SOLUS_LINK_CODE
+    process.env.SOLUS_MACHINE_ADDRESS = 'https://vm.example.test'
+    expect(bootLinkCode.readBootLinkCode()).toBeNull()
+    expect(process.env.SOLUS_MACHINE_ADDRESS).toBeUndefined()
+    // A code that appears later in the environment is not read: the boot decided once.
+    process.env.SOLUS_LINK_CODE = 'org_late@app.example.test'
+    expect(bootLinkCode.readBootLinkCode()).toBeNull()
   })
 
   test('nobody is a trusted requester: not loopback, not the LAN, whatever the setting says', async () => {
     expect(await isTrustedRequesterAddress('127.0.0.1')).toBe(false)
     expect(await isTrustedRequesterAddress('::1')).toBe(false)
     expect(await isTrustedRequesterAddress('192.168.1.42')).toBe(false)
+    // The kind is asked on each request: the same loopback address is the owner's on a personal machine.
+    machine.resetMachineKindForTests()
+    expect(await isTrustedRequesterAddress('127.0.0.1')).toBe(true)
+    machine.adoptRegistration({ organizationId: 'org_1' })
+    expect(await isTrustedRequesterAddress('127.0.0.1')).toBe(false)
   })
 
   test('LAN discovery is off: the managed boot says so, as the workspace service does', () => {
@@ -100,9 +102,10 @@ describe('managed host', () => {
     expect(isLanDiscoveryDisabled({})).toBe(false)
   })
 
-  test('the link and the pairing RPCs are refused with MANAGED_HOST, even for a local owner', async () => {
+  test('the registration, link, and pairing RPCs are refused with MANAGED_HOST, even for a local owner', async () => {
     const owner = { kind: 'owner' as const, via: 'local' as const, expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
-    for (const method of ['uplinkLink', 'uplinkUnlink', 'connectionsGeneratePairToken', 'connectionsSetTrustLocalNetwork', 'connectionsSetRemoteAccess'] as const) {
+    // `uplinkRegister` too: a cloud machine is registered once, and no later code changes whose machine it is.
+    for (const method of ['uplinkRegister', 'uplinkLink', 'uplinkUnlink', 'connectionsGeneratePairToken', 'connectionsSetTrustLocalNetwork', 'connectionsSetRemoteAccess'] as const) {
       let refusal: unknown
       try { await assertRpcAccess(method, owner, [{}]) } catch (err) { refusal = err }
       expect(refusal).toBeInstanceOf(RpcAccessError)
@@ -121,13 +124,41 @@ describe('managed host', () => {
       requireAuth: () => true,
       isTrustedRequester: isTrustedRequesterAddress,
       isTunnelRequest: () => false,
-      pairingDisabled: true,
+      pairingDisabled: () => true,
     })
     try {
       const health = await (await fetch(`${baseUrl}/health`)).json() as { requireAuth: boolean }
       expect(health.requireAuth).toBe(true)
       expect((await fetch(`${baseUrl}/pair`, { method: 'POST', body: '{}' })).status).toBe(404)
       expect((await fetch(`${baseUrl}/pair/open`, { method: 'POST' })).status).toBe(404)
+    } finally {
+      await close(server)
+    }
+  })
+
+  test('the pairing door closes when a running server becomes a cloud machine', async () => {
+    // WHY (plans/034 §3): a standalone server registers with an organization code while
+    // it runs. From then on a pairing code opens nothing, and a device that paired
+    // before is no credential: the door is asked on each request, not once at boot.
+    machine.resetMachineKindForTests()
+    const pairingDisabled = () => machine.machineKind() === 'cloud'
+    const { server, baseUrl } = await listen({ requireAuth: () => true, isTrustedRequester: isTrustedRequesterAddress, isTunnelRequest: () => false, pairingDisabled })
+    const doors = createDoors({ place: 'host', pairingDisabled })
+    const pair = (pairToken: string) => fetch(`${baseUrl}/pair`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pairToken, deviceLabel: 'Phone' }) })
+    try {
+      const paired = await pair(auth.generatePairToken().token)
+      expect(paired.status).toBe(200)
+      const { sessionToken } = await paired.json() as { sessionToken: string }
+      expect(await doors.admitBearer(sessionToken, undefined)).toMatchObject({ ok: true, principal: { kind: 'owner', via: 'local' } })
+      expect(await doors.admitCredential({ kind: 'session-token', token: sessionToken })).toMatchObject({ ok: true })
+
+      machine.adoptRegistration({ organizationId: 'org_1' })
+
+      expect((await pair(auth.generatePairToken().token)).status).toBe(404)
+      expect((await fetch(`${baseUrl}/pair/open`, { method: 'POST' })).status).toBe(404)
+      expect((await fetch(`${baseUrl}/pair/serve`, { method: 'POST', body: '{}' })).status).toBe(404)
+      expect(await doors.admitBearer(sessionToken, undefined)).toEqual({ ok: false, reason: 'not-accepted' })
+      expect(await doors.admitCredential({ kind: 'session-token', token: sessionToken })).toEqual({ ok: false, reason: 'not-accepted' })
     } finally {
       await close(server)
     }
@@ -158,7 +189,7 @@ describe('managed host', () => {
   test('a member gets a workspace of their own beneath the host root; the owner and the host use the root (§3)', () => {
     // WHY: on a shared host every member clones into a directory that is theirs, not
     // into one pile; the owner's pickers still open where they always did.
-    const member = { kind: 'org-member' as const, userId: 'user_abc123', organizationId: 'org', organizationRole: 'member' as const, teamIds: [], hostKind: 'managed' as const, displayName: 'Bob', deviceId: 'd', expiresAt: 0, deviceLabel: 'Solus cloud' }
+    const member = { kind: 'org-member' as const, userId: 'user_abc123', organizationId: 'org', organizationRole: 'member' as const, teamIds: [], hostKind: 'cloud' as const, displayName: 'Bob', deviceId: 'd', expiresAt: 0, deviceLabel: 'Solus cloud' }
     const workspace = projectsRootFor(member, join(dataDir, 'projects'))
     expect(workspace).toBe(join(dataDir, 'projects', 'user_abc123'))
     expect(existsSync(workspace)).toBe(true)
@@ -172,7 +203,7 @@ describe('managed host', () => {
     // project listed for a member is one that is theirs to open; the owner's own
     // clone and another member's are not.
     const root = join(dataDir, 'projects')
-    const member = { kind: 'org-member' as const, userId: 'user_abc123', organizationId: 'org', organizationRole: 'member' as const, teamIds: [], hostKind: 'managed' as const, displayName: 'Bob', deviceId: 'd', expiresAt: 0, deviceLabel: 'Solus cloud' }
+    const member = { kind: 'org-member' as const, userId: 'user_abc123', organizationId: 'org', organizationRole: 'member' as const, teamIds: [], hostKind: 'cloud' as const, displayName: 'Bob', deviceId: 'd', expiresAt: 0, deviceLabel: 'Solus cloud' }
     const projects = [
       { path: join(root, 'solus') },
       { path: join(root, 'user_abc123', 'solus') },
@@ -185,7 +216,7 @@ describe('managed host', () => {
     expect(projectsVisibleTo(undefined, projects, root)).toHaveLength(5)
   })
 
-  // POSIX paths: a managed host is a Linux machine.
+  // POSIX paths: a cloud machine is a Linux machine.
   test.skipIf(process.platform === 'win32')('the projects root follows SOLUS_PROJECTS_ROOT until an administrator sets one (§3)', () => {
     expect(setupProjectsRoot({}, '/data/home', { SOLUS_PROJECTS_ROOT: '/data/projects' })).toBe('/data/projects')
     expect(setupProjectsRoot({ projectsBaseDirectory: '~/work' }, '/data/home', { SOLUS_PROJECTS_ROOT: '/data/projects' })).toBe('/data/home/work')

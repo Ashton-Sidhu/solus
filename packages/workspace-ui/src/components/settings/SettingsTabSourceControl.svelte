@@ -36,6 +36,7 @@
   import ProjectCodebaseNamingSetting from "../codebases/ProjectCodebaseNamingSetting.svelte";
   import ProjectCopiedFilesSetting from "./ProjectCopiedFilesSetting.svelte";
   import WorktreeBranchNamingRow from "./WorktreeBranchNamingRow.svelte";
+  import ManagedWorktreesSection from "./ManagedWorktreesSection.svelte";
   import { isModelOffered } from "./lib/text-generation-models";
 
   interface Props {
@@ -311,6 +312,13 @@
     note="A project can override this in Settings, Projects."
   />
 </SettingsSection>
+
+<ManagedWorktreesSection
+  {serverId}
+  {api}
+  {...settingsDefinitions["source-control.managed-worktrees"]}
+  visible={isVisible("managed-worktrees")}
+/>
 
 {#if error}
   <p class="text-xs text-destructive" role="alert">{error}</p>

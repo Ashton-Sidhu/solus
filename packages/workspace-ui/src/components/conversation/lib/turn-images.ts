@@ -2,6 +2,7 @@ import type { Message } from '@solus/contracts/types'
 import { messageReplyImages, replyImage, toolResultImages, type ReplyImage } from '@solus/client-core/reply-images'
 import { viewedImagePath, workspaceRelativeImagePath } from '@solus/client-core/viewed-workspace-image'
 import { hostPathKey, joinHostPath } from '@solus/contracts/host-path'
+import { snapshotHref } from '../../browser/lib/snapshot-card'
 
 /** The images a message adds to its turn's gallery: an image artifact, or the
  *  images its reply links. A tool row adds none. */
@@ -30,9 +31,13 @@ export function toolGroupViewedImages(tools: readonly Message[], cwd: string | u
   return [...paths.values()]
 }
 
-/** The images a turn's gallery shows, as its replies name them. */
+/** Every picture a turn's gallery shows, in turn order: the images its replies
+ *  name and its browser captures. One viewer steps through all of them. */
 export function galleryHrefs(messages: Message[]): string[] {
-  return messages.flatMap((message) => messageImages(message).map((image) => image.href))
+  return messages.flatMap((message) =>
+    message.browserSnapshot
+      ? [snapshotHref(message.browserSnapshot)]
+      : messageImages(message).map((image) => image.href))
 }
 
 /** Whether a turn's gallery has a slide. The carousel mounts only then: an

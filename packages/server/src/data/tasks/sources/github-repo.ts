@@ -1,10 +1,11 @@
 import { z } from 'zod'
 import type { TaskInvolvement } from '@solus/contracts/task-data'
-import type { TaskSource } from '@solus/contracts/task-sources'
-import type { TaskAssigneeCandidate, TaskColumn } from '@solus/contracts/task-types'
+import type { IssueSource } from '@solus/contracts/task-sources'
+import type { IssueAssigneeCandidate, IssueColumn } from '@solus/contracts/task-types'
 import { createRepoIssue, GitHubTaskProvider, listRepoAssignees } from '../providers/github'
-import { readGithubIssues, searchGithubIssues } from '../providers/github-planning-status'
+import { readGithubIssues, rememberPlanningStatuses, searchGithubIssues } from '../providers/github-planning-status'
 import {
+  GITHUB_PAGE_SIZE,
   issueToTask,
   planningColumn,
   planningStatusesOf,
@@ -12,25 +13,26 @@ import {
   restIssueToTask,
   type ListIssuesResponse,
 } from '../providers/github-model'
-import type {
-  GithubRun,
-  ProviderTask,
-  SourceItem,
-  SourceMove,
-  SourceRead,
-  SourceWriteState,
-  TaskDraft,
-  TaskSourceAdapter,
+import {
+  MAX_SOURCE_TASKS,
+  type GithubRun,
+  type ProviderTask,
+  type SourceItem,
+  type SourceMove,
+  type SourceRead,
+  type SourceWriteState,
+  type TaskDraft,
+  type TaskSourceAdapter,
 } from '../providers/types'
 
-type RepoSource = Extract<TaskSource, { kind: 'github-repo' }>
+type RepoSource = Extract<IssueSource, { kind: 'github-repo' }>
 
-function repoSource(source: TaskSource): RepoSource {
+function repoSource(source: IssueSource): RepoSource {
   if (source.kind !== 'github-repo') throw new Error(`The GitHub repository source cannot read a ${source.kind} source.`)
   return source
 }
 
-const LEGACY_COLUMNS: TaskColumn[] = [
+const LEGACY_COLUMNS: IssueColumn[] = [
   { id: 'open', name: 'Open', category: 'open' },
   { id: 'closed', name: 'Closed', category: 'done' },
 ]
@@ -45,7 +47,7 @@ export class GitHubRepoSource implements TaskSourceAdapter {
     this.provider = new GitHubTaskProvider(run)
   }
 
-  async read(source: TaskSource, continuation?: string): Promise<SourceRead> {
+  async read(source: IssueSource, continuation?: string): Promise<SourceRead> {
     const { owner, repo } = repoSource(source)
     const start = continuation
       ? z.object({ state: z.enum(['OPEN', 'CLOSED']), cursor: z.string().nullable() }).parse(JSON.parse(continuation))
@@ -57,9 +59,13 @@ export class GitHubRepoSource implements TaskSourceAdapter {
       let cursor = start.cursor
       let nextCursor: string | null = null
       // Four physical pages bound a click even if GitHub returns short pages.
-      for (let pageIndex = 0; pageIndex < 4; pageIndex++) {
-        const res: ListIssuesResponse = await readGithubIssues((queries) => graphql<ListIssuesResponse>(queries.listIssues, { owner, repo, states: [state], cursor }))
+      // Each page asks for no more than the cap leaves, so no read cuts a page
+      // and its cursor never skips an issue.
+      for (let pageIndex = 0; pageIndex < 4 && items.length < MAX_SOURCE_TASKS; pageIndex++) {
+        const first = Math.min(GITHUB_PAGE_SIZE, MAX_SOURCE_TASKS - items.length)
+        const res: ListIssuesResponse = await readGithubIssues(graphql, (queries) => graphql<ListIssuesResponse>(queries.listIssues, { owner, repo, states: [state], cursor, first }))
         const statuses = planningStatusesOf(res.repository)
+        if (pageIndex === 0 && res.repository.planningStatuses) rememberPlanningStatuses(graphql, { owner, repo }, statuses)
         if (pageIndex === 0 && statuses.length) columns = statuses.map(planningColumn)
         const page = res.repository.issues
         items.push(...page.nodes.map((node) => repoSourceItem(issueToTask(node), columns !== LEGACY_COLUMNS)))
@@ -77,7 +83,7 @@ export class GitHubRepoSource implements TaskSourceAdapter {
    * filter of the capped list would not find an older issue. A text search
    * looks for one issue, which is as often a closed one.
    */
-  async search(source: TaskSource, query: string, involvement: TaskInvolvement = 'all'): Promise<ProviderTask[]> {
+  async search(source: IssueSource, query: string, involvement: TaskInvolvement = 'all'): Promise<ProviderTask[]> {
     const { owner, repo } = repoSource(source)
     return this.run('search_github_tasks', async ({ rest, graphql }) => {
       const q = [`repo:${owner}/${repo}`, 'is:issue', involvement === 'authored' ? 'author:@me' : involvement === 'assigned' ? 'assignee:@me' : involvement === 'mentioned' ? 'mentions:@me' : '', query.trim()].filter(Boolean).join(' ')
@@ -95,7 +101,7 @@ export class GitHubRepoSource implements TaskSourceAdapter {
   }
 
   async create(input: {
-    source: TaskSource
+    source: IssueSource
     writeState: SourceWriteState | null
     draft: TaskDraft
   }): Promise<SourceItem> {
@@ -112,12 +118,12 @@ export class GitHubRepoSource implements TaskSourceAdapter {
   async move(input: SourceMove): Promise<ProviderTask | null> {
     repoSource(input.source)
     if (input.columnId === 'open' || input.columnId === 'closed') {
-      return this.provider.setState(input.home, input.columnId === 'closed' ? 'done' : 'open')
+      return this.provider.setState(input.home, input.columnId === 'closed' ? 'done' : 'open', input.current)
     }
-    return this.provider.setNamedStatus(input.home, input.columnId)
+    return this.provider.setNamedStatus(input.home, input.columnId, input.current)
   }
 
-  async assignees(source: TaskSource): Promise<TaskAssigneeCandidate[]> {
+  async assignees(source: IssueSource): Promise<IssueAssigneeCandidate[]> {
     return listRepoAssignees(this.run, repoSource(source))
   }
 }

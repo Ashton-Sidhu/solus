@@ -35,7 +35,7 @@ const DISPLAYS = [
 function conversationWidth(displayWidth: number): number {
   const sidebar = defaultWorkspaceRailWidth(displayWidth)
   const beside = displayWidth - sidebar
-  return isProjectRailOpen(true, beside)
+  return isProjectRailOpen(true, beside, false, false, displayWidth)
     ? beside - projectRailWidth(displayWidth, beside)
     : beside
 }
@@ -61,7 +61,7 @@ describe('panel sizing across displays', () => {
     for (const display of DISPLAYS) {
       const sidebar = defaultWorkspaceRailWidth(display.width)
       const beside = display.width - sidebar
-      if (!isProjectRailOpen(true, beside)) continue
+      if (!isProjectRailOpen(true, beside, false, false, display.width)) continue
       expect(projectRailWidth(display.width, beside)).toBe(sidebar)
     }
   })
@@ -99,8 +99,9 @@ describe('panel sizing across displays', () => {
     const fiveK = measure(2560)
     expect(fiveK).toBeGreaterThan(laptop)
     expect(fiveK - laptop).toBeLessThan(conversationWidth(2560) - conversationWidth(1440))
-    // A laptop uses the requested share; a 5K stops at the reading cap.
-    expect(laptop).toBeCloseTo((conversationWidth(1440) - 32) * 0.65, 6)
+    // A laptop holds both rails, so its column sits at the reading floor; a 5K
+    // stops at the reading cap.
+    expect(laptop).toBe(46 * 16)
     expect(fiveK).toBe(68 * 16)
   })
 

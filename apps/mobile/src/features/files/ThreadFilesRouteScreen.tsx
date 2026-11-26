@@ -1,3 +1,4 @@
+import { MOBILE_FULL_FILE_MAX_BYTES, useFullFileText } from "./useFullFileText";
 import { useWorkspaceFileAssetUrlState } from "./workspaceFileAssetUrl";
 import { readEntry, readTextPage } from "../../solus/checkout-files";
 import { useCheckoutAccess, useCheckoutLocation } from "../../solus/use-checkout-files";
@@ -570,20 +571,27 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
       ? readEntry({
           accountKey: fileAccess.accountKey,
           environmentId,
-          input: { cwd, relativePath },
+          input: { cwd, relativePath, ...(targetLine && { line: targetLine }) },
         })
       : null,
   );
   const metadataPending = fileQuery.isPending && !fileQuery.data && !fileQuery.error;
   const directoryPath = fileQuery.data?.kind === "directory" ? targetPath : null;
   const fileData = fileQuery.data?.kind === "text" ? fileQuery.data : null;
-  const page = fileData?.page;
+  const [previewRevision, setPreviewRevision] = useState(0);
+  const fullText = useFullFileText({
+    environmentId, threadId, cwd,
+    absolutePath: fileData && (fileData.truncated || fileData.page) && fileData.size <= MOBILE_FULL_FILE_MAX_BYTES
+      ? fileData.path : null,
+    revision: JSON.stringify([fileAccess.accountKey, fileData?.page?.revision, previewRevision]),
+  });
+  const page = fullText === null ? fileData?.page : undefined;
   const pageInset = useContentTopInset();
-  const pageKey = JSON.stringify([fileAccess.accountKey, environmentId, cwd, relativePath, page?.revision]);
+  const pageKey = JSON.stringify([fileAccess.accountKey, environmentId, cwd, relativePath, page?.revision, targetLine]);
   const [pageSelection, setPageSelection] = useState<{ key: string; index: number }>();
-  const pageIndex = pageSelection?.key === pageKey ? pageSelection.index : 0;
+  const pageIndex = pageSelection?.key === pageKey ? pageSelection.index : (page?.index ?? 0);
   const pageQuery = useEnvironmentQuery(
-    canReadFiles && environmentId && cwd && fileData && page && pageIndex > 0
+    canReadFiles && environmentId && cwd && fileData && page && pageIndex !== page.index
       ? readTextPage({
           accountKey: fileAccess.accountKey,
           environmentId,
@@ -591,10 +599,10 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
         })
       : null,
   );
-  const fileContents = pageIndex === 0 ? (fileData?.contents ?? null) : pageQuery.data;
+  const fileContents = fullText ?? (pageIndex === (page?.index ?? 0) ? (fileData?.contents ?? null) : pageQuery.data);
   const selectPage = (index: number) => setPageSelection({ key: pageKey, index });
   const refreshFile = () => {
-    if (page) selectPage(0);
+    setPageSelection(undefined);
     fileQuery.refresh();
   };
   const [searchQuery, setSearchQuery] = useState("");
@@ -608,7 +616,6 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
     readonly mode: FileViewMode;
   } | null>(null);
   const [textSelectionPath, setTextSelectionPath] = useState<string | null>(null);
-  const [previewRevision, setPreviewRevision] = useState(0);
   const previewKey = JSON.stringify([environmentId, cwd, relativePath, previewRevision]);
   const [fullScreenPreview, setFullScreenPreview] = useState<FilePreviewSource | null>(null);
   const isVideoFile = relativePath !== null && isVideoPreviewFile(relativePath);
@@ -805,7 +812,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
       fileContents !== null
         ? ({
             id: "copy-contents",
-            title: page ? gt("Copy page") : fileData?.truncated ? gt("Copy preview") : gt("Copy contents"),
+            title: page ? gt("Copy page") : fullText === null && fileData?.truncated ? gt("Copy preview") : gt("Copy contents"),
             icon: "doc.on.doc",
             inline: false,
             onPress: () => copyTextWithHaptic(fileContents),
@@ -998,10 +1005,10 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
             mediaSource={mediaSource}
             resolveVideoUri={assetPreview.resolve}
             fileContents={fileContents}
-            initialLine={page ? null : targetLine}
+            initialLine={page ? (pageIndex === page.index ? page.targetLine ?? null : null) : targetLine}
             relativePath={relativePath}
             threadId={threadId}
-            truncated={fileData?.truncated ?? false}
+            truncated={fullText === null && (fileData?.truncated ?? false)}
             paged={!!page}
             selectable={selectingText}
             onRefresh={refreshFile}

@@ -1,16 +1,16 @@
 // Pure helpers for the task page. Per the renderer rules, the .svelte files
 // hold markup and thin handlers; the shaping lives here.
 import type {
-  Task,
-  TaskComment,
-  TaskField,
-  TaskLink,
-  TaskLinkKind,
-  TaskPriority,
-  TaskProviderId,
-  TaskSessionLink,
+  Issue,
+  IssueComment,
+  IssueField,
+  IssueLink,
+  IssueLinkKind,
+  IssuePriority,
+  IssueProviderId,
+  IssueSessionLink,
 } from '@solus/contracts/task-types'
-import type { TaskStatusCategory } from '@solus/contracts/task-sources'
+import type { IssueStatusCategory } from '@solus/contracts/task-sources'
 import type { DocProviderId } from '@solus/contracts/docs'
 import type { HostOperatingSystem, Work } from '@solus/contracts/types'
 import type { Activity } from '@solus/contracts/activity'
@@ -57,7 +57,7 @@ export interface TaskDetailsSummary {
 }
 
 export function taskDetailsSummary(
-  task: Pick<Task, 'assignee' | 'dueDate' | 'labels'>,
+  task: Pick<Issue, 'assignee' | 'dueDate' | 'labels'>,
 ): TaskDetailsSummary {
   const [first, ...rest] = task.labels
   return {
@@ -81,13 +81,13 @@ export function statusColor(token: string, strength = 62): string {
 }
 
 /** The text colour of a status category, for a state name and its glyph. */
-export function statusTextColor(category: TaskStatusCategory): string {
+export function statusTextColor(category: IssueStatusCategory): string {
   return statusColor(CATEGORY_META[category].token)
 }
 
 /** The one word for a task's status: the provider's own state name. A task
  *  that no host described yet has no name, so its category speaks for it. */
-export function taskStateLabel(task: Pick<Task, 'state' | 'category'>): string {
+export function taskStateLabel(task: Pick<Issue, 'state' | 'category'>): string {
   return task.state.name || CATEGORY_META[task.category].label
 }
 
@@ -96,11 +96,11 @@ export interface TaskSessionHost {
   label: string
   /** Drawn as the host's logo. Unknown for a host that never reported it. */
   os?: HostOperatingSystem
-  /** A host Solus cloud runs: drawn as a cloud, whatever its OS. */
-  managed: boolean
+  /** A cloud machine: drawn as a cloud, whatever its OS. */
+  cloud: boolean
 }
 
-export interface TaskSessionRow {
+export interface NestedSessionRow {
   sessionId: string
   title: string
   /** Which agent ran the attempt — the one fact that tells two attempts of the
@@ -145,7 +145,7 @@ const DAY_WITH_YEAR = new Intl.DateTimeFormat(undefined, {
 const FULL = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 export function taskSessionRow(
-  link: TaskSessionLink,
+  link: IssueSessionLink,
   liveTitle: string | null,
   /** The open tab's agent, which a just-started session has before the session
    *  index has written a row to read the provider back from. */
@@ -156,7 +156,7 @@ export function taskSessionRow(
   host?: TaskSessionHost | null,
   /** The reader on the task's host, so their own sessions read "you". */
   self: UserId | null = null,
-): TaskSessionRow {
+): NestedSessionRow {
   // The link is written when the session is first bound to the task, so its
   // timestamp is when the attempt started.
   const started = new Date(link.linkedAt)
@@ -184,7 +184,7 @@ const FIELD_NAMES = {
   assignee: 'the assignee',
   priority: 'the priority',
   dueDate: 'the due date',
-} satisfies Record<TaskField, string>
+} satisfies Record<IssueField, string>
 
 /**
  * Why each field editor is disabled. The provider decides which fields one
@@ -193,14 +193,14 @@ const FIELD_NAMES = {
  * refused write, so it is disabled and says why.
  */
 export function taskFieldLocks(task: {
-  providerId: TaskProviderId
-  canWrite?(field: TaskField): boolean
+  providerId: IssueProviderId
+  canWrite?(field: IssueField): boolean
 }, readOnly = false) {
-  const lock = (field: TaskField): string | null => {
+  const lock = (field: IssueField): string | null => {
     if (readOnly) return 'Read-only issue'
     return task.canWrite?.(field)
       ? null
-      : `${PROVIDER_NAMES[task.providerId]} does not take a change of ${FIELD_NAMES[field]} for this task`
+      : `${PROVIDER_NAMES[task.providerId]} does not take a change of ${FIELD_NAMES[field]} for this issue`
   }
   return {
     title: lock('title'),
@@ -209,7 +209,7 @@ export function taskFieldLocks(task: {
     assignee: lock('assignee'),
     priority: lock('priority'),
     dueDate: lock('dueDate'),
-  } satisfies Record<TaskField, string | null>
+  } satisfies Record<IssueField, string | null>
 }
 
 /** For each field: null when the provider takes a change of it for this task,
@@ -220,7 +220,7 @@ export type TaskFieldLocks = ReturnType<typeof taskFieldLocks>
 
 /** Three ascending bars, filled up to the level. Urgent fills in the failure
  *  colour so the top of the scale reads differently from the rest of it. */
-const PRIORITY_BARS = new Map<TaskPriority, number>([
+const PRIORITY_BARS = new Map<IssuePriority, number>([
   ['urgent', 3],
   ['high', 3],
   ['medium', 2],
@@ -233,7 +233,7 @@ interface PriorityBar {
   background: string
 }
 
-export function priorityBars(priority: TaskPriority | undefined): PriorityBar[] {
+export function priorityBars(priority: IssuePriority | undefined): PriorityBar[] {
   const filled = priority ? PRIORITY_BARS.get(priority) ?? 0 : 0
   const on = priority === 'urgent'
     ? 'color-mix(in oklch, var(--failure) 70%, var(--foreground))'
@@ -245,14 +245,14 @@ export function priorityBars(priority: TaskPriority | undefined): PriorityBar[] 
   }))
 }
 
-export function priorityLabel(priority: TaskPriority | undefined): string {
+export function priorityLabel(priority: IssuePriority | undefined): string {
   return priority ? PRIORITY_META[priority].label : 'No priority'
 }
 
 // ── Linked ──
 
 /** Icon paths for the Linked table, matching the kinds the picker offers. */
-const LINK_ICONS = new Map<TaskLinkKind, string>([
+const LINK_ICONS = new Map<IssueLinkKind, string>([
   ['work', 'M8.2 1.6H4.2a1.4 1.4 0 00-1.4 1.4v8a1.4 1.4 0 001.4 1.4h5.6a1.4 1.4 0 001.4-1.4V4.4zM8.2 1.6v2.8h3M5 7.4h4M5 9.8h2.6'],
   ['plan', 'M2.4 3.6l1.2 1.2 2-2M2.4 8.2l1.2 1.2 2-2M7.6 4h4M7.6 8.6h4'],
   ['automation', 'M7.6 1.8L3.6 7.6h3L6.2 12.2l4.2-6h-3z'],
@@ -265,12 +265,12 @@ const ARTIFACT_ICON = 'M2.4 3.4a1.4 1.4 0 011.4-1.4h6.4a1.4 1.4 0 011.4 1.4v7.2a
 
 /** A `work` link's live status is the work's type, so the row can tell an
  *  artifact from a document without loading the work. */
-export function isArtifactLink(link: TaskLink): boolean {
+export function isArtifactLink(link: IssueLink): boolean {
   return link.kind === 'work' && link.liveStatus === 'artifact'
 }
 
 /** Plural section names, which are also the filter labels. */
-const LINK_KIND_LABELS = new Map<TaskLinkKind, { one: string; many: string }>([
+const LINK_KIND_LABELS = new Map<IssueLinkKind, { one: string; many: string }>([
   ['work', { one: 'Doc', many: 'Docs' }],
   ['plan', { one: 'Plan', many: 'Plans' }],
   ['pr', { one: 'PR', many: 'PRs' }],
@@ -279,15 +279,15 @@ const LINK_KIND_LABELS = new Map<TaskLinkKind, { one: string; many: string }>([
 
 /** Pull requests are not rows in the Linked table: they get their own section,
  *  which can carry live PR state a generic row has nowhere to put. */
-const LINK_KIND_ORDER: TaskLinkKind[] = ['work', 'plan', 'automation']
+const LINK_KIND_ORDER: IssueLinkKind[] = ['work', 'plan', 'automation']
 
-export function linkedTableLinks(links: TaskLink[]): TaskLink[] {
+export function linkedTableLinks(links: IssueLink[]): IssueLink[] {
   return links.filter((link) => link.kind !== 'pr')
 }
 
 /** The provider mark shown beside a linked work after its metadata is loaded. */
 export function linkedWorkProvider(
-  link: TaskLink,
+  link: IssueLink,
   workFor: (workId: string) => Pick<Work, 'mirroredDoc'> | undefined,
 ): DocProviderId | null {
   return link.kind === 'work' ? workFor(link.targetKey)?.mirroredDoc?.provider ?? null : null
@@ -295,7 +295,7 @@ export function linkedWorkProvider(
 
 export interface LinkRow {
   key: string
-  link: TaskLink
+  link: IssueLink
   icon: string
   /** Live title when the target still exists, else the link-time snapshot. */
   label: string
@@ -309,7 +309,7 @@ export interface LinkRow {
 
 /** A PR row's label is the live title when a client has read the pull request,
  *  so `livePrTitle` is passed by the surfaces that overlay `PrsStore`. */
-export function linkRow(link: TaskLink, livePrTitle?: string): LinkRow {
+export function linkRow(link: IssueLink, livePrTitle?: string): LinkRow {
   const ref = link.kind === 'pr' ? `#${link.targetKey}` : ''
   const artifact = isArtifactLink(link)
   return {
@@ -329,12 +329,12 @@ export function linkRow(link: TaskLink, livePrTitle?: string): LinkRow {
 
 interface LinkFilter {
   label: string
-  kind: TaskLinkKind | null
+  kind: IssueLinkKind | null
   count: number
 }
 
 export interface LinkGroup {
-  kind: TaskLinkKind
+  kind: IssueLinkKind
   /** The plural kind name, which the wide table carries as a Kind column. */
   label: string
   rows: LinkRow[]
@@ -346,7 +346,7 @@ export interface LinkGroup {
  *  that repeats — so it is hoisted out of the row and stated once above the
  *  rows that share it. The order is the table's own, so a reader who knows the
  *  wide page finds the same kinds in the same sequence. */
-export function linkGroups(links: TaskLink[]): LinkGroup[] {
+export function linkGroups(links: IssueLink[]): LinkGroup[] {
   const groups: LinkGroup[] = []
   for (const kind of LINK_KIND_ORDER) {
     const rows = links.filter((link) => link.kind === kind).map((link) => linkRow(link))
@@ -359,7 +359,7 @@ export function linkGroups(links: TaskLink[]): LinkGroup[] {
 
 /** All, then one filter per kind that actually has links. Kinds with nothing
  *  in them are omitted rather than shown as a dead zero. */
-export function linkFilters(links: TaskLink[]): LinkFilter[] {
+export function linkFilters(links: IssueLink[]): LinkFilter[] {
   const filters: LinkFilter[] = [{ label: 'All', kind: null, count: links.length }]
   for (const kind of LINK_KIND_ORDER) {
     const count = links.filter((link) => link.kind === kind).length
@@ -374,11 +374,11 @@ export function linkFilters(links: TaskLink[]): LinkFilter[] {
  *  no mirrored activity — their `comment_threads` rows are already that log — so the merge
  *  happens here. */
 type ActivityEntry =
-  | { type: 'comment'; at: number; key: string; comment: TaskComment }
+  | { type: 'comment'; at: number; key: string; comment: IssueComment }
   | { type: 'activity'; at: number; key: string; activity: Activity }
   | { type: 'provider'; at: number; key: string; event: TaskProviderEvent }
 
-export function activityFeed(comments: TaskComment[], activity: Activity[], providerEvents: TaskProviderEvent[] = []): ActivityEntry[] {
+export function activityFeed(comments: IssueComment[], activity: Activity[], providerEvents: TaskProviderEvent[] = []): ActivityEntry[] {
   const entries: ActivityEntry[] = [
     ...comments.map((comment): ActivityEntry => ({
       type: 'comment',
@@ -407,7 +407,7 @@ export function activityFeed(comments: TaskComment[], activity: Activity[], prov
  *  reader finds it in the story of the task and not only in the Linked table.
  *  Read against the live links: a change for a work since unlinked, or one
  *  that is a document, gets no card. */
-export function linkedArtifactForActivity(activity: Activity, links: TaskLink[]): TaskLink | null {
+export function linkedArtifactForActivity(activity: Activity, links: IssueLink[]): IssueLink | null {
   if (activity.kind !== 'task_changed' || activity.change !== 'linked' || activity.target?.kind !== 'work') return null
   const targetKey = activity.target.key
   if (!targetKey) return null
@@ -419,9 +419,9 @@ export function linkedArtifactForActivity(activity: Activity, links: TaskLink[])
  * keeps the id the agent knew itself by, which is the provider thread when the
  * link holds the stable Solus id, so either id finds the link. */
 export function commentSessionLink(
-  comment: Pick<TaskComment, 'originSessionId'>,
-  sessions: TaskSessionLink[],
-): TaskSessionLink | null {
+  comment: Pick<IssueComment, 'originSessionId'>,
+  sessions: IssueSessionLink[],
+): IssueSessionLink | null {
   const origin = comment.originSessionId
   if (!origin) return null
   return sessions.find((candidate) => candidate.sessionId === origin || candidate.agentSessionId === origin) ?? null
@@ -430,8 +430,8 @@ export function commentSessionLink(
 /** Name the session that authored an agent comment. The durable task-session
  * link carries the indexed title; with no link, only the id is known. */
 export function commentSessionName(
-  comment: Pick<TaskComment, 'originSessionId'>,
-  sessions: TaskSessionLink[],
+  comment: Pick<IssueComment, 'originSessionId'>,
+  sessions: IssueSessionLink[],
 ): string | null {
   if (!comment.originSessionId) return null
   const link = commentSessionLink(comment, sessions)
@@ -446,7 +446,7 @@ export type TaskCommentDelivery =
   | { state: 'sent' }
   | { state: 'unsent'; error: string }
 
-export function commentDelivery(comment: Pick<TaskComment, 'unsent' | 'sendError'>): TaskCommentDelivery {
+export function commentDelivery(comment: Pick<IssueComment, 'unsent' | 'sendError'>): TaskCommentDelivery {
   if (!comment.unsent) return { state: 'sent' }
   return { state: 'unsent', error: comment.sendError?.trim() || 'The provider did not take this comment.' }
 }
@@ -454,7 +454,7 @@ export function commentDelivery(comment: Pick<TaskComment, 'unsent' | 'sendError
 /** Who wrote a comment: "You" for the reader, a person's name, an agent for
  *  its person, or the provider's name for a comment that Solus only read. */
 export function commentAuthorName(
-  comment: Pick<TaskComment, 'author' | 'externalAuthor'>,
+  comment: Pick<IssueComment, 'author' | 'externalAuthor'>,
   self: UserId | null,
 ): string {
   if (!comment.author) return comment.externalAuthor?.trim() || 'Unknown'

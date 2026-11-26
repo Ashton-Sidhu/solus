@@ -39,7 +39,7 @@ const report: SessionReport = {
   messageId: '22222222-2222-4222-8222-222222222222',
   alsoMessageIds: ['33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444'],
   sessionId: child,
-  taskId: 'task-1',
+  issueId: 'task-1',
   provider: 'claude-code',
   status: 'completed',
   durationMs: 1234,
@@ -81,7 +81,7 @@ describe('session report v2', () => {
       { kind: 'work', workId: `w${index}`, title: 'T'.repeat(ORCHESTRATION_LIMITS.title + 50), workType: 'doc' }
     ))
     const text = formatSessionReport({ ...report, outputs: many })
-    expect(text).toContain('- +5 more; call read_task then read_session')
+    expect(text).toContain('- +5 more; call read_session with session_id=')
     const [item] = parseOrchestrationItems(text)!
     const outputs = item!.type === 'report' ? item!.report.outputs : []
     expect(outputs).toHaveLength(ORCHESTRATION_LIMITS.outputs)
@@ -96,7 +96,7 @@ describe('session report v2', () => {
 })
 
 describe('session notice v1', () => {
-  const target = { messageId: 'm1', sessionId: child, taskId: 'task-1', provider: 'codex' as const }
+  const target = { messageId: 'm1', sessionId: child, issueId: 'task-1', provider: 'codex' as const }
   const notices: SessionNotice[] = [
     { ...target, kind: 'question', questionId: 'q1', questions: [{ question: 'Which "database"?', options: ['SQLite', 'Postgres, managed'] }, { question: 'Now?', options: [] }] },
     { ...target, kind: 'plan', title: 'Split the store', planToolUseId: 'toolu_9', questionId: 'plan-q' },

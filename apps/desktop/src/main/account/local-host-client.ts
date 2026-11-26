@@ -12,8 +12,8 @@ const log = createLogger('main', 'local-host-client')
  * in, it presents its access token for this host, and the host makes the owner's
  * delegations from it, as at the ticket door. A host that is not registered yet is
  * registered first (§2.2 rule 8): main gets a one-time ticket with its own account
- * token and hands it to the host, which registers with its own key and links, so the
- * owner reaches it from every device they sign in on (rule 9).
+ * token and hands it to the host, which registers with its own key. It does not link:
+ * the owner turns Link on to reach it from every device they sign in on (rule 9).
  * It presents on sign-in, at start, and when the host asks again (its registration or
  * organizations changed, or an owner's delegation ended because another client signed out).
  * While signed in, its identity is the host's user, so the host shows the account, not
@@ -28,7 +28,8 @@ export function presentAccountToLocalHost(
     const ticket = await issueEnrollmentTicket(session)
     // A sign-out while the ticket was on its way registers nothing.
     if (!ticket || !isSignedIn) return
-    await host.register({ ticket: ticket.ticket, directoryUrl: ticket.directoryUrl }).catch((error: unknown) => {
+    // Registered, not linked: the owner turns Link on (docs/plans/one-page-onboarding.md decision 4).
+    await host.register({ ticket: ticket.ticket, directoryUrl: ticket.directoryUrl, link: false }).catch((error: unknown) => {
       log.warn('local_host_registration_failed', { error: error instanceof Error ? error.message : String(error) })
     })
   }

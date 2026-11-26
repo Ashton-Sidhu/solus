@@ -6,7 +6,7 @@ import { getDb, withTx } from '../../db'
 import { sqliteQuery } from '../../db/sql'
 import { createLogger } from '../../logger'
 import { nextRunFrom, scheduleHasEnded, validateTrigger } from './automation-schedule'
-import { LOCAL_ORGANIZATION_ID, provisionedOrganizationId } from '../../host/host-category'
+import { LOCAL_ORGANIZATION_ID, cloudOrganizationId } from '../../host/machine-kind'
 import { getSessionRecord, organizationOfSession } from '../sessions/session-records'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { roleOf, visibleTo, type ResourceRow } from '../../admission/access'
@@ -26,6 +26,7 @@ import { attributionSchema, userKey, type Attribution, type User } from '@solus/
 import { agentAttribution, followHostUser, hostAttribution, userOfStoredKey } from '../stored-attribution'
 import { announceNotifications, recordNotificationSync } from '../notifications/store'
 import { resolveEngine } from '../../db/engine'
+import { SESSION_AGENT_IDS, agentIdSchema } from '@solus/contracts/types'
 
 const log = createLogger('automations', 'automations-store.ts')
 
@@ -34,9 +35,7 @@ const MAX_RUNS_PER_AUTOMATION = 50
 /** Cap the stored output of a single run. The full transcript lives in the
  *  spawned session anyway; together with the run cap this bounds run storage. */
 const MAX_RUN_OUTPUT_CHARS = 20_000
-const RUNNABLE_AGENT_PROVIDERS = new Set<AgentId>(['claude-code', 'codex'])
 
-const agentProviderSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
 const runStatusSchema = z.enum(['running', 'succeeded', 'failed', 'cancelled'])
 const automationTriggerSchema = z.discriminatedUnion('type', [
@@ -47,7 +46,7 @@ const automationTriggerSchema = z.discriminatedUnion('type', [
 ])
 const automationActionSchema = z.object({
   prompt: z.string(),
-  agentProvider: agentProviderSchema,
+  agentProvider: agentIdSchema,
   modelId: z.string().nullable(),
   reasoningEffort: reasoningEffortSchema,
   fastMode: z.boolean().optional(),
@@ -69,7 +68,7 @@ const automationActionSchema = z.object({
  *  stored `Attribution` never reads as one. */
 const legacyCreatorSchema = z.strictObject({
   kind: z.enum(['user', 'agent']),
-  agentProvider: agentProviderSchema.optional(),
+  agentProvider: agentIdSchema.optional(),
   sessionId: z.string().optional(),
   userId: z.string().optional(),
 })
@@ -244,7 +243,7 @@ function writeAutomation(db: DatabaseSync, automation: Automation, ownerKey = ''
       updated_at = excluded.updated_at
   `).run(
     id,
-    organizationId ?? provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID,
+    organizationId ?? cloudOrganizationId() ?? LOCAL_ORGANIZATION_ID,
     ownerKey,
     name,
     enabled ? 1 : 0,
@@ -308,7 +307,7 @@ function pruneRuns(db: DatabaseSync, automationId: string): void {
 const database = getDb
 
 function assertValidAction(action: AutomationAction): void {
-  if (!RUNNABLE_AGENT_PROVIDERS.has(action.agentProvider)) {
+  if (!SESSION_AGENT_IDS.some((agent) => agent === action.agentProvider)) {
     throw new Error(`Unsupported automation agent provider: ${action.agentProvider}`)
   }
   if (!action.prompt.trim()) throw new Error('Automation prompt cannot be empty.')
@@ -342,7 +341,7 @@ export async function createAutomation(
   const sessionId = createdBy.kind === 'agent' ? createdBy.sessionId : ''
   const automation: Automation = {
     id: randomUUID(),
-    organizationId: organizationId ?? (sessionId ? await organizationOfSession(sessionId) : provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID),
+    organizationId: organizationId ?? (sessionId ? await organizationOfSession(sessionId) : cloudOrganizationId() ?? LOCAL_ORGANIZATION_ID),
     name,
     enabled,
     action,

@@ -16,24 +16,6 @@ describe('session title regeneration input', () => {
     ], 'Older indexed text')).toBe('Use the live transcript')
   })
 
-  test('removes a prepended task packet from an indexed opening prompt', () => {
-    // WHY: older task-backed sessions stored the complete dispatch prompt in
-    // the index. Regeneration must name the user's request, not Solus context.
-    const indexedPrompt = [
-      '[Working On Task — "Fix titles" (task_id: 01KZ4TSYMQRX31D1DK5AAEW5TR, status: in_progress)]',
-      'Keep generated names tied to the user prompt.',
-      '',
-      'Work contract:',
-      '- Keep this task in progress while you work.',
-      '',
-      'Call read_task with task_id "01KZ4TSYMQRX31D1DK5AAEW5TR" to refresh this packet; use comment_task for durable write-back.',
-      '',
-      'Keep the user title stable',
-    ].join('\n')
-
-    expect(sessionTitleRegenerationInput([], indexedPrompt)).toBe('Keep the user title stable')
-  })
-
   test('removes appended reference context from the mounted prompt', () => {
     const prompt = [
       'Use the selected plan',

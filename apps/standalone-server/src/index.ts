@@ -128,11 +128,11 @@ async function main(): Promise<void> {
     return
   }
 
-  const [{ bootCore }, auth, { listReachableEndpoints }, { hostCategory }, { isApiMode }] = await Promise.all([
+  const [{ bootCore }, auth, { listReachableEndpoints }, { machineKind }, { isApiMode }] = await Promise.all([
     import('@solus/server/boot-core'),
     import('@solus/server/admission/auth'),
     import('@solus/server/transport/endpoints'),
-    import('@solus/server/host/host-category'),
+    import('@solus/server/host/machine-kind'),
     import('@solus/server/host/api-mode'),
   ])
 
@@ -164,8 +164,6 @@ async function main(): Promise<void> {
     host: args.host,
     port: args.port,
     staticDir: join(__dirname, '../client'),
-    // A standalone server is a registered self-hosted Solus server (organization-scope §3.1), never a personal computer.
-    hostCategory: 'self-hosted',
   })
 
   // This process is not Electron, so it has no Chromium of its own to host a
@@ -189,9 +187,9 @@ async function main(): Promise<void> {
   const baseUrl = `http://${hostForUrl(endpoint.host)}:${endpoint.port}`
   process.stdout.write(`Solus server reachable at ${baseUrl}\n`)
 
-  // A managed host and the workspace service have no pairing (docs/plans/managed-hosts.md §1,
+  // A cloud machine and the workspace service have no pairing (plans/034-one-cloud-machine-kind.md §2,
   // cloud-service-model.md §15): a grant is the only way in, so there is no code to print.
-  if (hostCategory() !== 'managed' && !isApiMode()) {
+  if (machineKind() !== 'cloud' && !isApiMode()) {
     const pairToken = auth.generatePairToken()
     const pairUrl = `${baseUrl}/pair#token=${pairToken.token}`
     process.stdout.write([

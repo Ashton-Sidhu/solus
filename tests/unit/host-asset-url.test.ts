@@ -41,6 +41,14 @@ describe('signed URLs for host media files', () => {
     expect(response.headers.get('content-type')).toBe('image/png')
   })
 
+  test('includes the image size when signing a checkout image for the transcript', async () => {
+    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/at8AAAAASUVORK5CYII=', 'base64')
+    await writeFile(join(projectRoot, 'pixel.png'), image)
+    const signed = await createAssetUrl(ctx, { path: 'pixel.png' }, { secret, now })
+    expect(signed.imageDimensions).toEqual({ width: 1, height: 1 })
+    expect(await (await serve(signed.relativeUrl)).arrayBuffer()).toEqual(image.buffer.slice(image.byteOffset, image.byteOffset + image.length))
+  })
+
   test('resolves a relative path against the session project', async () => {
     await writeFile(join(projectRoot, 'diagram.avif'), Buffer.from([1, 2, 3]))
     const { relativeUrl } = await createAssetUrl(ctx, { path: 'diagram.avif' }, { secret, now })

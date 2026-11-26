@@ -131,6 +131,13 @@ export function subagentRow(
   }
 }
 
+/** The backend a sub-agent's type names, or '' when it names none. */
+function subagentBackend(subagentType: string | undefined): AgentId | '' {
+  if (subagentType === 'codex') return 'codex'
+  if (subagentType === 'claude') return 'claude-code'
+  return subagentType === 'antigravity' ? 'antigravity' : ''
+}
+
 /**
  * Which backend a sub-agent runs on and its model's name. The Agent call names
  * the backend when it is not the parent's; otherwise the model says which
@@ -141,14 +148,8 @@ export function subagentIdentity(
   fallback: SubagentModelFallback,
 ): { provider: AgentId; modelLabel: string; effortLabel: string } {
   const [model = '', effortLabel = ''] = subagentModelMeta(message, fallback)
-  const provider: AgentId =
-    message.subagentType === 'codex'
-      ? 'codex'
-      : message.subagentType === 'claude'
-        ? 'claude-code'
-        : model in (MODEL_PROFILES.codex ?? {})
-          ? 'codex'
-          : 'claude-code'
+  const provider: AgentId = subagentBackend(message.subagentType)
+    || (model in (MODEL_PROFILES.codex ?? {}) ? 'codex' : 'claude-code')
   return { provider, modelLabel: modelLabelFor(provider, model) ?? '', effortLabel }
 }
 
@@ -158,8 +159,7 @@ export function subagentIdentity(
  */
 export function subagentModelMeta(message: Message, fallback: SubagentModelFallback): string[] {
   const parsed = parseSubagentInput(message.toolInput)
-  const backend =
-    message.subagentType === 'codex' ? 'codex' : message.subagentType === 'claude' ? 'claude-code' : ''
+  const backend = subagentBackend(message.subagentType)
   const defaultModel = backend
     ? (Object.entries(MODEL_PROFILES[backend] ?? {}).find(([, profile]) => profile.isDefault)?.[0] ?? '')
     : ''

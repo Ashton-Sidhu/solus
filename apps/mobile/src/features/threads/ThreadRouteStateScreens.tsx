@@ -1,9 +1,11 @@
 import { createContext, use, type ReactNode } from "react";
 import { useGT } from "gt-react-native";
+import { View } from "react-native";
+import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { AppBar } from "../../components/ui/AppBar";
+import { AppText as Text } from "../../components/ui/AppText";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { EmptyState } from "../../components/ui/EmptyState";
-import { LoadingScreen } from "../../components/LoadingScreen";
 import { useWorkspaceBackNavigation } from "../layout/workspace/useAndroidWorkspaceNavigation";
 import { ThreadScreenFallback } from "./ThreadScreenHost";
 
@@ -31,7 +33,10 @@ export function OpeningThreadLoadingScreen() {
   const gt = useGT();
   return (
     <ThreadRouteFallbackLayout>
-      <LoadingScreen message={gt("Opening thread…")} messagePlacement="above-spinner" embedded />
+      <View className="flex-1 flex-row items-center justify-center gap-2 px-6">
+        <AppActivityIndicator size="small" />
+        <Text className="shrink text-sm text-foreground-muted">{gt("Opening thread…")}</Text>
+      </View>
     </ThreadRouteFallbackLayout>
   );
 }

@@ -9,8 +9,6 @@
  */
 export interface ProjectRow {
   label: string
-  /** The row names a codebase: it has the icon of a codebase, not the mark of a project. */
-  isCodebase: boolean
   badge: string | undefined
   tooltip: string | undefined
 }
@@ -19,8 +17,8 @@ export function projectRow(input: { projectName: string; codebaseName: string | 
   const { projectName, codebaseName, hostLabel, isLocalHost } = input
   const runsOn = hostLabel ? `Runs on ${hostLabel}` : undefined
   const badge = isLocalHost ? undefined : hostLabel
-  if (!codebaseName) return { label: projectName, isCodebase: false, badge, tooltip: runsOn }
+  if (!codebaseName) return { label: projectName, badge, tooltip: runsOn }
   // The row does not show the working folder of a run in a codebase, so the tooltip says where the run works.
   const tooltip = [`Codebase ${codebaseName}`, `Works in ${projectName}`, runsOn].filter(Boolean).join(' · ')
-  return { label: codebaseName, isCodebase: true, badge, tooltip }
+  return { label: codebaseName, badge, tooltip }
 }

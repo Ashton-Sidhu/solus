@@ -1,6 +1,12 @@
 import { execFile, spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
+import { join } from 'node:path'
 import type { Seat, SeatConnectStartResult, SeatProvider } from '@solus/contracts/seats'
-import { launchProcess, launchedProcess, type LaunchOptions } from '../../cli-env'
+import { launchOptions, launchProcess, launchedProcess, type LaunchedProcess, type LaunchOptions } from '../../cli-env'
+import { ANTIGRAVITY_COMMAND, antigravityArgs, antigravitySignInUrl } from '../agents/acp/antigravity'
+import { antigravityAuthOf, antigravityEnvironment, antigravitySignedIn, prepareAntigravityProfile } from '../agents/acp/antigravity-auth'
+import { EnterpriseAlreadySignedIn, startEnterpriseSignIn, type EnterpriseSignIn, type EnterpriseSignInOptions } from './antigravity-enterprise-sign-in'
+import { ANTIGRAVITY_BROWSER_HELPER } from './seat-manager'
+import type { AntigravityBrowserSignIn } from '@solus/contracts/seats'
 import { resolveHomePath } from '../../platform/paths'
 import { createLogger } from '../../logger'
 import { providerLoginConnected, seatEnv } from './seat-login'
@@ -45,6 +51,8 @@ export interface InstanceConnectTarget {
 
 export class SeatConnector {
   private readonly active = new Map<string, ActiveConnect>()
+  /** Gemini Enterprise sign-ins, which agy runs over ACP rather than as a CLI login. */
+  private readonly enterprise = new Map<string, EnterpriseSignIn>()
   private readonly spawnProcess: SpawnProcess
   private readonly verifyLogin: (provider: SeatProvider, home: string | null) => Promise<boolean>
 
@@ -54,20 +62,30 @@ export class SeatConnector {
     /** Whether the CLI left a working credential in the seat's directory (`null`: the host's defaults). */
     verifyLogin?: (provider: SeatProvider, home: string | null) => Promise<boolean>
     connectTimeoutMs?: number
+    /** Starts a Gemini Enterprise sign-in; tests give one that runs no agy. */
+    startEnterprise?: (options: EnterpriseSignInOptions) => Promise<EnterpriseSignIn>
   }) {
     this.spawnProcess = deps.spawnProcess ?? nodeSpawn
     this.verifyLogin = deps.verifyLogin ?? providerLoginConnected
   }
 
-  /** Starts the login and answers once the CLI has printed where to sign in. */
-  async start(seat: Seat, provider: SeatProvider, target?: InstanceConnectTarget): Promise<SeatConnectStartResult> {
+  /**
+   * Starts the login and answers once the CLI has printed where to sign in.
+   * `antigravity`: how an Antigravity seat signs in; absent, the way it last
+   * signed in in the browser, else a Google account.
+   */
+  async start(seat: Seat, provider: SeatProvider, target?: InstanceConnectTarget, antigravity?: AntigravityBrowserSignIn): Promise<SeatConnectStartResult> {
     const key = connectKey(seat, provider, target?.id)
     await this.cancel(seat, provider, target?.id)
     const home = target?.home ?? this.deps.seats.homeFor(seat, provider)
+    const signIn = provider === 'antigravity' && !target ? antigravity ?? savedBrowserSignIn(home) : null
+    if (signIn?.method === 'oauth-business') return this.startEnterprise(seat, key, home, signIn)
     // The host login signs in where the CLI looks by default; a user's seat is named explicitly.
     const seatHome = target ? home : seat.kind === 'host-login' ? null : home
-    const spec = loginCommand(provider)
-    const run = target ? launchedProcess(target.launch, target.binaryPath, spec.args) : launchProcess(spec.command, spec.args, { FORCE_COLOR: '0', ...seatEnv(provider, seatHome) })
+    const spec = loginCommand(provider, home)
+    const run = target ? launchedProcess(target.launch, target.binaryPath, spec.args)
+      : provider === 'antigravity' ? antigravityLoginProcess(home, spec.args)
+      : launchProcess(spec.command, spec.args, { FORCE_COLOR: '0', ...seatEnv(provider, seatHome) })
     const { env } = run
     env.PATH = `${this.deps.seats.shimBinDir()}:${env.PATH ?? ''}`
     // A login must be the person's own: nothing the host process carries may answer for it.
@@ -96,11 +114,14 @@ export class SeatConnector {
     const onOutput = (chunk: Buffer | string) => {
       entry.output = `${entry.output}${chunk.toString()}`.slice(-8_192)
       if (entry.verification) return
-      const parsed = parseAgentSignInVerification(entry.output.replace(TERMINAL_CODES_RE, ''))
+      const text = entry.output.replace(TERMINAL_CODES_RE, '')
+      const googleUrl = provider === 'antigravity' ? antigravitySignInUrl(text) : null
+      const parsed = googleUrl ? { url: googleUrl, requiresCodeInput: true } : provider === 'antigravity' ? null : parseAgentSignInVerification(text)
       if (!parsed) return
       const result: SeatConnectStartResult = {
         verificationUrl: parsed.url,
-        requiresCodeInput: parsed.requiresCodeInput === true || provider === 'claude-code',
+        // Claude's and Antigravity's pages show a code that comes back here; Codex shows its code here.
+        requiresCodeInput: parsed.requiresCodeInput === true || provider !== 'codex',
       }
       if (parsed.code) result.userCode = parsed.code
       entry.verification = result
@@ -115,6 +136,9 @@ export class SeatConnector {
     }, this.deps.connectTimeoutMs ?? CONNECT_TIMEOUT_MS)
     timeout.unref()
 
+    // agy 1.5 keeps a Google sign-in in the OS keychain on macOS, where Solus cannot
+    // read it: its clean exit is the proof that it accepted the sign-in, as for Gemini Enterprise.
+    const acceptedOnExit = signIn?.method === 'oauth-personal'
     const finish = async (outcome: { code: number | null; signal: NodeJS.Signals | null } | { error: Error }): Promise<void> => {
       clearTimeout(timeout)
       if (this.active.get(key) === entry) this.active.delete(key)
@@ -130,12 +154,13 @@ export class SeatConnector {
           const message = `${seatProviderLabel(provider)} sign-in exited with code ${outcome.code ?? 'unknown'}${tail ? `:\n${tail}` : ''}`
           await (target ? target.changed('failed', message) : this.deps.seats.markFailed(seat, provider, message))
           rejectVerification(new Error(message))
-        } else if (!(target ? await target.verify() : await this.verifyLogin(provider, seatHome))) {
+        } else if (!acceptedOnExit && !(target ? await target.verify() : signIn ? antigravitySignedIn(home, signIn) : await this.verifyLogin(provider, seatHome))) {
           const message = `${seatProviderLabel(provider)} sign-in finished, but no credential was saved for your seat.`
           await (target ? target.changed('failed', message) : this.deps.seats.markFailed(seat, provider, message))
           rejectVerification(new Error(message))
         } else {
-          await (target ? target.changed('connected') : this.deps.seats.markConnected(seat, provider, 'login'))
+          const record = acceptedOnExit ? { ...signIn, verifiedAt: Date.now() } : signIn ?? undefined
+          await (target ? target.changed('connected') : this.deps.seats.markConnected(seat, provider, 'login', record))
         }
       } finally {
         entry.settle()
@@ -157,8 +182,44 @@ export class SeatConnector {
     }
   }
 
-  /** The code the member's browser handed back, for the login waiting on stdin. */
-  submitCode(seat: Seat, provider: SeatProvider, code: string, instanceId?: string): void {
+  /**
+   * A Gemini Enterprise sign-in in the browser, relayed to agy on the host. The
+   * seat records the sign-in once agy accepts it, so a reconnect from any
+   * surface signs in to the same project.
+   */
+  private async startEnterprise(seat: Seat, key: string, profile: string, signIn: Extract<AntigravityBrowserSignIn, { method: 'oauth-business' }>): Promise<SeatConnectStartResult> {
+    void this.deps.seats.markConnecting(seat, 'antigravity')
+    const record = { method: 'oauth-business' as const, gcpProject: signIn.gcpProject, gcpLocation: signIn.gcpLocation }
+    let flow: EnterpriseSignIn
+    try {
+      flow = await (this.deps.startEnterprise ?? startEnterpriseSignIn)({
+        profile,
+        gcpProject: signIn.gcpProject,
+        gcpLocation: signIn.gcpLocation,
+        launch: launchOptions(),
+        browserHelper: join(this.deps.seats.shimBinDir(), ANTIGRAVITY_BROWSER_HELPER),
+        shimBin: this.deps.seats.shimBinDir(),
+      })
+    } catch (error) {
+      if (error instanceof EnterpriseAlreadySignedIn) await this.deps.seats.markConnected(seat, 'antigravity', 'login', { ...record, verifiedAt: Date.now() })
+      else await this.deps.seats.markFailed(seat, 'antigravity', error instanceof Error ? error.message : String(error))
+      throw error
+    }
+    this.enterprise.set(key, flow)
+    log.info('seat_connect_started', { seat: seatKey(seat), provider: 'antigravity', command: 'agy acp authenticate oauth-business' })
+    flow.done.then(
+      () => this.deps.seats.markConnected(seat, 'antigravity', 'login', { ...record, verifiedAt: Date.now() }),
+      (error: Error) => this.deps.seats.markFailed(seat, 'antigravity', error.message),
+    ).catch(() => {}).finally(() => {
+      if (this.enterprise.get(key) === flow) this.enterprise.delete(key)
+    })
+    return { verificationUrl: flow.verificationUrl, requiresCodeInput: true, input: 'redirect-url' }
+  }
+
+  /** The code the member's browser handed back, for the login waiting on stdin, or a Gemini Enterprise redirect for agy's listener. */
+  async submitCode(seat: Seat, provider: SeatProvider, code: string, instanceId?: string): Promise<void> {
+    const flow = this.enterprise.get(connectKey(seat, provider, instanceId))
+    if (flow) return flow.submit(code)
     const entry = this.active.get(connectKey(seat, provider, instanceId))
     const stdin = entry?.child.stdin
     if (!stdin?.writable) throw new Error(`${seatProviderLabel(provider)} sign-in is not waiting for a code.`)
@@ -166,6 +227,12 @@ export class SeatConnector {
   }
 
   async cancel(seat: Seat, provider: SeatProvider, instanceId?: string): Promise<boolean> {
+    const flow = this.enterprise.get(connectKey(seat, provider, instanceId))
+    if (flow) {
+      flow.cancel()
+      await flow.done.catch(() => {})
+      return true
+    }
     const entry = this.active.get(connectKey(seat, provider, instanceId))
     if (!entry) return false
     terminateProcessTree(entry.child, 'SIGTERM')
@@ -175,6 +242,7 @@ export class SeatConnector {
 
   /** Ends every login still waiting: the host is shutting down. */
   async stopAll(): Promise<void> {
+    for (const flow of this.enterprise.values()) flow.cancel()
     const entries = [...this.active.values()]
     for (const entry of entries) terminateProcessTree(entry.child, 'SIGTERM')
     await Promise.all(entries.map((entry) => entry.done))
@@ -189,14 +257,34 @@ interface ActiveConnect {
   done: Promise<void>
 }
 
+/** The browser sign-in an Antigravity seat used last: a Gemini Enterprise one keeps its project. */
+function savedBrowserSignIn(profile: string): AntigravityBrowserSignIn {
+  const auth = antigravityAuthOf(profile)
+  return auth.method === 'oauth-business' && auth.gcpProject && auth.gcpLocation
+    ? { method: 'oauth-business', gcpProject: auth.gcpProject, gcpLocation: auth.gcpLocation }
+    : { method: 'oauth-personal' }
+}
+
 function connectKey(seat: Seat, provider: SeatProvider, instanceId?: string): string {
   return `${seatKey(seat)}\n${provider}${instanceId ? `\n${instanceId}` : ''}`
 }
 
-function loginCommand(provider: SeatProvider): { command: string; args: string[]; display: string } {
-  return provider === 'claude-code'
-    ? { command: 'claude', args: ['auth', 'login'], display: 'claude auth login' }
-    : { command: 'codex', args: ['login', '--device-auth'], display: 'codex login --device-auth' }
+function loginCommand(provider: SeatProvider, home: string) {
+  switch (provider) {
+    case 'claude-code': return { command: 'claude', args: ['auth', 'login'], display: 'claude auth login' }
+    case 'codex': return { command: 'codex', args: ['login', '--device-auth'], display: 'codex login --device-auth' }
+    case 'antigravity': return { command: ANTIGRAVITY_COMMAND, args: antigravityArgs(home, { login: true }), display: 'agy acp --login' }
+  }
+}
+
+/**
+ * agy signs in to the seat's own profile, with its file storage, and without
+ * the host's Google credentials (docs/plans/antigravity-provider.md §7).
+ */
+function antigravityLoginProcess(profile: string, args: string[]): LaunchedProcess {
+  prepareAntigravityProfile(profile, { method: 'oauth-personal' })
+  const base = launchOptions()
+  return launchedProcess({ ...base, env: antigravityEnvironment(base.env, profile, { method: 'oauth-personal' }) }, ANTIGRAVITY_COMMAND, args)
 }
 
 /**

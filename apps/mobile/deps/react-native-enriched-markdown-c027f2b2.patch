@@ -1,0 +1,32 @@
+From c027f2b29715b83ff1abeddb8d84230e83286bde Mon Sep 17 00:00:00 2001
+From: Solus <dev@solus.local>
+Date: Wed, 25 Nov 2026 16:43:58 -0500
+Subject: [PATCH] Skip plural rules for native image-copy menus with one plural
+ form
+
+---
+ .../src/native/EnrichedMarkdownText.tsx                   | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/packages/react-native-enriched-markdown/src/native/EnrichedMarkdownText.tsx b/packages/react-native-enriched-markdown/src/native/EnrichedMarkdownText.tsx
+index 04c27c54..1c57696b 100644
+--- a/packages/react-native-enriched-markdown/src/native/EnrichedMarkdownText.tsx
++++ b/packages/react-native-enriched-markdown/src/native/EnrichedMarkdownText.tsx
+@@ -117,6 +117,14 @@ const buildPluralTemplates = (
+   singularLabel: string
+ ): string[] => {
+   if (!pluralLabels) return [];
++  // The native menu already uses the singular label for one image and 'other' for every other count.
++  if (
++    pluralLabels.zero === undefined &&
++    pluralLabels.one === undefined &&
++    pluralLabels.two === undefined &&
++    pluralLabels.few === undefined &&
++    pluralLabels.many === undefined
++  ) return [];
+ 
+   const IntlRef = Intl as unknown as {
+     PluralRules?: new (locales?: string | string[]) => {
+-- 
+2.50.1 (Apple Git-155)
+

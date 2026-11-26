@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { hostCategorySchema, hostOrganizationSchema, hostOwnerIdentitySchema } from './uplink'
+import { hostOrganizationSchema, hostOwnerIdentitySchema, machineKindSchema } from './uplink'
 import { POLICY_REFUSAL_CODES } from './policy'
 
 /**
@@ -38,20 +38,13 @@ export const hostOrganizationsStatusSchema = z.object({
   /** The host is registered to an account (ADR 0001 §2.2 rule 8); without that it stands in no organization. Its link plays no part. */
   registered: z.boolean(),
   hostId: z.string().nullable(),
-  category: hostCategorySchema,
-  /** The account this host is registered to; null on a managed host or before the control plane answered. */
+  kind: machineKindSchema,
+  /** The account this host is registered to; null on a cloud machine or before the control plane answered. */
   owner: hostOwnerIdentitySchema.nullable(),
   /** The organizations this host may deliver records to. Their policies reach clients as a summary, through `hostPolicy`. */
   organizations: z.array(hostOrganizationSchema.omit({ policy: true, hostPolicy: true })),
   /** Organizations the person at this host opted its work into while their **Sync all Insights** is off (§6.1). */
   insightsOptIn: z.array(z.string()),
-  /**
-   * When this host was attached for organization work (organization-vms §4): new
-   * root sessions, tasks, and works then start in a client's organization on the
-   * Solus API, and new personal ones are refused. Null on a personal host; a
-   * deleted registration resets it.
-   */
-  attachedAt: z.number().nullable(),
   /** The Solus API the registration names for organization records; null while unregistered. */
   apiUrl: z.string().nullable(),
   /** What waits to reach each organization's Solus API: queued items, and outbox operations the service refused for good. */

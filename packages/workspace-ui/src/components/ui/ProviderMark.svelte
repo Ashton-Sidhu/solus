@@ -1,10 +1,12 @@
 <script lang="ts">
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
+  import antigravityLogo from "./antigravity.png";
+  import type { ProviderMarkId } from "../insights/lib/provider";
 
   /** The same backend marks and treatment as the model picker. */
   interface Props {
-    mark: "claude" | "codex" | null;
+    mark: ProviderMarkId;
     size?: number;
     transparent?: boolean;
   }
@@ -27,5 +29,10 @@
     style="width:{plateSize}px;height:{plateSize}px"
   >
     <OpenAIBlossom {size} fill={transparent ? "currentColor" : "black"} />
+  </span>
+{:else if mark === "antigravity"}
+  <!-- Antigravity's own logo, the same file the mobile app shows; its colours hold in both themes. -->
+  <span class="flex shrink-0 items-center">
+    <img src={antigravityLogo} width={size} height={size} alt="" class="block" />
   </span>
 {/if}

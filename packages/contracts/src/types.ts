@@ -2,13 +2,14 @@ import type { ProviderStartup } from './provider-startup'
 import type { QueueEntryDetails, QueueAttachment } from './session-queue'
 import type { SessionSearchReason, SessionSearchTarget } from './session-search'
 import { hostPathKey } from './host-path'
-import type { WireSessionLoadMessage } from './session-history'
+import type { ReplyHtmlLayout, WireSessionLoadMessage } from './session-history'
 import type { SecretOutcomeRecord } from './secret-request'
 import type { AddMachineAsk } from './add-machine'
+import type { CloudMachineAsk } from './cloud-machine-card'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState } from './git-types'
-import type { TaskSnapshot } from './task-types'
+import type { IssueSnapshot } from './task-types'
 import type { PrReviewTarget, PullRequest } from './providers'
 import type { BrowserRecordingRef, BrowserSnapshotRef } from './browser-types'
 import type { DeviceRunProfile } from './device-types'
@@ -29,10 +30,35 @@ import { z } from 'zod'
 
 // ─── Agent ID (needed by ModelProfile below) ───
 
-/** `replay` is the development-only provider that replays recorded turns (docs/replay-provider.md). */
-export type AgentId = 'claude-code' | 'codex' | 'opencode' | 'replay'
+/**
+ * Every provider id, in one list (docs/plans/antigravity-provider.md decision 1).
+ * Read this list, or `agentIdSchema`, instead of writing the ids out again.
+ * `replay` is the development-only provider that replays recorded turns
+ * (docs/replay-provider.md). `antigravity` runs Google's `agy` over ACP.
+ */
+export const AGENT_IDS = ['claude-code', 'codex', 'opencode', 'replay', 'antigravity'] as const
+export type AgentId = (typeof AGENT_IDS)[number]
+export const agentIdSchema = z.enum(AGENT_IDS)
 
-export type AgentTaskLifecyclePolicy = 'none' | 'moderate' | 'autonomous'
+/** The providers that run a whole Solus session with nobody watching: automations and worker sessions. Each has a headless runner. */
+export const SESSION_AGENT_IDS = ['claude-code', 'codex', 'antigravity'] as const satisfies readonly AgentId[]
+
+/**
+ * The providers that can answer through a Solus capture tool in a run. Text
+ * generation (titles, names, commit and pull request text) and reviews read the
+ * answer from that tool. Antigravity reaches it through the host's `/mcp` endpoint.
+ */
+export const SOLUS_TOOL_AGENT_IDS = ['claude-code', 'codex', 'antigravity'] as const satisfies readonly AgentId[]
+
+/** The short name of each provider, as people read it in a sentence ("Claude agent"). */
+export const AGENT_LABELS = {
+  'claude-code': 'Claude',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+  replay: 'Replay',
+  antigravity: 'Google Antigravity',
+} as const satisfies Record<AgentId, string>
+
 
 /** The binary each provider runs. `replay` runs in the server process and has none. */
 export type AgentBinaries = { readonly [agent in AgentId]?: string }
@@ -41,6 +67,7 @@ export const AGENT_BIN: AgentBinaries = {
   'claude-code': 'claude',
   'codex': 'codex',
   'opencode': 'opencode',
+  'antigravity': 'agy',
 }
 
 /**
@@ -58,6 +85,8 @@ export type FileManagerKind = 'finder' | 'file-explorer' | 'files'
  * safe when connected to older hosts. Some fields answer for the caller: a
  * cloud member's projects folder is their own. */
 export interface HostCapabilities {
+  /** The repository status read can include the projected working tree. */
+  checkoutStatus?: boolean
   /** The host build's version, for the per-host skew notice. */
   version?: string
   /** What the machine calls itself, from the operating system. `/health` withholds
@@ -67,6 +96,11 @@ export interface HostCapabilities {
   name?: string
   /** The sessions API accepts personal list order and shared auto-settle changes. */
   sessionListControls?: boolean
+  sessionDirectoryOpen?: boolean
+  /** The host answers `sessionShellOpen` and sends `sessionShell.changed` (docs/plans/mobile-session-shell.md). */
+  sessionShell?: boolean
+  /** Session commands this host can admit through its prompt and provider APIs. */
+  sessionComposer?: { providerSwitch: boolean; sideChatCommands: boolean }
   attachUpload?: boolean
   /** The host reads `PromptOptions.imageAttachmentRefs` from its own attachment
    *  store. Without it a client sends image bytes inline on every turn. */
@@ -104,7 +138,8 @@ export interface HostCapabilities {
   /** The desktop main process registered its handlers (screenshots, native dialogs). */
   desktopHandlers?: boolean
   /** Which agent CLIs the host found on its PATH. */
-  agents?: { claude: boolean; codex: boolean }
+  /** `agy` is absent from older hosts. */
+  agents?: { claude: boolean; codex: boolean; agy?: boolean }
   /** The local transcription model is installed. */
   dictation?: boolean
   platform?: string
@@ -121,10 +156,11 @@ export interface HostCapabilities {
   projectsBaseDirectoryIsSet?: boolean
 }
 
-export type SetupAgent = 'claude' | 'codex'
+/** An agent CLI the host setup installs, by its command name. `agy` is Antigravity's. */
+export type SetupAgent = 'claude' | 'codex' | 'agy'
 /** Signing an agent in is a seat connect (`seats.ts`), not a setup step. */
 export type SetupStreamStep =
-  | 'install-claude' | 'install-codex' | 'install-git' | 'install-gh' | 'clone'
+  | 'install-claude' | 'install-codex' | 'install-agy' | 'install-git' | 'install-gh' | 'clone'
 export type SetupStepStatus = 'running' | 'done' | 'failed'
 
 export interface SetupLogEvent {
@@ -550,6 +586,7 @@ export const modelProfilesSchema = z.object({
   'claude-code': providerModelProfilesSchema.optional(),
   codex: providerModelProfilesSchema.optional(),
   opencode: providerModelProfilesSchema.optional(),
+  antigravity: providerModelProfilesSchema.optional(),
   /** Never published: the replay backend lists its scenarios as its models. */
   replay: providerModelProfilesSchema.optional(),
 })
@@ -571,7 +608,7 @@ export const MODEL_PROFILES: ModelProfiles = structuredClone(BUNDLED_MODEL_PROFI
  * so a module that holds `MODEL_PROFILES['claude-code']` reads the new list.
  */
 export function replaceModelProfiles(next: ModelProfiles): void {
-  for (const provider of ['claude-code', 'codex', 'opencode'] as const) {
+  for (const provider of ['claude-code', 'codex', 'opencode', 'antigravity'] as const) {
     const incoming = next[provider] ?? {}
     const current = MODEL_PROFILES[provider]
     if (!current) {
@@ -800,10 +837,13 @@ export interface QuestionRequest {
   /** An answer to this question is sent as a new message, not a provider callback. */
   responseMode?: 'message'
   /** `secret`: a private card from `request_secret`, one question per secret; it is answered with `secretRequestAnswer`, never `respondQuestion` (docs/plans/webhooks.md §3.6).
-   *  `host-link`: the Add machine card from `add_host`, with `hostLink`; the client answers it with `respondQuestion` and `addMachineOutcomeAnswers` (docs/plans/add-machine-card.md). */
-  kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link'
+   *  `host-link`: the Add machine card from `add_host`, with `hostLink`; the client answers it with `respondQuestion` and `addMachineOutcomeAnswers` (docs/plans/add-machine-card.md).
+   *  `cloud-machine`: the machine card of a cloud machine tool, with `cloudMachine`; the client answers it with `respondQuestion` and `cloudMachineAnswers` (plans/035-cloud-machine-tools.md §6). */
+  kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link' | 'cloud-machine'
   /** `host-link` only: what the agent asks to add. */
   hostLink?: AddMachineAsk
+  /** `cloud-machine` only: the choices the card collects. */
+  cloudMachine?: CloudMachineAsk
   message?: string
   url?: string
   serverName?: string
@@ -867,6 +907,8 @@ export interface Attachment {
   dataUrl?: string
   /** File size in bytes */
   size?: number
+  /** The composer must replace or remove this file before it can send the draft. */
+  needsReattach?: true
   designData?: DesignSelectionData
 }
 
@@ -1061,7 +1103,7 @@ export type CloneStart =
  * membership is the task's session edge (`resource_links`) written once the session exists.
  */
 export type TaskTarget =
-  | { kind: 'existing'; taskId: string }
+  | { kind: 'existing'; issueId: string }
   | { kind: 'none' }
 
 /**
@@ -1445,6 +1487,9 @@ export interface ToolProgress {
 export interface Message {
   /** Provider thread identity retained through a handoff's combined history. */
   sourceSessionId?: string
+  /** A reply's HTML frames as the history page read them: where each sits in
+   *  `content`, its id, and the heights stored for it by frame width. */
+  replyHtmlLayout?: ReplyHtmlLayout[]
   /** In-memory answer receipt; reload uses only existing provider history. */
   questionAnswer?: QuestionAnswer
   /** A system row that marks a context compaction. Live from the
@@ -1547,7 +1592,7 @@ export interface Message {
   automationRef?: { automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
   /** Reference to a task the agent created in this thread, rendered as a card
    *  that opens the task board focused on the new task. */
-  taskRef?: { taskId: string; title: string; url: string | null }
+  taskRef?: { issueId: string; title: string; url: string | null }
   /** A capture the agent took of a browser page, rendered as the picture it saw
    *  rather than a line saying it looked. */
   browserSnapshot?: BrowserSnapshotRef
@@ -1586,8 +1631,9 @@ export interface Message {
   sender?: PromptSender
   /** Correlates the committed transcript entry with its optimistic outbox row. */
   clientPromptId?: string
-  /** Who wrote this prompt, as the host stamped it. Live-only, like `via`: a
-   *  history reload does not know, and the bubble then carries no name. */
+  /** Who wrote this prompt, as the host stamped it. The host keeps it, so a
+   *  history reload carries it too; a prompt from before the host kept it
+   *  carries no name. */
   author?: User
   /** How this message entered an already-running session. */
   delivery?: PromptDelivery
@@ -1966,7 +2012,7 @@ export interface AgentExchange {
    *  changed files, a pull request, sessions it started. */
   outputs?: SessionOutput[]
   /** The child's task, from the report. */
-  taskId?: string
+  issueId?: string
   durationMs?: number
   toolCallCount?: number
   settledAt?: number
@@ -2033,7 +2079,7 @@ export type AgentConversationUpdate =
   /** The target's turn is parked on a provider limit and resumes on its own at
    *  `resetsAt`; `accepted` with `running` follows when it does. */
   | { phase: 'rate_limited'; sessionId: string; messageId: string; resetsAt?: number; limitType?: string }
-  | { phase: 'settled'; sessionId: string; messageId: string; status: ExchangeOutcome; replyText: string; outputs?: SessionOutput[]; taskId?: string; durationMs?: number; toolCallCount?: number; settledAt: number }
+  | { phase: 'settled'; sessionId: string; messageId: string; status: ExchangeOutcome; replyText: string; outputs?: SessionOutput[]; issueId?: string; durationMs?: number; toolCallCount?: number; settledAt: number }
   | { phase: 'stopped'; sessionId: string }
 
 // ─── Canonical Events (normalized from raw stream) ───
@@ -2135,7 +2181,7 @@ export type NormalizedEvent =
    *  form is answered with an extra `__action` entry, so anything answering this
    *  request has to be able to tell the two apart. */
   | { type: 'question_answered'; answer: QuestionAnswer; timestamp: number }
-  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link'; hostLink?: AddMachineAsk; turnAuthor?: User }
+  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link' | 'cloud-machine'; hostLink?: AddMachineAsk; cloudMachine?: CloudMachineAsk; turnAuthor?: User }
   /** Provider context compaction. Claude can report one completed interval by
    *  duration and its token counts; Codex can report start and stop item
    *  boundaries. A stop that is not `failed` draws the compaction divider. */
@@ -2152,7 +2198,9 @@ export type NormalizedEvent =
    *  codebase that the host made is also a `codebase_formed` activity. */
   | { type: 'session_codebase'; codebaseId: string; name: string }
   | { type: 'git_status'; cwd: string; state: GitState | null }
-  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; sender?: PromptSender; author?: User }
+  /** `text` is what the person typed. `attachedFilePaths` names the files the
+   *  composer put before it in the prompt, so every client shows them as chips. */
+  | { type: 'user_message'; text: string; attachedFilePaths?: string[]; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; sender?: PromptSender; author?: User }
   | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia; author?: User }
   | { type: 'prompt_dequeued'; queueId: string }
   | { type: 'session_queue'; held: boolean; entries: QueuedPromptSnapshot[] }
@@ -2170,12 +2218,14 @@ export type NormalizedEvent =
   /** `organizationId` names the organization whose Solus API holds the work;
    *  null when the session's host holds it. Older hosts send neither. */
   | { type: 'work_created'; workId: string; title: string; docType: WorkType; content: string; organizationId?: string | null }
-  | { type: 'work_updated'; toolId?: string; workId: string; title: string; docType: WorkType; content: string; updatedAt: string; contentVersion?: number; organizationId?: string | null }
+  /** `layout` is the frame the host measured for an artifact's new version. */
+  | { type: 'work_updated'; toolId?: string; workId: string; title: string; docType: WorkType; content: string; updatedAt: string; contentVersion?: number; organizationId?: string | null; layout?: import('./artifact-page').ArtifactLayout }
   /** `workId`/`title` are set when an HTML artifact was persisted as an
-   *  `artifact` work; image artifacts (Codex ImageGeneration) carry neither. */
-  | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string; organizationId?: string | null }
+   *  `artifact` work; image artifacts (Codex ImageGeneration) carry neither.
+   *  `contentVersion` and `layout` name the saved version and its measured frame. */
+  | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string; organizationId?: string | null; contentVersion?: number; layout?: import('./artifact-page').ArtifactLayout }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
-  | { type: 'task_created'; taskId: string; title: string; url: string | null }
+  | { type: 'task_created'; issueId: string; title: string; url: string | null }
   | { type: 'browser_snapshot_captured'; snapshot: BrowserSnapshotRef }
   | { type: 'browser_recording_captured'; recording: BrowserRecordingRef }
   | { type: 'agent_conversation_update'; update: AgentConversationUpdate }
@@ -2253,13 +2303,13 @@ export interface PromptOptions {
   /** Set when a prompt is dispatched on a task-bound session. The main process
    *  hydrates the ticket into the run's system prompt, so the agent works from
    *  the task's live state without it entering the transcript. */
-  taskId?: string
+  issueId?: string
   /** The task's live state, shipped by the client when `taskId` names a task on
    *  a different host than the one executing this prompt (a dispatch). The
    *  execution host renders the system-prompt packet from it and serves
-   *  `read_task` from the same shape; without it a foreign `taskId` is
+   *  `read_issue` from the same shape; without it a foreign `taskId` is
    *  unreadable — hosts never talk to each other. */
-  taskSnapshot?: TaskSnapshot
+  taskSnapshot?: IssueSnapshot
   /** Goal objective attached to a fresh session dispatch. Main persists it as
    *  soon as the provider issues the session id, before a fast turn can finish. */
   goalObjective?: string
@@ -2405,6 +2455,8 @@ export interface SessionRunInput {
   noCodebase?: boolean
   gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
+  /** A local delegate's branch for the other repositories, or null to use their defaults. */
+  worktreeSiblingBaseBranch?: string | null
   /**
    * The member paths of the session's codebase that get a worktree when this
    * run starts a new worktree. Null or absent is the default set, which the
@@ -2889,6 +2941,8 @@ export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessio
  *  host encodes it as the provider does, and `includeWorktrees` adds the
  *  project's worktree folders beneath it. */
 export interface SessionRecordListFilter {
+  /** Continue after a directory opening page. */
+  cursor?: string
   /** The last complete page this reader still holds. */
   knownRevision?: string
   provider?: AgentId
@@ -3232,10 +3286,12 @@ export interface FilePreviewRequest {
   path: string
   cwd?: string
   /** Opt in to bounded, read-only pages when the file exceeds the preview limit. */
-  textPage?: { index: number; revision?: string }
+  textPage?: { index: number; revision?: string; line?: number }
 }
 
 export interface FilePreviewPage {
+  /** One-based line within the returned page for a citation. */
+  targetLine?: number
   index: number
   count: number
   revision: string
@@ -3479,6 +3535,8 @@ export type FilePreviewResult =
       ok: false
       path: string
       error: string
+      /** Older hosts omit the path kind on a failed preview. */
+      isDirectory?: boolean
     }
 
 // ─── Plugin Commands ───
@@ -3502,7 +3560,7 @@ export interface AgentSlashCommand {
 export interface PluginCommandsResult {
   global: PluginCommand[]
   project: PluginCommand[]
-  /** Built-in agent commands reported live by the SDK (claude-code only). */
+  /** The agent's own commands, as it reports them live: Claude Code's SDK, or an ACP agent's `available_commands_update`. */
   builtin?: AgentSlashCommand[]
 }
 

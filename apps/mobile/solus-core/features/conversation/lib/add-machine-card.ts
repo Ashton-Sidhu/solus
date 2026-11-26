@@ -2,9 +2,10 @@ import type { HostApi } from '@solus/client-core/host-api'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { classifyPairSecret, normalizeServerUrl } from '@solus/client-core/pairing'
 import type { AddMachineCandidate, ReachableMachine } from '@solus/client-core/add-machine-candidates'
-import { formatCheckCode, type AddMachineOutcome, type AddMachineWay } from '@solus/contracts/add-machine'
+import { formatCheckCode, type AddMachineAsk, type AddMachineOutcome, type AddMachineWay } from '@solus/contracts/add-machine'
 import type { HostRoute } from '@solus/contracts/host-routes'
 import type { SshAddProgress, SshAddRequest } from '@solus/contracts/remote-machines'
+import { isMissingIdentityFile } from '../../hosts/lib/ssh-add'
 
 /**
  * The rules of the phone's Add machine card (docs/plans/add-machine-card.md).
@@ -48,6 +49,38 @@ export function wayLabel(candidate: Pick<AddMachineCandidate, 'way' | 'minted' |
   if (candidate.minted) return 'From this device'
   if (candidate.way === 'ssh') return `Over SSH · ${candidate.sshTarget ?? ''}`
   return candidate.way === 'approve' ? 'Ask it to approve' : 'Needs a code'
+}
+
+/** The sheet's row "Another address…": a Solus address the person types. */
+export const ANOTHER_ADDRESS = 'another-address'
+/** The sheet's row "Another machine over SSH…": an SSH target the person types. */
+export const ANOTHER_SSH = 'another-ssh'
+
+/**
+ * The row the sheet selects before the person picks one. An SSH target from the
+ * agent selects the SSH config alias it names, else "Another machine over SSH…"
+ * with the target filled in.
+ */
+export function initialChoice(ask: AddMachineAsk, candidates: readonly AddMachineCandidate[]): string {
+  const target = ask.sshTarget?.trim()
+  if (target) return candidates.find((row) => row.way === 'ssh' && row.sshTarget === target)?.key ?? ANOTHER_SSH
+  return candidates[0]?.key ?? ANOTHER_ADDRESS
+}
+
+/** The step of "Another machine over SSH…", or null while the target is empty. */
+export function typedSshStep(target: string): AddMachineStep | null {
+  const sshTarget = target.trim()
+  return sshTarget ? { kind: 'ssh', sshTarget, name: sshTarget } : null
+}
+
+/**
+ * The identity file an SSH add sends. An alias row uses the key of
+ * `~/.ssh/config` until the person chooses "Use another key…"; a typed target
+ * sends the field when it is filled.
+ */
+export function chosenIdentityFile(selectedKey: string, fields: { identityFile: string; useAnotherKey: boolean }): string | undefined {
+  if (selectedKey !== ANOTHER_SSH && !fields.useAnotherKey) return undefined
+  return fields.identityFile.trim() || undefined
 }
 
 /** What one tap of Add does. `code` is a typed code; `mint` makes the code on a host this phone reaches. */
@@ -138,8 +171,13 @@ export type AddMachineAttempt =
   | { kind: 'added'; outcome: Extract<AddMachineOutcome, { status: 'added' }>; label: string }
   /** SSH refused the key: the card asks for a password or passphrase and tries again. */
   | { kind: 'needs-auth'; message: string }
-  /** `mintRefused`: the target refused a code from this phone; the row asks for approval next. */
-  | { kind: 'failed'; message: string; mintRefused?: string }
+  /** Other users can read the identity file, so SSH refuses it. Nothing was sent; the card offers Fix permissions. */
+  | { kind: 'key-permissions'; identityFile: string; message: string }
+  /**
+   * `mintRefused`: the target refused a code from this phone; the row asks for approval next.
+   * `field`: the message belongs under that field, such as a missing identity file.
+   */
+  | { kind: 'failed'; message: string; mintRefused?: string; field?: 'identityFile' }
 
 export interface AddMachineDeps {
   /** The session's host: it runs SSH and pairs. */
@@ -156,6 +194,10 @@ export interface AddMachineInput {
   requestId?: string
   /** `ssh`: a password or key passphrase after `needs-auth`. */
   authSecret?: string
+  /** `ssh`: a private key on the session host, as with `ssh -i` (`chosenIdentityFile`). */
+  identityFile?: string
+  /** `ssh`: the person chose Fix permissions; the host fixes the key first, in the same request. */
+  fixIdentityFilePermissions?: boolean
   /** `approve`: the check code the card already shows. */
   checkCode?: string
   /** `code`: the typed code, already checked with `typedCodeValue`. */
@@ -173,10 +215,9 @@ export async function attemptAddMachine(deps: AddMachineDeps, step: AddMachineSt
     switch (step.kind) {
       case 'ssh': {
         if (!input.requestId) return { kind: 'failed', message: 'The SSH add has no request id.' }
-        const request: SshAddRequest = { sshTarget: step.sshTarget, requestId: input.requestId, deviceLabel: deps.deviceLabel }
-        if (input.authSecret) request.authSecret = input.authSecret
-        const result = await deps.session.hostsAddOverSsh(request)
+        const result = await deps.session.hostsAddOverSsh(sshRequestOf(step.sshTarget, input.requestId, deps.deviceLabel, input))
         if (result.status === 'needs-auth') return { kind: 'needs-auth', message: result.message }
+        if (result.status === 'key-permissions') return { kind: 'key-permissions', identityFile: result.identityFile, message: result.message }
         if (result.status === 'needs-target') return { kind: 'failed', message: result.message }
         if (result.status === 'forwarded') return added(result.host.installationId, result.host.label)
         return added(result.installationId, result.label)
@@ -206,8 +247,30 @@ export async function attemptAddMachine(deps: AddMachineDeps, step: AddMachineSt
       }
     }
   } catch (error) {
-    return { kind: 'failed', message: error instanceof Error ? error.message : String(error) }
+    return failedWith(error instanceof Error ? error.message : String(error))
   }
+}
+
+/** The request of one SSH attempt: the key, its fix, and a secret only when this attempt has them. */
+function sshRequestOf(sshTarget: string, requestId: string, deviceLabel: string, input: AddMachineInput): SshAddRequest {
+  const request: SshAddRequest = { sshTarget, requestId, deviceLabel }
+  if (input.identityFile) request.identityFile = input.identityFile
+  if (input.identityFile && input.fixIdentityFilePermissions) request.fixIdentityFilePermissions = true
+  if (input.authSecret) request.authSecret = input.authSecret
+  return request
+}
+
+function failedWith(message: string): Extract<AddMachineAttempt, { kind: 'failed' }> {
+  return isMissingIdentityFile(message) ? { kind: 'failed', message, field: 'identityFile' } : { kind: 'failed', message }
+}
+
+/**
+ * Fix permissions after `key-permissions`: the same step again, in one request
+ * that asks the session host to let only its owner read the key first (chmod 600).
+ */
+export async function fixKeyThenAdd(deps: AddMachineDeps, step: AddMachineStep, input: AddMachineInput): Promise<AddMachineAttempt> {
+  if (step.kind !== 'ssh' || !input.identityFile) return { kind: 'failed', message: 'Choose the identity file again.', field: 'identityFile' }
+  return attemptAddMachine(deps, step, { ...input, fixIdentityFilePermissions: true })
 }
 
 /** The steps of one SSH add, from the session host. */

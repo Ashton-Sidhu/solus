@@ -35,10 +35,10 @@ export const hostRouteSchema = z.object({
 })
 export type HostRoute = z.infer<typeof hostRouteSchema>
 
-/** Managed machines live in a cloud network. Its addresses are not client LAN routes,
- * even when an older host advertised them and a client saved them. */
+/** A cloud machine is reached at its one address. The addresses of its own network are
+ * not client LAN routes, even when an older host advertised them and a client saved them. */
 export function routesForMachine(routes: readonly HostRoute[], kind?: MachineKind): HostRoute[] {
-  return routes.filter((route) => kind !== 'managed' || route.kind === 'tunnel')
+  return routes.filter((route) => kind !== 'cloud' || route.kind === 'tunnel')
 }
 
 /** A route the host advertised, or discovery found, is forgotten when no read names it for this long. */

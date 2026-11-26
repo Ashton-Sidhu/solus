@@ -10,7 +10,7 @@ import { unixSocketFetch } from './unix-socket-fetch'
 
 const log = createLogger('main', 'github-octokit')
 
-type GraphQLParameters = NonNullable<Parameters<typeof octokitGraphql>[1]>
+export type GraphQLParameters = NonNullable<Parameters<typeof octokitGraphql>[1]>
 
 /** The query form of Octokit's GraphQL client. Solus never uses its
  *  endpoint-options form, so the 401 policy below wraps this one call shape. */

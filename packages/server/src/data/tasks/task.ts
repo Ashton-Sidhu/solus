@@ -1,30 +1,29 @@
 import { serializeTaskWrite } from './task-writes'
 import type { TaskInvolvement } from '@solus/contracts/task-data'
 import { sql } from 'drizzle-orm'
-import { parseTaskKey, taskKey, taskSourceKey, type TaskRef, type TaskSource, type TaskStatusCategory } from '@solus/contracts/task-sources'
+import { parseIssueKey, issueKey, issueSourceKey, type IssueRef, type IssueSource, type IssueStatusCategory } from '@solus/contracts/task-sources'
 import type {
-  Task,
-  TaskAssigneeCandidate,
-  TaskCreateInput,
-  TaskDetails,
-  TaskField,
-  TaskMoveTarget,
-  TaskSnapshot,
-  TaskSummary,
-  TaskUpdatePatch,
+  Issue,
+  IssueAssigneeCandidate,
+  IssueCreateInput,
+  IssueDetails,
+  IssueField,
+  IssueMoveTarget,
+  IssueSnapshot,
+  IssueSummary,
+  IssueUpdatePatch,
 } from '@solus/contracts/task-types'
 import type { RecordScope } from '../../admission/principal'
 import { createLogger } from '../../logger'
 import { deleteActivityFor } from '../activity/activity'
 import { deleteThreadsOf } from '../comments/comment-threads'
 import { deleteEdgesOf } from '../links/resource-links'
-import { personalResourceState } from '../personal-state/schema'
 import { removeNotificationsFor } from '../notifications/store'
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
 import { taskWriteError } from './providers/failures'
 import { taskAdapters } from './providers/registry'
 import type { ProviderTask, ProviderTaskDetails, TaskHome } from './providers/types'
-import { taskSourceItems, tasks } from './schema'
+import { issueSourceItems, issues } from './schema'
 import { assetReferencesIn } from './task-assets'
 import { notifyTaskAssignments } from './task-assignment'
 import { taskAttachments } from './task-attachments'
@@ -61,31 +60,31 @@ import { database, emitChanged, loadTask, loadTaskSummaries, taskHomeOf } from '
 
 const log = createLogger('main', 'task')
 
-function refOf(taskId: string): TaskRef {
-  const ref = parseTaskKey(taskId)
+function refOf(taskId: string): IssueRef {
+  const ref = parseIssueKey(taskId)
   if (!ref) throw new Error(`"${taskId}" is not a task of GitHub or Jira.`)
   return ref
 }
 
 /** Read one task from its provider with its comments, and write it over the host's copy. */
-async function fetchTask(taskId: string): Promise<Task> {
+async function fetchTask(taskId: string): Promise<Issue> {
   const ref = refOf(taskId)
   return storeTaskDetails(await taskAdapters().provider(ref.provider).fetch(ref))
 }
 
-async function storeTaskDetails(answer: ProviderTaskDetails): Promise<Task> {
+async function storeTaskDetails(answer: ProviderTaskDetails): Promise<Issue> {
   const task = await storeProviderTask(answer.task, { detail: true })
   await database().transaction((db) => storeProviderComments(db, task.id, answer.comments, answer.commentsTruncated))
   return task
 }
 
 /** The host's copy of a task; a task the host never read is read from its provider first. */
-export async function cachedTask(taskId: string): Promise<Task> {
+export async function cachedTask(taskId: string): Promise<Issue> {
   return await loadTask(taskId) ?? await fetchTask(taskId)
 }
 
 /** The copy and what the adapter needs to write to it. */
-async function writableTask(taskId: string): Promise<{ task: Task; home: TaskHome }> {
+async function writableTask(taskId: string): Promise<{ task: Issue; home: TaskHome }> {
   const task = await cachedTask(taskId)
   const home = await taskHomeOf(taskId)
   if (!home) throw new Error(`Solus cannot write to task ${task.reference ?? taskId}: read it again.`)
@@ -93,7 +92,7 @@ async function writableTask(taskId: string): Promise<{ task: Task; home: TaskHom
 }
 
 /** The host's copy of a task with its comments and its attachments in `scope`. */
-export async function taskDetails(scope: RecordScope, taskId: string): Promise<TaskDetails> {
+export async function taskDetails(scope: RecordScope, taskId: string): Promise<IssueDetails> {
   const task = await loadTask(taskId)
   if (!task) throw new Error(`Task ${taskId} not found.`)
   return { task, comments: await commentsForTask(taskId), ...await taskAttachments(scope, taskId) }
@@ -108,7 +107,7 @@ export async function taskDetails(scope: RecordScope, taskId: string): Promise<T
 export async function getTask(
   scope: RecordScope, taskId: string, personKey?: string,
   options?: { resolved?: ProviderTaskDetails; providerMetadata?: boolean }
-): Promise<TaskDetails> {
+): Promise<IssueDetails> {
   const before = await loadTask(taskId)
   try {
     const ref = refOf(taskId)
@@ -137,12 +136,12 @@ export async function getTask(
 /** What a dispatched prompt carries: the task as the host holds it, read on the
  * task's own host (docs/plans/dispatch-parity.md). The RPC layer attaches the
  * content of linked items (`attachLinkedContent`) before it ships. */
-export async function taskSnapshot(scope: RecordScope, taskId: string): Promise<TaskSnapshot> {
+export async function taskSnapshot(scope: RecordScope, taskId: string): Promise<IssueSnapshot> {
   await cachedTask(taskId)
   return { details: await taskDetails(scope, taskId), sessions: (await taskSessions(scope, taskId))[taskId] ?? [] }
 }
 
-const PATCH_FIELDS: TaskField[] = ['title', 'body', 'labels', 'assignee', 'priority', 'dueDate']
+const PATCH_FIELDS: IssueField[] = ['title', 'body', 'labels', 'assignee', 'priority', 'dueDate']
 const FIELD_NAMES = {
   title: 'the title',
   body: 'the description',
@@ -150,7 +149,7 @@ const FIELD_NAMES = {
   assignee: 'the assignee',
   priority: 'the priority',
   dueDate: 'the due date',
-} satisfies Record<TaskField, string>
+} satisfies Record<IssueField, string>
 
 /** Refuse a body with a local asset that the provider cannot hold for this task: it could never be sent. */
 function assertPublishable(home: TaskHome, body: string): void {
@@ -169,11 +168,11 @@ async function publishedBody(home: TaskHome, body: string): Promise<string> {
 }
 
 /** Change a task's fields on the provider. A field the provider does not take for this task is refused. */
-export function updateTask(taskId: string, patch: TaskUpdatePatch): Promise<Task> {
+export function updateTask(taskId: string, patch: IssueUpdatePatch): Promise<Issue> {
   return serializeTaskWrite(taskId, () => updateTaskNow(taskId, patch))
 }
 
-async function updateTaskNow(taskId: string, patch: TaskUpdatePatch): Promise<Task> {
+async function updateTaskNow(taskId: string, patch: IssueUpdatePatch): Promise<Issue> {
   const { task, home } = await writableTask(taskId)
   if (patch.assignees && (patch.assignees.length > 100 || patch.assignees.some((login) => !login.trim()))) throw new Error('Invalid assignees.')
   if (patch.assignees !== undefined && !task.writableFields.includes('assignee')) throw new Error('This provider does not accept assignee changes.')
@@ -185,7 +184,7 @@ async function updateTaskNow(taskId: string, patch: TaskUpdatePatch): Promise<Ta
   let updated: ProviderTask
   try {
     const body = patch.body === undefined ? undefined : await publishedBody(home, patch.body)
-    updated = await taskAdapters().provider(home.provider).update(home, body === undefined ? patch : { ...patch, body })
+    updated = await taskAdapters().provider(home.provider).update(home, body === undefined ? patch : { ...patch, body }, providerTaskOf(task, home))
   } catch (error) {
     throw taskWriteError(error)
   }
@@ -194,8 +193,33 @@ async function updateTaskNow(taskId: string, patch: TaskUpdatePatch): Promise<Ta
   return stored
 }
 
+/** The host's copy as an adapter takes it, so a write answers it with the written fields. */
+function providerTaskOf(task: Issue, home: TaskHome): ProviderTask {
+  return {
+    ref: refOf(task.id),
+    kind: task.kind,
+    reference: task.reference,
+    url: task.url,
+    title: task.title,
+    body: task.body,
+    state: { ...task.state },
+    stateId: task.state.id,
+    assignees: task.assignees ? [...task.assignees] : undefined,
+    assignee: task.assignee,
+    assigneeAvatarUrl: task.assigneeAvatarUrl,
+    labels: [...task.labels],
+    priority: task.priority,
+    dueDate: task.dueDate,
+    epic: task.epic,
+    writableFields: [...task.writableFields],
+    home,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+  }
+}
+
 /** The first column of a source that has the category: where a move to a category puts a board item. */
-function firstColumnOf(source: StoredTaskSource, category: TaskStatusCategory): string | null {
+function firstColumnOf(source: StoredTaskSource, category: IssueStatusCategory): string | null {
   return source.columns.find((column) => column.category === category)?.id ?? null
 }
 
@@ -206,15 +230,16 @@ function firstColumnOf(source: StoredTaskSource, category: TaskStatusCategory): 
  * of that category; a Jira issue makes a legal transition to a status of that
  * category, and fails loudly when there is none.
  */
-export function moveTask(taskId: string, target: TaskMoveTarget): Promise<Task> {
+export function moveTask(taskId: string, target: IssueMoveTarget): Promise<Issue> {
   return serializeTaskWrite(taskId, () => moveTaskNow(taskId, target))
 }
 
-async function moveTaskNow(taskId: string, target: TaskMoveTarget): Promise<Task> {
+async function moveTaskNow(taskId: string, target: IssueMoveTarget): Promise<Issue> {
   const { task, home } = await writableTask(taskId)
   const items = await sourceItemsOfTask(taskId)
   const sources = await loadTaskSources(items.map((item) => item.sourceKey))
   const adapters = taskAdapters()
+  const current = providerTaskOf(task, home)
   try {
     if ('sourceKey' in target) {
       const item = items.find((candidate) => candidate.sourceKey === target.sourceKey)
@@ -222,25 +247,25 @@ async function moveTaskNow(taskId: string, target: TaskMoveTarget): Promise<Task
       if (!item || !source) throw new Error(`${task.reference ?? 'This task'} is not in that task source.`)
       if (!source.columns.some((column) => column.id === target.columnId)) throw new Error(`${source.label} has no such column.`)
       const moved = await adapters.source(source.source.kind).move({
-        source: source.source, writeState: source.writeState, home, itemId: item.itemId, columnId: target.columnId,
+        source: source.source, writeState: source.writeState, home, itemId: item.itemId, columnId: target.columnId, current,
       })
       if (moved) await storeProviderTask(moved)
       if (source.source.kind !== 'github-repo') await storeTaskColumn(taskId, target.sourceKey, target.columnId)
     } else if ('statusId' in target) {
-      await moveToRepositoryStatus(home, target.statusId)
+      await moveToRepositoryStatus(home, target.statusId, current)
     } else if (home.provider !== 'github') {
-      if (task.state.category !== target.category) await storeProviderTask(await adapters.provider(home.provider).setState(home, target.category))
+      if (task.state.category !== target.category) await storeProviderTask(await adapters.provider(home.provider).setState(home, target.category, current))
     } else {
       const wantsDone = target.category === 'done'
       if (home.kind === 'issue' && (task.state.category === 'done') !== wantsDone) {
-        await storeProviderTask(await adapters.provider('github').setState(home, target.category))
+        await storeProviderTask(await adapters.provider('github').setState(home, target.category, current))
       }
       for (const item of items) {
         const source = sources.get(item.sourceKey)
         if (source?.source.kind !== 'github-project') continue
         const columnId = firstColumnOf(source, target.category)
         if (!columnId || columnId === item.columnId) continue
-        await adapters.source('github-project').move({ source: source.source, writeState: source.writeState, home, itemId: item.itemId, columnId })
+        await adapters.source('github-project').move({ source: source.source, writeState: source.writeState, home, itemId: item.itemId, columnId, current })
         await storeTaskColumn(taskId, item.sourceKey, columnId)
       }
     }
@@ -255,20 +280,20 @@ async function moveTaskNow(taskId: string, target: TaskMoveTarget): Promise<Task
   return moved
 }
 
-async function moveToRepositoryStatus(home: TaskHome, statusId: string): Promise<void> {
+async function moveToRepositoryStatus(home: TaskHome, statusId: string, current: ProviderTask): Promise<void> {
   const provider = taskAdapters().provider(home.provider)
-  const moved = await provider.setNamedStatus?.(home, statusId)
+  const moved = await provider.setNamedStatus?.(home, statusId, current)
   if (!moved) throw new Error('This task does not take a repository issue status.')
   await storeProviderTask(moved)
 }
 
-const STATUS_CATEGORIES: readonly TaskStatusCategory[] = ['open', 'active', 'done']
+const STATUS_CATEGORIES: readonly IssueStatusCategory[] = ['open', 'active', 'done']
 
 /** A status that a caller named in words, as the move it means. */
 export interface NamedTaskStatus {
-  target: TaskMoveTarget
+  target: IssueMoveTarget
   /** The status category the move gives the task. */
-  category: TaskStatusCategory
+  category: IssueStatusCategory
 }
 
 /**
@@ -293,7 +318,7 @@ export async function namedTaskStatus(taskId: string, status: string): Promise<N
 }
 
 /** Move a task to a status that a caller names in words (`namedTaskStatus`). */
-export async function moveTaskToStatus(taskId: string, status: string): Promise<Task> {
+export async function moveTaskToStatus(taskId: string, status: string): Promise<Issue> {
   return moveTask(taskId, (await namedTaskStatus(taskId, status)).target)
 }
 
@@ -302,11 +327,11 @@ export async function moveTaskToStatus(taskId: string, status: string): Promise<
  * caller names the source; no project is needed. `personKey` is whose
  * connection reads the source when the host has not read it yet.
  */
-export async function createTask(input: TaskCreateInput, personKey: string): Promise<Task> {
+export async function createTask(input: IssueCreateInput, personKey: string): Promise<Issue> {
   const title = input.title.trim()
   if (!title) throw new Error('Task title cannot be empty.')
   const { source } = input
-  const sourceKey = taskSourceKey(source)
+  const sourceKey = issueSourceKey(source)
   // A board write needs what a read of the board gives (the Project's id, the board's project).
   let stored = await loadTaskSource(sourceKey)
   if (stored?.fetchedAt == null) {
@@ -316,7 +341,7 @@ export async function createTask(input: TaskCreateInput, personKey: string): Pro
   if (input.columnId !== undefined && !stored?.columns.some((column) => column.id === input.columnId)) {
     throw new Error(`${stored?.label ?? 'This task source'} has no such column.`)
   }
-  let task: Task
+  let task: Issue
   try {
     const item = await taskAdapters().source(source.kind).create({
       source,
@@ -348,23 +373,22 @@ export async function deleteTask(taskId: string): Promise<boolean> {
     throw taskWriteError(error)
   }
   await database().transaction(async (db) => {
-    await db.run(sql`DELETE FROM ${tasks} WHERE id = ${taskId}`)
-    await db.run(sql`DELETE FROM ${taskSourceItems} WHERE task_id = ${taskId}`)
+    await db.run(sql`DELETE FROM ${issues} WHERE id = ${taskId}`)
+    await db.run(sql`DELETE FROM ${issueSourceItems} WHERE issue_id = ${taskId}`)
     // None of these has a foreign key to the row: the task key is polymorphic.
-    await deleteEdgesOf(db, 'task', taskId)
+    await deleteEdgesOf(db, 'issue', taskId)
     await deleteThreadsOf(db, taskThreads(taskId))
-    await deleteActivityFor({ kind: 'task', id: taskId }, db)
-    await db.run(sql`DELETE FROM ${personalResourceState} WHERE resource_kind = 'task' AND resource_id = ${taskId}`)
+    await deleteActivityFor({ kind: 'issue', id: taskId }, db)
     // A notification about a task is the reader's own, in Local (`notifyTaskAssignments`).
-    await removeNotificationsFor(db, LOCAL_ORGANIZATION_ID, { kind: 'task', taskId })
+    await removeNotificationsFor(db, LOCAL_ORGANIZATION_ID, { kind: 'issue', issueId: taskId })
   })
   emitChanged()
   return true
 }
 
 /** Mark the host's copy of a task read or not read. */
-export async function markTaskRead(taskId: string, read: boolean): Promise<Task> {
-  await database().run(sql`UPDATE ${tasks} SET last_read_at = ${read ? Date.now() : null} WHERE id = ${taskId}`)
+export async function markTaskRead(taskId: string, read: boolean): Promise<Issue> {
+  await database().run(sql`UPDATE ${issues} SET last_read_at = ${read ? Date.now() : null} WHERE id = ${taskId}`)
   const task = await loadTask(taskId)
   if (!task) throw new Error(`Task ${taskId} not found.`)
   emitChanged(taskId)
@@ -382,11 +406,11 @@ async function sendComment(home: TaskHome, body: string) {
  * this host as `unsent` with the reason, and shows in the answer; a body with
  * an asset the provider cannot hold is refused, because it could never be sent.
  */
-export function commentOnTask(scope: RecordScope, taskId: string, input: NewTaskComment): Promise<TaskDetails> {
+export function commentOnTask(scope: RecordScope, taskId: string, input: NewTaskComment): Promise<IssueDetails> {
   return serializeTaskWrite(taskId, () => commentOnTaskNow(scope, taskId, input))
 }
 
-async function commentOnTaskNow(scope: RecordScope, taskId: string, input: NewTaskComment): Promise<TaskDetails> {
+async function commentOnTaskNow(scope: RecordScope, taskId: string, input: NewTaskComment): Promise<IssueDetails> {
   const body = input.body.trim()
   if (!body) throw new Error('Task comment cannot be empty.')
   const { home } = await writableTask(taskId)
@@ -404,11 +428,11 @@ async function commentOnTaskNow(scope: RecordScope, taskId: string, input: NewTa
 }
 
 /** Send an unsent comment again. It stays unsent, with the new reason, when the provider refuses it again. */
-export function retryTaskComment(scope: RecordScope, taskId: string, commentId: string): Promise<TaskDetails> {
+export function retryTaskComment(scope: RecordScope, taskId: string, commentId: string): Promise<IssueDetails> {
   return serializeTaskWrite(taskId, () => retryTaskCommentNow(scope, taskId, commentId))
 }
 
-async function retryTaskCommentNow(scope: RecordScope, taskId: string, commentId: string): Promise<TaskDetails> {
+async function retryTaskCommentNow(scope: RecordScope, taskId: string, commentId: string): Promise<IssueDetails> {
   const { home } = await writableTask(taskId)
   const thread = await requireUnsentComment(taskId, commentId)
   try {
@@ -423,21 +447,21 @@ async function retryTaskCommentNow(scope: RecordScope, taskId: string, commentId
 }
 
 /** Discard an unsent comment. A sent comment is deleted on the provider, not here. */
-export function deleteTaskComment(scope: RecordScope, taskId: string, commentId: string): Promise<TaskDetails> {
+export function deleteTaskComment(scope: RecordScope, taskId: string, commentId: string): Promise<IssueDetails> {
   return serializeTaskWrite(taskId, () => deleteTaskCommentNow(scope, taskId, commentId))
 }
 
-async function deleteTaskCommentNow(scope: RecordScope, taskId: string, commentId: string): Promise<TaskDetails> {
+async function deleteTaskCommentNow(scope: RecordScope, taskId: string, commentId: string): Promise<IssueDetails> {
   await requireUnsentComment(taskId, commentId)
   if (await discardUnsentComment(taskId, commentId)) emitChanged(taskId)
   return taskDetails(scope, taskId)
 }
 
 /** The people the provider permits to be assigned: for one task, or for a new task in one source. */
-export async function listTaskAssignees(target: { taskId: string } | { source: TaskSource }): Promise<TaskAssigneeCandidate[]> {
+export async function listTaskAssignees(target: { issueId: string } | { source: IssueSource }): Promise<IssueAssigneeCandidate[]> {
   try {
-    if ('taskId' in target) {
-      const { home } = await writableTask(target.taskId)
+    if ('issueId' in target) {
+      const { home } = await writableTask(target.issueId)
       return await taskAdapters().provider(home.provider).assignees(home)
     }
     return await taskAdapters().source(target.source.kind).assignees(target.source)
@@ -453,18 +477,18 @@ export async function listTaskAssignees(target: { taskId: string } | { source: T
  * source that fails is left out; when each source fails the first error is
  * thrown.
  */
-export async function searchTasks(sources: readonly TaskSource[], query: string, involvement: TaskInvolvement = 'all'): Promise<TaskSummary[]> {
+export async function searchTasks(sources: readonly IssueSource[], query: string, involvement: TaskInvolvement = 'all'): Promise<IssueSummary[]> {
   const text = query.trim()
   if (!text && involvement === 'all') return []
-  const stored = await loadTaskSources(sources.map(taskSourceKey))
+  const stored = await loadTaskSources(sources.map(issueSourceKey))
   const found = new Map<string, { sourceKey: string; columnId: string | null }>()
   let firstError: Error | null = null
   let answered = false
   for (const source of sources) {
-    const sourceKey = taskSourceKey(source)
+    const sourceKey = issueSourceKey(source)
     try {
       for (const task of await taskAdapters().source(source.kind).search(source, text, involvement)) {
-        const taskId = taskKey(task.ref)
+        const taskId = issueKey(task.ref)
         await storeProviderTask(task)
         const held = stored.get(sourceKey)
         if (!found.has(taskId)) found.set(taskId, { sourceKey, columnId: (held ? stateColumnOf(held, task) : null) ?? null })

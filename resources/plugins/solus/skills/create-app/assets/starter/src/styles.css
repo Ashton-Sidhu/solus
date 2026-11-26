@@ -1,9 +1,9 @@
 @import "tailwindcss" source(".");
 
-/* The app's own theme: a quiet cream page, hairline borders, and a dark
-   green accent. The page's `color-scheme` follows Solus, so `light-dark()`
-   gives each color its value for the open mode. Change this block first when
-   you make the starter into your app: an app has its own identity. */
+/* A sample theme for Notes. Keep the form, replace the values: write the
+   palette and the face from your app's brief. The page's `color-scheme`
+   follows Solus, so `light-dark()` gives each color its value for the open
+   mode. */
 @theme {
   --color-page: light-dark(#fafaf8, #151614);
   --color-surface: light-dark(#ffffff, #1c1d1b);

@@ -11,7 +11,7 @@
   import HostStateIcon from "./HostStateIcon.svelte";
   import { pairWithApproval, pairWithCode } from "./add-machine";
 
-  /** "Pair with a code" (D8): an address and the 6-digit code the host shows, or
+  /** "Pair with a code": an address and the 6-digit code the host shows, or
    *  its pair link, which carries both. With only an address, "Ask it to approve"
    *  sends an approval request instead: the host's owner approves it after they
    *  compare the check code (docs/plans/add-machine-card.md). */

@@ -14,8 +14,10 @@ describe('response delivery', () => {
     expect(buffer.append('session', chunk('First.\n\nNext'), 'paragraph', 0)).toEqual([
       { type: 'text_pending' }, { ...chunk('First.\n\n'), streaming: true },
     ])
-    expect(buffer.append('session', chunk('.\n\nThird'), 'paragraph', 100)).toEqual([])
-    expect(buffer.append('session', chunk('.\n\nLast'), 'paragraph', 400)).toEqual([
+    expect(buffer.append('session', chunk('.\n\nThird'), 'paragraph', 50)).toEqual([])
+    // A finished paragraph waits at most a tenth of a second, never long
+    // enough for the reader to see the reply stall.
+    expect(buffer.append('session', chunk('.\n\nLast'), 'paragraph', 100)).toEqual([
       { ...chunk('Next.\n\nThird.\n\n'), streaming: true },
     ])
     expect(buffer.beforeEvent('session', { type: 'assistant_message', text: '' })).toEqual([

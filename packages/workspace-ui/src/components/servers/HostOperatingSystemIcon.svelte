@@ -10,13 +10,13 @@
 
   /**
    * The mark for a machine you are not sitting at: its operating system's logo,
-   * or a cloud for a host Solus cloud runs (docs/plans/managed-hosts.md), whose
-   * operating system is nobody's concern.
+   * or a cloud for a cloud machine of an organization (docs/plans/managed-hosts.md),
+   * whose operating system is nobody's concern.
    */
   interface Props {
     os?: HostOperatingSystem;
-    /** A managed host: the cloud, whatever it runs on. */
-    managed?: boolean;
+    /** A cloud machine: the cloud, whatever it runs on. */
+    cloud?: boolean;
     size?: number;
     class?: string;
     /** Names the host when the mark stands alone in a row. */
@@ -25,14 +25,14 @@
 
   let {
     os,
-    managed = false,
+    cloud = false,
     size = 15,
     class: className = "",
     "aria-label": ariaLabel,
   }: Props = $props();
 </script>
 
-{#if managed}
+{#if cloud}
   <CloudIcon {size} class={className} aria-label={ariaLabel} />
 {:else if os === "macos"}
   <AppleLogoIcon

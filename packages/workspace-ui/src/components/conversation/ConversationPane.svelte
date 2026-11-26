@@ -68,6 +68,7 @@
           tabId={conversationTabId}
           forceVisible
           {surfaceVisible}
+          {paneId}
         />
       </div>
 

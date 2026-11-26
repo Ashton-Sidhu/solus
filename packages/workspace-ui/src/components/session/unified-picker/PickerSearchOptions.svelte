@@ -26,7 +26,7 @@
   } from "./lib/picker-filters";
   import { serversStore } from "../../../contexts/connections/servers.store.svelte";
   import HostOperatingSystemIcon from "../../servers/HostOperatingSystemIcon.svelte";
-  import { hostIsManaged } from "../../servers/lib/managed-host";
+  import { hostIsCloud } from "../../servers/lib/managed-host";
 
   /**
    * The choices a reader makes about a query, to the right of the box it is
@@ -139,7 +139,7 @@
       value={filters.status}
       onValueChange={(value) => onFilters({ ...filters, status: value as PickerStatusFilter })}
     >
-      <DropdownMenu.GroupHeading>Task status</DropdownMenu.GroupHeading>
+      <DropdownMenu.GroupHeading>Issue status</DropdownMenu.GroupHeading>
       {#each Object.entries(PICKER_STATUS_LABELS) as [value, label] (value)}
         <DropdownMenu.RadioItem {value}><span class="flex-1">{label}</span></DropdownMenu.RadioItem>
       {/each}
@@ -183,7 +183,7 @@
               {@const host = serversStore.hostFor(hostId)}
               <HostOperatingSystemIcon
                 os={host && "os" in host ? host.os : undefined}
-                managed={hostIsManaged(host)}
+                cloud={hostIsCloud(host)}
                 size={14}
                 class="shrink-0 text-muted-foreground"
               />

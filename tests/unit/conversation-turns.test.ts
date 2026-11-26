@@ -118,7 +118,7 @@ describe('turn collapse', () => {
   test('keeps task cards outside turn activity, including between work and the answer', () => {
     const task = msg({
       role: 'assistant',
-      taskRef: { taskId: 'task-1', title: 'Track the fix', url: null },
+      taskRef: { issueId: 'task-1', title: 'Track the fix', url: null },
     })
     const turns = turnsFor([
       msg({ role: 'user', content: 'Create a task' }),
@@ -799,7 +799,7 @@ describe('document stack', () => {
       work('w1', 'Notes'),
     ])
 
-    expect(items.map((item) => item.kind)).toEqual(['user', 'tool-group', 'artifact', 'document'])
+    expect(items.map((item) => item.kind)).toEqual(['user', 'tool-group', 'artifact-group', 'document'])
   })
 
   test('works written back to back are one stack, and the tool rows between them do not break it', () => {

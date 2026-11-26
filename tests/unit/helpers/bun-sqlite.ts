@@ -14,6 +14,11 @@ type Prepared = ReturnType<Database['prepare']>
 export class DatabaseSync extends Database {
   readonly #statements = new Set<Prepared>()
 
+  /** Node spells the read-only option `readOnly`; Bun refuses that spelling. */
+  constructor(path: string, options?: { readOnly?: boolean }) {
+    super(path, options?.readOnly ? { readonly: true } : undefined)
+  }
+
   prepare(...args: Parameters<Database['prepare']>): Prepared {
     const statement = super.prepare(...args)
     this.#statements.add(statement)

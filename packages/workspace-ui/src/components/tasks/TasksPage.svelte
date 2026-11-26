@@ -7,15 +7,14 @@
   import {
     RotateCw as ArrowClockwiseIcon,
     CalendarX as CalendarXIcon,
-    Moon as MoonIcon,
     Plus as PlusIcon,
     Activity as PulseIcon,
     CircleAlert as WarningCircleIcon,
     CircleDashed as CircleDashedIcon,
     UserRound as UserRoundIcon,
   } from "@lucide/svelte";
-  import { TASKS_AUTH_ERROR_PREFIX, type TaskCreateInput, type TaskMoveTarget } from "@solus/contracts/task-types";
-  import type { Task } from "../../contexts/tasks/task.svelte";
+  import { ISSUES_AUTH_ERROR_PREFIX, type IssueCreateInput, type IssueMoveTarget } from "@solus/contracts/task-types";
+  import type { Issue } from "../../contexts/tasks/task.svelte";
   import TaskSourceSetup from "./sources/TaskSourceSetup.svelte";
   import TaskSourceStrip from "./TaskSourceStrip.svelte";
   import TasksBulkBar from "./TasksBulkBar.svelte";
@@ -23,7 +22,7 @@
     getClientShellContext,
     getSurfaceContext,
     getSessionSidebarStore,
-    taskSourcesStore,
+    issueSourcesStore,
     runtime,
     serversStore,
     accountStore,
@@ -38,10 +37,10 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { TASK_INVOLVEMENT_OPTIONS, TASK_SORT_OPTIONS, boardColumnIdOf, moveTargetFor } from "./lib/tasks-api";
-  import { isOpenColumnFilter, nextTaskWake } from "./lib/tasks-list-view";
+  import { isOpenColumnFilter } from "./lib/tasks-list-view";
   import { TasksPageView } from "./tasks-page-view.svelte";
   import { tasksOfSources } from "./lib/tasks-page";
-  import { inferTaskSourceKey, taskSourceKey } from "@solus/contracts/task-sources";
+  import { inferIssueSourceKey, issueSourceKey } from "@solus/contracts/task-sources";
   import { loadLastTaskSource, saveLastTaskSource } from "./lib/task-composer";
   import { ProviderTaskSearch } from "./lib/provider-search.svelte";
   import { PAGE_PRIMARY_BTN, PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
@@ -79,12 +78,12 @@
   /** A task held anywhere but this machine names its host on its row and card:
    *  "Solus Cloud" for the workspace service, the host's own name otherwise. */
   function homeFor(taskId: string): string | null {
-    const serverId = session.tasksStore.get(taskId).serverId;
+    const serverId = session.issuesStore.get(taskId).serverId;
     const host = serversStore.hostFor(serverId);
     return serversStore.cloudHomeLabel(serverId) ?? (host && !host.local ? host.label : null);
   }
   const pane = paneActions(() => paneId);
-  const store = session.tasksStore;
+  const store = session.issuesStore;
   const sessionSidebar = workspace ? getSessionSidebarStore() : null;
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -95,17 +94,17 @@
   // Tasks belong to no project (docs/tasks.md). The page shows every task of
   // the person's task sources, which are a personal setting, and the task host
   // reads them.
-  const configured = $derived(session.settings.taskSources);
+  const configured = $derived(session.settings.issueSources);
   // The host's last answer can still name a source the person just removed,
   // and it holds that source's tasks until its next read: the settings decide.
-  const configuredKeys = $derived(new Set(configured.map(taskSourceKey)));
+  const configuredKeys = $derived(new Set(configured.map(issueSourceKey)));
   const tasks = $derived(tasksOfSources(store.tasks, configuredKeys));
-  const sources = $derived(taskSourcesStore.sources.filter((source) => configuredKeys.has(source.sourceKey)));
-  const sourcesError = $derived(taskSourcesStore.error);
+  const sources = $derived(issueSourcesStore.sources.filter((source) => configuredKeys.has(source.sourceKey)));
+  const sourcesError = $derived(issueSourcesStore.error);
   const hasNoSource = $derived(configured.length === 0);
   // The person has sources, but no connected machine runs agents, so no
   // machine can read GitHub or Jira.
-  const hasNoHost = $derived(!hasNoSource && taskSourcesStore.host === null);
+  const hasNoHost = $derived(!hasNoSource && issueSourcesStore.host === null);
   // A person with no source sets up their first sources here. The setup stays
   // from the first add until they choose to see the tasks, so they add several
   // and can take one back; adding one does not drop them into the list.
@@ -133,14 +132,6 @@
     const interval = setInterval(() => (now = Date.now()), 30_000);
     return () => clearInterval(interval);
   });
-  // Bring a snoozed task back the moment it wakes, not on the next 30s tick.
-  $effect(() => {
-    if (!open) return;
-    const wake = nextTaskWake(tasks, now);
-    if (wake === null) return;
-    const timeout = setTimeout(() => (now = Date.now()), Math.max(1, wake - Date.now()));
-    return () => clearTimeout(timeout);
-  });
 
   // Running, not linked: a link outlives the agent that worked on it.
   function runningSessionsFor(taskId: string): number {
@@ -159,8 +150,8 @@
   async function loadMoreSource(source: typeof sources[number]) {
     if (loadingSource) return;
     loadingSource = source.sourceKey;
-    try { await taskSourcesStore.loadMore(source.source); await store.load(); }
-    catch (error) { toastTaskError('load more tasks', error); }
+    try { await issueSourcesStore.loadMore(source.source); await store.load(); }
+    catch (error) { toastTaskError('load more issues', error); }
     finally { loadingSource = null; }
   }
   const providerSearch = new ProviderTaskSearch(store);
@@ -179,7 +170,7 @@
     const searches = open && (view.truncated || view.involvement !== "all");
     const text = view.query;
     const involvement = view.involvement;
-    const scope = `${taskSourcesStore.host}:` + sources.map((source) => `${source.sourceKey}:${source.fetchedAt}`).join("|");
+    const scope = `${issueSourcesStore.host}:` + sources.map((source) => `${source.sourceKey}:${source.fetchedAt}`).join("|");
     untrack(() => {
       if (searches) providerSearch.request(text, involvement, scope);
       else providerSearch.clear();
@@ -188,12 +179,12 @@
 
   // There is no default source. On a source's own board a new task goes to
   // that source; else to the source of the person's last new task on this
-  // device, or to their only source (`inferTaskSourceKey`). Read when the
+  // device, or to their only source (`inferIssueSourceKey`). Read when the
   // composer opens, so the last choice is the one it offers.
   function newTaskSourceKey(): string | undefined {
     if (view.source) return view.source.sourceKey;
     const sourceKeys = sources.map((source) => source.sourceKey);
-    return inferTaskSourceKey(sourceKeys, { lastSourceKey: loadLastTaskSource() }) ?? undefined;
+    return inferIssueSourceKey(sourceKeys, { lastSourceKey: loadLastTaskSource() }) ?? undefined;
   }
 
   let searchEl = $state<HTMLInputElement | null>(null);
@@ -206,7 +197,7 @@
   let externalIssue = $state.raw<ResolvedIssueUrl | null>(null);
   let detailPane = $state<HTMLDivElement | null>(null);
   let taskContextMenu = $state<{
-    task: Task;
+    task: Issue;
     x: number;
     y: number;
   } | null>(null);
@@ -216,12 +207,12 @@
     view.clearMenuFilters();
   }
 
-  const refreshing = $derived(store.loading || taskSourcesStore.refreshing);
+  const refreshing = $derived(store.loading || issueSourcesStore.refreshing);
   const loadingTasks = $derived(
-    (!store.loaded && store.loading) || (!hasNoSource && taskSourcesStore.host === undefined) || (refreshing && tasks.length === 0 && !hasNoSource),
+    (!store.loaded && store.loading) || (!hasNoSource && issueSourcesStore.host === undefined) || (refreshing && tasks.length === 0 && !hasNoSource),
   );
   const displayError = $derived(
-    (store.error ?? sourcesError)?.replace(TASKS_AUTH_ERROR_PREFIX, "") ?? null,
+    (store.error ?? sourcesError)?.replace(ISSUES_AUTH_ERROR_PREFIX, "") ?? null,
   );
 
   const filters = $derived<ListFilterSpec[]>([
@@ -249,14 +240,6 @@
       active: view.assignedOnly,
       toggle: () => (view.assignedOnly = !view.assignedOnly),
     },
-    {
-      key: "snoozed",
-      label: "Snoozed",
-      icon: MoonIcon,
-      count: view.filterCounts.snoozed,
-      active: view.snoozedOnly,
-      toggle: () => (view.snoozedOnly = !view.snoozedOnly),
-    },
   ]);
 
   $effect(() => {
@@ -265,7 +248,7 @@
 
   // Through the store, not the listed tasks: a row can be a task that only
   // the provider's search found.
-  function taskById(id: string): Task | undefined {
+  function taskById(id: string): Issue | undefined {
     return store.peek(id) ?? undefined;
   }
 
@@ -316,13 +299,13 @@
 
   async function resolveIssue(address: string, hostId = taskHostId()): Promise<ResolvedIssueUrl> {
     if (!hostId || serverConnections.readinessFor(hostId).readiness !== "ready") {
-      throw new Error("Connect the task host and try again.");
+      throw new Error("Connect the issue host and try again.");
     }
     const scope = issueScope();
     const api = serverConnections.apiFor(hostId);
-    const issue = await api.tasksResolve(address, { detailsOnly: true });
+    const issue = await api.issuesResolve(address, { detailsOnly: true });
     if (scope !== issueScope() || api !== serverConnections.apiFor(hostId)) {
-      throw new Error("The task host or account changed. Try again.");
+      throw new Error("The issue host or account changed. Try again.");
     }
     return { address, hostId, issue, scope };
   }
@@ -371,7 +354,7 @@
   // which is the step that is missing.
   $effect(() => {
     if (!open || !workspace?.taskComposerRequested) return;
-    if (!hasNoSource && taskSourcesStore.host === undefined) return;
+    if (!hasNoSource && issueSourcesStore.host === undefined) return;
     workspace.taskComposerRequested = false;
     if (canCreate) composing = {};
   });
@@ -384,7 +367,7 @@
     // waits on: only the page being open starts a read.
     untrack(() => {
       void store.load();
-      void taskSourcesStore.load();
+      void issueSourcesStore.load();
     });
   });
 
@@ -429,7 +412,7 @@
   // where GitHub and Atlassian are connected.
   const shell = getClientShellContext();
   function openConnections() {
-    const serverId = taskSourcesStore.host;
+    const serverId = issueSourcesStore.host;
     if (serverId) shell.openResource({ kind: "connections", serverId });
   }
 
@@ -459,7 +442,7 @@
   function refresh() {
     if (refreshing) return;
     void store.load();
-    void taskSourcesStore.load({ refresh: "force" });
+    void issueSourcesStore.load({ refresh: "force" });
   }
 
   function selectViewSource(sourceKey: string | null) {
@@ -468,35 +451,35 @@
   }
 
   // A row opens its task page over the list.
-  function onOpen(task: Task) {
+  function onOpen(task: Issue) {
     externalIssue = null;
     selectedKey = task.id;
     openTaskId = task.id;
   }
 
-  async function onStart(task: Task) {
+  async function onStart(task: Issue) {
     if (!workspace) return;
     try {
       await workspace.opening.openTaskSession(task);
     } catch (error) {
-      toastTaskError("start task", error);
+      toastTaskError("start issue", error);
     }
   }
 
-  function onResume(task: Task) {
+  function onResume(task: Issue) {
     void workspace?.opening.openTaskLinkedSession(task);
   }
 
-  function openTaskRoute(task: Task) {
+  function openTaskRoute(task: Issue) {
     openTaskId = null;
     session.goToTask(task.id, "click");
   }
 
-  function onOpenLink(task: Task) {
+  function onOpenLink(task: Issue) {
     if (task.url) void localApi.openExternal(task.url);
   }
 
-  function openTaskContextMenu(event: MouseEvent, task: Task) {
+  function openTaskContextMenu(event: MouseEvent, task: Issue) {
     event.preventDefault();
     event.stopPropagation();
     selectedKey = task.id;
@@ -510,15 +493,15 @@
 
   // The move goes to the provider. A refused move shows its error, and the
   // task goes back to where it was.
-  async function onMoveTask(task: Task, target: TaskMoveTarget) {
+  async function onMoveTask(task: Issue, target: IssueMoveTarget) {
     try {
       await task.move(target);
     } catch (err) {
-      toastTaskError("move the task", err);
+      toastTaskError("move the issue", err);
     }
   }
 
-  function moveToColumn(task: Task, columnId: string) {
+  function moveToColumn(task: Issue, columnId: string) {
     const target = moveTargetFor(view.board, columnId);
     if (target && boardColumnIdOf(task, view.board) !== columnId) void onMoveTask(task, target);
   }
@@ -526,11 +509,11 @@
   /** Only a draft item of a GitHub Project can be deleted. An issue is closed
    *  or moved on its provider. */
   function deleteTasks(ids: string[], label: string) {
-    const tasks = ids.map((id) => taskById(id)).filter((task): task is Task => !!task);
+    const tasks = ids.map((id) => taskById(id)).filter((task): task is Issue => !!task);
     const draftIds = tasks.filter((task) => task.canDelete).map((task) => task.id);
     const issueCount = tasks.length - draftIds.length;
     if (issueCount) {
-      toasts.error(`Couldn't delete ${issueCount} task${issueCount === 1 ? "" : "s"}`, {
+      toasts.error(`Couldn't delete ${issueCount} issue${issueCount === 1 ? "" : "s"}`, {
         description: "Only a draft item can be deleted. Close an issue on its provider, or move it to a done column.",
       });
     }
@@ -545,13 +528,13 @@
     });
   }
 
-  function onDelete(task: Task) {
+  function onDelete(task: Issue) {
     deleteTasks([task.id], "Draft item deleted");
   }
 
   // ── Bulk actions over the current selection ──
   const selectedTasks = $derived(
-    [...selection.ids].map((id) => taskById(id)).filter((task): task is Task => !!task),
+    [...selection.ids].map((id) => taskById(id)).filter((task): task is Issue => !!task),
   );
 
   function bulkMove(columnId: string) {
@@ -620,12 +603,12 @@
     }
   }
 
-  async function onCreate(input: TaskCreateInput) {
+  async function onCreate(input: IssueCreateInput) {
     try {
       await store.create(input);
-      saveLastTaskSource(taskSourceKey(input.source));
+      saveLastTaskSource(issueSourceKey(input.source));
     } catch (err) {
-      toastTaskError("create the task", err);
+      toastTaskError("create the issue", err);
       // Rethrow so the composer keeps the modal (and the user's draft) open; the
       // composer owns dismissal on success so "Create more" can stay open.
       throw err;
@@ -665,7 +648,7 @@
     bind:query={view.query}
     bind:searchEl
     compactText
-    placeholder={splitList ? "Search tasks…" : "Search tasks, labels, assignees…"}
+    placeholder={splitList ? "Search issues…" : "Search issues, labels, assignees…"}
     {filters}
     activeCount={Number(!view.boardLayout && !isOpenColumnFilter(view.columns, view.columnIds)) + Number(view.involvement !== "all")}
     onClearFilters={clearMenuFilters}
@@ -699,7 +682,7 @@
         <ListSortMenu
           bind:value={view.sort}
           options={TASK_SORT_OPTIONS}
-          ariaLabel="Sort tasks"
+          ariaLabel="Sort issues"
         />
       {/if}
     {/snippet}
@@ -712,7 +695,7 @@
     bind:clientWidth={pageWidth}
     bind:this={pageEl}
     role="dialog"
-    aria-label="Tasks"
+    aria-label="Issues"
     tabindex="-1"
   >
     <div
@@ -733,7 +716,7 @@
         : isSettingUp
           ? undefined
           : canCreate
-            ? { label: "New task", shortcut: comboHint("global.new-task"), run: () => startNewTask() }
+            ? { label: "New issue", shortcut: comboHint("global.new-task"), run: () => startNewTask() }
             : undefined}
       onClose={workspace ? close : undefined}
       toolbarFilters
@@ -748,7 +731,7 @@
            keep the same natural height in both layouts. -->
       <div
         bind:this={listEl}
-        class={view.boardLayout && (loadingTasks || view.visibleTasks.length > 0) ? "flex h-full min-h-0 flex-col" : ""}
+        class={view.boardLayout && (loadingTasks || view.awaitingProvider || view.visibleTasks.length > 0) ? "flex h-full min-h-0 flex-col" : ""}
         onkeydown={onBodyKeydown}
         role="presentation"
       >
@@ -765,7 +748,7 @@
           <PageEmpty icon={WarningCircleIcon} tone="muted" title={view.failure.title}>
             {view.failure.detail}
             {#snippet actions()}
-              {#if view.failure?.kind !== "generic" && taskSourcesStore.host}
+              {#if view.failure?.kind !== "generic" && issueSourcesStore.host}
                 <button type="button" class={PAGE_PRIMARY_BTN} onclick={openConnections}>
                   {view.failure?.kind === "github-auth" ? "Connect GitHub" : "Connect Atlassian"}
                 </button>
@@ -780,7 +763,7 @@
           <PageEmpty
             icon={WarningCircleIcon}
             tone="muted"
-            title="Couldn't load tasks."
+            title="Couldn't load issues."
           >
             {displayError}
             {#snippet actions()}
@@ -797,12 +780,12 @@
         {:else if hasNoSource && tasks.length === 0}
           {@render sourceSetup()}
         {:else if tasks.length === 0 && view.searched.length === 0}
-          <PageEmpty icon={TaskIcon} title="No tasks yet.">
+          <PageEmpty icon={TaskIcon} title="No issues yet.">
             {#if hasNoHost}
-              No connected machine runs agents, so your task sources cannot be
-              read. Connect a machine to see their tasks.
+              No connected machine runs agents, so your issue sources cannot be
+              read. Connect a machine to see their issues.
             {:else}
-              Your sources have no open tasks yet. Create one, then start a
+              Your sources have no open issues yet. Create one, then start a
               session from it to give the agent its full context.
             {/if}
             {#snippet actions()}
@@ -814,11 +797,19 @@
                   onclick={() => startNewTask()}
                 >
                   <PlusIcon size={14} weight="bold" />
-                  <span>New task</span>
+                  <span>New issue</span>
                 </button>
               {/if}
             {/snippet}
           </PageEmpty>
+        {:else if view.awaitingProvider}
+          <!-- The provider is still answering the search or the involvement
+               filter: the rows on screen do not answer it yet. -->
+          {#if view.boardLayout}
+            <TaskBoardSkeleton />
+          {:else}
+            <ListSkeleton identWidth={62} />
+          {/if}
         {:else if view.visibleTasks.length === 0}
           <ListEmpty title="Nothing matches">
             Clear the filters or widen the search.

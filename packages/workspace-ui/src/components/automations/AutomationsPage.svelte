@@ -546,7 +546,7 @@
         emptyLabel="All projects"
         onSelect={selectProject}
         onSelectAll={() => selectProject(null)}
-        onSelectCurrent={() => session.scopePageToCurrentProject()}
+        currentKey={session.currentProjectKey}
         onRemoveProject={removeProject}
         footerNote="Switching keeps filters, clears search"
       />

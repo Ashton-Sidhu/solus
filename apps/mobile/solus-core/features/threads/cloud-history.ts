@@ -1,4 +1,6 @@
+import { sessionFeedHistoryOptions } from '@solus/contracts/session-feed-item'
 import { readSessionCloudPage, readSessionTurnDiff } from '@solus/client-core/session-cloud-read'
+import { sessionCloudReadText } from '@solus/client-core/session-cloud-read-text'
 import type { SessionTurnDiffRef } from '@solus/contracts/session-history'
 import type { SessionTurnDiff } from '@solus/contracts/session-repositories'
 import type { AgentId } from '@solus/contracts/types'
@@ -36,6 +38,10 @@ const IDLE: CloudTurnDiffState = { kind: 'idle' }
  * It also keeps the diff of each turn the person opens, and whether the mirror
  * got rows after a copy was read. Everything goes when the Solus API
  * connection changes.
+ *
+ * A session that its organization keeps on its host has no copy
+ * (`CloudSessions.isKeptOnHost`): the Solus API is not asked, and the answer
+ * is a copy with no rows.
  */
 export class CloudHistory {
   readonly changes = new Listeners()
@@ -46,7 +52,7 @@ export class CloudHistory {
   private followed: HostConnection | null = null
   private stopFollowing: (() => void) | null = null
 
-  constructor(private readonly cloud: Pick<CloudSessions, 'connection' | 'changes'>) {
+  constructor(private readonly cloud: Pick<CloudSessions, 'connection' | 'changes' | 'isKeptOnHost'>) {
     this.follow()
     cloud.changes.subscribe(() => { this.follow() })
   }
@@ -57,6 +63,7 @@ export class CloudHistory {
     const copy: CloudRead = { sessionId, provider, turnDiffs: [], turnOfPrompt: new Map() }
     const model = new TranscriptModel(sessionId)
     this.copies.set(model, copy)
+    if (this.cloud.isKeptOnHost(sessionId)) return model
     // Before the request: rows that arrive while it travels can be absent from its answer.
     this.setNewerRows(sessionId, false)
     await this.readPage(model, copy)
@@ -125,7 +132,7 @@ export class CloudHistory {
   private async readPage(model: TranscriptModel, copy: CloudRead, throughEntryId?: string): Promise<void> {
     const connection = this.cloud.connection
     if (!connection) throw new Error('Sign in to Solus Cloud to read this session.')
-    const page = await readSessionCloudPage(connection.api, { replyLayout: true, sessionId: copy.sessionId, provider: copy.provider, before: model.olderCursor || undefined, ...(throughEntryId && { throughEntryId }) })
+    const page = await readSessionCloudPage(connection.api, { ...sessionFeedHistoryOptions, sessionId: copy.sessionId, provider: copy.provider, before: model.olderCursor || undefined, ...(throughEntryId && { throughEntryId }) })
     model.prependHistory(page)
     if (page.turnDiffs) copy.turnDiffs.push(...page.turnDiffs)
     if (copy.turnDiffs.length > 0) joinTurnDiffs(model, copy)
@@ -165,6 +172,16 @@ function joinTurnDiffs(model: TranscriptModel, copy: CloudRead): void {
     }
     if (promptId !== null && (copy.turnOfPrompt.get(promptId) ?? -1) < diff.turnIndex) copy.turnOfPrompt.set(promptId, diff.turnIndex)
   }
+}
+
+/**
+ * What a reader sees in place of a session that Solus Cloud has no copy of,
+ * because its organization keeps its sessions on their hosts: the words of the
+ * `sync-off` state that desktop and web show, as one line.
+ */
+export function keptOnHostText(): string {
+  const { message, detail } = sessionCloudReadText({ kind: 'sync-off' }, '')
+  return detail ? `${message} ${detail}` : message
 }
 
 function diffKey(sessionId: string, turnIndex: number): string {

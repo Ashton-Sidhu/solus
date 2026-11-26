@@ -3,24 +3,26 @@ import type { ProjectRef } from './project-catalog'
 /**
  * Where a new session of a project runs when nobody chose a host
  * (docs/plans/project-model.md §6): the most recently used checkout on a host
- * that is up, else the organization's managed host — started first when it is
- * stopped — which clones the project. Null when neither is available: the run
- * picker then says so; it never moves the session to some other machine
- * silently.
+ * that is up, else the organization's cloud host, which clones the project. A
+ * cloud host that is down is chosen only when it has managed compute: Send starts
+ * it first. Null when none is available: the run picker then says so; it never
+ * moves the session to some other machine silently.
  */
 
 export interface RunOnHost {
   serverId: string
   online: boolean
-  /** A host Solus cloud runs for the organization (docs/plans/managed-hosts.md). */
-  managed: boolean
+  /** A cloud machine of the organization (docs/plans/managed-hosts.md). */
+  cloud: boolean
+  /** Solus Cloud operates its compute, so a stopped one can be started. */
+  hasManagedCompute: boolean
 }
 
 export type RunOnChoice =
   /** Run in this checkout on its host. */
   | { serverId: string; path: string }
-  /** Run on the managed host, which has no checkout yet: Send starts it when
-   *  it is stopped, then clones the project. */
+  /** Run on the cloud host, which has no checkout yet: Send starts its managed
+   *  compute when that is stopped, then clones the project. */
   | { serverId: string; path: null }
 
 export function chooseRunOnHost(
@@ -38,7 +40,7 @@ export function chooseRunOnHost(
   const online = new Set(executionHosts.filter((host) => host.online).map((host) => host.serverId))
   const checkout = checkoutsMostRecentFirst.find((entry) => online.has(entry.serverId))
   if (checkout) return { serverId: checkout.serverId, path: checkout.projectRoot }
-  const managed = executionHosts.find((host) => host.managed && host.online)
-    ?? executionHosts.find((host) => host.managed)
-  return managed ? { serverId: managed.serverId, path: null } : null
+  const cloudHost = executionHosts.find((host) => host.cloud && host.online)
+    ?? executionHosts.find((host) => host.hasManagedCompute)
+  return cloudHost ? { serverId: cloudHost.serverId, path: null } : null
 }

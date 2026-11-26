@@ -376,6 +376,7 @@
       isPrimaryProjectPanelOpen,
       projectRailContainerWidth,
       projectRailRevealed,
+      projectRailSoleViewWidth,
     );
     projectRailRevealed = revealed;
     if (!leadingStarted) {
@@ -408,6 +409,7 @@
           isPrimaryProjectPanelOpen,
           projectRailContainerWidth,
           projectRailRevealed,
+          projectRailSoleViewWidth,
         )
       : true;
   });
@@ -604,6 +606,11 @@
       ? workspaceColumnWidth
       : conversationSplitWidth || workspaceColumnWidth,
   );
+  // Alone in the workspace, the rail folds at the same window width as the
+  // session sidebar. Beside a companion it needs the room in its own column.
+  const projectRailSoleViewWidth = $derived(
+    secondaryVisible ? undefined : workspaceWidth,
+  );
   const railOpen = $derived(
     enableProjectPanel &&
       locationChromeVisible &&
@@ -612,6 +619,7 @@
         projectRailContainerWidth,
         secondaryMinimizesProjectPanel,
         projectRailRevealed,
+        projectRailSoleViewWidth,
       ),
   );
 
@@ -901,6 +909,7 @@
                         {active}
                         containerWidth={projectRailContainerWidth}
                         {workspaceWidth}
+                        soleViewWorkspaceWidth={projectRailSoleViewWidth}
                         revealed={projectRailRevealed}
                         minimized={secondaryMinimizesProjectPanel ||
                           (!leadingStarted && !newTabProjectPanelPoppedOut)}
@@ -1255,6 +1264,12 @@
   .input-dock {
     contain: layout paint;
     background: var(--solus-container-bg);
+  }
+  /* The stash tray sits on the composer's top edge, above the dock's box.
+     Paint containment would clip it, so the dock drops it while the tray is
+     open. The `:has()` looks only inside the dock. */
+  .input-dock:has(:global([data-composer-stash-drawer])) {
+    contain: layout;
   }
   .workspace-body.is-resizing,
   .is-resizing {

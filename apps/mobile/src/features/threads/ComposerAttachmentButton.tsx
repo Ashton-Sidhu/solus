@@ -13,6 +13,7 @@ const ATTACHMENT_MENU_ACTIONS: MenuAction[] = [
 
 export function ComposerAttachmentButton(props: {
   readonly disabled?: boolean;
+  readonly icon?: "plus" | "paperclip";
   readonly size?: "regular" | "large";
   readonly supportsFiles: boolean;
   readonly onPickMedia: () => Promise<void>;
@@ -31,7 +32,7 @@ export function ComposerAttachmentButton(props: {
       onPress={props.supportsFiles ? undefined : () => void props.onPickMedia()}
     >
       <SymbolView
-        name="plus"
+        name={props.icon ?? "plus"}
         size={Math.round((props.size === "large" ? 26 : 20) * scale)}
         weight="regular"
         tintColorClassName="accent-icon"

@@ -42,13 +42,13 @@ function signed(claims: AccessTokenClaims): string {
 const now = () => Math.floor(Date.now() / 1000)
 
 /** What the account plane issues a personal host for its owner: the host acts, the person is the subject, and no organization is named. */
-function personalDelegation(subject: string, hostKind: 'personal' | 'managed' = 'personal'): string {
+function personalDelegation(subject: string, hostKind: 'personal' | 'cloud' = 'personal'): string {
   return signed({ iss: accountOrigin, aud: [SOLUS_API_AUDIENCE, ACCOUNT_AUDIENCE], sub: subject, grant_id: `${subject}-grant`, jti: randomUUID(), iat: now(), exp: now() + 300, client_id: `host_${HOST}`, access: 'owner', hostKind, act: { sub: `host_${HOST}`, host_id: HOST } })
 }
 
 /** A person's own client token for the Solus API, as a member of `org_a`. */
 function memberToken(subject: string): string {
-  return signed({ iss: accountOrigin, aud: SOLUS_API_AUDIENCE, sub: subject, grant_id: `${subject}-grant`, jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-desktop', access: 'org-member', organizations: [{ id: 'org_a', role: 'member', teamIds: [] }], hostKind: 'cloud' })
+  return signed({ iss: accountOrigin, aud: SOLUS_API_AUDIENCE, sub: subject, grant_id: `${subject}-grant`, jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-desktop', access: 'org-member', organizations: [{ id: 'org_a', role: 'member', teamIds: [] }], hostKind: 'api' })
 }
 
 async function memberSocket(subject: string): Promise<DialedHostSocket> {
@@ -192,7 +192,7 @@ describe('a personal session in the mirror, through the real Solus API', () => {
 
   test('the delivery route refuses a personal token that no personal host presents', async () => {
     // WHY: a managed machine runs organization work. An owner token from one must not open a person scope.
-    expect((await deliver(personalDelegation('bob', 'managed'), [])).status).toBe(401)
+    expect((await deliver(personalDelegation('bob', 'cloud'), [])).status).toBe(401)
     // A person's own client token, with no host acting for them, is no runner.
     expect((await deliver(memberToken('bob'), [])).status).toBe(401)
   })

@@ -138,7 +138,7 @@ export class SessionWatchers {
     return {
       sessionId,
       title: meta?.customTitle || meta?.firstMessage?.replace(/\s+/g, ' ') || meta?.slug || null,
-      taskId: await taskIdForSession(ANY_ORGANIZATION, sessionId),
+      issueId: await taskIdForSession(ANY_ORGANIZATION, sessionId),
       state: sessionActivityStateOf(this.rt.activeSessions.get(sessionId)?.status),
       activeTurn: this.activeTurnFor(sessionId),
     }

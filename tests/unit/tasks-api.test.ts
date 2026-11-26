@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { Task, TaskColumn, TaskPlacement } from '@solus/contracts/task-types'
-import type { TaskStatusCategory } from '@solus/contracts/task-sources'
+import type { Issue, IssueColumn, IssuePlacement } from '@solus/contracts/task-types'
+import type { IssueStatusCategory } from '@solus/contracts/task-sources'
 import {
   buildBoard,
   boardColumnIdOf,
@@ -21,7 +21,7 @@ const BOARD = 'github-project:acme/7'
 
 // The board's columns in the provider's order, which is not the order of the
 // status categories: "In review" comes after "Shipped" on this board.
-const BOARD_COLUMNS: TaskColumn[] = [
+const BOARD_COLUMNS: IssueColumn[] = [
   { id: 'opt-todo', name: 'Backlog', category: 'open' },
   { id: 'opt-done', name: 'Shipped', category: 'done' },
   { id: 'opt-review', name: 'In review', category: 'active' },
@@ -29,7 +29,7 @@ const BOARD_COLUMNS: TaskColumn[] = [
 const boardView: BoardView = { kind: 'source', source: { sourceKey: BOARD, columns: BOARD_COLUMNS } }
 const allView: BoardView = { kind: 'all' }
 
-function task(id: string, category: TaskStatusCategory, placements: TaskPlacement[]): Pick<Task, 'id' | 'category' | 'placements'> {
+function task(id: string, category: IssueStatusCategory, placements: IssuePlacement[]): Pick<Issue, 'id' | 'category' | 'placements'> {
   return { id, category, placements }
 }
 
@@ -220,7 +220,7 @@ describe('taskPlacementLabels', () => {
 })
 
 describe('task list sort', () => {
-  type Sortable = Pick<Task, 'id' | 'priority' | 'dueDate' | 'updatedAt' | 'createdAt'>
+  type Sortable = Pick<Issue, 'id' | 'priority' | 'dueDate' | 'updatedAt' | 'createdAt'>
   const row = (id: string, fields: Partial<Sortable> = {}): Sortable => ({ id, updatedAt: 0, ...fields })
   const ids = (rows: Sortable[]) => rows.map(({ id }) => id)
 

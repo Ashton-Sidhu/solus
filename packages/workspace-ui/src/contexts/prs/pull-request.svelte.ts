@@ -164,7 +164,7 @@ export class PullRequest implements Contracts.PullRequest {
   comments = $state<PrConversationItem[]>()
   threads = $state<ReviewThread[]>()
   changedFileStats = $state<ChangedFileStat[]>()
-  /** The fork workflow runs that wait for a maintainer, as last read. */
+  /** The workflow runs that wait for a maintainer, as last read. */
   pendingWorkflowRuns = $state<PrPendingWorkflowRuns>()
 
   /**

@@ -13,7 +13,7 @@ import {
   type ManagedSessionSettings,
   type PolicySource,
 } from '@solus/contracts/policy'
-import { MODEL_PROFILES, type AgentId, type PermissionMode } from '@solus/contracts/types'
+import { AGENT_LABELS, MODEL_PROFILES, type AgentId, type PermissionMode } from '@solus/contracts/types'
 import { PERMISSION_MODE_TEXT } from '../../conversation/lib/run-settings'
 
 /**
@@ -75,7 +75,6 @@ function modelName(provider: AgentId, model: string): string {
   return MODEL_PROFILES[provider]?.[model]?.label ?? model
 }
 
-const PROVIDER_NAMES = { 'claude-code': 'Claude', codex: 'Codex', opencode: 'OpenCode', replay: 'Replay' } satisfies Record<AgentId, string>
 
 const RATE_LIMIT_BEHAVIOR = {
   ask: 'ask at a rate limit',
@@ -83,12 +82,6 @@ const RATE_LIMIT_BEHAVIOR = {
   continue: 'stop at a rate limit',
   stop: 'stop at a rate limit',
 } satisfies Record<ManagedValue<'rateLimitBehavior'>, string>
-
-const TASK_LIFECYCLE = {
-  none: 'no task status changes by agents',
-  moderate: 'task status changes by agents, except done',
-  autonomous: 'all task status changes by agents',
-} satisfies Record<ManagedValue<'agentTaskLifecyclePolicy'>, string>
 
 /** Each managed setting: its name, and how its value reads in "Globex sessions use <value> (managed)." */
 const SESSION_SETTINGS: { [K in ManagedSessionSettingKey]: { label: string; describe: (value: ManagedValue<K>) => string } } = {
@@ -104,9 +97,8 @@ const SESSION_SETTINGS: { [K in ManagedSessionSettingKey]: { label: string; desc
   worktreeBranchNaming: { label: 'Branch naming', describe: () => 'a set branch name format' },
   codebaseNaming: { label: 'Codebase names', describe: (value) => (value === 'generated' ? 'generated codebase names' : 'codebase names from the folder names') },
   defaultPermissionMode: { label: 'Default mode', describe: (value) => `${PERMISSION_MODE_TEXT[value].label} by default` },
-  agentTaskLifecyclePolicy: { label: 'Task status by agents', describe: (value) => TASK_LIFECYCLE[value] },
   rateLimitBehavior: { label: 'Rate limits', describe: (value) => RATE_LIMIT_BEHAVIOR[value] },
-  reviewAgent: { label: 'Review agent', describe: (value) => `${PROVIDER_NAMES[value]} for reviews` },
+  reviewAgent: { label: 'Review agent', describe: (value) => `${AGENT_LABELS[value]} for reviews` },
   reviewModel: { label: 'Review model', describe: (value) => `${value} for reviews` },
   reviewGuideInstructions: { label: 'Review guide instructions', describe: () => 'set review guide instructions' },
 }
@@ -212,20 +204,22 @@ function limitRows(work: WorkPolicy): PolicyRuleRow[] {
   const ceiling = work.ceiling()
   if (ceiling) rows.push({ label: 'Highest mode', value: PERMISSION_MODE_TEXT[ceiling.value].label, source: policySourceLabel(ceiling.source) })
   const providers = work.limit('providers')
-  if (providers?.value.allowed) rows.push({ label: 'Agents', value: list(providers.value.allowed.map((provider) => PROVIDER_NAMES[provider])), source: policySourceLabel(providers.source) })
+  if (providers?.value.allowed) rows.push({ label: 'Agents', value: list(providers.value.allowed.map((provider) => AGENT_LABELS[provider])), source: policySourceLabel(providers.source) })
   if (providers?.value.launch && Object.keys(providers.value.launch).length > 0) {
-    rows.push({ label: 'Agent launch', value: list(Object.keys(providers.value.launch).map((provider) => PROVIDER_NAMES[provider as AgentId] ?? provider)), source: policySourceLabel(providers.source) })
+    rows.push({ label: 'Agent launch', value: list(Object.keys(providers.value.launch).map((provider) => AGENT_LABELS[provider as AgentId] ?? provider)), source: policySourceLabel(providers.source) })
   }
   const models = work.limit('models')
   if (models) {
     for (const [provider, allowed] of Object.entries(models.value)) {
-      if (allowed) rows.push({ label: `${PROVIDER_NAMES[provider as AgentId] ?? provider} models`, value: list(allowed.map((model) => modelName(provider as AgentId, model))), source: policySourceLabel(models.source) })
+      if (allowed) rows.push({ label: `${AGENT_LABELS[provider as AgentId] ?? provider} models`, value: list(allowed.map((model) => modelName(provider as AgentId, model))), source: policySourceLabel(models.source) })
     }
   }
   const insights = work.limit('insights')
   if (insights) rows.push({ label: 'Sync all Insights', value: onOff(insights.value.syncAll), source: policySourceLabel(insights.source) })
   const webhooks = work.limit('webhooks')
   if (webhooks) rows.push({ label: 'Unverified webhooks', value: webhooks.value.allowUnverified ? 'Allowed' : 'Not allowed', source: policySourceLabel(webhooks.source) })
+  const cloud = work.limit('sessionCloudSync')
+  if (cloud) rows.push({ label: 'Save sessions to Solus Cloud', value: onOff(cloud.value), source: policySourceLabel(cloud.source) })
   return rows
 }
 

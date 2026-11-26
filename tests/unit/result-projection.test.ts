@@ -4,10 +4,42 @@ import {
   ERROR_HEAD_MAX_BYTES,
   projectSessionEvent,
   projectSessionHistory,
+  withTurnItemBodies,
   withExchangeProgress,
 } from '@solus/server/data/sessions/result-projection'
 
 describe('session result projection', () => {
+  test('projects saved T3 bodies and keeps the exact provider input when it cannot be recovered', () => {
+    const tool = (toolInput: string, toolName = 'Read') => ({ role: 'tool', timestamp: 1, content: '', toolId: 'c', toolName, toolInput })
+    const message = { role: 'assistant', timestamp: 2, content: 'saved response', forkPointId: 'fork' }
+    const child = { ...message, parentToolUseId: 'agent' }
+    const [reply, command, read, plain, spaced, literalNull, nested] = withTurnItemBodies([
+      message, tool('{"cmd":["bash","-lc","pwd"]}', 'exec_command'), tool('{"path":"a"}'),
+      tool('plain text'), tool('{ "path": "a" }'), tool('null'), child,
+    ])
+    expect(reply).toMatchObject({ content: '', forkPointId: 'fork', turnItem: { type: 'assistant_message', text: 'saved response', streaming: false } })
+    expect(message.content).toBe('saved response')
+    expect(command?.turnItem).toEqual({ type: 'command_execution', input: 'pwd' })
+    expect(read?.turnItem).toEqual({ type: 'dynamic_tool', toolName: 'Read', input: { path: 'a' } })
+    expect(read).not.toHaveProperty('toolInput')
+    expect([plain?.toolInput, spaced?.toolInput, literalNull?.toolInput]).toEqual(['plain text', '{ "path": "a" }', 'null'])
+    expect(nested).toBe(child)
+  })
+
+  test('keeps agent and automation attribution when a client loads saved prompts', () => {
+    const row = { role: 'user', content: 'continue', timestamp: 1 }
+    const messages = withTurnItemBodies([
+      { ...row, sender: { kind: 'agent', sessionId: 'source' } },
+      { ...row, sender: { kind: 'automation', automationId: 'daily' } },
+      row,
+    ])
+    expect(messages.map(message => message.turnItem)).toMatchObject([
+      { createdBy: 'agent', senderThreadId: 'source' },
+      { createdBy: 'agent', scheduledTaskId: 'daily' },
+      { createdBy: 'user' },
+    ])
+  })
+
   test('keeps a subagent report whole', () => {
     const text = '# Findings\n\nThe complete answer.'
     expect(projectSessionEvent({

@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
+import { AGENT_IDS } from '@solus/contracts/types'
 import { getDb } from '../../db'
 import { getDatabase } from '../../db/database'
 import { works } from '../works/schema'
@@ -23,7 +24,7 @@ const sessionRecordRowSchema = z.object({
   session_id: z.string(),
   agent_session_id: z.string().nullable(),
   session_title: z.string().nullable(),
-  session_provider: z.enum(['claude', 'claude-code', 'codex', 'opencode', 'replay']).nullable(),
+  session_provider: z.enum(['claude', ...AGENT_IDS]).nullable(),
   session_model: z.string().nullable(),
   session_server_id: z.string().nullable(),
   branch: z.string().nullable(),

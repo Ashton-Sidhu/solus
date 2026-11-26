@@ -17,7 +17,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 let records: typeof import('@solus/server/data/sessions/session-records')
 let works: typeof import('@solus/server/data/works/works')
 let principal: typeof import('@solus/server/admission/principal')
-let hostCategory: typeof import('@solus/server/host/host-category')
+let machine: typeof import('@solus/server/host/machine-kind')
 let dbModule: typeof import('@solus/server/db')
 type Principal = import('@solus/server/admission/principal').Principal
 
@@ -30,9 +30,9 @@ beforeAll(async () => {
   records = await import('@solus/server/data/sessions/session-records')
   works = await import('@solus/server/data/works/works')
   principal = await import('@solus/server/admission/principal')
-  hostCategory = await import('@solus/server/host/host-category')
+  machine = await import('@solus/server/host/machine-kind')
   dbModule = await import('@solus/server/db')
-  hostCategory.resetHostCategoryForTests()
+  machine.resetMachineKindForTests()
 })
 
 afterAll(async () => {
@@ -41,7 +41,7 @@ afterAll(async () => {
   rmSync(dataDir, { recursive: true, force: true })
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir
-  hostCategory.resetHostCategoryForTests()
+  machine.resetMachineKindForTests()
 })
 
 const LOCAL_OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
@@ -108,7 +108,7 @@ describe('a record\'s organization', () => {
     expect((await works.loadWork(principal.ANY_ORGANIZATION, local.id))?.content).toBe('# scratch')
   })
 
-  test('where a new record starts: Local on a personal host, the host\'s organization on a managed host, a member\'s own wherever they are', () => {
+  test('where a new record starts: Local on a personal machine, the machine\'s organization on a cloud machine, a member\'s own wherever they are', () => {
     // A personal host's owner reads everything and writes scratch.
     expect(principal.recordScopeOf(LOCAL_OWNER)).toBe(principal.ANY_ORGANIZATION)
     expect(principal.organizationForNew(LOCAL_OWNER)).toBe('local')
@@ -118,10 +118,10 @@ describe('a record\'s organization', () => {
     expect(principal.scopeAdmits('A', 'B')).toBe(false)
     expect(principal.scopeAdmits('A', 'A')).toBe(true)
 
-    // A managed host was provisioned for A: its own work is A's, the host itself reads the
-    // whole disk, and a pairing credential — which a managed host never issues — would keep
-    // only Local records, as on any machine attached for organization work.
-    hostCategory.adoptProvisionedRegistration({ organizationId: 'A' })
+    // A cloud machine works for A: its own work is A's, the host itself reads the whole
+    // disk, and a connection with no member behind it — a cloud machine has no pairing
+    // and no owner — would keep only Local records.
+    machine.adoptRegistration({ organizationId: 'A' })
     try {
       expect(principal.organizationForNew(LOCAL_OWNER)).toBe('A')
       expect(principal.organizationForNew(principal.INTERNAL_PRINCIPAL)).toBe('A')
@@ -129,17 +129,17 @@ describe('a record\'s organization', () => {
       expect(principal.recordScopeOf(LOCAL_OWNER)).toBe('local')
       expect(principal.organizationForNew(memberOf('B'))).toBe('B')
     } finally {
-      hostCategory.resetHostCategoryForTests()
+      machine.resetMachineKindForTests()
     }
   })
 
-  test('on a managed host the host\'s own session records are born in its organization', async () => {
-    hostCategory.adoptProvisionedRegistration({ organizationId: 'A' })
+  test('on a cloud machine the host\'s own session records are born in its organization', async () => {
+    machine.adoptRegistration({ organizationId: 'A' })
     try {
       expect(await own('s-managed')).toMatchObject({ organizationId: 'A', publication: 'local' })
       expect(await records.organizationOfSession('never')).toBe('A')
     } finally {
-      hostCategory.resetHostCategoryForTests()
+      machine.resetMachineKindForTests()
     }
   })
 })

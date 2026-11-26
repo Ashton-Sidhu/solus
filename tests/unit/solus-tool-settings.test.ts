@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { DatabaseSync } from './helpers/bun-sqlite'
+import { runToolClient } from './helpers/run-tool-client'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CONFIGURABLE_SOLUS_TOOL_NAMES, SOLUS_TOOL_GROUPS } from '@solus/contracts/agent-tools'
@@ -14,8 +15,7 @@ const dataDir = mkdtempSync(join(tmpdir(), 'solus-tool-settings-'))
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let settings: typeof import('@solus/server/host/settings')
 let agentTools: typeof import('@solus/server/execution/agents/tools/agent-tool')
-let codex: typeof import('@solus/server/execution/agents/codex/codex-tool-adapter')
-let claude: typeof import('@solus/server/execution/agents/claude/claude-tool-adapter')
+let claude: typeof import('@solus/server/execution/agents/claude/claude-backend')
 let calls = 0
 const tool: AgentTool = { name: 'read_work', description: 'Read a work', inputFields: {}, requiresApproval: false,
   execute: async () => { calls++; return { ok: true, text: 'work' } } }
@@ -26,8 +26,7 @@ beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = dataDir
   settings = await import('@solus/server/host/settings')
   agentTools = await import('@solus/server/execution/agents/tools/agent-tool')
-  codex = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
-  claude = await import('@solus/server/execution/agents/claude/claude-tool-adapter')
+  claude = await import('@solus/server/execution/agents/claude/claude-backend')
 })
 afterAll(() => {
   rmSync(dataDir, { recursive: true, force: true })
@@ -63,24 +62,31 @@ describe('Solus tool settings', () => {
     expect(hostConfigPatchSchema.safeParse({ solusTools: { ask_jev: false } }).success).toBe(false)
     expect(hostConfigPatchSchema.safeParse({ solusTools: { wait_for_session: false } }).success).toBe(false)
   })
-  test('both providers hide disabled tools and restore enabled tools', () => {
-    expect(codex.adaptCodexTools([tool])).toHaveLength(1)
+  test('every harness stops seeing a disabled tool and sees it again when enabled', async () => {
+    const listed = async () => {
+      const client = await runToolClient([tool], context)
+      const names = (await client.listTools()).tools.map((each) => each.name)
+      await client.close()
+      return names
+    }
+    expect(await listed()).toEqual(['read_work'])
     settings.setHostConfig({ solusTools: { read_work: false } })
-    expect(codex.adaptCodexTools([tool])).toHaveLength(0)
-    expect(claude.adaptClaudeTools([tool], context, 'auto').allowedTools).toEqual([])
+    expect(await listed()).toEqual([])
+    expect(claude.claudeAllowedTools([tool])).toEqual([])
     settings.setHostConfig({ solusTools: { read_work: true } })
-    expect(codex.adaptCodexTools([tool])).toHaveLength(1)
-    expect(claude.adaptClaudeTools([tool], context, 'auto').allowedTools).toEqual(['mcp__solus__read_work'])
+    expect(await listed()).toEqual(['read_work'])
+    expect(claude.claudeAllowedTools([tool])).toEqual(['mcp__solus__read_work'])
   })
-  test('an existing dispatcher cannot execute a tool disabled after construction', async () => {
-    const dispatcher = new codex.CodexToolDispatcher([tool], context)
+  test('a run that listed a tool cannot call it after it is disabled', async () => {
+    const client = await runToolClient([tool], context)
     settings.setHostConfig({ solusTools: { read_work: false } })
-    expect((await dispatcher.execute('read_work', {})).ok).toBe(false)
+    expect((await client.callTool({ name: 'read_work', arguments: {} })).isError).toBe(true)
     expect((await agentTools.executeAgentTool(tool, {}, { ...context, provider: 'claude-code' })).ok).toBe(false)
     expect(calls).toBe(0)
     settings.setHostConfig({ solusTools: { read_work: true } })
-    expect((await dispatcher.execute('read_work', {})).ok).toBe(true)
+    expect((await client.callTool({ name: 'read_work', arguments: {} })).isError).toBeFalsy()
     expect(calls).toBe(1)
+    await client.close()
   })
   test('search accepts group and tool names; group switches cover the full group', () => {
     expect(matchingToolGroups('works')[0].id).toBe('works')

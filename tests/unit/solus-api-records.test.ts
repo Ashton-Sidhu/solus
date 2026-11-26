@@ -17,7 +17,7 @@ let dataDir: string
 let database: typeof import('@solus/server/db/database')
 let shares: import('@solus/server/sharing/share-manager').ShareManager
 const previous = process.env.SOLUS_DATA_DIR
-const context: WorkspaceRequestContext = { principal: { kind: 'org-member', userId: 'alice', organizationId: 'A', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Alice', deviceId: 'alice-device', deviceLabel: 'Browser', expiresAt: Date.now() + 300000 }, home: { kind: 'organization', organizationId: 'A', serviceId: 'api' }, scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read'] }
+const context: WorkspaceRequestContext = { principal: { kind: 'org-member', userId: 'alice', organizationId: 'A', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Alice', deviceId: 'alice-device', deviceLabel: 'Browser', expiresAt: Date.now() + 300000 }, home: { kind: 'organization', organizationId: 'A', serviceId: 'api' }, scopes: ['issues:read', 'issues:write', 'works:read', 'works:write', 'sessions:read'] }
 const bob: WorkspaceRequestContext = { ...context, principal: { ...context.principal, kind: 'org-member', userId: 'bob', organizationId: 'A', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Bob', deviceId: 'bob-device', deviceLabel: 'Browser', expiresAt: Date.now() + 300000 } }
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-api-records-')); process.env.SOLUS_DATA_DIR = dataDir
@@ -76,15 +76,15 @@ test('an artifact keeps its session and is not filed on the task of that session
   // WHY: the session shows what it made. A task shows what a person or an agent
   // deliberately put on it, so a saved render does not fill the task page.
   const { taskAttachments } = await import('@solus/server/data/tasks/task-attachments')
-  const taskKey = 'github:I_session_context'
+  const issueKey = 'github:I_session_context'
   await database.getDatabase().run(sql`INSERT INTO session_records(session_id,organization_id,created_by,provider,project_path,status,created_at,last_activity_at,size,started_at) VALUES ('task-session-alice','A','alice','codex','/project','idle',1,2,100,1)`)
-  await operations.putLink(context, { from: { kind: 'task', id: taskKey }, to: { kind: 'session', id: 'task-session-alice' } })
+  await operations.putLink(context, { from: { kind: 'issue', id: issueKey }, to: { kind: 'session', id: 'task-session-alice' } })
 
   const artifact = await operations.createWork(context, {
     title: 'Saved chart', type: 'artifact', content: '<p>Chart</p>', originSessionId: 'task-session-alice',
   }, 'session-artifact-context')
   expect(artifact.sessionIds).toContain('task-session-alice')
-  expect((await taskAttachments('A', taskKey)).links.map(link => link.targetKey)).not.toContain(artifact.id)
+  expect((await taskAttachments('A', issueKey)).links.map(link => link.targetKey)).not.toContain(artifact.id)
 })
 
 test('a viewer can archive a shared session for themselves and both people retain its transcript', async () => {
@@ -208,7 +208,7 @@ test('the API has no task record: GitHub or Jira holds each task, so no task pat
   expect((await app.request('/v1/tasks/github:I_1', { headers })).status).toBe(404)
   expect(Object.values(solusApiOperations).filter(route => route.path.startsWith('/tasks'))).toEqual([])
   // The attachment of a task still has its route: a link from a task key.
-  const link = { from: { kind: 'task', id: 'github:I_1' }, to: { kind: 'pr', url: 'https://github.com/acme/app/pull/3' } }
+  const link = { from: { kind: 'issue', id: 'github:I_1' }, to: { kind: 'pr', url: 'https://github.com/acme/app/pull/3' } }
   expect((await app.request('/v1/links', { method: 'PUT', headers, body: JSON.stringify(link) })).status).toBe(204)
 })
 
@@ -222,7 +222,7 @@ test('records over a socket take its principal as authority and never exchange a
   const { answerSocketRequest, createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
   const { SolusApiClient } = await import('@solus/contracts/solus-api/client')
   revokeDevice('revoked-device')
-  const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: true }))
+  const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: () => true }))
   const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
   // Mounted at /v1 over HTTP too: the socket must not open a door HTTP keeps shut.
   const http = new Hono().route('/v1', router)
@@ -311,7 +311,7 @@ test('a paired session token works offline, is revocable, and cannot open the cl
     createDoors({ place: 'host', verifyAccessToken: async () => { grantLookups++; return { ok: false, reason: 'not-linked' } } }))
   expect((await local.bearer(paired.token, undefined))?.home).toEqual({ kind: 'local', hostId: 'test-host' })
   expect(grantLookups).toBe(0)
-  const cloud = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'cloud' } }, createDoors({ place: 'api', pairingDisabled: true }))
+  const cloud = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'cloud' } }, createDoors({ place: 'api', pairingDisabled: () => true }))
   expect(await cloud.bearer(paired.token, undefined)).toBeNull()
   auth.revokeDevice(paired.deviceId)
   expect(await local.bearer(paired.token, undefined)).toBeNull()
@@ -326,7 +326,7 @@ test('a link guest opens only its shared work with the secret alone, with the li
   const { answerSocketRequest, createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
   const { SolusApiClient } = await import('@solus/contracts/solus-api/client')
   const resolveShareSecret = (secret: string) => shares.resolveLinkSecret(secret)
-  const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: true, resolveShareSecret }))
+  const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: () => true, resolveShareSecret }))
   const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
   const guestOf = async (shareSecret: string) => {
     const admitted = await guestPrincipalFor(resolveShareSecret, shareSecret, 'maya-guest-0000001', 'Maya')

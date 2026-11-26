@@ -22,7 +22,7 @@ function mdm(document: PolicyDocument): MdmPolicy {
 function standing(organizations: Array<{ id: string; name: string; policy: unknown; hostPolicy?: unknown }>, hostOwnerOrganizationId: string | null = null): HostStanding {
   return {
     hostId: 'H',
-    category: 'personal',
+    kind: 'personal',
     owner: null,
     refreshedAt: 0,
     hostOwnerOrganizationId,
@@ -47,6 +47,15 @@ describe('the policy document', () => {
     expect(validatePolicyDocument({ schemaVersion: 1, organization: { name: 'A' }, telemetry: false }, 'mdm').ok).toBe(false)
     expect(validatePolicyDocument({ schemaVersion: 1, organization: { name: 'A' }, sessions: { limits: { maxMode: 'plan' } } }, 'mdm').ok).toBe(false)
     expect(validatePolicyDocument({ schemaVersion: 1, organization: { name: 'A' }, host: { colour: 'red' } }, 'mdm').ok).toBe(false)
+  })
+
+  // WHY: an MDM policy written before the tools were grouped must still apply.
+  // Refusing it would drop every lock it holds; reading an old tool that is
+  // off as on would unlock what the administrator turned off.
+  test('a policy that names a grouped tool still decodes, and an old tool that is off turns its group off', () => {
+    const result = validatePolicyDocument(doc('A', { host: { solusTools: { rotate_webhook: false, dry_run_webhook: true, read_work: false } } }), 'mdm')
+    expect(result.ok && result.document.host?.solusTools).toEqual({ manage_webhooks: false, read_webhooks: true, read_work: false })
+    expect(validatePolicyDocument(doc('A', { host: { solusTools: { not_a_tool: false } } }), 'mdm').ok).toBe(false)
   })
 
   test('only settings the host enforces are manageable', () => {

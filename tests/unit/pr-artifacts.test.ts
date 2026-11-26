@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import type { TaskLink } from '@solus/contracts/task-types'
+import type { IssueLink } from '@solus/contracts/task-types'
 import { prArtifactsFrom } from '../../packages/workspace-ui/src/components/pr-review/lib/pr-artifacts'
 
-function link(targetKey: string, liveStatus: string, title = targetKey, linkedAt = 0): TaskLink {
+function link(targetKey: string, liveStatus: string, title = targetKey, linkedAt = 0): IssueLink {
   return {
-    taskId: 't',
+    issueId: 't',
     kind: 'work',
     targetScope: '',
     targetKey,

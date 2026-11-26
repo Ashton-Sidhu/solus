@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { existsSync, readdirSync } from 'fs'
-import { isAbsolute } from 'path'
+import { existsSync, mkdtempSync, readdirSync, readlinkSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { isAbsolute, join } from 'path'
 
 const replies: Array<string | Error> = []
 const calls: string[][] = []
@@ -27,7 +28,7 @@ beforeEach(() => { replies.length = 0; calls.length = 0; directories.length = 0;
 afterAll(() => mock.restore())
 
 describe('a member\'s skills on a shared host', () => {
-  const member = { claudeHome: '/seats/claude/alice', codexHome: '/seats/codex/alice' }
+  const member = { claudeHome: '/seats/claude/alice', codexHome: '/seats/codex/alice', antigravityHome: '/seats/antigravity/alice' }
 
   test('install, list, and remove all act on the member\'s seats, never the host home', async () => {
     // WHY: a member's agent reads skills from their seat (CLAUDE_CONFIG_DIR and
@@ -42,6 +43,22 @@ describe('a member\'s skills on a shared host', () => {
     }
     // Plain files in each seat: a link would point at a store outside it.
     expect(calls[0]).toEqual(['-y', 'skills', 'add', 'owner/skills@design', '-g', '-y', '--copy', '-a', 'claude-code', '-a', 'codex'])
+  })
+
+  test('a skill reaches the member\'s Antigravity profile, where their agy reads it', async () => {
+    // WHY: the CLI installs Antigravity skills into `~/.gemini/config/skills`, and a
+    // member's CLI runs with their Claude seat as HOME; without the link the skill
+    // would land beside their Claude seat, where no agy reads.
+    const root = mkdtempSync(join(tmpdir(), 'skills-agy-'))
+    try {
+      const seat = { claudeHome: join(root, 'claude'), codexHome: join(root, 'codex'), antigravityHome: join(root, 'antigravity') }
+      replies.push('')
+      expect((await installSkill('owner/skills@design', ['claude-code', 'antigravity'], seat)).ok).toBe(true)
+      expect(calls[0]).toEqual(['-y', 'skills', 'add', 'owner/skills@design', '-g', '-y', '--copy', '-a', 'claude-code', '-a', 'antigravity-cli'])
+      expect(readlinkSync(join(seat.claudeHome, '.gemini'))).toBe(seat.antigravityHome)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test('the host owner keeps the host\'s own homes', async () => {
@@ -63,6 +80,11 @@ describe('global skill management', () => {
     expect(directories).toHaveLength(6)
     expect(new Set(directories).size).toBe(6)
     for (const directory of directories) expect(existsSync(directory)).toBe(false)
+  })
+  test('a provider the CLI has no agent for is left out, and Antigravity installs as antigravity-cli', async () => {
+    replies.push('')
+    expect((await installSkill('owner/skills@design', ['codex', 'replay', 'antigravity'])).ok).toBe(true)
+    expect(calls[0]).toEqual(['-y', 'skills', 'add', 'owner/skills@design', '-g', '-y', '-a', 'codex', '-a', 'antigravity-cli'])
   })
   test('lists the global scope and preserves provider and source information', async () => {
     replies.push(installed)

@@ -1,5 +1,5 @@
 import type { ProviderStartup } from '@solus/contracts/provider-startup'
-import type { WireNormalizedEvent } from '@solus/contracts/types'
+import type { AgentId, WireNormalizedEvent } from '@solus/contracts/types'
 
 /** Startup is live turn state. A session init or turn-open event can precede output. */
 export function providerStartupAfter(
@@ -32,9 +32,16 @@ export function providerStartupAfter(
   }
 }
 
+const PROVIDER_NAMES = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+  replay: 'Replay',
+  antigravity: 'Google Antigravity',
+} as const satisfies Record<AgentId, string>
+
 export function providerStartupLabel({ provider, phase }: ProviderStartup): string {
-  const name = provider === 'claude-code' ? 'Claude Code' : provider === 'codex' ? 'Codex'
-    : provider === 'opencode' ? 'OpenCode' : 'Replay'
+  const name = PROVIDER_NAMES[provider]
   switch (phase) {
     case 'starting': return `Starting ${name}…`
     case 'resuming': return `Resuming ${name} session…`

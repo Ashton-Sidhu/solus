@@ -1,8 +1,8 @@
-import type { TaskStatusCategory } from '@solus/contracts/task-sources'
+import type { IssueStatusCategory } from '@solus/contracts/task-sources'
 import { CATEGORY_META } from './tasks-api'
 
 interface TaskWithCategory {
-  category: TaskStatusCategory
+  category: IssueStatusCategory
 }
 
 export interface TaskPickerSection<T extends TaskWithCategory> {
@@ -13,7 +13,7 @@ export interface TaskPickerSection<T extends TaskWithCategory> {
 }
 
 /** A picker shows the work in progress first, then what is open, then what is done. */
-const PICKER_CATEGORY_ORDER: TaskStatusCategory[] = ['active', 'open', 'done']
+const PICKER_CATEGORY_ORDER: IssueStatusCategory[] = ['active', 'open', 'done']
 
 /** Group picker results by status category, with the names the Tasks page shows. */
 export function taskPickerSections<T extends TaskWithCategory>(

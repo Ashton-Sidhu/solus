@@ -8,7 +8,7 @@ import { addWslDistroStore } from '../servers/add-wsl-distro.store.svelte'
 import { foundMachines, type FoundMachine } from './lib/discover'
 
 /**
- * What this device can see but has not added (docs/plans/host-fleet.md D7): the
+ * What this device can see but has not added: the
  * network scan (local network and tailnet), the WSL distros of this client's
  * Windows host, and the machines in the SSH config of the host that scans.
  */

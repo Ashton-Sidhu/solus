@@ -5,7 +5,7 @@ import { hostMenuItem } from '@solus/workspace-ui/components/editor/unified-auto
 import { findAnchor, readTrigger } from '@solus/workspace-ui/components/editor/unified-autocomplete/trigger'
 import { serializeReferenceToken } from '@solus/workspace-ui/components/editor/reference-tokens'
 
-// WHY: docs/plans/host-fleet.md D12. A person names a host in a prompt from the
+// WHY: A person names a host in a prompt from the
 // `#` menu, as they name a task or a session. A host that the menu does not
 // list, or a row that inserts a link no client can open, makes the host chip a
 // thing only "Ask an agent" can write.
@@ -16,7 +16,8 @@ const studio: FleetMachineInput = {
   label: 'studio-mini',
   os: 'linux',
   isThisDevice: false,
-  isManaged: false,
+  isCloud: false,
+  hasManagedCompute: false,
   principal: 'local-owner',
   readiness: 'unreachable',
   routeKind: 'tailnet',

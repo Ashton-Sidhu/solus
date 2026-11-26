@@ -88,8 +88,11 @@ export function closePlanModal(ctx: WorkspaceContext): void {
   ctx.router.close('plan')
 }
 
-export function requestConversationScrollToBottom(tabId: string): void {
-  window.dispatchEvent(new CustomEvent('solus:scroll-conversation-bottom', { detail: { tabId } }))
+/** `sent` marks a prompt the person sent: the view glides to the end. Its
+ *  `firstMessageId` names the first message of a session, which the view
+ *  moves to its top with room for the reply below it. */
+export function requestConversationScrollToBottom(tabId: string, sent?: { firstMessageId?: string }): void {
+  window.dispatchEvent(new CustomEvent('solus:scroll-conversation-bottom', { detail: { tabId, sent } }))
 }
 
 // ─── Plan approval / rejection ───

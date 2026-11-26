@@ -4,7 +4,8 @@ import * as SplashScreen from "expo-splash-screen";
 import { requireNativeModule } from "expo";
 import { useLocale } from "gt-react-native";
 import { useEffect, useRef, useState } from "react";
-import { Platform, StatusBar } from "react-native";
+import { AccessibilityInfo, Platform, StatusBar } from "react-native";
+import { markStart } from "@solus-mobile/lib/start-trace";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -101,6 +102,8 @@ import {
 import { pruneNewTaskFlowStates } from "./features/threads/new-task-flow-state";
 import { pruneNewTaskBranchCheckouts } from "./features/threads/NewTaskDraftRouteScreen";
 import { installAppUpdateChecks } from "./features/updates/app-updates";
+import { appSignInLinkOf } from "@solus-mobile/features/settings/app-sign-in";
+import { AppSignInCoordinator } from "./solus/AppSignInSheet";
 
 import "../global.css";
 
@@ -109,6 +112,15 @@ if (process.env.EXPO_PUBLIC_SHOWCASE === "1") {
 }
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
+markStart("app_module");
+// The splash fades into the list it held for, so the first screen does not cut in. The
+// setting is read long before the splash hides; Reduce Motion keeps the cut.
+const SPLASH_FADE_MS = 150;
+SplashScreen.setOptions({ fade: true, duration: SPLASH_FADE_MS });
+void AccessibilityInfo.isReduceMotionEnabled().then(
+  (reduceMotion) => { if (reduceMotion) SplashScreen.setOptions({ fade: false }); },
+  () => {},
+);
 void hydrateWorkspaceSelections();
 
 const linkingConfig = {
@@ -132,8 +144,12 @@ function getAppStateFromPath(path: string, options: Parameters<typeof getStateFr
 const appLinking = {
   prefixes: [Linking.createURL("/"), "solus://", "solus-dev://", "solus-preview://"],
   config: { initialRouteName: "Home" },
-  filter: (url: string) => shouldHandleAppLink(url, hasCloudPublicConfig()),
-  getInitialURL: async () => (await Linking.getInitialURL()) ?? (await launchWorkspaceURL()),
+  // An approve-app link opens a sheet over the current screen (`AppSignInCoordinator`), not a route.
+  filter: (url: string) => !appSignInLinkOf(url) && shouldHandleAppLink(url, hasCloudPublicConfig()),
+  getInitialURL: async () => {
+    const url = await Linking.getInitialURL();
+    return url && !appSignInLinkOf(url) ? url : await launchWorkspaceURL();
+  },
   getActionFromState: (
     state: Parameters<typeof getActionFromState>[0],
     options: Parameters<typeof getActionFromState>[1],
@@ -228,6 +244,7 @@ function SplashScreenCoordinator() {
     if (!canHide || hidden.current) return;
     hidden.current = true;
     settleLaunchSplashHomeRows();
+    markStart(waitEnded ? "splash_hide_limit" : "splash_hide");
     void SplashScreen.hide();
   }, [isReady, shellCachesRead, homeRowsPending, waitEnded]);
 
@@ -293,6 +310,7 @@ function AppContent() {
                 />
                 <Dialog.Host />
                 <ConnectDeviceApprovalCoordinator />
+                <AppSignInCoordinator />
                 <ThreadArrangementHost />
                 <ProjectChipIconRasterizer />
               </NativeLayoutMetricsProvider>

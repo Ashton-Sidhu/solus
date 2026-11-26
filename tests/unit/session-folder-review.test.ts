@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionFolder } from '@solus/contracts/codebases'
-import type { ChangedFileStat, DiffRequest, DiffResult, DiffScope, TurnSnapshot } from '@solus/contracts/git-types'
+import type { GitRepositoryStatus, ChangedFileStat, DiffRequest, DiffResult, DiffScope, TurnSnapshot } from '@solus/contracts/git-types'
 import type { GitCheckoutBranchResult, IpcContext, NormalizedEvent } from '@solus/contracts/types'
 import type { Actor } from '@solus/server/admission/actor'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
@@ -18,7 +18,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 // session stays bound to its one working directory through all of it.
 
 type Runtime = import('@solus/server/execution/session-runtime').SessionRuntime
-type Handler = (args: unknown[], ctx: { actor: Actor }) => Promise<unknown>
+type Handler = (args: unknown[], ctx: { actor: Actor; principal: { kind: 'system' } }) => Promise<unknown>
 
 let root: string
 let runtime: Runtime
@@ -92,10 +92,19 @@ function folderCtx(path: string): IpcContext {
   return { session: { sessionId: SESSION, agentSessionId: null, workingDirectory: path, gitContext: null }, statusBar: {} } as never
 }
 
-const call = <T>(method: string, ...args: unknown[]): Promise<T> => handlers.get(method)!(args, { actor: HOST_ACTOR }) as Promise<T>
+const call = <T>(method: string, ...args: unknown[]): Promise<T> => handlers.get(method)!(args, { actor: HOST_ACTOR, principal: { kind: 'system' } }) as Promise<T>
 const stats = (request: DiffRequest) => call<ChangedFileStat[]>('diffStats', sessionCtx(), request)
 const pathsOf = async (request: DiffRequest) => (await stats(request)).map((file) => file.path)
 const boundDirectory = () => runtime.sessionCheckouts.sessionCheckoutPaths.get(SESSION)
+
+test('a single status read returns T3 branch and working-tree fields for the selected checkout', async () => {
+  const folder = at('api')
+  const status = await call<GitRepositoryStatus>('gitRepositoryStatus', folder, { checkout: 'summary' })
+  expect(status.checkout).toMatchObject({ isRepo: true, refName: 'main', hasWorkingTreeChanges: false })
+  expect(await call<GitRepositoryStatus>('gitRepositoryStatus', folder)).not.toHaveProperty('checkout')
+  expect((await call<GitRepositoryStatus>('gitRepositoryStatus', at('notes'), { checkout: 'summary' })).checkout)
+    .toMatchObject({ isRepo: false, refName: null })
+})
 
 describe('the diff of one repository of a session', () => {
   test('each scope reads the session folder that the request names, and no name reads the working directory', async () => {

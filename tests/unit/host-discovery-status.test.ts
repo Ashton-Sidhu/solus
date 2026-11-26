@@ -35,7 +35,7 @@ function server(installationId: string, refuses = false) {
 }
 function machine(hostId: string, url?: string, managedState?: DirectoryHost['managedState']): DirectoryHost {
   return { hostId, installationId: hostId, label: hostId, routes: url ? [{ kind: 'lan', url }] : [],
-    kind: managedState ? 'managed' : 'personal', category: managedState ? 'managed' : 'personal', organizationIds: [], managedState }
+    kind: managedState ? 'cloud' : 'personal', organizationIds: [], ...(managedState ? { hasManagedCompute: true, managedState } : {}) }
 }
 function hosts(directory: DirectoryHost[], keys: Map<string, string>, token: string | null = 'private-host-grant') {
   const owner = new RemoteHosts(() => ({ hosts: async () => directory, accessToken: async () => token }),

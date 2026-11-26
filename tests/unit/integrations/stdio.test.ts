@@ -494,7 +494,7 @@ describe('who may start a command (§7.2, §7.8)', () => {
     await expect(server.handle('integrationProcessStart', [{ id: integration.id }], { clientId: 'member', principal: member })).rejects.toThrow(refusal)
     expect(startsOf(starts)).toEqual([])
     // The same person as the owner of a managed host's organization holds host.admin.
-    const administrator: Principal = { ...member, organizationRole: 'owner', hostKind: 'managed' }
+    const administrator: Principal = { ...member, organizationRole: 'owner', hostKind: 'cloud' }
     expect((await server.handle('integrationProcessStart', [{ id: integration.id }], { clientId: 'member', principal: administrator })).process).toEqual({ state: 'running' })
   })
 })

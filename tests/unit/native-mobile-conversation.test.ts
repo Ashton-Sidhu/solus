@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { resumeHistoryPage } from '@solus/server/data/sessions/history-blocks'
+import { withTurnItemBodies } from '@solus/server/data/sessions/result-projection'
 import { MobileSessionCache } from '../../apps/mobile/solus-core/features/threads/session-cache'
 import { PullRequestCache, memoryPullRequestCacheDatabase } from '@solus/client-core/pull-request-cache'
 import { SendOutbox } from '@solus/client-core/send-outbox'
@@ -11,6 +13,9 @@ import { SolusApp } from '../../apps/mobile/solus-core/app/solus-app'
 import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/solus-core/platform/ports'
 import { createHostWorld, FakeApi, flushPromises, healthFetch, FakeTransport } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
+import { TranscriptModel } from '../../apps/mobile/solus-core/features/conversation/lib/transcript-model'
+import { artifactHtmlRender, type ArtifactRender } from '../../apps/mobile/solus-core/features/conversation/lib/artifacts'
+import { UNMEASURED_REPLY_HEIGHT } from '@solus/contracts/session-history'
 
 const page = (messages: SessionHistoryPage['messages'], before: string | null = null): SessionHistoryPage => ({ messages, before })
 const userRow = (content: string, messageId: string) => ({ role: 'user', content, messageId, timestamp: 1 })
@@ -21,6 +26,8 @@ function record(provider: 'claude-code' | 'codex' = 'claude-code'): NonNullable<
 }
 
 interface Setup {
+  hasReplacement?(): boolean
+  isIOS?: boolean
   api: FakeApi
   runSettings?: ConversationDeps['runSettings']
   sessionCache?: ReturnType<MobileSessionCache['forHost']>
@@ -41,6 +48,8 @@ async function open(setup: Setup) {
   const controller = new ConversationController(setup.target ?? { hostId: 'inst-a', record: record() }, {
     connection,
     sessionCache: setup.sessionCache,
+    isIOS: setup.isIOS,
+    hasReplacement: setup.hasReplacement,
     outbox,
     runSettings: setup.runSettings ?? (async () => ({ defaultPermissionMode: 'auto', defaultModels: {}, modelOptionsByProvider: {} })),
     organizationId: () => null,
@@ -73,6 +82,236 @@ const texts = (controller: ConversationController) => controller.model.order.map
 })
 
 describe('native conversation: history and live events', () => {
+  const largeSessionBytes = 16 * 1024 * 1024
+  test.each([true, false])('a cold page describes the session and starts one watch (iOS %s)', async isIOS => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    const api = baseApi().on('loadSessionPage', (request: SessionHistoryPageRequest) => {
+      expect(request.openSession).toBe(true)
+      return { ...page([assistantRow('latest', 'm1')]), openingDescription: { meta: null, lineage: null }, resumedWatch: { runtime: null } }
+    })
+    const { controller } = await open({ api, isIOS, sessionCache: { ...cache, hasHistoryKey: () => false } })
+    await controller.load()
+    expect(texts(controller)).toEqual(['assistant:latest'])
+    expect(api.callsOf('describeSession')).toHaveLength(0)
+    expect(api.callsOf('watchSession')).toHaveLength(0)
+    expect(await cache.history('thread-1')).not.toHaveProperty('resumedWatch')
+    controller.close()
+    expect(api.callsOf('unwatchSession')).toHaveLength(1)
+  })
+
+  test.each([
+    { name: 'large iOS session with an empty cache', isIOS: true, size: largeSessionBytes, saved: false, turns: 2 },
+    { name: 'one byte below the cutoff', isIOS: true, size: largeSessionBytes - 1, saved: false, turns: 5 },
+    { name: 'large iOS session with a missing saved page', isIOS: true, size: largeSessionBytes, saved: true, turns: 2 },
+    { name: 'unknown cache state', isIOS: true, size: largeSessionBytes, saved: undefined, turns: 10 },
+    { name: 'unknown session size', isIOS: true, size: undefined, saved: false, turns: 5 },
+    { name: 'large Android session', isIOS: false, size: largeSessionBytes, saved: false, turns: 5 },
+  ])('opens $name with $turns turns', async ({ isIOS, size, saved, turns }) => {
+    const api = baseApi().on('loadSessionPage', (request: SessionHistoryPageRequest) => request.before
+      ? page([userRow('earlier', 'm0')])
+      : page([assistantRow('latest', 'm1')], 'older'))
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    const { controller } = await open({ api, isIOS, sessionCache: { ...cache, hasHistoryKey: () => saved },
+      target: { hostId: 'inst-a', record: { ...record(), size } } })
+    await controller.load()
+    expect(api.callsOf('loadSessionPage')[0]?.[0]).toMatchObject({ turnLimit: turns })
+    await controller.loadOlder()
+    expect(api.callsOf('loadSessionPage')[1]?.[0]).toMatchObject({ turnLimit: 20, before: 'older' })
+    expect(texts(controller)).toEqual(['user:earlier', 'assistant:latest'])
+    await controller.load()
+    expect(api.callsOf('loadSessionPage')[2]?.[0]).toMatchObject({ turnLimit: 10 })
+    controller.close()
+  })
+
+  test('reopens a verified two-turn page and prepends eight turns without replacing the visible rows', async () => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    const recent = page([userRow('nine', 'm9'), userRow('ten', 'm10')], '8')
+    await cache.saveHistory('thread-1', resumeHistoryPage(recent, []))
+    const release = Promise.withResolvers<void>()
+    const api = baseApi().on('loadSessionPage', async (request: SessionHistoryPageRequest) => {
+      if (!request.before) {
+        await release.promise
+        const checked = resumeHistoryPage(recent, request.knownHistoryBlocks ?? [])
+        return request.openSession ? { ...checked, resumedWatch: { runtime: null }, openingDescription: { lineage: null, meta: null } } : checked
+      }
+      const last = Number(request.before)
+      return page([userRow(String(last - 1), 'm' + (last - 1)), userRow(String(last), 'm' + last)], String(last - 2))
+    })
+    const { controller } = await open({ api, isIOS: true, sessionCache: cache,
+      target: { hostId: 'inst-a', record: { ...record(), size: largeSessionBytes } } })
+    const loading = controller.load()
+    await flushPromises()
+    expect(texts(controller)).toEqual(['user:nine', 'user:ten'])
+    const model = controller.model
+    const last = model.items.get(model.order.at(-1)!)
+    release.resolve()
+    await loading
+    expect(api.callsOf('loadSessionPage')[0]?.[0]).toMatchObject({ turnLimit: 2 })
+    expect(controller.model).toBe(model)
+    expect(api.callsOf('watchSession')).toHaveLength(0)
+    expect(api.callsOf('describeSession')).toHaveLength(0)
+    expect((await cache.history('thread-1'))?.resumedWatch).toBeUndefined()
+    expect(api.callsOf('loadSessionPage')).toHaveLength(2)
+    expect(api.callsOf('loadSessionPage')[1]?.[0]).toMatchObject({ before: '8', turnLimit: 2 })
+    expect(texts(controller)).toEqual(['user:nine', 'user:ten'])
+    const drag = Promise.withResolvers<void>()
+    const filling = controller.fillOpeningHistory(() => drag.promise)
+    await flushPromises()
+    expect(texts(controller)).toEqual(['user:nine', 'user:ten'])
+    await controller.fillOpeningHistory()
+    expect(api.callsOf('loadSessionPage')).toHaveLength(2)
+    drag.resolve()
+    await filling
+    for (let i = 0; i < 4; i++) await controller.fillOpeningHistory()
+    expect(api.callsOf('loadSessionPage').slice(1)).toMatchObject(
+      ['8', '6', '4', '2'].map(before => [{ before, turnLimit: 2 }]))
+    expect(texts(controller)).toEqual(['user:1', 'user:2', 'user:3', 'user:4', 'user:5', 'user:6', 'user:7', 'user:8', 'user:nine', 'user:ten'])
+    expect(controller.model.items.get(model.order.at(-1)!)).toBe(last)
+    controller.close()
+  })
+
+  test('a changed opening page discards its speculative older read even if the cursor is unchanged', async () => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    await cache.saveHistory('thread-1', resumeHistoryPage(page([userRow('before edit', 'm9')], '8'), []))
+    let reads = 0
+    const api = baseApi().on('loadSessionPage', (request: SessionHistoryPageRequest) => {
+      if (!request.before) return resumeHistoryPage(page([userRow('edited', 'm9')], '8'), request.knownHistoryBlocks ?? [])
+      reads++
+      return page([userRow(reads === 1 ? 'stale' : 'current', 'm8')])
+    })
+    const { controller } = await open({ api, isIOS: true, sessionCache: cache,
+      target: { hostId: 'inst-a', record: { ...record(), size: largeSessionBytes } } })
+    await controller.load()
+    expect(api.callsOf('watchSession')).toHaveLength(1)
+    await controller.fillOpeningHistory()
+    expect(reads).toBe(2)
+    expect(texts(controller)).toEqual(['user:current', 'user:edited'])
+    controller.close()
+  })
+
+  test.each([false, true])('a late watch confirmation releases a closed store unless another store owns it (replacement %s)', async hasReplacement => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    const recent = page([userRow('saved', 'm1')])
+    const saved = resumeHistoryPage(recent, [])
+    await cache.saveHistory('thread-1', saved)
+    const received = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const api = baseApi().on('loadSessionPage', async (request: SessionHistoryPageRequest) => {
+      expect(request.openSession).toBe(true)
+      received.resolve()
+      await release.promise
+      return { ...resumeHistoryPage(recent, request.knownHistoryBlocks!), resumedWatch: { runtime: null }, openingDescription: { lineage: null, meta: null } }
+    })
+    const { controller } = await open({ api, isIOS: true, sessionCache: cache, hasReplacement: () => hasReplacement })
+    const opening = controller.load()
+    await received.promise
+    controller.close()
+    release.resolve()
+    await opening
+    expect(api.callsOf('unwatchSession')).toHaveLength(hasReplacement ? 0 : 1)
+  })
+
+  test('the first older page can scroll into view while composer settings are still loading', async () => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    const watchStarted = Promise.withResolvers<void>()
+    const settings = Promise.withResolvers<Awaited<ReturnType<ConversationDeps['runSettings']>>>()
+    const recent = page([userRow('recent', 'm2')], 'older')
+    await cache.saveHistory('thread-1', resumeHistoryPage(recent, []))
+    const api = baseApi().on('loadSessionPage', (request: SessionHistoryPageRequest) => request.before
+      ? page([userRow('earlier', 'm1')])
+      : resumeHistoryPage(recent, request.knownHistoryBlocks ?? []))
+    api.on('watchSession', () => { watchStarted.resolve(); return { runtime: null } })
+    const { controller } = await open({ api, isIOS: true, sessionCache: cache, runSettings: () => settings.promise,
+      target: { hostId: 'inst-a', record: { ...record(), size: largeSessionBytes } } })
+    const loading = controller.load()
+    await watchStarted.promise
+    expect(controller.phase.kind).toBe('loading')
+    expect(controller.canFillOpeningHistory).toBe(true)
+    await controller.fillOpeningHistory()
+    expect(texts(controller)).toEqual(['user:earlier', 'user:recent'])
+    settings.resolve({ defaultPermissionMode: 'auto', defaultModels: {}, modelOptionsByProvider: {} })
+    await loading
+    expect(texts(controller)).toEqual(['user:earlier', 'user:recent'])
+    controller.close()
+  })
+
+  test('a large session with ten turns already on disk confirms the full saved window', async () => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    const full = page(Array.from({ length: 10 }, (_, i) => userRow('prompt ' + i, 'm' + i)), 'earlier')
+    await cache.saveHistory('thread-1', resumeHistoryPage(full, []))
+    const api = baseApi().on('loadSessionPage', (request: SessionHistoryPageRequest) => resumeHistoryPage(full, request.knownHistoryBlocks ?? []))
+    const { controller } = await open({ api, isIOS: true, sessionCache: cache,
+      target: { hostId: 'inst-a', record: { ...record(), size: largeSessionBytes } } })
+    await controller.load()
+    expect(api.callsOf('loadSessionPage')).toMatchObject([[{ turnLimit: 10 }]])
+    expect(controller.canFillOpeningHistory).toBe(false)
+    expect(texts(controller)).toHaveLength(10)
+    controller.close()
+  })
+
+  test('a known disk miss sends history before navigation can occupy the JS thread', async () => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    await cache.saveHistory('another-session', page([]))
+    const api = baseApi()
+    const disk = Promise.withResolvers<SessionHistoryPage | null>()
+    const { controller } = await open({ api, sessionCache: { ...cache, history: () => disk.promise } })
+    const loading = controller.load()
+    expect(api.callsOf('loadSessionPage')[0]?.[0]).toMatchObject({ sessionId: 'thread-1', knownHistoryBlocks: [], turnItems: true })
+    disk.resolve(null)
+    await loading
+    controller.close()
+  })
+
+  test('reads pre-upgrade history and clears both saved formats when access ends', async () => {
+    const storage = new PullRequestCache(memoryPullRequestCacheDatabase())
+    let scope = 'first'
+    const caches = new MobileSessionCache(storage, () => scope)
+    const cache = caches.forHost('host')
+    const key = JSON.stringify(['sessions-v1', scope, 'history', 's'])
+    const old = page([assistantRow('old page', 'a')])
+    const current = page(withTurnItemBodies([assistantRow('new page', 'a')]))
+    await storage.write('host', key, old)
+    expect(await cache.history('s')).toEqual(old)
+    await cache.saveHistory('s', current)
+    expect(await cache.history('s')).toEqual(current)
+    expect(await storage.read('host', key)).toEqual(old)
+    scope = 'second'
+    expect(await cache.history('s')).toBeNull()
+    expect(await caches.forHost('host').history('s')).toBeNull()
+    scope = 'first'
+    await cache.saveHistory('s', null)
+    expect(await storage.read('host', key)).toBeNull()
+    expect(await cache.history('s')).toBeNull()
+  })
+
+  test('a projected call on an older page receives its newer result and survives a live reconnect', async () => {
+    const api = baseApi().on('loadSessionPage', (request: SessionHistoryPageRequest) => {
+      expect(request.turnItems).toBe(true)
+      return request.before ? page(withTurnItemBodies([
+        userRow('open it', 'u'),
+        { role: 'tool', toolName: 'Read', toolId: 'call', toolInput: '{"path":"old"}', messageId: 't', content: '', timestamp: 1 },
+      ])) : page(withTurnItemBodies([
+        { role: 'tool_result', content: '', toolResultForId: 'call', status: 'error', errorHead: 'missing', timestamp: 2 },
+        assistantRow('saved reply', 'a'),
+      ]), 'older')
+    })
+    const { controller, transport } = await open({ api })
+    await controller.load()
+    await controller.loadOlder()
+    expect(texts(controller)).toEqual(['user:open it', 'tool', 'assistant:saved reply'])
+    expect(controller.model.items.get('t')).toMatchObject({ input: '{"path":"old"}', status: 'error', errorHead: 'missing' })
+    transport.emit('session.eventReceived', { sessionId: 'thread-1', cursor: 'epoch.1', event: { type: 'text_chunk', text: 'live' } })
+    api.on('watchSession', () => {
+      transport.emit('session.eventReceived', { sessionId: 'thread-1', cursor: 'epoch.2', event: { type: 'text_chunk', text: ' tail' } })
+      return { resumed: true }
+    })
+    await transport.accept(false)
+    await flushPromises()
+    expect(texts(controller)).toEqual(['user:open it', 'tool', 'assistant:saved reply', 'assistant:live tail'])
+    expect(api.callsOf('loadSessionPage')).toHaveLength(2)
+    controller.close()
+  })
+
   test('a saved page shows its session link without the agent instruction', async () => {
     const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
     const typed = 'Review [the earlier session](session://ref?sessionId=prior&provider=codex).'
@@ -190,7 +429,8 @@ describe('native conversation: history and live events', () => {
     const { controller, transport } = await open({ api })
     const loading = controller.load()
     await flushPromises()
-    expect(conversationCalls(api)).toEqual(['loadSessionPage', 'describeSession'])
+    // The open is one request; this host does not answer its description, so it is read after the page.
+    expect(conversationCalls(api)).toEqual(['loadSessionPage'])
 
     // An event for this session while history is in flight is held, not applied.
     transport.emitSession('thread-1', { type: 'text_chunk', text: 'later' })
@@ -324,6 +564,27 @@ describe('native conversation: history and live events', () => {
       expect(api.callsOf('loadSessionPage').at(-1)?.[0]).toMatchObject({ provider: activeProvider })
       expect(texts(controller)).toEqual(['user:hello', 'assistant:hi there'])
     }
+  })
+
+  test('a first page from the previous provider cannot paint over the handoff its open answer names', async () => {
+    // WHY: the open's answer carries the page and the lineage together. When
+    // the lineage names another provider, that page is the old transcript.
+    const prior = Promise.withResolvers<SessionHistoryPage>()
+    const current = Promise.withResolvers<SessionHistoryPage>()
+    const api = baseApi()
+      .on('loadSessionPage', (request: SessionHistoryPageRequest) => request.provider === 'codex' ? current.promise : prior.promise)
+    const { controller } = await open({ api })
+    const loading = controller.load()
+    await flushPromises()
+    prior.resolve({ ...page([assistantRow('previous provider', 'a')]),
+      openingDescription: { lineage: { active: { provider: 'codex', providerSessionId: 'new' } } } } as SessionHistoryPage)
+    await flushPromises()
+    expect(texts(controller)).toEqual([])
+    current.resolve(page([assistantRow('current provider', 'b')]))
+    await loading
+    expect(texts(controller)).toEqual(['assistant:current provider'])
+    expect(api.callsOf('describeSession')).toHaveLength(0)
+    controller.close()
   })
 
   test('opens a Codex session with its own provider on every call', async () => {
@@ -784,96 +1045,53 @@ describe('native conversation: requests and plans', () => {
   })
 })
 
-describe('native saved artifact bodies', () => {
+describe('native saved artifacts', () => {
   const artifactPage = () => page([
     { role: 'tool', toolId: 'render', toolName: 'render_artifact', toolInput: '{"html_path":"/tmp/render.html"}', content: '', timestamp: 1 },
-    { role: 'tool_result', toolResultForId: 'render', status: 'ok', content: '', artifactWorkRef: { workId: 'w', title: 'Chart', contentVersion: 2 }, timestamp: 2 },
+    { role: 'tool_result', toolResultForId: 'render', status: 'ok', content: '', artifactWorkRef: { workId: 'w', title: 'Chart', contentVersion: 2, layout: { height: 640, heights: [[375, 640]] } }, timestamp: 2 },
   ])
-  test('a deferred render reads its original HTML if the saved work version is gone', async () => {
-    const rows = artifactPage()
-    rows.messages[0] = { ...rows.messages[0]!, toolInput: '{}', toolInputKey: 'a'.repeat(64) }
-    const api = baseApi().on('loadSessionPage', () => rows)
-      .on('loadWork', () => null).on('loadWorkRevisions', () => [])
-      .on('loadSessionToolInputs', () => [{ key: 'a'.repeat(64), toolInput: JSON.stringify({ html: '<p>Original</p>' }) }])
+  const artifacts = (model: TranscriptModel) =>
+    [...model.items.values()].filter((item) => item.kind === 'artifact')
+
+  test('a saved render names its version and frame, and the phone reads no HTML for it', async () => {
+    // WHY: the feed sizes the row from this frame before the page loads, and
+    // the page itself comes from the host. A body read here is a second loader.
+    const api = baseApi().on('loadSessionPage', artifactPage)
     const { controller } = await open({ api })
     await controller.load()
-    const id = controller.model.order.find(id => controller.model.items.get(id)?.kind === 'artifact')!
+    expect(artifacts(controller.model)).toEqual([expect.objectContaining({ workId: 'w', title: 'Chart', contentVersion: 2, layout: { height: 640, heights: [[375, 640]] } })])
+    expect(api.callsOf('loadWork')).toHaveLength(0)
     expect(api.callsOf('loadSessionToolInputs')).toHaveLength(0)
-    await controller.ensureArtifact(id)
-    expect(controller.model.items.get(id)).toMatchObject({ html: '<p>Original</p>' })
     controller.close()
   })
-  test('an old card reads its saved revision, with one request shared by mounted readers', async () => {
-    const api = baseApi().on('loadSessionPage', artifactPage)
-      .on('loadWork', () => ({ id: 'w', content: 'latest', contentVersion: 3 }))
-      .on('loadWorkRevisions', () => [{ revisionId: 9, sourceContentVersion: 2 }])
-      .on('loadWorkRevision', () => ({ content: '<p>Version 2</p>' }))
-    const { controller } = await open({ api })
-    await controller.load()
-    const id = controller.model.order.find((id) => controller.model.items.get(id)?.kind === 'artifact')!
-    await Promise.all([controller.ensureArtifact(id), controller.ensureArtifact(id)])
-    expect(controller.model.items.get(id)).toMatchObject({ html: '<p>Version 2</p>', contentVersion: 2 })
-    expect(api.callsOf('loadWorkRevision')).toHaveLength(1)
-    expect(api.callsOf('loadWorkRevision')[0]).toEqual(['w', 9])
-  })
-  test('a slow read from before reconnect cannot replace the rebuilt card', async () => {
-    let release!: (work: { content: string; contentVersion: number }) => void
-    const api = baseApi().on('loadSessionPage', artifactPage)
-      .on('loadWork', () => new Promise((resolve) => { release = resolve }))
-    const { controller } = await open({ api })
-    await controller.load()
-    const id = controller.model.order.find((id) => controller.model.items.get(id)?.kind === 'artifact')!
-    const old = controller.ensureArtifact(id)
-    await controller.load()
-    api.on('loadWork', () => ({ content: '<p>Saved version</p>', contentVersion: 2 }))
-    await controller.ensureArtifact(id)
-    release({ content: '<p>Stale reply</p>', contentVersion: 2 })
-    await old
-    expect(controller.model.items.get(id)).toMatchObject({ html: '<p>Saved version</p>' })
-  })
-  test('a card asked for during a reload still reads into the rebuilt transcript', async () => {
-    // WHY: a read shared across the rebuild would answer the old transcript only,
-    // and the new card would wait forever.
-    let releasePage!: () => void
-    let pageRequested!: () => void
-    const reloadAsksForPage = new Promise<void>((resolve) => { pageRequested = resolve })
-    const api = baseApi().on('loadSessionPage', artifactPage)
-      .on('loadWork', () => new Promise(() => {}))
-    const { controller } = await open({ api })
-    await controller.load()
-    const id = controller.model.order.find((id) => controller.model.items.get(id)?.kind === 'artifact')!
-    void controller.ensureArtifact(id)
-    api.on('loadSessionPage', () => new Promise((resolve) => {
-      releasePage = () => resolve(artifactPage())
-      pageRequested()
-    }))
-    const reloading = controller.load()
-    await reloadAsksForPage
-    void controller.ensureArtifact(id)
-    releasePage()
-    await reloading
-    api.on('loadWork', () => ({ content: '<p>Saved version</p>', contentVersion: 2 }))
-    await controller.ensureArtifact(id)
-    expect(controller.model.items.get(id)).toMatchObject({ html: '<p>Saved version</p>' })
+
+  test('live renders and updates name the version they saved', () => {
+    const model = new TranscriptModel('s')
+    model.apply({ type: 'artifact_created', kind: 'html', html: '<p>one</p>', workId: 'w', title: 'Chart', contentVersion: 1, layout: { height: 300 } })
+    model.apply({ type: 'work_updated', workId: 'w', title: 'Chart', docType: 'artifact', content: '<p>two</p>', updatedAt: '2026-11-25T00:00:01Z', contentVersion: 2 })
+    // An update that names no version cannot name a page, so it adds no render.
+    model.apply({ type: 'work_updated', workId: 'w', title: 'Chart', docType: 'artifact', content: '<p>three</p>', updatedAt: '2026-11-25T00:00:02Z' })
+    expect(artifacts(model).map((item) => item.kind === 'artifact' && [item.contentVersion, item.layout?.height])).toEqual([[1, 300], [2, undefined]])
+    expect(artifactHtmlRender(artifacts(model)[1] as ArtifactRender)).toEqual({ attachmentId: 'artifact:w:2', title: 'Chart', height: UNMEASURED_REPLY_HEIGHT })
   })
 })
 
 test('a task-bound native session prepares its task before dispatch and leaves the local link to the server', async () => {
   const task = { id: 'github:I_1', title: 'Fix login' }
-  const api = baseApi().on('tasksPrepareForSession', () => ({ task, snapshot: null }))
+  const api = baseApi().on('issuesPrepareForSession', () => ({ task, snapshot: null }))
   const { controller } = await open({ api, target: { hostId: 'inst-a', newSession: { sessionId: 'new-task-session', provider: 'codex', workingDirectory: '/work/app' } } })
   controller.bindTask(task.id, 'inst-a')
   await controller.load()
   await controller.send('Fix this issue')
   const methods = api.calls.map((call) => call.method)
-  expect(methods.indexOf('tasksPrepareForSession')).toBeLessThan(methods.indexOf('prompt'))
-  expect(api.callsOf('tasksPrepareForSession')[0]).toEqual([{ taskId: task.id, includeSnapshot: false }])
-  expect(api.callsOf('prompt')[0]?.[1]).toMatchObject({ taskId: task.id, prompt: 'Fix this issue' })
-  expect(api.callsOf('tasksLinkSession')).toHaveLength(0)
+  expect(methods.indexOf('issuesPrepareForSession')).toBeLessThan(methods.indexOf('prompt'))
+  expect(api.callsOf('issuesPrepareForSession')[0]).toEqual([{ issueId: task.id, includeSnapshot: false }])
+  expect(api.callsOf('prompt')[0]?.[1]).toMatchObject({ issueId: task.id, prompt: 'Fix this issue' })
+  expect(api.callsOf('issuesLinkSession')).toHaveLength(0)
 })
 
 test('a refused task preparation keeps the native prompt for retry and never starts an unbound agent', async () => {
-  const api = baseApi().on('tasksPrepareForSession', () => { throw new Error('Task access ended') })
+  const api = baseApi().on('issuesPrepareForSession', () => { throw new Error('Task access ended') })
   const { controller, outbox } = await open({ api, target: { hostId: 'inst-a', newSession: { sessionId: 'new-task-session', provider: 'codex', workingDirectory: '/work/app' } } })
   controller.bindTask('github:I_1', 'inst-a')
   await controller.load()

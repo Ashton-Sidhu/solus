@@ -1,5 +1,4 @@
 import { SvelteMap } from 'svelte/reactivity'
-import type { PolicyKind } from '@solus/contracts/policy'
 import type { PolicyApiResult } from '@solus/contracts/host-api'
 import type { HostPoliciesResponse, OrganizationPolicyResponse } from '@solus/contracts/policy-api'
 import type { PolicyCloudRequests } from '@solus/client-core/settings-requests'
@@ -48,12 +47,6 @@ export interface PolicyDraft {
   conflict: ReadPolicy | null
 }
 
-/** A document anyone can build and export as an MDM policy, without an organization. */
-export interface PolicyBuilder {
-  kind: PolicyKind
-  text: string
-}
-
 /**
  * The policies of each organization by account origin. Final authority is Solus
  * Cloud for writes and, for work, the host.
@@ -63,7 +56,8 @@ export class PolicyStore {
   readonly drafts = new SvelteMap<string, PolicyDraft>()
   /** The organization Settings shows. Chosen here only: it changes no window's or session's organization. */
   selectedOrganizationId = $state<string | null>(null)
-  builder = $state<PolicyBuilder>({ kind: 'mdm', text: policyText(newPolicyDocument('mdm', 'My organization')) })
+  /** An MDM policy file anyone can write and download, without an organization. */
+  builderText = $state(policyText(newPolicyDocument('mdm', 'My organization')))
   private readonly loads = new Map<string, symbol>()
 
   constructor(private readonly requests: () => PolicyCloudRequests | null = accountSettingsRequests) {}
@@ -224,11 +218,6 @@ export class PolicyStore {
     if (hosts && index >= 0) hosts[index] = result.value
     // Each policy's host list changed too.
     void this.load(origin, organizationId)
-  }
-
-  setBuilder(builder: Partial<PolicyBuilder>): void {
-    if (builder.kind !== undefined) this.builder.kind = builder.kind
-    if (builder.text !== undefined) this.builder.text = builder.text
   }
 
   private ready(origin: string, organizationId: string): ReadyView | null {

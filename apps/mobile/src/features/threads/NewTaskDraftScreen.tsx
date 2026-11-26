@@ -684,7 +684,7 @@ export function NewTaskDraftScreen(props: {
       return null;
     }
     // Persist locally before clearing or leaving the draft; server setup runs on the thread.
-    onWillEnqueue?.();
+    onWillEnqueue?.(message.messageId);
     flow.setSubmitting(true);
     try {
       return await submitNewTaskDraft(

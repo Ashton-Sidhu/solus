@@ -26,8 +26,10 @@ vi.mock("../solus/session-detail", async () => {
     loads.push(key);
     return null;
   }));
-  return { sessionDetailAtom: (host: string, id: string) => family(host + ":" + id) };
+  return { atomFromConversation: () => () => Atom.make(null), sessionDetailAtom: (host: string, id: string) => family(host + ":" + id) };
 });
+vi.mock("../solus/session-feed", () => ({ sessionFeed: vi.fn() }));
+vi.mock("../solus/approval-requests", () => ({ hostApprovalCard: vi.fn() }));
 vi.mock("../connection/runtime", () => ({ connectionAtomRuntime: {} }));
 vi.mock("../connection/catalog", () => ({ environmentCatalog: {} }));
 vi.mock("./shell", () => ({ environmentShell: {} }));

@@ -1,4 +1,4 @@
-import type { TaskAssigneeCandidate, TaskComment, TaskDetails } from './task-types'
+import type { IssueAssigneeCandidate, IssueComment, IssueDetails } from './task-types'
 
 export type TaskReactionContent =
   'THUMBS_UP' | 'THUMBS_DOWN' | 'LAUGH' | 'HOORAY' | 'CONFUSED' | 'HEART' | 'ROCKET' | 'EYES'
@@ -24,11 +24,11 @@ export interface TaskProviderPullRequest {
 }
 export interface TaskProviderData {
   author: string | null
-  assignees: TaskAssigneeCandidate[]
+  assignees: IssueAssigneeCandidate[]
   commentsTruncated?: boolean
   reactions: TaskReaction[]
   events: TaskProviderEvent[]
-  comments?: TaskComment[]
+  comments?: IssueComment[]
   historyCursor: string | null
   pullRequests: TaskProviderPullRequest[]
   /** Capabilities are provider support, not permission to write. */
@@ -40,9 +40,26 @@ export interface TaskProviderData {
   }
   unavailableReason?: string
 }
+/** What an issue detail read also answers about the provider. The GitHub and
+ *  Jira detail reads carry the newest page of history too, so their issue page
+ *  needs no second read. */
 export type TaskProviderMetadata = Pick<
-  TaskProviderData, 'author' | 'assignees' | 'commentsTruncated' | 'reactions' | 'pullRequests'
->
+  TaskProviderData, 'author' | 'assignees' | 'commentsTruncated' | 'reactions' | 'pullRequests' | 'capabilities' | 'unavailableReason'
+> & Partial<Pick<TaskProviderData, 'events' | 'comments' | 'historyCursor'>>
+
+/** What GitHub's provider section supports. */
+export const GITHUB_PROVIDER_CAPABILITIES: TaskProviderData['capabilities'] = {
+  history: true, reactions: true, multipleAssignees: true, templates: true
+}
+
+/** The provider section from a detail read that already carries history. */
+export function providerDataFromMetadata(metadata: TaskProviderMetadata): TaskProviderData {
+  return {
+    ...metadata,
+    events: metadata.events ?? [],
+    historyCursor: metadata.historyCursor ?? null
+  }
+}
 
 export function withTaskProviderMetadata(
   timeline: TaskProviderData, metadata: TaskProviderMetadata
@@ -62,7 +79,7 @@ export interface TaskTemplate {
   url?: string
 }
 export interface TaskExternalIssue {
-  details: TaskDetails
+  details: IssueDetails
   inspection?: TaskProviderData
   readOnly: boolean
 }

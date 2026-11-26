@@ -3,19 +3,12 @@ import type { Message } from '@solus/contracts/types'
 import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import { snapshotViewportLabel } from '@solus/contracts/browser-types'
 import { buildTurns, groupMessages } from '@solus/workspace-ui/components/conversation/lib/turns'
-import {
-  snapshotAddress,
-  snapshotErrorLabel,
-  snapshotFacts,
-  snapshotStamp,
-  snapshotTitle,
-} from '@solus/workspace-ui/components/browser/lib/snapshot-card'
+import { snapshotAddress } from '@solus/workspace-ui/components/browser/lib/snapshot-card'
 
 /**
- * The snapshot card exists because tool output never reaches a client: without
- * it a visual check leaves nothing visual behind, and the user has to take the
- * agent's word for what it saw. These tests encode what the card must say for
- * that to be worth looking at.
+ * A capture shows in the transcript because tool output never reaches a client:
+ * without it a visual check leaves nothing visual behind, and the user has to
+ * take the agent's word for what it saw.
  */
 
 function snapshot(overrides: Partial<BrowserSnapshotRef> = {}): BrowserSnapshotRef {
@@ -33,87 +26,13 @@ function snapshot(overrides: Partial<BrowserSnapshotRef> = {}): BrowserSnapshotR
   }
 }
 
-describe('what a snapshot card says', () => {
-  test('names the server it came from, in the address on the stamp', () => {
+describe('what the viewer says about a capture', () => {
+  test('names the server it came from, in the address under its name', () => {
     // WHY: two worktrees serving the same app produce identical screenshots and
     // differ only by port, so the origin is the one thing that says which of
-    // them the agent was actually looking at. It is stated once, beside the
-    // route it was captured on, rather than twice on one card.
+    // them the agent was actually looking at.
     expect(snapshotAddress(snapshot())).toBe('localhost:5173/')
     expect(snapshotAddress(snapshot({ url: 'not a url' }))).toBe('not a url')
-  })
-
-  test('stamps the frame with the size and the colour scheme it was taken under', () => {
-    // WHY: a frame is evidence, and those two facts are the ones a reader cannot
-    // recover from the pixels a day later. `system` is a mode rather than a
-    // rendering — the picture already shows which way it resolved — so stating
-    // it would be noise on every capture that never chose.
-    expect(snapshotStamp(snapshot({ appearance: 'dark' }))).toBe('393×852 · dark')
-    expect(snapshotStamp(snapshot({ appearance: 'system' }))).toBe('393×852')
-  })
-
-  test('shows console errors, and stays silent when there are none', () => {
-    // WHY: a page can look correct and be broken, and that is the one fact the
-    // picture cannot carry. A badge that is always present teaches people to
-    // stop reading it, so zero has to render nothing at all.
-    expect(snapshotErrorLabel(snapshot({ consoleErrors: 3 }))).toBe('3 console errors')
-    expect(snapshotErrorLabel(snapshot({ consoleErrors: 1 }))).toBe('1 console error')
-    expect(snapshotErrorLabel(snapshot({ consoleErrors: 0 }))).toBeNull()
-  })
-
-  test('falls back to the address, then to a name, rather than rendering blank', () => {
-    // WHY: a page that never set a title is ordinary, and an empty heading over
-    // a screenshot reads as a broken card rather than an untitled page.
-    expect(snapshotTitle(snapshot({ title: '' }))).toBe('http://localhost:5173/')
-    expect(snapshotTitle(snapshot({ title: '', url: '' }))).toBe('Browser')
-  })
-})
-
-describe('the shape a capture is shown in', () => {
-  test('splits the contract label into the device and the size it states', () => {
-    // WHY: the contract formats one label so nothing can describe a capture two
-    // ways. The card shows its halves in two places — device in the caption,
-    // size on the picture — and that has to stay an arrangement here rather
-    // than a second format the pane has never heard of.
-    const facts = snapshotFacts(snapshot())
-    expect(facts.device).toBe('iPhone 15')
-    expect(facts.size).toBe('393×852')
-  })
-
-  test('takes the shape of the capture, so the card is never a field of empty ground', () => {
-    // WHY: the card's width is computed from this ratio. A card that kept a
-    // fixed width would mat every capture that is not the shape of the pane —
-    // which is what a near-square screenshot in a wide transcript looks like.
-    // It is also what holds the shape before the asset store answers, so a
-    // capture landing mid-turn cannot shove the transcript under the reader.
-    expect(snapshotFacts(snapshot({ viewport: 'Desktop — 1440×900' })).aspectRatio).toBe(
-      `${1440 / 900}`,
-    )
-  })
-
-  test('refuses a shape no caption could be read under', () => {
-    // WHY: a full-page capture is many screens long and a panorama is many
-    // wide. Past either end what is extreme is the page, not the device, and a
-    // card shaped like that has no room left for what it is a card of.
-    expect(snapshotFacts(snapshot()).aspectRatio).toBe('0.5')
-    expect(snapshotFacts(snapshot({ viewport: 'Wall — 5120×1000' })).aspectRatio).toBe('3')
-  })
-
-  test('reads the device class off the width, for the glyph beside the title', () => {
-    expect(snapshotFacts(snapshot()).deviceKind).toBe('phone')
-    expect(snapshotFacts(snapshot({ viewport: 'iPad — 820×1180' })).deviceKind).toBe('tablet')
-    expect(snapshotFacts(snapshot({ viewport: 'Laptop — 1440×900' })).deviceKind).toBe('desktop')
-  })
-
-  test('still renders a label that states no size', () => {
-    // WHY: a custom viewport can name its numbers and nothing else. A card that
-    // needed the separator would render an empty chip over the picture.
-    const facts = snapshotFacts(snapshot({ viewport: 'Custom' }))
-    expect(facts.device).toBe('Custom')
-    expect(facts.size).toBe('')
-    // A bare number, because the card multiplies it in a calc() to reach its
-    // own width — a `16 / 10` would be valid for aspect-ratio and nothing else.
-    expect(facts.aspectRatio).toBe('1.6')
   })
 })
 

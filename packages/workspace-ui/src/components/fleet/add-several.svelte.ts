@@ -15,7 +15,7 @@ export function canAddTogether(machine: FoundMachine): machine is FoundServer {
 }
 
 /**
- * Adds several found machines at once (docs/plans/host-fleet.md D8): one approval
+ * Adds several found machines at once: one approval
  * request to each, all with the same check code, so the person approves each one on
  * its own machine. Each request ends on its own; a machine that fails stays
  * selected, so Add tries it again. The state of one Add page.
@@ -53,7 +53,7 @@ export class AddSeveral {
       await Promise.all(chosen.map(async (machine) => {
         this.outcomes.set(machine.key, { state: 'waiting' })
         try {
-          await pairWithApproval(discoveredServerUrl(machine.server), checkCode, () => {}, controller.signal)
+          await pairWithApproval(discoveredServerUrl(machine.server), checkCode, () => {}, controller.signal, machine.source === 'tailnet')
           this.outcomes.set(machine.key, { state: 'added' })
           this.selected.delete(machine.key)
         } catch (error) {

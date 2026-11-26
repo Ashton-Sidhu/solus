@@ -11,6 +11,7 @@ import type { HostDirectoryReader } from '@solus/client-core/host-catalog'
 import { hostListSourceFor } from '@solus/client-core/host-list-source'
 import { organizationIdFor } from '@solus/client-core/uplink-session'
 import type { AccountOrganization, DirectoryWorkspace, UplinkDirectory, UplinkEnrollmentTicket } from '@solus/contracts/uplink'
+import { cloudUnreachableText, parseCloudAddress, type CloudAddressChange, type CloudAddressState } from '@solus/contracts/cloud-address'
 import { Listeners } from '../../lib/listeners'
 import type { KeyValueStore, SecretStore } from '../../platform/ports'
 import type { HostRegistry } from '../hosts/host-registry'
@@ -45,8 +46,11 @@ export type DirectoryView =
   | { kind: 'error'; message: string }
 
 const SESSION_ENDED_MESSAGE = 'Your Solus session ended. Sign in again.'
+/** The Solus Cloud address the person chose for this device (docs/solus-cloud-address.md); absent for the default. */
+export const CLOUD_ADDRESS_KEY = 'solus.mobile.cloudAddress'
 
 export interface AccountSessionDeps {
+  /** The default Solus Cloud address; the person's choice in device storage comes first. */
   cloudOrigin: string
   registry: HostRegistry
   secrets: SecretStore
@@ -64,6 +68,8 @@ export interface AccountSessionDeps {
 export class AccountSession implements HostDirectoryReader {
   view: AccountView = { kind: 'loading' }
   directory: DirectoryView = { kind: 'idle' }
+  /** The Solus Cloud address this device signs in to, and whether the person chose it. */
+  cloudAddress: CloudAddressState
   readonly changes = new Listeners()
   readonly organizations: OrganizationSelection
   private readonly client: CloudAccountClient
@@ -82,10 +88,13 @@ export class AccountSession implements HostDirectoryReader {
   hostListRead: Promise<void> = Promise.resolve()
 
   constructor(private readonly deps: AccountSessionDeps) {
-    this.client = new CloudAccountClient(deps.cloudOrigin, deps.fetch)
+    const chosen = parseCloudAddress(deps.storage.getItem(CLOUD_ADDRESS_KEY) ?? '')
+    const cloudOrigin = chosen.ok ? chosen.origin : deps.cloudOrigin
+    this.cloudAddress = this.addressOf(cloudOrigin)
+    this.client = new CloudAccountClient(cloudOrigin, deps.fetch)
     this.tokens = new KeychainTokenStore(deps.secrets)
     this.oauth = new OAuthSession({
-      cloudOrigin: deps.cloudOrigin,
+      cloudOrigin,
       clientId: SOLUS_CLIENT_IDS.mobile,
       store: this.tokens,
       authorizer: deps.authorizer,
@@ -126,7 +135,32 @@ export class AccountSession implements HostDirectoryReader {
 
   /** Who personal settings sync for: the account and the origin it belongs to. */
   get syncAccount(): SyncAccount | null {
-    return this.identity ? { origin: this.deps.cloudOrigin, userId: this.identity.sub } : null
+    return this.identity ? { origin: this.oauth.cloudOrigin, userId: this.identity.sub } : null
+  }
+
+  /**
+   * Changes the address; `null` goes back to the default. Only while signed out: each
+   * token belongs to the address that issued it (`OAuthSession.useCloudOrigin`). The
+   * choice stays in device storage. No host receives it.
+   */
+  setCloudAddress(input: string | null): CloudAddressChange {
+    let origin = this.deps.cloudOrigin
+    if (input !== null) {
+      const parsed = parseCloudAddress(input)
+      if (!parsed.ok) return parsed
+      origin = parsed.origin
+    }
+    if (!this.oauth.useCloudOrigin(origin)) return { ok: false, refusal: 'signed-in' }
+    this.client.origin = origin
+    if (origin === this.deps.cloudOrigin) this.deps.storage.removeItem(CLOUD_ADDRESS_KEY)
+    else this.deps.storage.setItem(CLOUD_ADDRESS_KEY, origin)
+    this.cloudAddress = this.addressOf(origin)
+    this.changes.notify()
+    return { ok: true, address: this.cloudAddress }
+  }
+
+  private addressOf(origin: string): CloudAddressState {
+    return { origin, source: origin === this.deps.cloudOrigin ? 'default' : 'setting' }
   }
 
   /** Every keychain write so far has finished. Tests wait on it. */
@@ -151,6 +185,9 @@ export class AccountSession implements HostDirectoryReader {
       await this.refreshDirectory()
       return
     }
+    // Solus Cloud did not answer at this address: `followState` said so, with the address.
+    const state = this.oauth.state()
+    if (state.kind === 'invalid' && state.reason === 'unreachable') return
     if (this.view.kind === 'signed-out' && end !== 'cancelled') this.setView({ kind: 'signed-out', message: signInEndMessage(end) })
   }
 
@@ -249,6 +286,17 @@ export class AccountSession implements HostDirectoryReader {
     return this.deps.registry.workspaces().find((workspace) => workspace.organizationId === organizationId)?.routes ?? []
   }
 
+  /**
+   * Whether an organization saves the conversations of its sessions in Solus
+   * Cloud, as the directory last said (`DirectoryWorkspace.sessionCloudSync`).
+   * True when the directory does not list the organization or does not say:
+   * only a known `false` makes the machines the one source of these sessions
+   * (client-core `session-home.ts`).
+   */
+  savesSessionsToCloud(organizationId: string): boolean {
+    return this.deps.registry.workspaces().find((workspace) => workspace.organizationId === organizationId)?.sessionCloudSync !== false
+  }
+
   /** True when the phone holds no sign-in: it ended or was never made. */
   isSignedOut(): boolean {
     return !this.identity
@@ -345,7 +393,7 @@ export class AccountSession implements HostDirectoryReader {
           this.setView({ kind: 'signed-out', message: SESSION_ENDED_MESSAGE })
           return
         }
-        this.setView({ kind: 'signed-out', message: state.reason === 'unreachable' ? signInEndMessage('error') : SESSION_ENDED_MESSAGE })
+        this.setView({ kind: 'signed-out', message: state.reason === 'unreachable' ? cloudUnreachableText(this.oauth.cloudOrigin) : SESSION_ENDED_MESSAGE })
         return
       case 'signed-out':
       case 'unavailable':

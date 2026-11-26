@@ -1,4 +1,5 @@
 import type { AgentAuthCommand, AgentAuthStartResult } from '@solus/contracts/agent-auth'
+import { AGENT_LABELS } from '@solus/contracts/types'
 import type { SeatProvider } from '@solus/contracts/seats'
 import type { HostConnection } from '../hosts/host-connections'
 import { Listeners } from '../../lib/listeners'
@@ -96,7 +97,7 @@ export class AgentAuthFlow {
         if (attempt !== this.attempt) return void this.deps.connection.api.seatConnectCancel({ provider: command.provider }).catch(() => undefined)
         this.flow = { kind: 'seat', provider: command.provider }
         this.set({ step: 'waiting', title, label, url: started.verificationUrl, userCode: started.userCode ?? null,
-          input: started.requiresCodeInput ? 'code' : null, submitted: false, busy: false, error: null })
+          input: started.requiresCodeInput ? started.input ?? 'code' : null, submitted: false, busy: false, error: null })
         return
       }
       const result: AgentAuthStartResult = await this.deps.connection.api.agentAuthStart(command.kind === 'design-login'
@@ -221,7 +222,7 @@ function signInLabel(command: AgentAuthCommand): string {
 }
 
 function providerName(provider: SeatProvider): string {
-  return provider === 'claude-code' ? 'Claude' : 'Codex'
+  return AGENT_LABELS[provider]
 }
 
 function errorText(error: unknown): string {

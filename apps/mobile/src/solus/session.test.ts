@@ -2,7 +2,7 @@ import { presentThreadLinkedPullRequests, resolveThreadPrBadgeAction } from "../
 import { linkedPullRequestDestination } from "../lib/pullRequestNavigation";
 import type { AttentionEntry } from "@solus/contracts/attention-types";
 import { createNavigationThreads } from "./navigation-threads";
-import { EMPTY_SESSION_VIEW } from "@solus/contracts/session-state";
+import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionChanged } from "@solus/contracts/session-state";
 import { createSessionListProjection } from "./session-list";
 import { EnvironmentId } from "@t3tools/contracts";
 import {
@@ -331,15 +331,56 @@ function threadListHost(api: Partial<ThreadListConnection["api"]>) {
   const events = new HostEventSubscriber();
   const connection: ThreadListConnection = {
     api: {
-      listAttention: vi.fn(), pinnedSessionsList: vi.fn(), togglePinnedSession: vi.fn(),
+      listAttention: vi.fn(async () => []), pinnedSessionsList: vi.fn(), togglePinnedSession: vi.fn(),
       sessionPullRequests: vi.fn(), sessionPullRequestPut: vi.fn(), sessionPullRequestDelete: vi.fn(),
       sessionPullRequestWatch: vi.fn(), sessionUpdate: vi.fn(), setSessionTitle: vi.fn(),
       setSessionReadState: vi.fn(), ...api,
     },
     events, onReset: () => () => {},
   };
-  return { state: new ThreadListState(() => connection, memoryKeyValueStore()), events };
+  let current: ThreadListConnection | null = connection;
+  const state = new ThreadListState(() => current, memoryKeyValueStore());
+  return { state, events, disconnect: () => { current = null; } };
 }
+
+it("updates a settled session immediately and keeps it active after the host confirms", async () => {
+  const reply = Promise.withResolvers<SessionChanged>();
+  const sessionUpdate = vi.fn(() => reply.promise);
+  const { state } = threadListHost({ sessionUpdate });
+  const project = createSessionListProjection();
+  const key = threadKey("mac", session.sessionId);
+  const rows = [{ hostId: "mac", key, record: {
+    ...session, status: "idle" as const, view: { ...EMPTY_SESSION_VIEW, settledAt: 2000 },
+  } }];
+  expect(project(rows, state.facts())[0]?.settledOverride).toBe("settled");
+
+  const request = state.setSettled("mac", session.sessionId, false);
+  expect(sessionUpdate).toHaveBeenCalledWith(session.sessionId, { settled: false });
+  expect(project(rows, state.facts())[0]?.settledOverride).toBeNull();
+
+  reply.resolve({ view: EMPTY_SESSION_VIEW, state: UNSETTLED_SESSION_STATE });
+  await request;
+  expect(project(rows, state.facts())[0]?.settledOverride).toBeNull();
+});
+
+it("does not restore a settled view from a disconnected host after an unsettle fails", async () => {
+  const reply = Promise.withResolvers<SessionChanged>();
+  const { state, events, disconnect } = threadListHost({ sessionUpdate: () => reply.promise });
+  const sessionId = session.sessionId;
+  state.follow("mac");
+  events.receive({
+    type: "session.viewChanged",
+    occurredAt: 2000,
+    payload: { sessionId, view: { ...EMPTY_SESSION_VIEW, settledAt: 2000 } },
+  });
+
+  const request = state.setSettled("mac", sessionId, false);
+  disconnect();
+  state.forgetHost("mac");
+  reply.reject(new Error("Connection closed"));
+  await expect(request).rejects.toThrow("Connection closed");
+  expect(state.facts().views.get(threadKey("mac", sessionId))).toBeUndefined();
+});
 
 it("keeps the latest attention event when a host's initial read arrives late", async () => {
   const initial = Promise.withResolvers<AttentionEntry[]>();

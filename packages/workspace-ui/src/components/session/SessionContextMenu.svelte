@@ -21,6 +21,7 @@
     RefreshCw as ArrowsClockwiseIcon,
     CircleStop as StopCircleIcon,
     Share as ShareIcon,
+    Sun as SunIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import { GitPullRequestIcon } from "../ui/octicons";
@@ -29,16 +30,17 @@
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
+  import { sessionPinAction } from "./lib/session-actions";
   import { selectSessionRename } from "./lib/session-context-menu";
-  import { TASK_SNOOZE_CHOICES, taskSnoozeUntil } from "./lib/task-snooze";
+  import { SNOOZE_CHOICES, snoozeUntilFor } from "./lib/snooze";
   import { askInsights } from "../insights/lib/ask-insights";
   import { taskOfTab, unlinkTabFromTask } from "../../contexts/workspace/session-task-link";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { checkoutGit } from "../../contexts/workspace/run-location";
   import { sessionPullRequestsStore } from "../../contexts/prs/session-pull-requests.store.svelte";
   import PullRequestsMenu from "./PullRequestsMenu.svelte";
-  import { taskPrNavigation } from "./lib/pr-navigation";
-  import type { TaskPrChoice } from "./lib/task-list";
+  import { prNavigation } from "./lib/pr-navigation";
+  import type { PrChoice } from "./lib/sidebar-rows";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { sessionListStore } from "../../contexts/workspace/session-list.store.svelte";
   import { referenceSessionsInPrompt } from "../../lib/session-drag";
@@ -74,6 +76,7 @@
       onToggleDone?: () => void;
       /** Applies a preset, or opens the picker when no time is given. */
       onSnooze?: (until?: number) => void;
+      onWake?: () => void;
       /** Archives the row's session (docs/plans/session-archive.md). */
       onArchive?: () => void;
       /** Returns an archived session to the list. */
@@ -304,7 +307,7 @@
     try {
       await unlinkTabFromTask(session, targetTabId);
     } catch (error) {
-      toasts.error("Couldn't unlink the session from the task", {
+      toasts.error("Couldn't unlink the session from the issue", {
         description: error instanceof Error ? error.message : String(error),
       });
     }
@@ -320,13 +323,13 @@
       : [],
   );
 
-  function openPullRequest(choice: TaskPrChoice) {
+  function openPullRequest(choice: PrChoice) {
     onClose();
-    const { route, sourceUrl } = taskPrNavigation(choice);
+    const { route, sourceUrl } = prNavigation(choice);
     session.openRoute(route, { sourceUrl, via: "click" });
   }
 
-  function unlinkPullRequest(choice: TaskPrChoice): (() => void) | null {
+  function unlinkPullRequest(choice: PrChoice): (() => void) | null {
     const unlink = sidebarStore.pullRequestUnlink(pullRequestServerId, sess?.id ?? null, choice);
     if (!unlink) return null;
     return () =>
@@ -342,29 +345,14 @@
     await sessionPullRequestsStore.link(pullRequestServerId, sess.id, url);
   }
 
-  const pinSessionId = $derived(sess?.id ?? sessionId);
-  const canChangePin = $derived(!rowActions?.onUnarchive && sidebarStore.canPinSession(pinSessionId));
-  const pin = $derived(canChangePin
-    ? sidebarStore.pinFor(pinSessionId, unreadServerId)
-    : null);
-  const canPin = $derived(canChangePin && !pin && (!!rowActions?.onPin || (!!tabId && !!sess?.agentSessionId)));
-
-  async function togglePin() {
-    const targetPin = pin;
-    const targetTabId = tabId;
-    const pinListedSession = rowActions?.onPin;
-    onClose();
-    try {
-      if (targetPin) await sidebarStore.unpinSession(targetPin);
-      else if (targetTabId) await sidebarStore.togglePinnedSession(targetTabId);
-      else await pinListedSession?.();
-    } catch (error) {
-      toasts.error(targetPin ? "Couldn't unpin the session" : "Couldn't pin the session", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    }
-    requestInputFocus();
-  }
+  const pinAction = $derived(sessionPinAction(sidebarStore, {
+    sessionId: unreadSessionId,
+    serverId: unreadServerId,
+    tabId,
+    hasAgentSession: !!sess?.agentSessionId,
+    isArchived: !!rowActions?.onUnarchive,
+    pinListedSession: rowActions?.onPin,
+  }));
 
   /** Sharing needs the session's host, which only an open tab names. */
   const hasSession = $derived(!!tabId && !!sess?.id);
@@ -451,12 +439,12 @@
           Snooze
         </ContextMenu.SubTrigger>
         <ContextMenu.SubContent>
-          {#each TASK_SNOOZE_CHOICES as choice (choice.preset)}
+          {#each SNOOZE_CHOICES as choice (choice.preset)}
             <ContextMenu.Item
               onSelect={() => {
                 const action = rowActions?.onSnooze;
                 onClose();
-                action?.(taskSnoozeUntil(choice.preset));
+                action?.(snoozeUntilFor(choice.preset));
               }}
             >
               {choice.label}
@@ -475,6 +463,16 @@
           </ContextMenu.Item>
         </ContextMenu.SubContent>
       </ContextMenu.Sub>
+    {/if}
+    {#if canDrive && rowActions?.onWake}
+      <ContextMenu.Item onSelect={() => {
+        const action = rowActions?.onWake;
+        onClose();
+        action?.();
+      }}>
+        <SunIcon />
+        Wake now
+      </ContextMenu.Item>
     {/if}
     <!-- Archive writes the reader's own view, so a member who may only read a
          shared session archives it too (docs/plans/shared-with-you.md §2). -->
@@ -502,7 +500,7 @@
         Return to List
       </ContextMenu.Item>
     {/if}
-    {#if (unreadSessionId && unreadServerId) || rowActions?.onArchive || rowActions?.onUnarchive || (canDrive && (rowActions?.onStop || rowActions?.onToggleDone || rowActions?.onSnooze))}
+    {#if (unreadSessionId && unreadServerId) || rowActions?.onArchive || rowActions?.onUnarchive || (canDrive && (rowActions?.onStop || rowActions?.onToggleDone || rowActions?.onSnooze || rowActions?.onWake))}
       <ContextMenu.Separator />
     {/if}
     {#if sess?.agentSessionId}
@@ -528,18 +526,18 @@
       {#if linkedTask}
         <ContextMenu.Item onSelect={openTask}>
           <TaskIcon />
-          Open Task
+          Open issue
         </ContextMenu.Item>
         {#if canDrive}
           <ContextMenu.Item onSelect={() => void unlinkFromTask()}>
             <UnlinkIcon />
-            Unlink from Task
+            Unlink from issue
           </ContextMenu.Item>
         {/if}
       {:else}
         <ContextMenu.Item onSelect={linkToTask}>
           <LinkIcon />
-          Link to Task…
+          Link to issue…
         </ContextMenu.Item>
       {/if}
       {#if canDrive && sess?.agentSessionId}
@@ -563,9 +561,13 @@
       {/if}
       <ContextMenu.Separator />
     {/if}
-    {#if pin || canPin}
-      <ContextMenu.Item onSelect={() => void togglePin()}>
-        {#if pin}
+    {#if pinAction}
+      <ContextMenu.Item onSelect={() => {
+        const action = pinAction;
+        onClose();
+        void action?.run();
+      }}>
+        {#if pinAction.isPinned}
           <PinOffIcon />
           Unpin
         {:else}

@@ -86,7 +86,8 @@ export function FloatingWorkingControl(props: {
   const actions: ReadonlyArray<FloatingStatusAction> =
     props.status?.kind === "goal"
       ? props.status.actions
-      : props.status?.kind === "stop" && props.status.action !== null
+      : (props.status?.kind === "settled" || props.status?.kind === "stop") &&
+          props.status.action !== null
         ? [props.status.action]
         : [];
   const [agentsWidth, setAgentsWidth] = useState(0);
@@ -483,6 +484,20 @@ function FloatingStatusLabel(props: {
           tintColorClassName="accent-foreground"
           type="monochrome"
         />
+        <Text className="shrink font-t3-medium text-xs text-foreground" numberOfLines={1}>
+          {props.status.label}
+        </Text>
+      </StatusLabelRow>
+    );
+  }
+  if (props.status.kind === "settled") {
+    return (
+      <StatusLabelRow
+        accessibilityLabel={props.status.label}
+        className="gap-2"
+        onLayout={props.onLayout}
+      >
+        <SymbolView name="checkmark.circle" size={13} tintColorClassName="accent-foreground" />
         <Text className="shrink font-t3-medium text-xs text-foreground" numberOfLines={1}>
           {props.status.label}
         </Text>

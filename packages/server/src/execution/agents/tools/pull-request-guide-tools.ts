@@ -6,7 +6,7 @@ import { actorFor } from '../../../admission/actor'
 import { recordScopeOf } from '../../../admission/principal'
 import { assertToolMay } from '../../../admission/workspace-tool-authority'
 import { getSessionRecord } from '../../../data/sessions/session-records'
-import { LOCAL_ORGANIZATION_ID } from '../../../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../../../host/machine-kind'
 import type { ReviewGuideJobs } from '../../../review/guide-jobs'
 import { requestPrGuides, type PrGuideRequest, type PrGuideStart } from '../../../review/guide-warmer'
 import { readPrGuide } from '../../../review/pr-guide-store'
@@ -41,8 +41,9 @@ function guideHost(): PullRequestGuideToolHost {
  * this session, so the context names no session.
  */
 async function guideSession(session: ToolSession): Promise<SessionCtx> {
-  const project = guideHost().projectOf(session.sessionId) ?? session.cwd
-  const record = await getSessionRecord(recordScopeOf(session.principal), session.sessionId)
+  // An outside app has no session: its project is the one it named.
+  const project = (session.sessionId && guideHost().projectOf(session.sessionId)) || session.cwd
+  const record = session.sessionId ? await getSessionRecord(recordScopeOf(session.principal), session.sessionId) : null
   return {
     sessionId: '', provider: null, agentSessionId: null, status: 'idle',
     workingDirectory: project, projectPath: project, codebaseId: null,
@@ -137,6 +138,7 @@ const guideWrite = pullRequestTool(
     const starts = await requestPrGuides(request, input.numbers)
     return { repository: `${session.repo.owner}/${session.repo.repo}`, runs: starts.map(startResult) }
   },
+  true,
 )
 
 export const pullRequestGuideTools = { guideRead, guideWrite }

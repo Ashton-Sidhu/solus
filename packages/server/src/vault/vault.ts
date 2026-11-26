@@ -22,7 +22,7 @@ import {
   type VaultUploadRequest,
 } from '@solus/contracts/vault'
 import { isApiMode } from '../host/api-mode'
-import { hostCategory } from '../host/host-category'
+import { machineKind } from '../host/machine-kind'
 import { cloudAccountOf, currentHostUser, isHostUserKey } from '../host/host-user'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
@@ -93,9 +93,9 @@ export type CredentialLocation = { kind: 'host' } | { kind: 'account'; accountId
  * store; the Solus API has none. An MCP connection of the host's own work does not
  * exist (`hasMcpCredentials`).
  */
-/** The person is the owner of this machine: its host user, on a host that is somebody's machine (not a managed host or the Solus API). */
+/** The person is the owner of this machine: its host user, on a host that is somebody's machine (not a cloud machine or the Solus API). */
 export function isMachineOwner(personKey: string | null): boolean {
-  return personKey !== null && !isApiMode() && hostCategory() !== 'managed' && isHostUserKey(personKey)
+  return personKey !== null && !isApiMode() && machineKind() !== 'cloud' && isHostUserKey(personKey)
 }
 
 export function credentialLocationOf(personKey: string | null): CredentialLocation {

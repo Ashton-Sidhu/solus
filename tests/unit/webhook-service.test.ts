@@ -62,15 +62,15 @@ function workPolicyOf(organizationId: string, policy: Policy): WorkPolicy {
   return new HostPolicies({ mdm: null, hostOwnerOrganizationId: null, organizations: { [organizationId]: { state: 'ready', policy: { kind: 'organization', organizationId, document }, hostPolicy: null } } }).forWork(organizationId)
 }
 
-/** A service whose save check is the real one of `turn-organization.ts`, over these policies and host category. */
-function service(state: { cloud: boolean; publicUrl: string | null; origin?: string }, overrides: Partial<import('@solus/server/execution/webhooks/webhook-service').WebhookServiceDeps> = {}, policies: { [organizationId: string]: Policy } = {}, category: 'personal' | 'self-hosted' | 'managed' = 'personal') {
+/** A service whose save check is the real one of `turn-organization.ts`, over these policies and machine kind. */
+function service(state: { cloud: boolean; publicUrl: string | null; origin?: string }, overrides: Partial<import('@solus/server/execution/webhooks/webhook-service').WebhookServiceDeps> = {}, policies: { [organizationId: string]: Policy } = {}, kind: 'personal' | 'cloud' = 'personal') {
   return serviceModule.createWebhookService({
     urls: { cloudHost: () => ({ hostId: 'host-1', origin: state.origin ?? 'https://app.example.test' }), cloudReady: () => state.cloud, publicUrl: () => state.publicUrl },
     isPausedByAdmin: () => false,
     organizationRefusal: (organizationId, work) => {
       const policy = policies[organizationId] ?? OPEN
       const hostRules = organizationId === 'local' ? null : { allowsCloudHosts: true, allowsPersonalHosts: policy.allowsPersonalHosts }
-      return turnOrganization.unattendedOrganizationRefusal(hostRules, workPolicyOf(organizationId, policy), work.unverified, category)?.message ?? null
+      return turnOrganization.unattendedOrganizationRefusal(hostRules, workPolicyOf(organizationId, policy), work.unverified, kind)?.message ?? null
     },
     ...overrides,
   })
@@ -181,9 +181,10 @@ describe('webhook service', () => {
     const closed = { 'org-1': { ...OPEN, allowsPersonalHosts: false } }
     const laptop = service({ cloud: false, publicUrl: null }, {}, closed, 'personal')
     await expect(laptop.create(github, creator(), 'org-1')).rejects.toThrow('does not allow its work to start on a personal computer')
-    // Local work and the organization's own machines are not affected.
+    // Local work and the organization's cloud machines are not affected. A standalone
+    // server that a person runs is a personal machine too, so the rule holds there.
     expect((await laptop.create(github, creator(), 'local')).organizationId).toBe('local')
-    expect((await service({ cloud: false, publicUrl: null }, {}, closed, 'self-hosted').create(github, creator(), 'org-1')).organizationId).toBe('org-1')
+    expect((await service({ cloud: false, publicUrl: null }, {}, closed, 'cloud').create(github, creator(), 'org-1')).organizationId).toBe('org-1')
   })
 
   test('an update that would start refused work is refused before anything is written; a paused webhook may be saved', async () => {

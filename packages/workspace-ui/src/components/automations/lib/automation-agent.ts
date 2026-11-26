@@ -1,12 +1,10 @@
-import type { AgentId, AgentMetadata } from '@solus/contracts/types'
-
-/** Only providers with a headless runner can back an automation. */
-const RUNNABLE_AGENT_IDS: AgentId[] = ['claude-code', 'codex']
+import { SESSION_AGENT_IDS, type AgentId, type AgentMetadata } from '@solus/contracts/types'
 
 /** The agents that can back an automation. One not installed here stays on the
  *  list, so the model picker can show it disabled and say why. */
 export function automationAgents(agents: AgentMetadata[]): AgentMetadata[] {
-  return agents.filter((agent) => RUNNABLE_AGENT_IDS.includes(agent.id))
+  // Only providers with a headless runner can back an automation.
+  return agents.filter((agent) => SESSION_AGENT_IDS.some((id) => id === agent.id))
 }
 
 /** The agents this host can run an automation on, in the order it reports them. */

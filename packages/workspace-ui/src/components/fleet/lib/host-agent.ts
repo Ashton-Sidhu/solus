@@ -2,7 +2,7 @@ import { hostReferenceMarkdown, type HostReference } from '@solus/contracts/host
 import { attentionKindOf, hostKindLabel, type AttentionKind, type FleetMachine } from './fleet-model'
 
 /**
- * A session about a host (docs/plans/host-fleet.md D12): what the agent is
+ * A session about a host: what the agent is
  * asked, what Solus knows about the host, and the host the session runs on.
  * The person reads the prompt and sends it, so it says nothing they cannot check.
  */

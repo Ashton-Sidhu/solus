@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { mcpAppToolMetadataSchema } from '@solus/contracts/mcp-apps'
 import { ACCOUNT_INPUT, integrationToolName, type Integration, type IntegrationToolSummary } from '@solus/contracts/integration-types'
+import { HOST_USE } from '@solus/contracts/permissions'
 import { ownerKeyOf, type Actor } from '../admission/actor'
 import { recordScopeOf } from '../admission/principal'
 import { createLogger } from '../logger'
@@ -160,6 +161,8 @@ export function upstreamToolToAgentTool(
     inputFields: { ...(fields ?? {}), ...accountField },
     alwaysLoad: false,
     requiresApproval: toolSummary(upstream).destructive,
+    // The person's own connections, as the integration RPCs.
+    access: { permission: HOST_USE },
     execute: (input, context) => calls.call(integration.id, upstream.name, input, context, starter),
   }
   if (!fields) agentTool.passthroughInput = true

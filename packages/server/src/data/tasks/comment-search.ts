@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
-import type { TaskCommentHit, TaskCommentSearchQuery } from '@solus/contracts/task-types'
+import type { IssueCommentHit, IssueCommentSearchQuery } from '@solus/contracts/task-types'
 import { SearchQuery } from '@solus/contracts/search-query'
 import { getDatabase } from '../../db/database'
 import { commentThreads } from '../comments/schema'
@@ -9,7 +9,7 @@ import { listTasks, type TaskReader } from './task-store'
 
 const commentRowSchema = z.object({
   thread_id: z.string(),
-  task_id: z.string(),
+  issue_id: z.string(),
   body: z.string(),
   created_at: z.coerce.number(),
 })
@@ -27,31 +27,31 @@ const MAX_HITS = 200
  * and only the tasks the reader sees answer. A task has no project of its own,
  * so `projectKey` does not narrow the search.
  */
-export async function searchTaskComments(reader: TaskReader, input: TaskCommentSearchQuery): Promise<TaskCommentHit[]> {
+export async function searchTaskComments(reader: TaskReader, input: IssueCommentSearchQuery): Promise<IssueCommentHit[]> {
   const query = new SearchQuery(input.query)
   if (query.isEmpty) return []
   const like = (word: string) => `%${word.replace(/[\\%_]/g, (character) => `\\${character}`)}%`
   // A coarse first pass in SQL; the word rule decides below.
   const anyWord = sql.join(query.required.map((word) => sql`LOWER(${commentThreads}.body) LIKE ${like(word)} ESCAPE '\\'`), sql` OR `)
   const rows = commentRowSchema.array().parse(await getDatabase().all(sql`
-    SELECT ${commentThreads}.thread_id, ${commentThreads}.subject_id AS task_id, ${commentThreads}.body, ${commentThreads}.created_at
+    SELECT ${commentThreads}.thread_id, ${commentThreads}.subject_id AS issue_id, ${commentThreads}.body, ${commentThreads}.created_at
     FROM ${commentThreads}
-    WHERE ${commentThreads}.subject_kind = 'task' AND (${anyWord})
+    WHERE ${commentThreads}.subject_kind = 'issue' AND (${anyWord})
     ORDER BY ${commentThreads}.created_at DESC
     LIMIT ${MAX_COMMENTS}
   `))
   const byTask = new Map<string, z.infer<typeof commentRowSchema>[]>()
   for (const row of rows) {
-    const held = byTask.get(row.task_id)
+    const held = byTask.get(row.issue_id)
     if (held) held.push(row)
-    else byTask.set(row.task_id, [row])
+    else byTask.set(row.issue_id, [row])
   }
   const visible = new Set((await listTasks(reader, [...byTask.keys()])).map((task) => task.id))
-  const hits: TaskCommentHit[] = []
+  const hits: IssueCommentHit[] = []
   for (const [taskId, comments] of byTask) {
     if (!visible.has(taskId)) continue
     // Read in their own case: lower-casing first would hide camelCase words.
-    if (!query.holdsEveryWord(comments.map((comment) => comment.body).join('\n'))) continue
+    if (!query.exactPhrase && !query.holdsEveryWord(comments.map((comment) => comment.body).join('\n'))) continue
     // Newest first already; the first comment with the most words wins.
     let best = 0
     let bestCount = -1
@@ -59,9 +59,10 @@ export async function searchTaskComments(reader: TaskReader, input: TaskCommentS
       const count = query.heldWords(comment.body)
       if (count > bestCount) { best = index; bestCount = count }
     })
+    if (query.exactPhrase && bestCount === 0) continue
     const comment = comments[best]!
     hits.push({
-      taskId,
+      issueId: taskId,
       commentId: comment.thread_id,
       snippet: query.passage(comment.body, SNIPPET_HIT_OPEN, SNIPPET_HIT_CLOSE),
       createdAt: comment.created_at,

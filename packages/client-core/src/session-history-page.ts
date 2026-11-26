@@ -28,14 +28,31 @@ export function sameHistoryPage(left: SessionHistoryPage, right: SessionHistoryP
   return left === right || (left.messages.length === right.messages.length && sameHistoryManifest(left, right))
 }
 
-export async function loadSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest, readCache?: CachedHistory): Promise<SessionHistoryPage> {
-  if (!readCache) return api.loadSessionPage(request)
-  // Use blocks that are ready this turn. A disk read can still paint its saved
-  // page, but a busy device must be able to send the host request without it.
+interface HistoryResumeOptions {
+  cachedTurnLimit?(page: SessionHistoryPage): number
+  /** The connection-scoped answer of an `openSession` request: the description, and the watch the host joined. */
+  onOpened?(opened: Pick<SessionHistoryPage, 'openingDescription' | 'resumedWatch'>): void
+}
+
+export async function loadSessionHistoryPage(
+  api: HistoryApi, request: SessionHistoryPageRequest, readCache?: CachedHistory, cacheWaitMs = 0,
+  options?: HistoryResumeOptions,
+): Promise<SessionHistoryPage> {
+  // The opening facts belong to this connection: they never stay on the page.
+  const read = async (pageRequest: SessionHistoryPageRequest): Promise<SessionHistoryPage> => {
+    const answer = await api.loadSessionPage(pageRequest)
+    if (!pageRequest.openSession) return answer
+    const { resumedWatch, openingDescription, ...page } = answer
+    options?.onOpened?.({ resumedWatch, openingDescription })
+    return page
+  }
+  if (!readCache) return read(request)
+  // Bound how long block negotiation can delay the network. A saved page can
+  // still paint independently if the disk misses the deadline.
   let deadline: ReturnType<typeof setTimeout> | undefined
   const cached = await Promise.race([
     readCache().catch(() => null),
-    new Promise<null>(resolve => { deadline = setTimeout(() => resolve(null), 0) }),
+    new Promise<null>(resolve => { deadline = setTimeout(() => resolve(null), cacheWaitMs) }),
   ])
   clearTimeout(deadline)
   const offsets = new Map<string, { start: number; count: number }>()
@@ -45,10 +62,13 @@ export async function loadSessionHistoryPage(api: HistoryApi, request: SessionHi
     savedRows += block.count
   }
   if (savedRows !== cached?.messages.length) offsets.clear()
-  const page = await api.loadSessionPage({ ...request, knownHistoryBlocks: [...offsets.keys()].slice(0, 128) })
+  const window = cached && options?.cachedTurnLimit ? { ...request, turnLimit: options.cachedTurnLimit(cached) } : request
+  const page = await read({ ...window, knownHistoryBlocks: [...offsets.keys()].slice(0, 128) })
   if (cached && savedRows === cached.messages.length && !page.messages.length &&
-      page.historyBlocks?.every(block => block.reused) && sameHistoryManifest(cached, page)) return cached
-  return restoreHistoryBlocks(page, cached, offsets) ?? api.loadSessionPage(request)
+      page.historyBlocks?.every(block => block.reused) && sameHistoryManifest(cached, page)) {
+    return page.historyRevision && page.historyRevision !== cached.historyRevision ? { ...cached, historyRevision: page.historyRevision } : cached
+  }
+  return restoreHistoryBlocks(page, cached, offsets) ?? read(window)
 }
 
 /** A missing or invalid block means the host must send the complete page. */
@@ -76,6 +96,8 @@ function restoreHistoryBlocks(
 interface PrefetchedHistory {
   key: string
   expiresAt: number
+  /** False once the session moved on from what the page shows: the read is then not used. */
+  isCurrent?: () => boolean
   result: Promise<SessionHistoryPage>
   page?: SessionHistoryPage
 }
@@ -87,17 +109,24 @@ const prefetchedHistory = new WeakMap<HistoryApi, PrefetchedHistory>()
 
 function historyKey(request: SessionHistoryPageRequest, scope: string | undefined): string {
   return JSON.stringify([scope, request.sessionId, request.projectPath, request.provider,
-    request.turnLimit, request.before, request.throughEntryId, !!request.deferArtifactHtml, !!request.replyLayout])
+    request.turnLimit, request.before, request.throughEntryId, !!request.deferArtifactHtml, !!request.replyLayout, !!request.promptFiles, !!request.turnItems])
+}
+
+function servesRequest(entry: PrefetchedHistory | undefined, key: string): entry is PrefetchedHistory {
+  return entry?.key === key && entry.expiresAt > Date.now() && (entry.isCurrent?.() ?? true)
 }
 
 /** `maxAgeMs`: how long the page may serve an open. A read the reader may
- *  never open lives shorter, so an open does not show an old page. */
-export function prefetchSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest, maxAgeMs = 30_000, scope?: string, readCache?: CachedHistory): Promise<SessionHistoryPage> {
+ *  never open lives shorter, so an open does not show an old page.
+ *  `isCurrent`: whether the page still shows the session as it is. A page read
+ *  while a run works stays whole only while that run goes on, because the
+ *  watch at the open replays that run; another run makes the page stale. */
+export function prefetchSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest, maxAgeMs = 30_000, scope?: string, readCache?: CachedHistory, isCurrent?: () => boolean): Promise<SessionHistoryPage> {
   const key = historyKey(request, scope)
   const existing = prefetchedHistory.get(api)
-  if (existing?.key === key && existing.expiresAt > Date.now()) return existing.result
+  if (servesRequest(existing, key)) return existing.result
   const result = loadSessionHistoryPage(api, request, readCache)
-  const entry: PrefetchedHistory = { key, expiresAt: Date.now() + maxAgeMs, result }
+  const entry: PrefetchedHistory = { key, expiresAt: Date.now() + maxAgeMs, isCurrent, result }
   prefetchedHistory.set(api, entry)
   void result.then((page) => { entry.page = page }).catch(() => {
     if (prefetchedHistory.get(api) === entry) prefetchedHistory.delete(api)
@@ -109,14 +138,14 @@ export function prefetchSessionHistoryPage(api: HistoryApi, request: SessionHist
  * hydration consumes the pending request without delaying the workspace. */
 export function readPrefetchedSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest, scope?: string): SessionHistoryPage | undefined {
   const entry = prefetchedHistory.get(api)
-  return entry?.key === historyKey(request, scope) && entry.expiresAt > Date.now() ? entry.page : undefined
+  return servesRequest(entry, historyKey(request, scope)) ? entry.page : undefined
 }
 
 /** Read a page, taking the startup read when it is for the same request. */
 export async function requestSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest, scope?: string, readCache?: CachedHistory): Promise<SessionHistoryPage> {
   const prefetched = prefetchedHistory.get(api)
   prefetchedHistory.delete(api)
-  return prefetched?.key === historyKey(request, scope) && prefetched.expiresAt > Date.now()
+  return servesRequest(prefetched, historyKey(request, scope))
     ? prefetched.result
     : loadSessionHistoryPage(api, request, readCache)
 }

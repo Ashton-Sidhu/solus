@@ -3,7 +3,7 @@ import { sameHostPath } from "@solus/contracts/host-path";
 import type { EnvironmentId, VcsBranchStatus, VcsStatusResult } from "@t3tools/contracts";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { mobileHost } from "../state/mobile-host";
-import { checkoutStatus } from "./checkout-git";
+import { checkoutStatus } from "@solus/contracts/git-types";
 import { hostQuery } from "./host-query";
 import { solus } from "./runtime";
 
@@ -42,10 +42,6 @@ function checkoutQuery<Input extends CheckoutPath, Value>(
 export const checkoutRepository = checkoutQuery((api, input: CheckoutPath) =>
   api.gitRepositoryStatus(input.cwd),
 );
-const details = checkoutQuery((api, input: CheckoutDetails) =>
-  api.gitRefreshState(input.cwd, { includeDetails: input.includeDetails ?? true }),
-);
-
 const branch = Atom.family((key: string) => {
   const target: CheckoutTarget<CheckoutPath> = JSON.parse(key);
   const source = checkoutRepository(target);
@@ -58,7 +54,11 @@ const branch = Atom.family((key: string) => {
   );
 });
 
-const status = Atom.family((key: string) => {
+const details = checkoutQuery((api, input: CheckoutDetails) =>
+  api.gitRefreshState(input.cwd, { includeDetails: input.includeDetails ?? true }),
+);
+
+const legacyStatus = Atom.family((key: string) => {
   const target: CheckoutTarget<CheckoutDetails> = JSON.parse(key);
   const repo = checkoutRepository({ environmentId: target.environmentId, input: { cwd: target.input.cwd } });
   const state = details(target);
@@ -75,6 +75,22 @@ const status = Atom.family((key: string) => {
       refresh(repo);
       refresh(state);
     },
+  );
+});
+
+const projectedStatus = checkoutQuery(async (api, { cwd, includeDetails }: CheckoutDetails): Promise<VcsStatusResult> => {
+  const repo = await api.gitRepositoryStatus(cwd, { checkout: includeDetails ? "full" : "summary" });
+  if (!repo.checkout) throw new Error("The host did not return this checkout's status.");
+  return repo.checkout;
+});
+
+const status = Atom.family((key: string) => {
+  const target: CheckoutTarget<CheckoutDetails> = JSON.parse(key);
+  const projected = projectedStatus(target);
+  const legacy = legacyStatus(key);
+  return Atom.readable(
+    (get) => get(get(mobileHost(target.environmentId))?.canProjectCheckout ? projected : legacy),
+    (refresh) => { refresh(projected); refresh(legacy); },
   );
 });
 

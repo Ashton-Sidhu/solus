@@ -24,6 +24,8 @@ export interface FakeAccountPlaneOptions {
   /** Sent only when set: without it the plane answers as a server from before the startup directory. */
   startupDirectory?: DirectoryResponse
   clientId?: string
+  /** The origin this plane answers as; `ISSUER` when absent. A second plane in one test is another Solus Cloud. */
+  issuer?: string
   identity?: { sub: string; email: string; email_verified: boolean; name?: string; picture?: string }
   /** Lets a test hold a refresh until it says so. */
   gateRefresh?: () => Promise<void>
@@ -37,6 +39,7 @@ function jwt(payload: object): string {
 }
 
 export function fakeAccountPlane(options: FakeAccountPlaneOptions = {}) {
+  const issuer = options.issuer ?? ISSUER
   const clientId = options.clientId ?? 'solus-desktop'
   const identity = options.identity ?? { sub: 'user-1', email: 'ada@example.test', email_verified: true, name: 'Ada' }
   const calls: PlaneCall[] = []
@@ -52,7 +55,7 @@ export function fakeAccountPlane(options: FakeAccountPlaneOptions = {}) {
   const refusedResources = new Map<string, { [key: string]: string }>()
   let userinfoName = identity.name
 
-  const issueIdToken = (nonce?: string) => jwt({ iss: ISSUER, aud: clientId, exp: Math.floor(now / 1000) + 300, iat: Math.floor(now / 1000), ...identity, ...(nonce ? { nonce } : {}) })
+  const issueIdToken = (nonce?: string) => jwt({ iss: issuer, aud: clientId, exp: Math.floor(now / 1000) + 300, iat: Math.floor(now / 1000), ...identity, ...(nonce ? { nonce } : {}) })
   /** The grant lives while any refresh token of it does: a sign-out revokes the live one, a replay ends them all. */
   const grantLives = (): boolean => [...refreshTokens.values()].some(Boolean)
   const newRefreshToken = () => {
@@ -61,7 +64,7 @@ export function fakeAccountPlane(options: FakeAccountPlaneOptions = {}) {
     return token
   }
   const newServersToken = (refreshToken: string) => {
-    const token = jwt({ iss: ISSUER, sub: identity.sub, client_id: clientId, aud: [ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE], grant_id: 'grant-signin', exp: Math.floor(now / 1000) + 300 })
+    const token = jwt({ iss: issuer, sub: identity.sub, client_id: clientId, aud: [ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE], grant_id: 'grant-signin', exp: Math.floor(now / 1000) + 300 })
     serversTokens.set(token, refreshToken)
     return token
   }
@@ -79,11 +82,11 @@ export function fakeAccountPlane(options: FakeAccountPlaneOptions = {}) {
     switch (url.pathname) {
       case '/.well-known/openid-configuration':
         return json(200, {
-          issuer: ISSUER,
-          authorization_endpoint: `${ISSUER}/api/auth/oauth2/authorize`,
-          token_endpoint: `${ISSUER}/api/auth/oauth2/token`,
-          userinfo_endpoint: `${ISSUER}/api/auth/oauth2/userinfo`,
-          revocation_endpoint: `${ISSUER}/api/auth/oauth2/revoke`,
+          issuer: issuer,
+          authorization_endpoint: `${issuer}/api/auth/oauth2/authorize`,
+          token_endpoint: `${issuer}/api/auth/oauth2/token`,
+          userinfo_endpoint: `${issuer}/api/auth/oauth2/userinfo`,
+          revocation_endpoint: `${issuer}/api/auth/oauth2/revoke`,
         })
       case '/api/auth/oauth2/token': {
         if (form.get('client_id') !== clientId) return json(401, { error: 'invalid_client' })

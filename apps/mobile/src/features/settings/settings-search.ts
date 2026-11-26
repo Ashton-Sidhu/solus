@@ -23,6 +23,15 @@ const SETTINGS_SEARCH_TERMS = {
     msg("remote", { $context: "settings search keyword" }),
     "tailscale",
   ],
+  SettingsSharingAccess: [
+    "MCP",
+    msg("use in another app", { $context: "settings search keyword" }),
+    msg("other apps", { $context: "settings search keyword" }),
+    msg("connected apps", { $context: "settings search keyword" }),
+    msg("connector", { $context: "settings search keyword" }),
+    msg("approve a sign-in", { $context: "settings search keyword" }),
+    msg("pairing code", { $context: "settings search keyword" }),
+  ],
   SettingsNotifications: [
     msg("push", { $context: "settings search keyword" }),
     msg("alerts", { $context: "settings search keyword" }),

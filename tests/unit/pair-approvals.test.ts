@@ -53,13 +53,13 @@ describe('the open approval requests', () => {
     const outcome = await approvals.wait(started.request.requestId, started.waitToken)
     if (outcome.status !== 'approved') throw new Error(`expected approved, got ${outcome.status}`)
 
-    const session = auth.verifySessionToken(outcome.sessionToken)
+    const session = auth.verifySessionToken(outcome.granted)
     expect(session?.deviceLabel).toBe('Windows')
     expect(auth.listPairedDevices().find((device) => device.deviceId === session?.deviceId)?.revokedAt).toBeNull()
     // The token the device replaced no longer works.
     expect(auth.verifySessionToken(old)).toBeNull()
     auth.revokeDevice(session!.deviceId)
-    expect(auth.verifySessionToken(outcome.sessionToken)).toBeNull()
+    expect(auth.verifySessionToken(outcome.granted)).toBeNull()
     // A result is read once.
     expect((await approvals.wait(started.request.requestId, started.waitToken)).status).toBe('expired')
   })
@@ -172,8 +172,8 @@ describe('the approval routes', () => {
     }
   })
 
-  test('a managed host and the tunnel have no approval route', async () => {
-    for (const exposure of [{ pairingDisabled: true }, { viaTunnel: true }]) {
+  test('a cloud machine and the tunnel have no approval route', async () => {
+    for (const exposure of [{ pairingDisabled: () => true }, { viaTunnel: true }]) {
       const approvals = new PairApprovals()
       const { server, baseUrl } = await listen({ pairApprovals: approvals, ...exposure })
       try {
@@ -264,7 +264,7 @@ describe('host.pairApprovalsChanged', () => {
   })
 })
 
-async function listen(opts: { pairApprovals: InstanceType<typeof PairApprovals>; pairingDisabled?: boolean; viaTunnel?: boolean }): Promise<{ server: Server; baseUrl: string }> {
+async function listen(opts: { pairApprovals: InstanceType<typeof PairApprovals>; pairingDisabled?: () => boolean; viaTunnel?: boolean }): Promise<{ server: Server; baseUrl: string }> {
   let port = 0
   const { server } = buildHttpServer({
     host: '127.0.0.1',

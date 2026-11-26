@@ -83,10 +83,10 @@ describe('the join', () => {
     expect(catalog.directoryState()).toBe('failed')
     expect(catalog.workspaces()).toEqual([])
 
-    directory.answer([directoryHostFor('m', { kind: 'managed', category: 'managed', managedState: 'ready' })])
+    directory.answer([directoryHostFor('m', { kind: 'cloud', hasManagedCompute: true, managedState: 'ready' })])
     await catalog.refreshDirectory()
     expect(catalog.directoryState()).toBe('ready')
-    expect([...catalog.managedHostIds()]).toEqual(['m'])
+    expect([...catalog.cloudHostIds()]).toEqual(['m'])
 
     directory.state.answer = null
     directory.state.signedOut = true
@@ -356,7 +356,7 @@ describe('device storage', () => {
     const values = new Map<string, string>()
     const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => void values.set(key, value), removeItem: (key: string) => void values.delete(key) }
     const directory = fakeDirectory()
-    directory.answer([directoryHostFor('a', { organizationIds: ['org-1'] }), directoryHostFor('m', { kind: 'managed', category: 'managed', managedState: 'ready' })], [
+    directory.answer([directoryHostFor('a', { organizationIds: ['org-1'] }), directoryHostFor('m', { kind: 'cloud', hasManagedCompute: true, managedState: 'ready' })], [
       { organizationId: 'org-1', label: 'Acme', routes: [{ kind: 'tunnel', url: 'https://workspace.solus.test' }], isActive: true, hostRules: DEFAULT_HOST_RULES },
     ])
     const catalog = new HostCatalog({ credentials: localStorageCredentials(() => storage), directory: () => directory.reader, now: () => 10, clientOrigin: () => '' })

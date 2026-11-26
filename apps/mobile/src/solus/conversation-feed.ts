@@ -1,21 +1,29 @@
+import { hostNoticeKind, watchNotification } from "@solus/client-core/host-notice";
+import { applyOrchestrationV2ProjectionEvent } from "@t3tools/client-runtime/state/orchestration-v2-projection";
+import { sessionSubagent, type AgentFeedContext } from "./session-subagent";
 import type { ReactNode } from "react";
 import { mcpAppLiveToolName } from "@solus/contracts/mcp-apps";
 import { viewedImagePath } from "@solus/client-core/viewed-workspace-image";
 import {
+  EventId,
   MessageId,
   ProviderThreadId,
   RunId,
+  ScheduledTaskId,
   ThreadId,
   TurnItemId,
+  type OrchestrationV2Subagent,
+  type OrchestrationV2ThreadProjection,
+  type OrchestrationV2ThreadShell,
   type OrchestrationV2TurnItem,
+  type OrchestrationV2ProjectedTurnItem,
+  type OrchestrationV2ConversationMessage,
+  type OrchestrationV2Notification,
 } from "@t3tools/contracts";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import { DateTime } from "effect";
-import {
-  commandText,
-  parseToolInput,
-  toolGroupAction,
-} from "@solus-mobile/features/threads/thread-work-log-presentation";
+import { toolFeedBody, userMessageBody } from "@solus/contracts/session-feed-item";
+import { savedTurnItems, type TranscriptItem } from "@solus-mobile/features/conversation/lib/transcript-model";
 import {
   buildThreadFeed,
   createThreadFeedCache,
@@ -24,7 +32,55 @@ import {
   type RawThreadFeedEntry,
 } from "../lib/threadActivity";
 import { messageAttachments } from "./upload-images";
-import { createArtifactGrouping, type ArtifactGroup } from "./artifact-groups";
+import { artifactHtmlRender, type ArtifactRender } from "@solus-mobile/features/conversation/lib/artifacts";
+import { HTML_RENDER_TOOL_NAME } from "@t3tools/shared/htmlRender";
+
+const empty = [] as const;
+type Tool = Extract<TranscriptItem, { kind: "tool" }>;
+
+function needsToolCard(item: Tool): boolean {
+  if (item.images?.length || item.audio?.length || item.leftOut?.length ||
+      item.secretOutcomes?.length || mcpAppLiveToolName(item.toolName)) return true;
+  if (!item.children) return false;
+  for (const child of item.children.items.values()) {
+    if (child.kind === "tool" && needsToolCard(child)) return true;
+  }
+  return false;
+}
+
+// Older hosts and partial pages can have a child reply without its original
+// launch. Keep that output available in the standard disclosure on tap.
+function toolReply(item: Tool): string | null {
+  const lines: string[] = [];
+  if (item.errorHead) lines.push(item.errorHead);
+  for (const id of item.children?.order ?? empty) {
+    const child = item.children?.items.get(id);
+    if (child?.kind === "assistant" || child?.kind === "user" || child?.kind === "notice") lines.push(child.text);
+    if (child?.kind === "tool") {
+      lines.push(child.toolName);
+      if (child.input) lines.push(child.input);
+      const output = toolReply(child);
+      if (output) lines.push(output);
+    }
+  }
+  if (item.report && item.report !== lines.at(-1)) lines.push(item.report);
+  return lines.join("\n\n") || null;
+}
+
+function projectedUserBody(item: Extract<TranscriptItem, { kind: "user" }>) {
+  const saved = savedTurnItems.get(item);
+  // Older hosts can send a generic turn body beside the recorded sender.
+  const body = saved?.type === "user_message" && saved.createdBy === "agent"
+    ? saved
+    : userMessageBody(item.text, item.sender, !item.sender && !!hostNoticeKind({ content: item.text, via: item.via }));
+  const { senderThreadId, scheduledTaskId, ...fields } = body;
+  return {
+    ...fields,
+    text: item.text,
+    ...(senderThreadId && { senderThreadId: ThreadId.make(senderThreadId) }),
+    ...(scheduledTaskId && { scheduledTaskId: ScheduledTaskId.make(scheduledTaskId) }),
+  };
+}
 
 export function hostFeedWork(feed: readonly ThreadFeedEntry[], busy: boolean, hasPendingText: boolean) {
   // T3 already reserves the working rows below a pending prompt.
@@ -35,48 +91,85 @@ export function hostFeedWork(feed: readonly ThreadFeedEntry[], busy: boolean, ha
   return { runlessWorkActive, activeWorkStartedAt };
 }
 
+/** A saved artifact version as a finished T3 `html_render` call. T3's feed
+ *  builder makes its render row, sized before the page loads. */
+function htmlRenderRow(
+  threadId: ThreadId,
+  key: string,
+  render: ArtifactRender,
+  runId: RunId | null,
+  date: Date | null,
+): ThreadFeedSourceRow {
+  const time = DateTime.makeUnsafe(date ?? 0);
+  const itemId = TurnItemId.make(key);
+  return {
+    sourceItemId: itemId,
+    sourceThreadId: threadId,
+    position: 0,
+    visibility: "local",
+    hostTime: date ? date.toISOString() : "",
+    item: {
+      id: itemId,
+      threadId,
+      runId,
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      ordinal: 0,
+      status: "completed",
+      title: null,
+      startedAt: date ? time : null,
+      completedAt: date ? time : null,
+      updatedAt: time,
+      type: "dynamic_tool",
+      toolName: HTML_RENDER_TOOL_NAME,
+      input: null,
+      output: { htmlRender: artifactHtmlRender(render) },
+    },
+  };
+}
+
 // The T3 list owns text messages. Rich cards subscribe to their own item on mount.
 export function conversationFeed(
   store: Pick<ConversationStore, "item" | "subscribeFeedItems">,
   id: string,
-  renderCard: (
-    key: string,
-    superseded: boolean,
-    liveAppOnly?: boolean,
-    artifactGroup?: ArtifactGroup,
-  ) => ReactNode,
+  renderCard: (key: string, liveAppOnly?: boolean) => ReactNode,
   resolveImagePath: (path: string, refresh?: boolean) => Promise<string>,
   readToolInput: (key: string) => Promise<string>,
+  agents: AgentFeedContext,
 ) {
   type Item = NonNullable<ReturnType<ConversationStore["item"]>>;
   const cache = new WeakMap<
     Item,
     {
       leadingRun: RunId | null;
-      superseded: boolean;
-      group: ArtifactGroup | undefined;
       sources: ThreadFeedSourceRow[];
     }
   >();
+  const monitorMessages = new WeakMap<OrchestrationV2TurnItem, {
+    message: Extract<OrchestrationV2TurnItem, { type: "user_message" }>;
+    notification: OrchestrationV2Notification;
+  }>();
+  const subagentByItem = new WeakMap<OrchestrationV2TurnItem, OrchestrationV2Subagent>();
   const threadId = ThreadId.make(id);
   const project = (
     key: string,
     item: Item,
     leadingRun: RunId | null,
-    superseded: boolean,
-    group: ArtifactGroup | undefined,
   ): ThreadFeedSourceRow[] => {
-    // The group card shows at its first member; the other members are in it.
-    if (group && group.id !== key) return [];
     if (
       item.kind === "user" &&
       item.waitsForTurn &&
       (item.delivery === "queued" || item.delivery === "sending")
     )
       return [];
+    const saved = savedTurnItems.get(item);
     const timestamp = "timestamp" in item ? item.timestamp : undefined;
     const date = timestamp && timestamp > 0 ? new Date(timestamp) : null;
     const createdAt = date && Number.isFinite(date.getTime()) ? date.toISOString() : "";
+    if (item.kind === "artifact") return [htmlRenderRow(threadId, key, item, leadingRun, date && createdAt ? date : null)];
     if (item.kind === "fork") {
       const sourceThreadId = ThreadId.make(item.activity.sourceSessionId);
       const time = DateTime.makeUnsafe(item.activity.at);
@@ -106,21 +199,27 @@ export function conversationFeed(
         },
       }];
     }
+    if (item.kind === "agent" || (item.kind === "tool" && item.subagent)) {
+      const agent = sessionSubagent(item, id, leadingRun, agents.provider,
+        item.kind === "agent" ? agents.child(item) : undefined);
+      const sourceItemId = TurnItemId.make(key);
+      const projected: OrchestrationV2TurnItem = {
+        type: "subagent", id: sourceItemId, subagentId: agent.id, threadId, runId: leadingRun,
+        nodeId: null, providerThreadId: null, providerTurnId: null, parentItemId: null,
+        nativeItemRef: agent.nativeTaskRef, ordinal: 0,
+        origin: agent.origin, driver: agent.driver, providerInstanceId: agent.providerInstanceId,
+        childThreadId: agent.childThreadId, remoteChild: agent.remoteChild,
+        title: agent.title, prompt: agent.prompt, progress: agent.progress, result: agent.result,
+        status: agent.status, startedAt: agent.startedAt, completedAt: agent.completedAt, updatedAt: agent.updatedAt,
+      };
+      subagentByItem.set(projected, agent);
+      return [{ sourceItemId, sourceThreadId: threadId, position: 0, visibility: "local", item: projected }];
+    }
     const viewedImage =
-      item.kind === "tool" ? viewedImagePath(item.toolName, item.input, item.status) : undefined;
+      item.kind === "tool" ? item.viewedImagePath ?? viewedImagePath(item.toolName, item.input, item.status) : undefined;
     // Ordinary calls use the same activity projection and disclosures as T3.
     // Calls with Solus resources keep their interactive card.
-    if (
-      item.kind === "tool" &&
-      !item.children &&
-      !item.subagent &&
-      !item.report &&
-      !item.images?.length &&
-      !item.audio?.length &&
-      !item.leftOut?.length &&
-      !item.secretOutcomes?.length &&
-      !mcpAppLiveToolName(item.toolName)
-    ) {
+    if (item.kind === "tool" && !needsToolCard(item)) {
       const time = DateTime.makeUnsafe(date && createdAt ? date : 0);
       const base = {
         id: TurnItemId.make(key),
@@ -138,42 +237,20 @@ export function conversationFeed(
         completedAt: item.status === "running" || !createdAt ? null : time,
         updatedAt: time,
       };
-      const toolItem = (input: string | null): OrchestrationV2TurnItem => {
-        if (toolGroupAction(item.toolName) === "command")
-          return {
-            ...base,
-            type: "command_execution",
-            input: commandText(parseToolInput(input)) ?? (input === "{}" ? "" : input) ?? "",
-            ...(item.errorHead && { output: item.errorHead }),
-          };
-        let args = input;
-        if (input) {
-          try {
-            args = JSON.parse(input);
-          } catch {
-            /* Provider supplied plain text. */
-          }
-        }
-        return {
-          ...base,
-          type: "dynamic_tool",
-          toolName: item.toolName,
-          input: args,
-          output: item.errorHead,
-          ...(viewedImage && { viewedImagePath: viewedImage }),
-        };
-      };
-      const projected = toolItem(item.input);
+      const toolItem = (input: string | null, body = toolFeedBody(item.toolName, input), output = item.errorHead): OrchestrationV2TurnItem =>
+        body.type === "command_execution"
+          ? { ...base, ...body, ...(output && { output }) }
+          : { ...base, ...body, output, ...(viewedImage && { viewedImagePath: viewedImage }) };
+      const projected = toolItem(item.input, saved?.type === "command_execution" || saved?.type === "dynamic_tool" ? saved : undefined);
       const detailKey = item.toolInputKey;
       let detail: Promise<OrchestrationV2TurnItem> | undefined;
-      const loadHostDetail = detailKey
-        ? () =>
-            (detail ??= readToolInput(detailKey)
-              .then(toolItem)
-              .catch((error) => {
-                detail = undefined;
-                throw error;
-              }))
+      const loadHostDetail = detailKey || item.report || item.childCount
+        ? () => detail ??= (detailKey ? readToolInput(detailKey) : Promise.resolve(item.input))
+            .then(input => toolItem(input, undefined, toolReply(item)))
+            .catch(error => {
+              detail = undefined;
+              throw error;
+            })
         : undefined;
       return [
         {
@@ -197,7 +274,7 @@ export function conversationFeed(
       runId: leadingRun,
       ...(item.kind === "tool" && { toolStatus: item.status }),
       ...(viewedImage && { viewedImagePath: viewedImage }),
-      render: () => (group ? renderCard(key, false, false, group) : renderCard(key, superseded)),
+      render: () => renderCard(key),
     };
     if (item.kind !== "user" && item.kind !== "assistant") {
       return [
@@ -211,7 +288,7 @@ export function conversationFeed(
                     id: key + ":app",
                     runId: null,
                     createdAt,
-                    render: () => renderCard(key, false, true),
+                    render: () => renderCard(key, true),
                   },
                 ]
               : [card],
@@ -236,7 +313,6 @@ export function conversationFeed(
       updatedAt: time,
       status: streaming ? ("running" as const) : ("completed" as const),
       messageId: MessageId.make(key),
-      text: item.text,
     };
     const row: ThreadFeedSourceRow = {
       hostTime: createdAt,
@@ -249,58 +325,47 @@ export function conversationFeed(
       visibility: "local",
       item:
         item.kind === "assistant"
-          ? { ...base, type: "assistant_message", streaming }
+          ? { ...base, ...(saved?.type === "assistant_message" ? saved : { type: "assistant_message" as const, text: item.text, streaming }) }
           : {
               ...base,
-              type: "user_message",
-              inputIntent: "turn_start",
-              createdBy: "user",
-              creationSource: "provider",
-              attachments: messageAttachments(item.sourceSessionId ?? id, item.attachments, resolveImagePath),
+              ...projectedUserBody(item),
+              attachments: messageAttachments(item.sourceSessionId ?? id, key, item.attachments, resolveImagePath),
             },
     };
+    if (item.kind === "user" && !item.sender && row.item?.type === "user_message") {
+      const monitor = (saved?.type === "user_message" && saved.notification) || watchNotification(item.text, item.via);
+      if (monitor && !item.attachments.length) {
+        const notification = { ...monitor, detail: item.text };
+        const activity = { ...base, type: "notification" as const, ...notification };
+        monitorMessages.set(activity, { message: row.item, notification });
+        return [{ ...row, item: activity }];
+      }
+    }
     return item.kind === "user" &&
       item.delivery === "failed"
       ? [row, { hostEntries: [{ ...card, id: key + ":attachments" }] }]
       : [row];
   };
   const feedCache = createThreadFeedCache();
-  const artifactGroups = createArtifactGrouping();
   return (order: readonly string[]) => {
     const observed = new Map<string, NonNullable<ReturnType<ConversationStore["item"]>>>();
     const rows = new Map<string, ThreadFeedSourceRow[]>();
-    const latest = new Map<string, string>();
     const leadingTools = new Set<string>();
     let hasPrompt = false;
     for (const key of order) {
       const item = store.item(key);
       if (item?.kind === "user") hasPrompt = true;
-      if (!hasPrompt && item?.kind === "tool") leadingTools.add(key);
-      if (item?.kind === "artifact" && item.workId) latest.set(item.workId, key);
+      if (!hasPrompt && (item?.kind === "tool" || item?.kind === "agent")) leadingTools.add(key);
     }
-    const groups = artifactGroups(order, (key) => store.item(key));
     const update = (key: string) => {
       const item = store.item(key);
       if (!item) return;
-      if (item.kind === "tool" || item.kind === "user" || item.kind === "assistant")
+      if (item.kind === "agent" || item.kind === "tool" || item.kind === "user" || item.kind === "assistant")
         observed.set(key, item);
-      const group = groups.get(key);
-      const superseded =
-        !group && item.kind === "artifact" && !!item.workId && latest.get(item.workId) !== key;
       const leadingRun = leadingTools.has(key) ? RunId.make("leading-work:" + order[0]) : null;
       let held = cache.get(item);
-      if (
-        !held ||
-        held.leadingRun !== leadingRun ||
-        held.superseded !== superseded ||
-        held.group !== group
-      ) {
-        held = {
-          leadingRun,
-          superseded,
-          group,
-          sources: project(key, item, leadingRun, superseded, group),
-        };
+      if (!held || held.leadingRun !== leadingRun) {
+        held = { leadingRun, sources: project(key, item, leadingRun) };
         cache.set(item, held);
       }
       rows.set(key, held.sources);
@@ -316,12 +381,73 @@ export function conversationFeed(
       return sources;
     };
     let sources = collectSources();
+    const messageOf = (item: OrchestrationV2TurnItem): OrchestrationV2ConversationMessage | null => {
+      const monitor = monitorMessages.get(item);
+      if (monitor) item = monitor.message;
+      if (item.type !== "user_message" && item.type !== "assistant_message") return null;
+      return {
+        id: item.messageId, threadId, runId: item.runId, nodeId: item.nodeId,
+        role: item.type === "assistant_message" ? "assistant" : "user",
+        ...(monitor && { notification: monitor.notification }),
+        text: item.text, streaming: item.type === "assistant_message" && item.streaming,
+        createdAt: item.startedAt ?? item.updatedAt, updatedAt: item.updatedAt,
+        createdBy: item.type === "assistant_message" ? "agent" : item.createdBy,
+        creationSource: item.type === "user_message" ? item.creationSource : "provider",
+        ...(item.type === "user_message" && { senderThreadId: item.senderThreadId, scheduledTaskId: item.scheduledTaskId }),
+        attachments: item.type === "user_message" ? item.attachments : [],
+      };
+    };
+    const buildProjection = (shell: OrchestrationV2ThreadShell): OrchestrationV2ThreadProjection => {
+      const visibleTurnItems: OrchestrationV2ProjectedTurnItem[] = [];
+      const subagents: OrchestrationV2Subagent[] = [];
+      const messages: OrchestrationV2ConversationMessage[] = [];
+      const turnItems: OrchestrationV2TurnItem[] = [];
+      sources.forEach((source) => {
+        if (!source.item) return;
+        if (source.item.type === "subagent") subagents.push(subagentByItem.get(source.item)!);
+        const row = visibleTurnItems.length;
+        const message = messageOf(source.item);
+        visibleTurnItems.push({ ...source, position: row });
+        turnItems.push(source.item);
+        if (message) messages.push(message);
+      });
+      return {
+        thread: { ...shell, lastVisitedAt: shell.lastVisitedAt ?? null },
+        visibleTurnItems, messages, turnItems,
+        runs: empty,
+        attempts: empty,
+        nodes: empty,
+        subagents,
+        providerSessions: empty,
+        providerThreads: empty,
+        providerTurns: empty,
+        runtimeRequests: empty,
+        plans: empty,
+        checkpointScopes: empty,
+        checkpoints: empty,
+        contextHandoffs: empty,
+        contextTransfers: empty,
+        updatedAt: shell.updatedAt,
+      };
+    };
+    let projection: OrchestrationV2ThreadProjection | null = null;
+    let previousShell: OrchestrationV2ThreadShell | undefined;
+    let sequence = 0;
     let snapshot = buildThreadFeed(sources, { cache: feedCache });
     return {
       get: () => snapshot,
+      projection: (shell: OrchestrationV2ThreadShell) => {
+        if (!projection) projection = buildProjection(shell);
+        else if (shell !== previousShell) {
+          projection = { ...projection, thread: { ...shell, lastVisitedAt: shell.lastVisitedAt ?? null }, updatedAt: shell.updatedAt };
+        }
+        previousShell = shell;
+        return projection;
+      },
       subscribe: (notify: () => void) => {
         const refresh = (keys: Iterable<string>) => {
           let rebuild = false;
+          const changedOffsets: number[] = [];
           let patched: ThreadFeedSourceRow[] | undefined;
           for (const key of keys) {
             const before = observed.get(key);
@@ -335,12 +461,13 @@ export function conversationFeed(
               item.input === before.input &&
               item.toolInputKey === before.toolInputKey &&
               item.subagent === before.subagent &&
+              (!item.subagent || (item.completedAt === before.completedAt && item.progress === before.progress)) &&
               item.errorHead === before.errorHead &&
               item.images === before.images &&
               item.audio === before.audio &&
               item.leftOut === before.leftOut &&
               item.secretOutcomes === before.secretOutcomes &&
-              item.children === before.children &&
+              (item.subagent || (!item.children && !before.children)) &&
               item.report === before.report
             ) {
               observed.set(key, item);
@@ -355,11 +482,36 @@ export function conversationFeed(
               const offset = offsets.get(key)!;
               afterRows.forEach((row, index) => {
                 patched![offset + index] = row;
+                changedOffsets.push(offset + index);
               });
             }
           }
           if (rebuild || patched) {
+            // T3 records which slot changed. Its detail selectors can then update one
+            // streamed item without scanning the history. Rebuild once for a batch
+            // or a change in row shape, including inherited rows and Solus cards.
+            const offset = changedOffsets.length === 1 ? changedOffsets[0] : undefined;
+            const before = offset === undefined ? undefined : sources[offset];
             sources = rebuild ? collectSources() : patched!;
+            const after = offset === undefined ? undefined : sources[offset];
+            if (projection && !rebuild && before?.item && after?.item &&
+                before.item.type === after.item.type && before.item.id === after.item.id &&
+                after.sourceThreadId === threadId && after.visibility === "local") {
+              const base = { threadId, occurredAt: projection.updatedAt };
+              const message = messageOf(after.item);
+              const agent = subagentByItem.get(after.item);
+              if (agent) projection = applyOrchestrationV2ProjectionEvent(projection, {
+                ...base, id: EventId.make(String(++sequence)), type: "subagent.updated", payload: agent,
+              });
+              if (message) projection = applyOrchestrationV2ProjectionEvent(projection, {
+                ...base, id: EventId.make(String(++sequence)), type: "message.updated", payload: message,
+              });
+              projection = applyOrchestrationV2ProjectionEvent(projection, {
+                ...base, id: EventId.make(String(++sequence)), type: "turn-item.updated", payload: after.item,
+              });
+            } else {
+              projection = null;
+            }
             snapshot = buildThreadFeed(sources, { cache: feedCache });
             notify();
           }

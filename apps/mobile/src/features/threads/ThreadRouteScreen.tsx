@@ -1,10 +1,14 @@
+import { SessionCardRenderer } from "../../solus/session-feed";
+import { ConversationCard } from "../../solus/ConversationCard";
+import { ThreadMcpApp } from "@solus-mobile/features/threads/ThreadMcpApp";
+import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import {
   CommonActions,
   StackActions,
   useNavigation,
   type StaticScreenProps,
 } from "@react-navigation/native";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { View } from "react-native";
 import { DraftWorkspaceControls } from "../../solus/DraftWorkspaceControls";
 import { AppProvider } from "@solus-mobile/app/app-context";
@@ -24,7 +28,10 @@ import { Inspector, useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspa
 import { ThreadScreenBinding, ThreadScreenHost } from "./ThreadScreenHost";
 import { InspectorContentScope, ThreadInspectorPreview } from "./thread-inspector-preview";
 import { ThreadInspectorHeader, type ThreadInspectorPresentation } from "./thread-inspector-header";
-import type { ThreadInspectorTarget } from "./thread-inspector-navigation";
+import { ThreadFileNavigatorPane } from "../files/thread-file-navigator-pane";
+import { GitOverviewSheet } from "./git/GitOverviewSheet";
+import { InspectorSheetContext } from "../layout/workspace-inspector-sheet";
+import type { ThreadInspectorMode, ThreadInspectorTarget } from "./thread-inspector-navigation";
 import { submittedThreadParams, type NewTaskDraftRouteParams } from "./thread-route-state";
 import {
   InspectorHeaderShownContext,
@@ -70,6 +77,14 @@ export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
 
 type ReadySession = Extract<ReturnType<typeof useThreadSession>, { kind: "ready" }>;
 
+function renderSessionCard(store: ConversationStore, id: string, appOnly?: boolean) {
+  return appOnly ? (
+    <ThreadMcpApp store={store} id={id} />
+  ) : (
+    <ConversationCard key={id} store={store} id={id} />
+  );
+}
+
 function ThreadRouteContent(props: ThreadRouteScreenProps) {
   const session = useThreadSession(props.route.params ?? {});
   const route = props.route.params;
@@ -87,59 +102,78 @@ function ThreadRouteContent(props: ThreadRouteScreenProps) {
 
   return (
     <AppProvider app={solus}>
-      <TurnDiffReader.Provider
-        value={session.kind === "ready" ? session.readTurnDiff : null}
-      >
-        {(route?.inspector || props.renderInspector) && !props.inspectorPresentation ? (
-          <Inspector
-            revealKey={JSON.stringify([route?.environmentId, route?.threadId, route?.inspector])}
-            content={{
-              active: "files",
-              resetKeys: [route?.environmentId, route?.threadId],
-              panes: [{ key: "files", render: () => route?.inspector ? (
-                <ThreadInspectorPreview target={route.inspector} renderThread={thread => <ThreadRouteScreen {...thread}/>}
-                  onClose={() => navigation.dispatch(CommonActions.setParams({inspector: undefined}))}
-                  onOpen={inspector => navigation.dispatch(CommonActions.setParams({inspector}))}/>
-              ) : props.renderInspector?.() }],
-            }}
-          />
-        ) : null}
-        <ThreadScreenHost>
-          {session.kind === "ready" ? (
-            <ThreadContent
-              key={JSON.stringify([session.hostId, session.id])}
-              session={session}
-              route={props}
+      <SessionCardRenderer value={renderSessionCard}>
+        <TurnDiffReader.Provider value={session.kind === "ready" ? session.readTurnDiff : null}>
+          {session.kind !== "ready" &&
+          (route?.inspector || props.renderInspector) &&
+          !props.inspectorPresentation ? (
+            <Inspector
+              revealKey={JSON.stringify([route?.environmentId, route?.threadId, route?.inspector])}
+              content={{
+                active: "files",
+                resetKeys: [route?.environmentId, route?.threadId],
+                panes: [
+                  {
+                    key: "files",
+                    render: () =>
+                      route?.inspector ? (
+                        <ThreadInspectorPreview
+                          target={route.inspector}
+                          renderThread={(thread) => <ThreadRouteScreen {...thread} />}
+                          onClose={() =>
+                            navigation.dispatch(CommonActions.setParams({ inspector: undefined }))
+                          }
+                          onOpen={(inspector) =>
+                            navigation.dispatch(CommonActions.setParams({ inspector }))
+                          }
+                        />
+                      ) : (
+                        props.renderInspector?.()
+                      ),
+                  },
+                ],
+              }}
             />
-          ) : (
-            <InspectorHeaderShownContext value={props.inspectorPresentation !== undefined}>
-              {props.inspectorPresentation ? (
-                <ThreadInspectorHeader title={gt("Thread")} {...props.inspectorPresentation} />
-              ) : null}
-              {session.kind === "loading" ? (
-                <OpeningThreadLoadingScreen />
-              ) : (
-                <ThreadUnavailableScreen
-                  detail={session.detail}
-                  actionLabel={
-                    session.recovery?.kind === "reconnect"
-                      ? gt("Reconnect environment")
-                      : session.recovery?.kind === "retry"
-                        ? gt("Try again")
-                        : session.hostId
-                          ? gt("Back to sessions")
-                          : gt("Connect an environment")
-                  }
-                  onAction={
-                    session.recovery?.run ??
-                    (session.hostId ? goBack : () => navigation.navigate("SettingsEnvironmentNew"))
-                  }
-                />
-              )}
-            </InspectorHeaderShownContext>
-          )}
-        </ThreadScreenHost>
-      </TurnDiffReader.Provider>
+          ) : null}
+          <ThreadScreenHost>
+            {session.kind === "ready" ? (
+              <ThreadContent
+                key={JSON.stringify([session.hostId, session.id])}
+                session={session}
+                route={props}
+              />
+            ) : (
+              <InspectorHeaderShownContext value={props.inspectorPresentation !== undefined}>
+                {props.inspectorPresentation ? (
+                  <ThreadInspectorHeader title={gt("Thread")} {...props.inspectorPresentation} />
+                ) : null}
+                {session.kind === "loading" ? (
+                  <OpeningThreadLoadingScreen />
+                ) : (
+                  <ThreadUnavailableScreen
+                    detail={session.detail}
+                    actionLabel={
+                      session.recovery?.kind === "reconnect"
+                        ? gt("Reconnect environment")
+                        : session.recovery?.kind === "retry"
+                          ? gt("Try again")
+                          : session.hostId
+                            ? gt("Back to sessions")
+                            : gt("Connect an environment")
+                    }
+                    onAction={
+                      session.recovery?.run ??
+                      (session.hostId
+                        ? goBack
+                        : () => navigation.navigate("SettingsEnvironmentNew"))
+                    }
+                  />
+                )}
+              </InspectorHeaderShownContext>
+            )}
+          </ThreadScreenHost>
+        </TurnDiffReader.Provider>
+      </SessionCardRenderer>
     </AppProvider>
   );
 }
@@ -153,13 +187,50 @@ function ThreadContent({
 }) {
   const { binding, draft, header, sessionFolders } = useThreadScreenData(session);
   const navigation = useNavigation();
-  const { layout } = useAdaptiveWorkspaceLayout();
-  const gt = useGT();
-  const hasServers = useSessionHasRunningServers(session.hostId, session.id, header.cwd, sessionFolders, !draft && !route.inspectorPresentation);
-  const onOpenRunningServers = hasServers ? () => navigation.navigate("ThreadRunningServers", {
+  const { layout, showInspector, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
+  const [chosenMode, setChosenMode] = useState<"files" | "git" | "route" | null>(null);
+  const target = route.route.params?.inspector;
+  const selectedMode = chosenMode ?? (route.renderInspector ? "route" : null);
+  const mode = route.inspectorPresentation
+    ? null
+    : target
+      ? "preview"
+      : selectedMode === "route" && !route.renderInspector
+        ? null
+        : selectedMode === "files" && !header.cwd
+          ? null
+          : selectedMode;
+  const location = {
     environmentId: session.hostId,
     threadId: session.id,
-  }) : undefined;
+    cwd: header.cwd,
+    projectName: header.projectName,
+  };
+  const openInspector = (next: "files" | "git") => {
+    navigation.dispatch(CommonActions.setParams({ inspector: undefined }));
+    setChosenMode(next === "files" && route.renderInspector ? "route" : next);
+    showInspector();
+  };
+  const selectFile = (path: string) => {
+    const params = { ...location, path: path.split("/").filter(Boolean) };
+    if (draft) navigation.navigate("NewTaskFile", params);
+    else navigation.navigate("ThreadFile", params);
+  };
+  const gt = useGT();
+  const hasServers = useSessionHasRunningServers(
+    session.hostId,
+    session.id,
+    header.cwd,
+    sessionFolders,
+    !draft && !route.inspectorPresentation,
+  );
+  const onOpenRunningServers = hasServers
+    ? () =>
+        navigation.navigate("ThreadRunningServers", {
+          environmentId: session.hostId,
+          threadId: session.id,
+        })
+    : undefined;
   const environmentControl = draft ? (
     <DraftEnvironmentControl
       connectionState={draft.connectionState}
@@ -170,77 +241,149 @@ function ThreadContent({
     />
   ) : null;
   return (
-    <ThreadScreenBinding
-      {...binding}
-      layoutVariant={layout.variant}
-      draftMode={
-        draft
-          ? {
-              editorRef: draft.editorRef,
-              interactionLocked: draft.disabled,
-              sendBlockedReason: null,
-              content: draftHeroContent({ ...draft, environmentControl }),
-              // T3's draft controls: the context pickers when the hero has no room, then the workspace row.
-              controls: (height) => (
-                <>
-                  {height < SHORT_DRAFT_VIEWPORT_HEIGHT ? (
-                    <DraftContextControls
-                      projectLabel={draft.scratch ? gt("No project") : draft.title}
-                      onChooseProject={draft.chooseProject}
-                      connectionState={draft.connectionState}
-                      label={draft.environmentLabel}
-                      machineKind="server"
-                      disabled={draft.disabled}
-                      onChooseEnvironment={draft.chooseEnvironment}
-                    />
-                  ) : null}
-                  {draft.scratch ? null : (
-                    <DraftWorkspaceControls store={session.store} disabled={draft.disabled} draftKey={session.draftKey} />
-                  )}
-                </>
-              ),
-            }
-          : undefined
-      }
-      header={
-        route.inspectorPresentation ? (
-          <ThreadInspectorHeader
-            title={header.title || gt("Thread")}
-            {...route.inspectorPresentation}
-          />
-        ) : !header.cwd || header.cwd === "~" || isChat(header.cwd) ? (
-          <ThreadNavigationHeader {...header} onReturnToThread={route.onReturnToThread} onOpenRunningServers={onOpenRunningServers} />
-        ) : (
-          <ProjectThreadHeader {...header} onReturnToThread={route.onReturnToThread} onOpenRunningServers={onOpenRunningServers} />
-        )
-      }
-    />
+    <>
+      {mode && (
+        <Inspector
+          revealKey={target ? JSON.stringify([session.hostId, session.id, target]) : undefined}
+          content={{
+            active: mode,
+            resetKeys: [session.hostId, session.id, header.cwd],
+            panes: [
+              ...(target
+                ? [
+                    {
+                      key: "preview",
+                      render: () => (
+                        <ThreadInspectorPreview
+                          target={target}
+                          renderThread={(thread) => <ThreadRouteScreen {...thread} />}
+                          onClose={() => {
+                            navigation.dispatch(CommonActions.setParams({ inspector: undefined }));
+                            toggleAuxiliaryPane();
+                          }}
+                          onOpen={(inspector) =>
+                            navigation.dispatch(CommonActions.setParams({ inspector }))
+                          }
+                        />
+                      ),
+                    },
+                  ]
+                : []),
+              {
+                key: "files",
+                prewarm: true,
+                render: () => (
+                  <InspectorSheetContext.Consumer>
+                    {(close) => (
+                      <ThreadFileNavigatorPane
+                        cwd={header.cwd}
+                        environmentId={binding.environmentId}
+                        projectName={header.projectName}
+                        selectedPath={null}
+                        onSelectFile={(path) =>
+                          close ? close(() => selectFile(path)) : selectFile(path)
+                        }
+                      />
+                    )}
+                  </InspectorSheetContext.Consumer>
+                ),
+              },
+              ...(!draft
+                ? [
+                    {
+                      key: "git",
+                      prewarm: true,
+                      render: () => (
+                        <GitOverviewSheet presentation="inspector" route={{ params: location }} />
+                      ),
+                    },
+                  ]
+                : []),
+              ...(route.renderInspector ? [{ key: "route", render: route.renderInspector }] : []),
+            ],
+          }}
+        />
+      )}
+      <ThreadScreenBinding
+        {...binding}
+        layoutVariant={layout.variant}
+        draftMode={
+          draft
+            ? {
+                editorRef: draft.editorRef,
+                interactionLocked: draft.disabled,
+                sendBlockedReason: null,
+                content: draftHeroContent({ ...draft, environmentControl }),
+                // T3's draft controls: the context pickers when the hero has no room, then the workspace row.
+                controls: (height) => (
+                  <>
+                    {height < SHORT_DRAFT_VIEWPORT_HEIGHT ? (
+                      <DraftContextControls
+                        projectLabel={draft.scratch ? gt("No project") : draft.title}
+                        onChooseProject={draft.chooseProject}
+                        connectionState={draft.connectionState}
+                        label={draft.environmentLabel}
+                        machineKind="server"
+                        disabled={draft.disabled}
+                        onChooseEnvironment={draft.chooseEnvironment}
+                      />
+                    ) : null}
+                    {draft.scratch ? null : (
+                      <DraftWorkspaceControls
+                        store={session.store}
+                        disabled={draft.disabled}
+                        draftKey={session.draftKey}
+                      />
+                    )}
+                  </>
+                ),
+              }
+            : undefined
+        }
+        header={
+          route.inspectorPresentation ? (
+            <ThreadInspectorHeader
+              title={header.title || gt("Thread")}
+              {...route.inspectorPresentation}
+            />
+          ) : !header.cwd || header.cwd === "~" || isChat(header.cwd) ? (
+            <ThreadNavigationHeader
+              {...header}
+              onReturnToThread={route.onReturnToThread}
+              onOpenRunningServers={onOpenRunningServers}
+            />
+          ) : (
+            <ProjectThreadHeader
+              {...header}
+              inspectorMode={mode}
+              onFiles={() => openInspector("files")}
+              onGit={draft ? undefined : () => openInspector("git")}
+              onReturnToThread={route.onReturnToThread}
+              onOpenRunningServers={onOpenRunningServers}
+            />
+          )
+        }
+      />
+    </>
   );
 }
 
 function ProjectThreadHeader(
   props: ReturnType<typeof useThreadScreenData>["header"] & {
+    inspectorMode: ThreadInspectorMode | null;
+    onFiles: () => void;
+    onGit?: (() => void) | undefined;
     onReturnToThread?: () => void;
     onOpenRunningServers?: () => void;
   },
 ) {
-  const navigation = useNavigation();
   const gitControls = useCheckoutGitControls(props.controller, props.cwd, props.draft);
   return (
     <ThreadHeader
       {...props}
       hasThreadCwd
-      inspectorMode={null}
-      gitControls={{ ...gitControls, draftKey: props.draftKey }}
-      onOpenFilesInspector={() => {
-        const target = {
-          environmentId: gitControls.environmentId,
-          cwd: props.cwd,
-          projectName: props.projectName,
-        };
-        if (props.draft) navigation.navigate("NewTaskFiles", target);
-        else navigation.navigate("ThreadFiles", { ...target, threadId: gitControls.threadId });
-      }}
+      gitControls={{ ...gitControls, draftKey: props.draftKey, onOpenGitInspector: props.onGit }}
+      onOpenFilesInspector={props.onFiles}
     />
   );
 }

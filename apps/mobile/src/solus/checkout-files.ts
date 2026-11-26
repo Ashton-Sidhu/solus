@@ -106,15 +106,17 @@ export async function readCheckoutEntry(
   if (textPage) request.textPage = textPage;
   const result = await api.readProjectFile(projectContext(cwd, organizationId), request);
   if (result.ok) return result;
-  // A path opened from a message or markdown link can also name a folder.
+  if (result.isDirectory) return { kind: "directory" as const };
+  if (result.isDirectory === false) throw new Error(result.error);
+  // Older hosts reported a folder as a generic preview failure.
   const directory = await api.listDirectory(resolveWorkspaceFilePath(cwd, relativePath), true);
   if (!directory.error) return { kind: "directory" as const };
   throw new Error(result.error);
 }
 
 export const readEntry = checkoutQuery(
-  (api, input: { cwd: string; relativePath: string }, organizationId) =>
-    readCheckoutEntry(api, input, organizationId, { index: 0 }),
+  (api, input: { cwd: string; relativePath: string; line?: number }, organizationId) =>
+    readCheckoutEntry(api, input, organizationId, { index: 0, ...(input.line && { line: input.line }) }),
 );
 
 export const readTextPage = checkoutQuery(
@@ -133,18 +135,23 @@ export const readTextPage = checkoutQuery(
   },
 );
 
+export type CheckoutAsset = { cwd: string; sessionId?: string; revision?: string | null } & (
+  { path: string; assetId?: never; download?: boolean } | { assetId: string; path?: never; download?: never }
+);
+
 export async function signCheckoutAsset(
   api: Pick<HostApi, "assetCreateUrl">,
-  { cwd, path, sessionId }: { cwd: string; path: string; sessionId?: string },
+  { cwd, path, sessionId, download, assetId }: CheckoutAsset,
   organizationId: string | null,
   httpBaseUrl: string,
 ) {
   const context = projectContext(cwd, organizationId);
   if (sessionId) context.session.sessionId = sessionId;
-  const signed = await api.assetCreateUrl(context, { path });
+  const signed = await api.assetCreateUrl(context, assetId !== undefined ? { assetId } : { path, ...(download && { download: true }) });
   return {
     url: new URL(signed.relativeUrl, new URL(httpBaseUrl).origin).toString(),
     expiresAt: signed.expiresAt,
+    ...(signed.imageDimensions && { imageDimensions: signed.imageDimensions }),
   };
 }
 
@@ -154,6 +161,6 @@ export const checkoutAssetUrl = checkoutQuery(
 );
 
 export const checkoutMediaAsset = checkoutQuery(
-  (api, input: { cwd: string; path: string; sessionId?: string; revision?: string | null }, organizationId, httpBaseUrl) =>
+  (api, input: CheckoutAsset, organizationId, httpBaseUrl) =>
     signCheckoutAsset(api, input, organizationId, httpBaseUrl),
 );

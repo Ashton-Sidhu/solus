@@ -52,9 +52,9 @@ afterAll(async () => {
 })
 
 const LINK_HASH = 'link-hash'
-const member = (userId: string, options: { organizationId?: string; teamIds?: string[]; role?: 'owner' | 'member'; hostKind?: 'personal' | 'managed' | 'cloud' } = {}): Principal => ({
+const member = (userId: string, options: { organizationId?: string; teamIds?: string[]; role?: 'owner' | 'member'; hostKind?: 'personal' | 'cloud' | 'api' } = {}): Principal => ({
   kind: 'org-member', userId, organizationId: options.organizationId ?? 'org1', organizationRole: options.role ?? 'member', teamIds: options.teamIds ?? [],
-  hostKind: options.hostKind ?? 'managed', displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
+  hostKind: options.hostKind ?? 'cloud', displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
 })
 const guestFor = (kind: 'session' | 'work', id: string): Principal => ({
   kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', organizationId: 'org1',

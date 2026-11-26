@@ -10,7 +10,11 @@ function setup() {
   let blocked = false;
   const onSubmit = vi.fn();
   const preparations: Array<(success: boolean) => void> = [];
-  const onPasteImages = () => new Promise<boolean>((resolve) => preparations.push(resolve));
+  const previews: Array<() => void> = [];
+  const onPasteImages = (_uris: readonly string[], onPreviewReady: () => void) => {
+    previews.push(onPreviewReady);
+    return new Promise<boolean>((resolve) => preparations.push(resolve));
+  };
   function Probe() {
     const current = useSubmitAfterNativeImages({
       draftKey: "draft",
@@ -33,6 +37,7 @@ function setup() {
       return queue!;
     },
     onSubmit,
+    previews,
     setBlocked(value: boolean) {
       blocked = value;
       render();
@@ -111,4 +116,33 @@ it("waits for other attachment preparation and sends once after all images join 
   state.setBlocked(true);
   state.setBlocked(false);
   expect(state.onSubmit).toHaveBeenCalledOnce();
+});
+
+it("replaces only the prepared photos' placeholders while their upload is pending", async () => {
+  using state = setup();
+  act(() => {
+    void state.queue.pasteImages(["a", "b"]);
+    void state.queue.pasteImages(["c"]);
+  });
+  expect(state.queue.preparingImageCount).toBe(3);
+  act(() => state.previews[0]!());
+  expect(state.queue.preparingImageCount).toBe(1);
+  expect(state.queue.deferSend()).toBe(true);
+  await state.finish(true);
+  expect(state.queue.preparingImageCount).toBe(1);
+  await state.finish(false);
+  expect(state.queue.preparingImageCount).toBe(0);
+  expect(state.onSubmit).not.toHaveBeenCalled();
+});
+
+it("keeps native paste slots across the file handoff, including partial provider failure", async () => {
+  using state = setup();
+  act(() => state.queue.adjustImageReservations(2));
+  expect(state.queue.preparingImageCount).toBe(2);
+  act(() => { void state.queue.pasteImages(["a"], 2); });
+  expect(state.queue.preparingImageCount).toBe(1);
+  act(() => state.previews[0]!());
+  expect(state.queue.preparingImageCount).toBe(0);
+  await state.finish(true);
+  expect(state.queue.preparingImageCount).toBe(0);
 });

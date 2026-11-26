@@ -21,7 +21,7 @@ vi.mock("react-native-webview", () => ({
   WebView: (props: { onOpenWindow: typeof harness.openWindow; onMessage: typeof harness.overflow }) => {
     harness.openWindow = props.onOpenWindow;
     harness.overflow = props.onMessage;
-    return null;
+    return <div data-webview />;
   },
 }));
 vi.mock("../../components/ui/AppActivityIndicator", () => ({ AppActivityIndicator: () => null }));
@@ -47,7 +47,7 @@ vi.mock("../../native/useOpenPullRequest", () => ({
 }));
 vi.mock("@react-navigation/native", () => ({ useNavigation: () => ({}) }));
 
-import { HtmlRenderWebView, InlineHtmlRender } from "./HtmlRenderWebView";
+import { HtmlRenderWebView, InlineHtmlRender, ThreadHtmlPreviewsReady } from "./HtmlRenderWebView";
 
 it("opens a render's issue link the way the thread's own links open", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -67,7 +67,16 @@ it("keeps the reserved transcript height when the embedded page reports overflow
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const container = document.createElement("div");
   const root = createRoot(container);
-  await act(async () => root.render(<InlineHtmlRender html="<p>diagram</p>" title="Diagram" height={323} />));
+  const render = (ready: boolean) => root.render(
+    <ThreadHtmlPreviewsReady value={ready}>
+      <InlineHtmlRender html="<p>diagram</p>" title="Diagram" height={323} />
+    </ThreadHtmlPreviewsReady>,
+  );
+  await act(async () => render(false));
+  expect(container.querySelector('[data-height="323"]')).not.toBeNull();
+  expect(container.querySelector("[data-webview]")).toBeNull();
+  await act(async () => render(true));
+  expect(container.querySelector("[data-webview]")).not.toBeNull();
   expect(container.querySelector('[data-height="323"]')).not.toBeNull();
   expect(harness.overflow).toBeTypeOf("function");
   await act(async () => harness.overflow?.({ nativeEvent: {

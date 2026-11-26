@@ -214,15 +214,15 @@ describe("an agent's link from an attached machine", () => {
     // link that landed on the task would show no pull request on that session.
     const { ShareManager } = await import('@solus/server/sharing/share-manager')
     const operations = (await import('@solus/server/data/workspace/service')).createWorkspaceOperations(new ShareManager({ db: database.getDatabase() }))
-    const context = { principal: SYSTEM, home: { kind: 'local' as const, hostId: 'host-1' }, scopes: ['tasks:write' as const], actingAgent: { organizationId: 'local' } }
+    const context = { principal: SYSTEM, home: { kind: 'local' as const, hostId: 'host-1' }, scopes: ['issues:write' as const], actingAgent: { organizationId: 'local' } }
 
     const task = await attachedTask()
     await task.linkSession('worker', 'working', {})
-    await operations.putLink(context, { from: { kind: 'task', id: task.id }, to: { kind: 'pr', url: URL_7 }, originSessionId: 'worker' })
+    await operations.putLink(context, { from: { kind: 'issue', id: task.id }, to: { kind: 'pr', url: URL_7 }, originSessionId: 'worker' })
     expect(await taskPrNumbers(task.id)).toEqual([[7, 'worker']])
 
     // A session that does not work on the task links the task itself.
-    await operations.putLink(context, { from: { kind: 'task', id: task.id }, to: { kind: 'pr', url: 'https://github.com/acme/solus/pull/8' }, originSessionId: 'visitor' })
+    await operations.putLink(context, { from: { kind: 'issue', id: task.id }, to: { kind: 'pr', url: 'https://github.com/acme/solus/pull/8' }, originSessionId: 'visitor' })
     expect((await taskPrNumbers(task.id)).sort()).toEqual([[7, 'worker'], [8, null]])
   })
 })

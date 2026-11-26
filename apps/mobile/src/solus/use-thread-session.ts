@@ -13,6 +13,7 @@ import { sessionDetailAtom } from "./session-detail";
 import { linkedSessionRecord } from "./session-record";
 import { waitingForSessionList } from "./workspace-state";
 
+const subscribeNothing = () => () => {};
 const noSession = Atom.make(null);
 const waitingForCodebase = Symbol("waitingForCodebase");
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
@@ -21,6 +22,7 @@ export function useThreadSession(params: {
   environmentId?: string;
   threadId?: string;
   draft?: NewTaskDraftRouteParams;
+  inspector?: ReactNavigation.RootParamList["Thread"]["inspector"];
 }) {
   const directory = useSolusWorkspace();
   const draft = params.draft;
@@ -97,6 +99,16 @@ export function useThreadSession(params: {
       ? store.controller.readTurnDiff(index)
       : Promise.resolve(null);
   }, [store, hostId, readScope]);
+  // The first page and the screen mount compete for the same JS thread. Let the
+  // page arrive before mounting the editor and a list with no cells to lay out.
+  const waitingForFirstPage = useSyncExternalStore(
+    saved?.meta.subscribe ?? subscribeNothing,
+    () => !!saved && saved.controller.phase.kind === "loading" &&
+      !saved.controller.showsHostConversation && saved.orderSnapshot().length === 0,
+  );
+  if (waitingForFirstPage && !params.inspector && host?.connectionState === "connected") {
+    return { kind: "loading" as const };
+  }
   if (isDraft && !record && codebaseId === waitingForCodebase) return { kind: "loading" as const };
   if (
     !store ||

@@ -13,11 +13,12 @@ import type { SharesMirrorPayload, ActivityMirrorPayload, TranscriptMirrorPayloa
 import type { Activity } from '@solus/contracts/activity'
 import type { Attribution, User } from '@solus/contracts/user'
 import { cloudAccountOf, cloudUserIdOf } from '../../host/host-user'
-import { sessionCloudSyncDecision } from '../../host/policy/host-policy-store'
+import { sessionCloudCopyRefusal, sessionCloudSyncDecision } from '../../host/policy/host-policy-store'
 import { activityFor } from '../../data/activity/activity'
 import { session } from '../../data/sessions/schema'
 import { appendDelivery, deliveryActorOf, type DeliveryDestination } from '../delivery-queue'
 import { personMirrorScope, personOfMirrorScope } from '../../data/sessions/mirror-scope'
+import { agentIdSchema } from '@solus/contracts/types'
 
 const log = createLogger('main', 'transcript-mirror')
 
@@ -32,7 +33,8 @@ const log = createLogger('main', 'transcript-mirror')
  * marked mirrored that never reached the log. The session's activity rows
  * (plans/012 §5) travel the same way, each once (`activity_mirror_rows`).
  *
- * Whether a session is mirrored at all is the session record's fact. A
+ * Whether a session is mirrored at all is the session record's fact, and the
+ * answer of `sessionCloudCopyRefusal`: the host switch, then the policy. A
  * `published` record of a real organization ships its transcript to that
  * organization. Each other session is personal: it ships to its owner's own
  * scope (`data/sessions/mirror-scope.ts`), and only while the cloud sync decision allows the
@@ -102,7 +104,8 @@ export async function mirrorDestination(sessionId: string): Promise<DeliveryDest
   const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
   if (!record) return null
   const published = publishedDestinationOf(record)
-  if (published) return published
+  // A published session sends its rows only while its conversation may leave this host.
+  if (published) return sessionCloudCopyRefusal(record.organizationId) ? null : published
   const accountId = cloudCopyAccountOf(record)
   return accountId ? { organizationId: personMirrorScope(accountId), actorUserId: accountId } : null
 }
@@ -110,8 +113,8 @@ export async function mirrorDestination(sessionId: string): Promise<DeliveryDest
 /**
  * Where the diffs of a session's turns are mirrored to, or null. A patch holds
  * code that is not committed, so the cloud sync decision gates it for each
- * session, a published one too: publication alone sends the rows of a
- * session, not its code. The diff then goes where the rows go.
+ * session, a published one too, and it needs the account of the session's
+ * owner. The diff then goes where the rows go.
  */
 export async function turnDiffDestination(sessionId: string): Promise<DeliveryDestination | null> {
   const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
@@ -236,7 +239,7 @@ export class TranscriptMirror {
 
 const interruptedRowSchema = z.object({
   session_id: z.string(),
-  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
+  provider: agentIdSchema,
   project_path: z.string(),
 })
 

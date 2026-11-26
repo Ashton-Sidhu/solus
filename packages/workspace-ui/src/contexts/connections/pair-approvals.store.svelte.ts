@@ -10,7 +10,7 @@ import { serversStore } from './servers.store.svelte'
  * The open approval requests of each host this client reaches as its owner
  * (docs/plans/add-machine-card.md, "The approval request"): a machine asks to
  * pair without a code, and an owner approves or denies it. One toast tells of
- * each new request; the host's Access tab lists the open ones.
+ * each new request; Settings › Sharing & access lists the open ones.
  */
 
 /** One host's open requests as this client last read them. */
@@ -152,7 +152,7 @@ export const pairApprovalsStore: PairApprovalsStore = new PairApprovalsStore(
     hostLabel: (serverId) => serversStore.hostFor(serverId)?.label || 'this host',
   },
   {
-    // Sonner holds two actions: Approve and Deny. The host's Access tab lists every open request.
+    // Sonner holds two actions: Approve and Deny. Settings › Sharing & access lists every open request.
     show: (serverId, approval, hostLabel) => {
       const text = approvalNoticeText(approval, hostLabel)
       toasts.show({

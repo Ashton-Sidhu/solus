@@ -3,7 +3,6 @@ import {
   fileChipParts,
   fileLinkCopyParts,
   fileMentionTarget,
-  linkChipCopyParts,
   linkReference,
   tokenizeMarkdownText,
 } from "@solus/workspace-ui/components/conversation/lib/markdown-text";
@@ -107,11 +106,6 @@ describe("a chip drawn from a link", () => {
       const reference = linkReference(label, href);
       expect(parseReferenceTokens(reference).map((range) => range.token.kind)).toEqual([kind]);
     }
-  });
-
-  test("an image embed copies as an image, not as a link", () => {
-    const parts = linkChipCopyParts("asset://a1", true);
-    expect(`${parts.open}diagram${parts.close}`).toBe("![diagram](asset://a1)");
   });
 });
 

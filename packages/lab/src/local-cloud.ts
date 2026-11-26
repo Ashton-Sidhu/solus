@@ -197,7 +197,6 @@ export async function startLocalCloud(): Promise<LocalCloudStack> {
       CLOUDFLARE_ACCOUNT_ID: '',
       CLOUDFLARE_ZONE_ID: '',
       CLOUDFLARE_API_TOKEN: '',
-      SPRITES_API_TOKEN: '',
       // Managed hosts need a named release; the in-memory provider never downloads it.
       MANAGED_HOST_RELEASE: '0.33.0',
       // The cloud's own fake of the GitHub, Google, and Atlassian OAuth apps (solus-cloud

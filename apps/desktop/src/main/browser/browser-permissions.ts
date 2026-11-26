@@ -21,14 +21,12 @@ import { BROWSER_PARTITION_PREFIX, BROWSER_UNSAVED_PARTITION_PREFIX } from '@sol
  * |                                              | own cookies in the same jar        |
  * | `clipboard-read`                             | ask once per origin, remembered    |
  * |                                              | for this app run                   |
+ * | `media`                                      | ask per origin and capture device  |
+ * |                                              | in a native browser pane          |
  * | `openExternal`                               | ask every time: it opens another   |
  * |                                              | application                        |
- * | everything else (media, geolocation,         | deny                               |
+ * | everything else (geolocation,                | deny                               |
  * | notifications, midi, display-capture, ...)   |                                    |
- *
- * Media and geolocation are denied, not asked: a grant would be Solus's own
- * macOS camera, microphone, or location access, and a page in a QA pane rarely
- * needs them. Notifications would appear as Solus's own.
  */
 const ALLOWED_PERMISSIONS: ReadonlySet<string> = new Set([
   'clipboard-sanitized-write',
@@ -53,13 +51,20 @@ export interface BrowserPermissionPrompt {
  * allow, `false` for deny, and `undefined` when nobody answered: no visible
  * window, or the dialog failed.
  */
-export type AskBrowserPermission = (requester: WebContents, prompt: BrowserPermissionPrompt) => Promise<boolean | undefined>
+export type AskBrowserPermission = (requester: WebContents, prompt: BrowserPermissionPrompt, signal?: AbortSignal) => Promise<boolean | undefined>
+
+export type BrowserMediaDevice = 'camera' | 'microphone'
+export interface BrowserSystemMediaAccess {
+  hasAccess(device: BrowserMediaDevice): boolean
+  requestAccess(requester: WebContents, devices: readonly BrowserMediaDevice[], signal: AbortSignal): Promise<boolean>
+}
 
 type RequestHandler = Parameters<Session['setPermissionRequestHandler']>[0] & {}
 type CheckHandler = Parameters<Session['setPermissionCheckHandler']>[0] & {}
 export interface BrowserPermissionHandlers {
   request: RequestHandler
   check: CheckHandler
+  revokeMedia(): void
 }
 
 type PermissionSession = Pick<Session, 'setPermissionRequestHandler' | 'setPermissionCheckHandler'>
@@ -69,29 +74,69 @@ export function isBrowserPartition(partition: string | undefined): partition is 
     && (partition.startsWith(BROWSER_PARTITION_PREFIX) || partition.startsWith(BROWSER_UNSAVED_PARTITION_PREFIX))
 }
 
-/** The handlers for one partition. Clipboard answers are kept per origin in
- *  memory only, so they last for the app run and for this partition alone. */
-export function browserPermissionHandlers(ask: AskBrowserPermission): BrowserPermissionHandlers {
+/** One partition's consent for this app run. */
+export function browserPermissionHandlers(ask: AskBrowserPermission, systemMedia?: BrowserSystemMediaAccess): BrowserPermissionHandlers {
   const clipboardReadAnswers = new Map<string, boolean>()
+  const mediaAnswers = { camera: new Map<string, boolean>(), microphone: new Map<string, boolean>() }
+  let pendingMedia: AbortController | undefined
   // One prompt at a time, so a page cannot stack dialogs by asking in a loop.
   let isPromptOpen = false
 
-  const prompt = (requester: WebContents, content: BrowserPermissionPrompt, settle: (answer: boolean | undefined) => void): void => {
-    if (isPromptOpen) {
-      settle(undefined)
-      return
-    }
+  const prompt = async (requester: WebContents, content: BrowserPermissionPrompt, signal?: AbortSignal): Promise<boolean | undefined> => {
+    if (isPromptOpen) return undefined
     isPromptOpen = true
-    ask(requester, content).then(
-      (answer) => {
-        isPromptOpen = false
-        settle(answer)
-      },
-      () => {
-        isPromptOpen = false
-        settle(undefined)
-      },
-    )
+    try {
+      return await ask(requester, content, signal)
+    } catch {
+      return undefined
+    } finally {
+      isPromptOpen = false
+    }
+  }
+
+  const requestMedia = async (requester: WebContents, details: Parameters<RequestHandler>[3]): Promise<boolean> => {
+    if (!isNativeBrowserGuest(requester) || pendingMedia) return false
+    const origin = mediaOrigin(('securityOrigin' in details ? details.securityOrigin : undefined) ?? details.requestingUrl)
+    // Electron 44 reports screen and tab capture here with an empty list.
+    const devices = new Set(('mediaTypes' in details ? details.mediaTypes : [])?.map(mediaDevice))
+    if (!origin || !devices.size || devices.has(null)) return false
+    const requested = [...devices].filter((device) => device !== null)
+    if (requested.some((device) => mediaAnswers[device].get(origin) === false)) return false
+    const undecided = requested.filter((device) => !mediaAnswers[device].has(origin))
+
+    const decision = new AbortController()
+    pendingMedia = decision
+    const abandon = () => decision.abort()
+    const onNavigation = (event: Electron.WebContentsDidStartNavigationEventParams) => {
+      if (!event.isSameDocument && (event.isMainFrame || !details.isMainFrame)) abandon()
+    }
+    requester.on('did-start-navigation', onNavigation)
+    requester.once('destroyed', abandon)
+    requester.once('render-process-gone', abandon)
+    try {
+      if (undecided.length) {
+        const label = requested.length === 2 ? 'camera and microphone' : requested[0]
+        const answer = await prompt(requester, {
+          message: `${truncate(origin)} wants to use your ${label}`,
+          buttons: ['Allow', 'Block'],
+        }, decision.signal)
+        if (decision.signal.aborted || answer === undefined) return false
+        if (!answer) {
+          for (const device of undecided) mediaAnswers[device].set(origin, false)
+          return false
+        }
+      }
+
+      const hasAccess = !systemMedia || await systemMedia.requestAccess(requester, requested, decision.signal)
+      if (decision.signal.aborted) return false
+      for (const device of undecided) mediaAnswers[device].set(origin, true)
+      return hasAccess
+    } finally {
+      pendingMedia = undefined
+      requester.off('did-start-navigation', onNavigation)
+      requester.off('destroyed', abandon)
+      requester.off('render-process-gone', abandon)
+    }
   }
 
   const request: RequestHandler = (webContents, permission, callback, details) => {
@@ -103,7 +148,7 @@ export function browserPermissionHandlers(ask: AskBrowserPermission): BrowserPer
       prompt(webContents, {
         message: `${truncate(origin)} wants to see text and images copied to the clipboard`,
         buttons: ['Allow', 'Block'],
-      }, (answer) => {
+      }).then((answer) => {
         if (answer !== undefined) clipboardReadAnswers.set(origin, answer)
         callback(answer === true)
       })
@@ -117,33 +162,70 @@ export function browserPermissionHandlers(ask: AskBrowserPermission): BrowserPer
         message: `Open this ${scheme} link?`,
         detail: `A page in the browser wants to open another application:\n\n${truncate(url)}`,
         buttons: ['Open', 'Cancel'],
-      }, (answer) => callback(answer === true))
+      }).then((answer) => callback(answer === true))
+      return
+    }
+    if (permission === 'media') {
+      void requestMedia(webContents, details).then(callback, () => callback(false))
       return
     }
     callback(ALLOWED_PERMISSIONS.has(permission))
   }
 
-  const check: CheckHandler = (_webContents, permission, requestingOrigin) => {
+  const check: CheckHandler = (webContents, permission, requestingOrigin, details) => {
     if (permission === 'clipboard-read') {
       const origin = originOf(requestingOrigin)
       return origin !== null && clipboardReadAnswers.get(origin) === true
     }
+    if (permission === 'media') {
+      const origin = mediaOrigin(details.securityOrigin ?? requestingOrigin)
+      const device = mediaDevice(details.mediaType)
+      return isNativeBrowserGuest(webContents) && origin !== null && device !== null
+        && mediaAnswers[device].get(origin) === true && (systemMedia?.hasAccess(device) ?? true)
+    }
     return ALLOWED_PERMISSIONS.has(permission)
   }
 
-  return { request, check }
+  return {
+    request,
+    check,
+    revokeMedia() {
+      mediaAnswers.camera.clear()
+      mediaAnswers.microphone.clear()
+      pendingMedia?.abort()
+    },
+  }
 }
 
-const guardedSessions = new WeakSet<PermissionSession>()
+const guardedSessions = new WeakMap<PermissionSession, BrowserPermissionHandlers>()
 
 /** Installs the handlers once per session; a partition's session is shared by
  *  every page mounted in it. */
-export function guardBrowserSession(session: PermissionSession, ask: AskBrowserPermission): void {
+export function guardBrowserSession(session: PermissionSession, ask: AskBrowserPermission, systemMedia?: BrowserSystemMediaAccess): void {
   if (guardedSessions.has(session)) return
-  guardedSessions.add(session)
-  const handlers = browserPermissionHandlers(ask)
+  const handlers = browserPermissionHandlers(ask, systemMedia)
   session.setPermissionRequestHandler(handlers.request)
   session.setPermissionCheckHandler(handlers.check)
+  guardedSessions.set(session, handlers)
+}
+
+export function revokeBrowserMediaPermissions(session: PermissionSession): void {
+  guardedSessions.get(session)?.revokeMedia()
+}
+
+function isNativeBrowserGuest(requester: WebContents | null): boolean {
+  return !!requester && !requester.isDestroyed() && requester.getType() === 'webview' && !!requester.hostWebContents
+}
+
+function mediaDevice(mediaType: string | undefined): BrowserMediaDevice | null {
+  if (mediaType === 'video') return 'camera'
+  if (mediaType === 'audio') return 'microphone'
+  return null
+}
+
+function mediaOrigin(url: string | undefined): string | null {
+  const origin = originOf(url)
+  return origin && (origin.startsWith('https://') || origin.startsWith('http://')) ? origin : null
 }
 
 function originOf(url: string | undefined): string | null {

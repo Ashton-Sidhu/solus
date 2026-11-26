@@ -6,6 +6,8 @@
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import * as TooltipUI from "../ui/tooltip";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
+  import { mergeProps } from "bits-ui";
+  import { closesRowTooltip } from "./lib/row-tooltip";
 
   /** A pinned session with no open conversation. It has the slim shape of a
    *  shelved row: the project mark, the title, and Unpin on hover. */
@@ -27,13 +29,21 @@
   let { pin, codebaseId, isAutomation, isGuest = false, isTooltipQuiet = false, automationName, isCurrentSession, onOpen, onUnpin, onMore }: Props = $props();
 
   const groupKey = $derived(groupKeyFor(pin.serverId ?? "", pin.cwd));
+  let isTooltipOpen = $state(false);
 </script>
 
-<TooltipUI.Root disabled={isTooltipQuiet}>
+<TooltipUI.Root bind:open={isTooltipOpen} disabled={isTooltipQuiet}>
   <TooltipUI.Trigger>
     {#snippet child({ props: tooltipProps })}
+      <!-- The row's click runs after the tooltip's, never instead of it: a
+           click on the row closes its tooltip. -->
       <div
-        {...tooltipProps}
+        {...mergeProps(tooltipProps, { onclick: onOpen })}
+        {@attach closesRowTooltip({
+          isOpen: () => isTooltipOpen,
+          isQuiet: () => isTooltipQuiet,
+          close: () => (isTooltipOpen = false),
+        })}
         class="group/row relative -mx-2 flex h-[2.25rem] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] text-foreground transition-[background,color,box-shadow] duration-150 hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)] {isCurrentSession
           ? 'bg-card shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:bg-[color-mix(in_oklch,var(--card)_94%,white)]'
           : ''}"
@@ -41,7 +51,6 @@
         tabindex="0"
         aria-selected={isCurrentSession}
         aria-label={isAutomation ? `${automationName ?? pin.title}, automation` : pin.title}
-        onclick={onOpen}
         oncontextmenu={onMore}
         onkeydown={(event) => {
           if (event.target !== event.currentTarget) return;

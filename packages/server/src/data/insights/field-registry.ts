@@ -63,7 +63,7 @@ const withGroup = (group: MetricsFieldGroup, fields: RegisteredField[]): Registe
 
 /** A fact recorded on the trace's root turn, surfaced on every event in the
  *  trace — the turns⇄events join pre-done in the other direction, so slicing
- *  events by their turn's automation, task, or branch needs no join either. */
+ *  events by their turn's automation, issue, or branch needs no join either. */
 const rootAttr = (name: string, path: string, type: MetricsFieldType, description: string): RegisteredField => ({
   name,
   type,
@@ -104,7 +104,7 @@ export const BASE_FIELDS: RegisteredField[] = [
     column('host_id', 'host_id', 'string', 'Host that ran the turn, for a turn pulled from another host; null when this host ran it'),
   ]),
   ...withGroup('dimension', [
-    column('provider', 'provider', 'string', "Agent backend: 'claude' or 'codex'"),
+    column('provider', 'provider', 'string', "Agent backend: 'claude-code', 'codex', or 'antigravity'"),
     column('model', 'model', 'string', "Executed model as the provider reported it (rerouting latched), e.g. claude-fable-5; one id per model whatever its context window, which a turn records in context_window"),
     column('project_root', 'project_root', 'string', 'Absolute project directory the work ran in'),
     column('origin', 'origin', 'string', "Prompt source: 'typed', 'queued', 'automation', 'agent', or 'dispatch'"),
@@ -216,7 +216,7 @@ export const KIND_REGISTRY = {
       storedMeasure('provider_wait_ms', 'measure', 'Turn wall-clock time outside recorded blocking activity after Thinking absorbs its lead-ins'),
       ...withGroup('dimension', [
         attr('automation', 'automationName', 'string', 'Automation that dispatched the turn, by name'),
-        attr('task', 'taskTitle', 'string', 'Task the turn ran under, by title'),
+        attr('issue', 'taskTitle', 'string', 'Issue the turn ran under, by title'),
         attr('project', 'projectName', 'string', 'Project folder name — the tail of project_root'),
         attr('branch', 'branch', 'string', 'Git branch the turn ran on, when the session had a checkout'),
         attr('hostname', 'hostname', 'string', 'Hostname of the machine that executed the turn'),
@@ -229,7 +229,7 @@ export const KIND_REGISTRY = {
         attr('has_thinking', 'hasThinking', 'boolean', 'True when the turn contained extended thinking'),
       ]),
       ...withGroup('identity', [
-        attr('task_id', 'taskId', 'string', 'Task key of the GitHub or Jira task the turn ran under (`github:<node id>`, `jira:<site>:<issue id>`); `task` is its title'),
+        attr('issue_id', 'issueId', 'string', 'Issue key of the GitHub, Jira or Linear issue the turn ran under (`github:<node id>`, `jira:<site>:<issue id>`); `issue` is its title'),
         attr('automation_id', 'automationId', 'string', 'Id of the automation that dispatched the turn — `automation` is its name'),
       ]),
       ...withGroup('detail', [
@@ -483,7 +483,7 @@ const EVENT_FIELDS = (): RegisteredField[] => [
   ]),
   ...BASE_FIELDS.map(semanticEventField),
   rootAttr('automation', 'automationName', 'string', "Name of the automation whose turn produced the event, when any"),
-  rootAttr('task', 'taskTitle', 'string', "Title of the task the event's turn ran under, when any"),
+  rootAttr('issue', 'taskTitle', 'string', "Title of the issue the event's turn ran under, when any"),
   rootAttr('branch', 'branch', 'string', "Git branch the event's turn ran on, when any"),
   rootAttr('hostname', 'hostname', 'string', "Hostname of the machine that executed the event's turn"),
   rootAttr('host_os', 'hostOs', 'string', "Operating system of the machine that executed the event's turn"),

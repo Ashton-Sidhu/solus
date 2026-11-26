@@ -499,28 +499,42 @@ function markdownWithWindowsPathDestinations(markdown: string): string {
 }
 
 const isImage = (node: MarkdownNode) => node.type === "image" || node.type === "imageReference";
-const isSpace = (node: MarkdownNode) =>
-  node.type === "break" || (node.type === "text" && node.value.trim() === "");
-
 // Native Markdown sizes an image as a block only when it is its paragraph's only child.
 function markdownWithImageParagraphs(markdown: string): string {
-  // Skips the extra parse unless a line ending sits between two images.
-  if (!/[\])][ \t]*\\?(?:\r\n?|\n)[ \t]*!\[/.test(markdown)) return markdown;
+  if (!/(?:^|[\r\n])[ \t]*!\[/.test(markdown) || !/[\r\n]/.test(markdown)) return markdown;
   const edits: MarkdownEdit[] = [];
   for (const block of parser.parse(markdown).children) {
-    if (
-      block.type !== "paragraph" ||
-      !block.children.every((child) => isImage(child) || isSpace(child))
-    )
-      continue;
+    if (block.type !== "paragraph" || !block.position) continue;
+    const { start, end } = block.position;
+    if (start.line === end.line || start.offset === undefined || end.offset === undefined) continue;
     const images = block.children.filter(isImage);
-    for (const [index, image] of images.slice(1).entries()) {
-      const start = images[index]!.position?.end.offset;
-      const end = image.position?.start.offset;
-      if (start === undefined || end === undefined) continue;
-      const ending = /\r\n?|\n/.exec(markdown.slice(start, end));
-      if (ending) edits.push({ start, end, content: ending[0].repeat(2) });
+    if (!images.length) continue;
+
+    // Keep the authored line endings. Odd entries are the breaks between the source lines.
+    const lines = markdown.slice(start.offset, end.offset).split(/(\r\n?|\n)/);
+    const breaks = new Set<number>();
+    const onlyImages = block.children.every((child) =>
+      isImage(child) || child.type === "break" || (child.type === "text" && !child.value.trim()),
+    );
+    for (const image of images) {
+      if (!image.position || image.position.start.line !== image.position.end.line) continue;
+      const index = (image.position.start.line - start.line) * 2;
+      const line = lines[index]!;
+      const offset = image.position.start.column - (index === 0 ? start.column : 1);
+      const length = image.position.end.column - image.position.start.column;
+      const startsLine = /^[ \t]*$/.test(line.slice(0, offset));
+      const endsLine = /^[ \t]*\\?$/.test(line.slice(offset + length));
+      if (onlyImages || (startsLine && endsLine)) {
+        if (startsLine && index > 0) breaks.add(index - 1);
+        if (endsLine && index + 1 < lines.length) breaks.add(index + 1);
+      }
     }
+    if (!breaks.size) continue;
+    for (const index of breaks) {
+      lines[index - 1] = lines[index - 1]!.replace(/[ \t]*\\?$/, "");
+      lines[index] = lines[index]!.repeat(2);
+    }
+    edits.push({ start: start.offset, end: end.offset, content: lines.join("") });
   }
   return applyMarkdownEdits(markdown, edits);
 }

@@ -212,7 +212,7 @@ describe('RPC', () => {
 
 describe('outbox', () => {
   /** An op as a dispatched session records it; `expectedContentVersion` is left out to model an op from an older host. */
-  function updateOp(workId: string, payload: Omit<WorkUpdateOpPayload, 'taskId' | 'expectedContentVersion'> & { expectedContentVersion?: number }) {
+  function updateOp(workId: string, payload: Omit<WorkUpdateOpPayload, 'issueId' | 'expectedContentVersion'> & { expectedContentVersion?: number }) {
     return outbox.recordOutboxOp({ domain: 'works', resourceId: workId, name: 'update', payload: { taskId: 'task', ...payload }, sessionId: 'dispatched' })
   }
 

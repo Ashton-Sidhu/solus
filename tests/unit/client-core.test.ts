@@ -94,16 +94,16 @@ describe('client core transport helpers', () => {
   test('exposes host events separately from the RPC API', () => {
     const transport = new WsTransport({ serverUrl: 'http://localhost:3000' })
     const received: unknown[] = []
-    const unsubscribe = transport.events.subscribe('tasks.invalidated', (payload) => received.push(payload))
+    const unsubscribe = transport.events.subscribe('issues.invalidated', (payload) => received.push(payload))
 
     transport.events.receive({
-      type: 'tasks.invalidated',
+      type: 'issues.invalidated',
       payload: { projectRoot: '/project' },
       occurredAt: 123,
     })
     unsubscribe()
     transport.events.receive({
-      type: 'tasks.invalidated',
+      type: 'issues.invalidated',
       payload: { projectRoot: '/ignored' },
       occurredAt: 124,
     })

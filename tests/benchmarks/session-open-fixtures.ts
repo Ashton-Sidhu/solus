@@ -4,8 +4,8 @@
  * about five prompts a session, 15–35 tool calls a prompt, and 8 KB tool
  * results. No fixture reads or copies live data.
  */
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { encodePathAsFolder } from '@solus/contracts/types'
 
@@ -149,4 +149,34 @@ export function writeFixtures(home: string, projectDir: string): Fixture[] {
   mkdirSync(join(projectDir, 'src'), { recursive: true })
   const projectsRoot = join(home, '.claude', 'projects')
   return SHAPES.map((shape) => write(shape, projectDir, projectsRoot))
+}
+
+/**
+ * Copies real provider transcripts into `home`, for a run on sessions a person
+ * finds slow. Each copy works in `projectDir`, so the host never reads the
+ * checkout the session ran in. A Claude transcript keeps its sibling folder
+ * (tool results, subagents); a Codex rollout keeps its dated folder under
+ * `.codex/sessions`. The host's indexer names each session by its provider id.
+ */
+export function copyRealSessions(home: string, projectDir: string, files: readonly string[]): Fixture[] {
+  mkdirSync(join(projectDir, 'src'), { recursive: true })
+  return files.map((file) => {
+    const original = readFileSync(file, 'utf8')
+    const cwd = /"cwd":"([^"]+)"/.exec(original)?.[1]
+    const body = cwd ? original.replaceAll(`"cwd":"${cwd}"`, `"cwd":${JSON.stringify(projectDir)}`) : original
+    const codexDay = /\/sessions\/(\d{4}\/\d{2}\/\d{2})\/rollout-[^/]*?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/.exec(file)
+    if (codexDay) {
+      const folder = join(home, '.codex', 'sessions', codexDay[1])
+      mkdirSync(folder, { recursive: true })
+      writeFileSync(join(folder, basename(file)), body)
+      return { key: `codex-${codexDay[2].slice(0, 8)}`, title: '', sessionId: codexDay[2], bytes: Buffer.byteLength(body), artifacts: 0, works: [] }
+    }
+    const sessionId = basename(file, '.jsonl')
+    const folder = join(home, '.claude', 'projects', encodePathAsFolder(projectDir))
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, `${sessionId}.jsonl`), body)
+    const siblings = join(dirname(file), sessionId)
+    if (existsSync(siblings)) cpSync(siblings, join(folder, sessionId), { recursive: true })
+    return { key: `claude-${sessionId.slice(0, 8)}`, title: '', sessionId, bytes: Buffer.byteLength(body), artifacts: 0, works: [] }
+  })
 }

@@ -13,6 +13,7 @@
   import { seatNoticeShown } from "../../contexts/seats/seat-need";
   import { requestInputFocus } from "../../lib/inputFocus";
   import ProviderMark from "../ui/ProviderMark.svelte";
+  import { providerMark } from "../insights/lib/provider";
 
   interface Props {
     /** The host the draft will run on. */
@@ -59,7 +60,7 @@
     data-testid="seat-needed-notice"
   >
     <div class="flex items-center gap-2 text-workspace-chrome text-(--solus-text-secondary)">
-      <ProviderMark mark={seatProvider === "claude-code" ? "claude" : "codex"} transparent />
+      <ProviderMark mark={providerMark(seatProvider)} transparent />
       <span class="min-w-0 text-pretty">
         Connect to start chatting.
       </span>

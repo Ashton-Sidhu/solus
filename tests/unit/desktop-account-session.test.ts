@@ -33,7 +33,7 @@ function world(options: { keychainAtStart?: boolean; startupDirectory?: Director
     },
   }
   const states: AccountState[] = []
-  const make = () => new AccountSession({ cloudOrigin: ISSUER, store, authorizer, fetch: plane.fetch as typeof fetch, now: plane.now, onStateChange: (state) => states.push(state) })
+  const make = () => new AccountSession({ cloudOrigin: ISSUER, store, authorizer, machineName: 'Test Mac', fetch: plane.fetch as typeof fetch, now: plane.now, onStateChange: (state) => states.push(state) })
   return { plane, store, states, make, setKeychain: (ready: boolean) => { keychain = ready } }
 }
 
@@ -51,7 +51,7 @@ describe('desktop account session', () => {
   })
   test('serves the first directory read from the login response, and the next from the website', async () => {
     const startupDirectory: DirectoryResponse = {
-      hosts: [{ hostId: 'host-1', installationId: 'install-1', label: 'Laptop', routes: [], kind: 'personal', category: 'personal', organizationIds: [] }],
+      hosts: [{ hostId: 'host-1', installationId: 'install-1', label: 'Laptop', routes: [], kind: 'personal', organizationIds: [] }],
       workspaces: [],
     }
     const w = world({ startupDirectory })
@@ -83,7 +83,7 @@ describe('desktop account session', () => {
     const sent: Array<{ url: string; authorization: string | null }> = []
     const plane = w.plane.fetch
     const recording = new AccountSession({
-      cloudOrigin: ISSUER, store: w.store, authorizer: { start: async () => { throw new Error('unused') } },
+      cloudOrigin: ISSUER, store: w.store, authorizer: { start: async () => { throw new Error('unused') } }, machineName: 'Test Mac',
       fetch: (async (input: string | URL, init?: RequestInit) => {
         sent.push({ url: String(input), authorization: new Headers(init?.headers).get('authorization') })
         return plane(input, init)

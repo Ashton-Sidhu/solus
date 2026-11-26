@@ -7,7 +7,7 @@ import {
   type PullRequestListEntry,
 } from "@t3tools/contracts";
 import type { PullRequest } from "@solus/contracts/providers";
-import type { TaskSummary } from "@solus/contracts/task-types";
+import type { IssueSummary } from "@solus/contracts/task-types";
 
 export interface ListProject {
   path: string;
@@ -15,7 +15,7 @@ export interface ListProject {
 }
 
 type IssueFields = Pick<
-  TaskSummary,
+  IssueSummary,
   | "kind"
   | "providerId"
   | "url"

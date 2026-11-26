@@ -1,4 +1,5 @@
 import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
+import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { LabClient } from '../src/client'
 import { bootLabHost, type LabHost } from '../src/host'
@@ -6,14 +7,19 @@ import { ORGANIZATION_ID, PERSONAS, personaForHost } from '../src/personas'
 import { expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
 import { bootLabSolusApi, createLabDatabase, type SolusApiEngine } from '../src/solus-api'
 
+/** A share does not change what a machine is: the server is alice's own still, and the standing lists the organization as shared. */
+function isAlicesSharedPersonalHost(standing: HostOrganizationsStatus): boolean {
+  return standing.kind === 'personal' && standing.owner?.userId === PERSONAS.alice.userId && standing.organizations.some((entry) => entry.organizationId === ORGANIZATION_ID && entry.shared)
+}
+
 async function prove(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?: string): Promise<void> {
   const service = await bootLabSolusApi({ issuer: ctx.issuer, engine, databaseUrl })
   const previousRoute = ctx.issuer.workspaceRoute
   ctx.issuer.setWorkspaceRoute(service.url)
-  let runner: LabHost | null = null
+  let sourceHost: LabHost | null = null
   const clients: LabClient[] = []
   const client = (personaId: string, shareSecret?: string) => {
-    const value = new LabClient({ persona: personaForHost(personaId, 'managed'), issuer: ctx.issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud', hostUrl: service.url, shareSecret })
+    const value = new LabClient({ persona: personaForHost(personaId, 'api'), issuer: ctx.issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'api', hostUrl: service.url, shareSecret })
     clients.push(value)
     return value
   }
@@ -22,11 +28,14 @@ async function prove(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?:
     const carol = client('carol')
     ctx.check(`${engine}: owner admitted`, (await alice.connect()).ok)
     ctx.check(`${engine}: other organization admitted`, (await carol.connect()).ok)
-    runner = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: `labpublish${engine}`, runnerOf: ORGANIZATION_ID })
-    const source = new LabClient({ persona: personaForHost('alice', 'personal'), issuer: ctx.issuer, hostId: runner.hostId, hostKind: 'personal', hostOwnerUserId: PERSONAS.alice.userId, hostUrl: runner.tunnelUrl })
+    // A Local work exists only on a person's own machine: alice's server, which she
+    // shared with the organization. It stays personal, and she is its owner.
+    sourceHost = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: `labpublish${engine}`, sharedWith: ORGANIZATION_ID })
+    const source = new LabClient({ persona: personaForHost('alice', 'personal'), issuer: ctx.issuer, hostId: sourceHost.hostId, hostKind: 'personal', hostUrl: sourceHost.tunnelUrl })
     clients.push(source)
     ctx.check(`${engine}: publication source admitted`, (await source.connect()).ok)
-    await source.rpc('hostOrganizations')
+    const standing = await source.rpc('hostOrganizations')
+    ctx.check(`${engine}: a shared server stays alice's personal host`, isAlicesSharedPersonalHost(standing), JSON.stringify({ kind: standing.kind, owner: standing.owner, organizations: standing.organizations.map((entry) => [entry.organizationId, entry.shared]) }))
     const localWork = await source.records.createWork('Push with history', 'doc', 'before', '', undefined, 'claude-code', ctx.cwd)
     await source.rpc('agentSaveWork', localWork.id, { content: 'after' }, localWork.contentVersion)
     await source.rpc('applyWorkComment', localWork.id, { kind: 'add', comment: { id: 'push-comment', selectedText: 'after', comment: 'Keep the comment' } })
@@ -75,10 +84,10 @@ async function prove(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?:
     }
     const hostGuest = new LabClient({ persona: personaForHost('maya', 'personal'), issuer: ctx.issuer, hostId: ctx.host.hostId, hostKind: ctx.hostKind, hostUrl: ctx.host.tunnelUrl, shareSecret: 'a'.repeat(43) })
     clients.push(hostGuest)
-    ctx.check(`${engine}: runner refuses guest admission`, !(await hostGuest.connect()).ok)
+    ctx.check(`${engine}: a host refuses a guest whose secret it does not know`, !(await hostGuest.connect()).ok)
   } finally {
     for (const item of clients) item.close()
-    if (runner) await runner.stop()
+    if (sourceHost) await sourceHost.stop()
     ctx.issuer.setWorkspaceRoute(previousRoute)
     await service.stop()
   }

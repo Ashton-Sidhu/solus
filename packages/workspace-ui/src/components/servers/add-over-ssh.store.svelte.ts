@@ -4,10 +4,10 @@ import { serverFromSshAdd } from '@solus/client-core/known-host'
 import { unencryptedPasswordMessage } from '@solus/client-core/ssh-password'
 import { sshAddStatusCard } from '@solus/client-core/ssh-progress'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
-import type { SshAddProgress } from '@solus/contracts/remote-machines'
+import type { SshAddProgress, SshAddResult } from '@solus/contracts/remote-machines'
 import type { StatusCardState } from '@solus/contracts/types'
 import { hosts, serversStore, uplinkStore } from '../../contexts'
-import { sshAddOutcome, sshAddRequest } from './lib/add-over-ssh'
+import { isMissingIdentityFile, sshAddOutcome, sshAddRequest } from './lib/add-over-ssh'
 import { messageFor } from './lib/setup-rpc'
 
 /** `form` waits on the person; `running` waits on the host; `done` shows the result. */
@@ -33,6 +33,10 @@ class AddOverSshStore {
   resultMessage = $state('')
   /** SSH refused the key, so the password field is the next thing to fill. */
   isPasswordRequested = $state(false)
+  /** The host has no file at the identity file path: the message shows at that field. */
+  identityFileError = $state('')
+  /** Other users can read the key, so SSH refuses it. Fix permissions sends the same add with the fix. */
+  keyPermissions = $state<{ identityFile: string; message: string } | null>(null)
   /** Bumped per attempt so an answer to a closed or superseded attempt is dropped. */
   private attempt = 0
   /** The host a host's own settings page named; null for this client's default. */
@@ -106,13 +110,16 @@ class AddOverSshStore {
     this.error = ''
     this.resultMessage = ''
     this.isPasswordRequested = false
+    this.identityFileError = ''
+    this.keyPermissions = null
   }
 
   setLinkToAccount(next: boolean): void {
     this.linkToAccount = next && this.canLink
   }
 
-  async submit(): Promise<void> {
+  /** `fixIdentityFilePermissions`: the person chose Fix permissions for the key of this add. */
+  async submit(fixIdentityFilePermissions = false): Promise<void> {
     const hostId = this.sshHostId
     if (!this.canSubmit || !hostId) return
     if (this.password && this.passwordIssue) {
@@ -129,6 +136,8 @@ class AddOverSshStore {
     this.progress = []
     this.error = ''
     this.isPasswordRequested = false
+    this.identityFileError = ''
+    this.keyPermissions = null
     const stopProgress = serverConnections.eventsFor(hostId).subscribe('host.sshProgress', (event) => {
       if (event.requestId === requestId && attempt === this.attempt) this.progress.push(event)
     })
@@ -139,41 +148,63 @@ class AddOverSshStore {
         if (!link) throw new Error('Solus Cloud did not give a link ticket. Sign in and try again.')
       }
       const request = sshAddRequest(
-        { sshTarget: this.sshTarget, identityFile: this.identityFile, linkToAccount, password, deviceLabel: defaultDeviceLabel(), requestId },
+        { sshTarget: this.sshTarget, identityFile: this.identityFile, linkToAccount, fixIdentityFilePermissions, password, deviceLabel: defaultDeviceLabel(), requestId },
         link,
       )
       const result = await serverConnections.apiFor(hostId).hostsAddOverSsh(request)
       if (attempt !== this.attempt) return
-      const outcome = sshAddOutcome(result, {
-        sshHostIsThisMachine: hostId === hosts.device?.id,
-        sshHostName: this.sshHostName,
-      })
-      switch (outcome.kind) {
-        case 'save-forwarded':
-          // Narrowed by the outcome: only a forwarded answer is saved here.
-          if (result.status === 'forwarded') await serversStore.savePairedServer(serverFromSshAdd(result, null))
-          break
-        case 'linked':
-          void serversStore.refreshDirectory()
-          break
-        case 'ask-password':
-          this.isPasswordRequested = true
-          break
-      }
-      if (outcome.kind === 'save-forwarded' || outcome.kind === 'forwarded-elsewhere' || outcome.kind === 'linked') {
-        this.resultMessage = outcome.message
-        this.phase = 'done'
-        return
-      }
-      this.error = outcome.message
-      this.phase = 'form'
+      await this.settle(result, hostId)
     } catch (err) {
       if (attempt !== this.attempt) return
-      this.error = messageFor(err)
-      this.phase = 'form'
+      this.showFailure(messageFor(err))
     } finally {
       stopProgress()
     }
+  }
+
+  /** Shows what one answer of the host means: the result, a password to ask for, a key to fix, or an error. */
+  private async settle(result: SshAddResult, hostId: string): Promise<void> {
+    const outcome = sshAddOutcome(result, {
+      sshHostIsThisMachine: hostId === hosts.device?.id,
+      sshHostName: this.sshHostName,
+    })
+    switch (outcome.kind) {
+      case 'save-forwarded':
+        // Narrowed by the outcome: only a forwarded answer is saved here.
+        if (result.status === 'forwarded') await serversStore.savePairedServer(serverFromSshAdd(result, null))
+        break
+      case 'linked':
+        void serversStore.refreshDirectory()
+        break
+      case 'ask-password':
+        this.isPasswordRequested = true
+        break
+      case 'key-permissions':
+        // Nothing was sent: the form offers Fix permissions, then the same add again.
+        this.keyPermissions = { identityFile: outcome.identityFile, message: outcome.message }
+        this.phase = 'form'
+        return
+    }
+    if (outcome.kind === 'save-forwarded' || outcome.kind === 'forwarded-elsewhere' || outcome.kind === 'linked') {
+      this.resultMessage = outcome.message
+      this.phase = 'done'
+      return
+    }
+    this.error = outcome.message
+    this.phase = 'form'
+  }
+
+  /** The host checks the key before SSH runs, so a missing key is the message of the key's field. */
+  private showFailure(message: string): void {
+    if (this.identityFile.trim() && isMissingIdentityFile(message)) this.identityFileError = message
+    else this.error = message
+    this.phase = 'form'
+  }
+
+  /** The same add again, with the host's fix of the key first: one request. */
+  async fixKeyPermissions(): Promise<void> {
+    if (!this.keyPermissions || this.phase !== 'form') return
+    await this.submit(true)
   }
 }
 

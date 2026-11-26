@@ -21,7 +21,7 @@
   import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import { tokenClassName } from "../editor/tokenStyle";
   import { codeFileLinkLabel } from "./lib/assistant-markdown";
-  import { fileLinkCopyParts, linkChipCopyParts, linkReference } from "./lib/markdown-text";
+  import { fileLinkCopyParts, linkReference } from "./lib/markdown-text";
   import { fileReferenceText } from "../editor/reference-tokens";
   import { fileLinkTooltip } from "./lib/file-link-path";
   import { assetUrlCache } from "../artifact/lib/asset-url";
@@ -31,7 +31,7 @@
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { connectionsNav } from "../connections/connections-nav.svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
-  import { isManagedHost } from "../servers/lib/managed-host";
+  import { isCloudHost } from "../servers/lib/managed-host";
   import { resolveSessionLinkMeta } from "./lib/session-link";
   import { getSessionLinkContext } from "./lib/session-link-context";
   import type { Snippet } from "svelte";
@@ -41,11 +41,9 @@
     href?: string;
     title?: string;
     text?: string;
-    /** An image embed keeps file-chip styling for web URLs and stored assets too. */
-    fileChip?: boolean;
     children?: Snippet;
   }
-  let { href = "", title = undefined, text = undefined, children, fileChip = false }: Props = $props();
+  let { href = "", title = undefined, text = undefined, children }: Props = $props();
 
   type Status = "pending" | "accepted" | "rejected";
 
@@ -71,11 +69,9 @@
   // What a paste into a composer restores this chip from (`reference-clipboard.ts`).
   const reference = $derived(linkReference(text ?? "", href));
   const sessionParams = $derived(parseSessionHref(href));
-  // A host chip (docs/plans/host-fleet.md D12). It opens the host's page when
+  // A host chip. It opens the host's page when
   // the host is one of this client's; a reader with no such host sees what the
   // link says of it.
-  // An image embed copies as the image it is.
-  const copyParts = $derived(linkChipCopyParts(href, fileChip));
   const hostRef = $derived(parseHostHref(href, text ?? ""));
   // The link names the host by the identity every client knows. A host of this
   // client shows the name and the mark this client has for it now.
@@ -83,7 +79,7 @@
     hostRef ? (serversStore.servers.find((server) => server.id === serverConnections.resolveId(hostRef.serverId)) ?? null) : null,
   );
   const hostSystem = $derived(knownHost?.os ?? hostRef?.system);
-  const isManagedHostRef = $derived(isManagedHost(knownHost?.uplink));
+  const isCloudHostRef = $derived(isCloudHost(knownHost?.uplink));
   const hostFacts = $derived(
     hostRef ? [knownHost ? null : "Not one of your hosts", hostRef.route, hostRef.address, hostRef.state].filter(Boolean).join(" · ") : undefined,
   );
@@ -119,12 +115,12 @@
   const codeFileLabel = $derived(codeFileLinkLabel(text, fileRef?.line));
   // A file link copies as its path; a paste into a composer restores the mention.
   const fileCopyParts = $derived(
-    fileRef && !fileChip
+    fileRef
       ? fileLinkCopyParts(fileRef.path, fileRef.line, `${codeFileLabel ?? text ?? ""}${fileRef.line ? `:${fileRef.line}` : ""}`)
       : null,
   );
   const fileReference = $derived(
-    fileRef && !fileChip ? fileReferenceText(fileRef.line ? `${fileRef.path}:${fileRef.line}` : fileRef.path) : undefined,
+    fileRef ? fileReferenceText(fileRef.line ? `${fileRef.path}:${fileRef.line}` : fileRef.path) : undefined,
   );
   // The same tab a click would preview against, so the tooltip names the
   // directory the link would actually open in.
@@ -164,7 +160,7 @@
   }
 
   function handleClick(e: MouseEvent) {
-    const mediaKind = filePreviewMediaKind(fileRef?.path ?? href) ?? (fileChip ? "image" : null);
+    const mediaKind = filePreviewMediaKind(fileRef?.path ?? href);
     if (mediaKind && session) {
       e.preventDefault();
       requestFilePreview({
@@ -215,8 +211,6 @@
 
 <!-- A chip copies as what it reads as: its label, or a file's path. Its
      reference rides along in the copied HTML (`data-solus-reference`). -->
-{#snippet copyOpen()}<span class="solus-token__copy-only">{copyParts.open}</span>{/snippet}
-{#snippet copyClose()}<span class="solus-token__copy-only">{copyParts.close}</span>{/snippet}
 {#snippet fileLabel()}{#if codeFileLabel !== null}{codeFileLabel}{:else}{@render children?.()}{/if}{#if fileRef?.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}{/snippet}
 
 {#if isPlanRef && linkRoute}
@@ -279,8 +273,8 @@
 {:else if hostRef}
   {#snippet hostChip()}
     <span class="solus-token__icon">
-      {#if hostSystem || isManagedHostRef}
-        <HostOperatingSystemIcon os={hostSystem} managed={isManagedHostRef} size={12} />
+      {#if hostSystem || isCloudHostRef}
+        <HostOperatingSystemIcon os={hostSystem} cloud={isCloudHostRef} size={12} />
       {:else}
         <ServerIcon size={12} />
       {/if}
@@ -291,7 +285,7 @@
   {:else}
     <span title={hostFacts} class={tokenClassName('host')} data-solus-reference={reference}>{@render hostChip()}</span>
   {/if}
-{:else if fileRef || fileChip}
+{:else if fileRef}
   <button
     type="button"
     class={tokenClassName("file")}
@@ -302,12 +296,12 @@
         : null;
     }}
     data-solus-reference={fileReference}
-    title={fileRef ? fileLinkTooltip(fileRef.path, fileRef.line, fileLinkWorkingDirectory) : title ?? href}
+    title={fileLinkTooltip(fileRef.path, fileRef.line, fileLinkWorkingDirectory)}
     onclick={handleClick}
   ><span class="solus-token__icon">
       <!-- Only trusted package SVG and static local symbols enter this markup. -->
-      <FileIcon path={fileRef?.path ?? text ?? href} size={12} />
-</span><span>{#if fileCopyParts}<span class="solus-token__copy-only">{fileCopyParts.open}</span><span class={fileCopyParts.isLabelCopied ? undefined : "solus-token__shown-only"}>{@render fileLabel()}</span><span class="solus-token__copy-only">{fileCopyParts.close}</span>{:else}{@render copyOpen()}{@render fileLabel()}{@render copyClose()}{/if}</span>
+      <FileIcon path={fileRef.path} size={12} />
+</span><span>{#if fileCopyParts}<span class="solus-token__copy-only">{fileCopyParts.open}</span><span class={fileCopyParts.isLabelCopied ? undefined : "solus-token__shown-only"}>{@render fileLabel()}</span><span class="solus-token__copy-only">{fileCopyParts.close}</span>{/if}</span>
   </button>
 {:else}
   {#snippet linkContents()}

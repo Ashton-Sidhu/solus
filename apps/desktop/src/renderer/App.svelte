@@ -22,6 +22,7 @@
 
   import RenameSessionDialog from "@solus/workspace-ui/components/session/RenameSessionDialog.svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
+  import OutsideAppsDialogHost from "@solus/workspace-ui/components/connections/outside-apps/OutsideAppsDialogHost.svelte";
   import BackgroundSessionAnnouncer from "@solus/workspace-ui/components/notifications/BackgroundSessionAnnouncer.svelte";
   import { Toaster } from "@solus/workspace-ui/components/ui/sonner/index.js";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
@@ -43,7 +44,7 @@
 
   import BrowserWebviewLayer from "./shell/BrowserWebviewLayer.svelte";
   import HistorySwipeIndicator from "@solus/workspace-ui/components/layout/HistorySwipeIndicator.svelte";
-  import { uploadFileObjects } from "@solus/workspace-ui/components/input/lib/attachment-uploads.svelte";
+  import { attachmentUploads, uploadFileObjects } from "@solus/workspace-ui/components/input/lib/attachment-uploads.svelte";
 
   import { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
   import { installGlobalDispatcher } from "@solus/workspace-ui/lib/keybindings/use-keybinding.svelte";
@@ -227,6 +228,7 @@
       const files = e.dataTransfer?.files;
       if (!files || files.length === 0) return;
       const { targetTabId, serverId, ctx } = attachmentTarget(session);
+      const finish = attachmentUploads.beginPreparation(serverId, ctx);
       try {
         const capabilities = await serverConnections.capabilitiesFor(serverId);
         if (capabilities.attachUpload !== true) {
@@ -259,6 +261,8 @@
         toasts.error(
           error instanceof Error ? error.message : "Couldn't attach files",
         );
+      } finally {
+        finish();
       }
     };
     document.addEventListener("dragenter", onDragEnter);
@@ -506,6 +510,7 @@
 
 
     <SessionLinkPrompts />
+    <OutsideAppsDialogHost />
     <BackgroundSessionAnnouncer />
 
     {#if sessionRename && session.tabs[sessionRename.tabId]}

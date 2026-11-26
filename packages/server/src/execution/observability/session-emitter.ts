@@ -5,7 +5,7 @@ import { ROOT_CONTEXT, context, createContextKey, trace, type Context, type Span
 import { runtimeModelVariant, type NormalizedEvent, type PromptSource, type UsageData } from '@solus/contracts/types'
 import { createLogger } from '../../logger'
 import { hostOperatingSystem } from '../../platform/host-operating-system'
-import { codexTokenCostUsd } from './model-pricing'
+import { modelTokenCostUsd } from './model-pricing'
 import {
   SPAN_KINDS,
   SPAN_SERVICES,
@@ -389,7 +389,7 @@ export class SessionEmitter {
         state.codexUsageBaseline = this.codexUsageBaselines.get(sessionId)
           ?? (dimensions.isResume ? undefined : {})
       }
-      if (state.taskComplete) applyTaskCompleteAttrs(state.rootAttrs, dimensions.provider, state.taskComplete)
+      if (state.taskComplete) applyTaskCompleteAttrs(state.rootAttrs, dimensions, state.taskComplete)
       this.endChild(state, state.setup, state.setupEndedAt, 'ok')
       // The running row learns its model and task here, not when it ends.
       updateOpenTurn(state.root, { attrs: state.rootAttrs, dimensions: state.spanDimensions })
@@ -738,7 +738,7 @@ export class SessionEmitter {
       if (event.type === 'task_complete') {
         this.finishResponseStream(state, undefined, 'ok')
         state.taskComplete = event
-        if (state.dimensions) applyTaskCompleteAttrs(state.rootAttrs, state.dimensions.provider, event)
+        if (state.dimensions) applyTaskCompleteAttrs(state.rootAttrs, state.dimensions, event)
       }
     })
   }
@@ -888,7 +888,7 @@ export class SessionEmitter {
         const usage = usageDelta(state.latestCodexUsage, state.codexUsageBaseline)
         setUsageAttrs(state.rootAttrs, usage)
         const context = TURN_CONTEXT_SCHEMA.safeParse(state.rootAttrs.contextUsedTokens)
-        const costUsd = codexTokenCostUsd(state.dimensions.model, usage, context.success ? context.data : undefined)
+        const costUsd = modelTokenCostUsd(state.dimensions.model, usage, context.success ? context.data : undefined)
         if (costUsd !== undefined) state.rootAttrs.costUsd = costUsd
       }
       this.codexUsageBaselines.set(state.sessionId, copyUsage(state.latestCodexUsage))

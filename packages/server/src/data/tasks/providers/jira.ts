@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
-import type { TaskRef, TaskStatusCategory } from '@solus/contracts/task-sources'
-import type { TaskAssigneeCandidate, TaskEpic, TaskUpdatePatch } from '@solus/contracts/task-types'
+import type { IssueRef, IssueStatusCategory } from '@solus/contracts/task-sources'
+import type { IssueAssigneeCandidate, IssueEpic, IssueUpdatePatch } from '@solus/contracts/task-types'
 import { adfToMarkdown, markdownToAdf } from '../../../atlassian/adf'
 import { createLogger } from '../../../logger'
 import { storedAssetPath } from '../../assets/asset-paths'
@@ -13,10 +13,13 @@ import {
   commentSchema,
   createdIssueSchema,
   epicIssueSchema,
+  changeEvents,
   IGNORED_RESPONSE,
+  ISSUE_DETAIL_EXPAND,
   ISSUE_FIELDS,
-  issueSchema,
+  issueDetailSchema,
   issueToTask,
+  JIRA_PROVIDER_CAPABILITIES,
   issueTypesSchema,
   parentEpic,
   PRIORITY_TO_JIRA,
@@ -26,6 +29,7 @@ import {
   type JiraTransitionTarget,
 } from './jira-model'
 import type {
+  JiraTransition,
   JiraTransport,
   ProviderComment,
   ProviderTask,
@@ -59,7 +63,7 @@ async function readEpic(
   cloudId: string,
   issue: JiraIssue,
   siteUrl: string | null,
-): Promise<TaskEpic | undefined> {
+): Promise<IssueEpic | undefined> {
   const named = parentEpic(issue, siteUrl)
   if (!named) return undefined
   try {
@@ -80,16 +84,58 @@ async function readEpic(
   }
 }
 
-/** Read one issue by its numeric id or its key, with its comments and its epic. */
+/**
+ * Read one issue by its numeric id or its key, with its comments, its epic,
+ * its newest changes and its legal transitions. One call gives all but the
+ * epic's description: the issue page needs no history read, and a move needs
+ * no transitions read.
+ */
 export async function readJiraTask(jira: JiraTransport, cloudId: string, idOrKey: string): Promise<ProviderTaskDetails> {
-  const issue = await jira.request({ cloudId, path: issuePath(idOrKey), query: { fields: ISSUE_FIELDS } }, issueSchema)
+  const issue = await jira.request(
+    { cloudId, path: issuePath(idOrKey), query: { fields: ISSUE_FIELDS, expand: ISSUE_DETAIL_EXPAND } },
+    issueDetailSchema,
+  )
   const siteUrl = await jira.siteUrl(cloudId)
   const comments = issue.fields.comment?.comments ?? []
+  const commentsTruncated = (issue.fields.comment?.total ?? 0) > comments.length
+  const task = issueToTask(issue, cloudId, siteUrl)
+  const changes = issue.changelog?.histories ?? []
   return {
-    task: { ...issueToTask(issue, cloudId, siteUrl), epic: await readEpic(jira, cloudId, issue, siteUrl) },
+    task: {
+      ...task,
+      epic: await readEpic(jira, cloudId, issue, siteUrl),
+      home: {
+        provider: 'jira', cloudId, key: issue.key,
+        ...(issue.transitions && { transitions: issue.transitions.map(({ id, to }) => ({ id, to })) }),
+      },
+    },
     comments: comments.map(commentFromJira),
-    commentsTruncated: (issue.fields.comment?.total ?? 0) > comments.length,
+    commentsTruncated,
+    providerMetadata: {
+      author: null,
+      assignees: task.assignee ? [{ login: task.assignee, avatarUrl: task.assigneeAvatarUrl }] : [],
+      commentsTruncated,
+      reactions: [],
+      pullRequests: [],
+      events: changeEvents(changes),
+      // Older changes are read from the oldest page; the client drops the ones it already holds.
+      historyCursor: issue.changelog && issue.changelog.total > changes.length ? '0' : null,
+      capabilities: JIRA_PROVIDER_CAPABILITIES,
+      unavailableReason: 'Jira supports one assignee and has no issue reactions.',
+    },
   }
+}
+
+/** The host's copy after a transition: the status it reached, and no
+ *  transitions, which belonged to the status it left. */
+export function movedJiraTask(current: ProviderTask, to: JiraTransition['to']): ProviderTask {
+  const task = structuredClone(current)
+  task.state = { name: to.name, category: jiraStatusCategory(to.statusCategory.key) }
+  task.stateId = to.id
+  const home = jiraHome(task.home)
+  task.home = { provider: 'jira', cloudId: home.cloudId, key: home.key }
+  task.updatedAt = Date.now()
+  return task
 }
 
 /**
@@ -98,16 +144,21 @@ export async function readJiraTask(jira: JiraTransport, cloudId: string, idOrKey
  * transition has a destination that `accepts`, this fails loudly. A guess of a
  * near state would put the issue where nobody asked, and Solus would then show
  * a status that Jira does not hold.
+ *
+ * The transitions come from the host's copy (`home.transitions`). When they
+ * name no legal move, or the copy has none, this reads them once: the status
+ * may have changed in Jira since the copy was read.
  */
 export async function transitionJiraIssue(
   jira: JiraTransport,
   home: JiraHome,
   accepts: (to: JiraTransitionTarget) => boolean,
   targetName: string,
-): Promise<void> {
+): Promise<JiraTransition['to']> {
   const path = `${issuePath(home.key)}/transitions`
-  const { transitions } = await jira.request({ cloudId: home.cloudId, path }, transitionsSchema)
-  const legal = transitions.find((transition) => accepts(transition.to))
+  const read = async () => (await jira.request({ cloudId: home.cloudId, path }, transitionsSchema)).transitions
+  const legal = home.transitions?.find((transition) => accepts(transition.to))
+    ?? (await read()).find((transition) => accepts(transition.to))
   if (!legal) {
     throw new Error(
       `No Jira transition from ${home.key}'s current status reaches ${targetName}. Adjust the workflow or move the issue in Jira.`,
@@ -117,6 +168,7 @@ export async function transitionJiraIssue(
     { cloudId: home.cloudId, method: 'POST', path, body: { transition: { id: legal.id } } },
     IGNORED_RESPONSE,
   )
+  return legal.to
 }
 
 /**
@@ -156,13 +208,8 @@ export async function createJiraTask(
   )
   const { task } = await readJiraTask(jira, cloudId, created.key)
   if (!statusIds || (task.stateId && statusIds.includes(task.stateId))) return task
-  await transitionJiraIssue(
-    jira,
-    { provider: 'jira', cloudId, key: created.key },
-    (to) => statusIds.includes(to.id),
-    input.columnName,
-  )
-  return (await readJiraTask(jira, cloudId, created.key)).task
+  const to = await transitionJiraIssue(jira, jiraHome(task.home), (status) => statusIds.includes(status.id), input.columnName)
+  return movedJiraTask(task, to)
 }
 
 const ATTACHMENT_MIME = new Map([
@@ -194,12 +241,13 @@ export class JiraTaskProvider implements TaskProviderAdapter {
 
   constructor(private readonly jira: JiraTransport) {}
 
-  async fetch(ref: TaskRef): Promise<ProviderTaskDetails> {
+  async fetch(ref: IssueRef): Promise<ProviderTaskDetails> {
     if (ref.provider !== 'jira') throw new Error(`The Jira task provider cannot read a ${ref.provider} task.`)
     return readJiraTask(this.jira, ref.cloudId, ref.id)
   }
 
-  async update(home: TaskHome, patch: TaskUpdatePatch): Promise<ProviderTask> {
+  /** One PUT. Jira answers it with no body, so the answer is the host's copy with the written fields. */
+  async update(home: TaskHome, patch: IssueUpdatePatch, current: ProviderTask): Promise<ProviderTask> {
     const { cloudId, key } = jiraHome(home)
     if (patch.assignees !== undefined || patch.assignee !== undefined || patch.dueDate !== undefined) {
       throw new Error('Solus cannot change the assignee or the due date of a Jira issue. Change them in Jira.')
@@ -211,22 +259,26 @@ export class JiraTaskProvider implements TaskProviderAdapter {
     if (patch.priority !== undefined) {
       fields.priority = patch.priority ? { name: PRIORITY_TO_JIRA[patch.priority] } : null
     }
-    if (Object.keys(fields).length) {
-      await this.jira.request({ cloudId, method: 'PUT', path: issuePath(key), body: { fields } }, IGNORED_RESPONSE)
-    }
-    return (await readJiraTask(this.jira, cloudId, key)).task
+    if (!Object.keys(fields).length) return current
+    await this.jira.request({ cloudId, method: 'PUT', path: issuePath(key), body: { fields } }, IGNORED_RESPONSE)
+    const task = structuredClone(current)
+    if (patch.title !== undefined) task.title = patch.title
+    if (patch.body !== undefined) task.body = patch.body
+    if (patch.labels !== undefined) task.labels = patch.labels
+    if (patch.priority !== undefined) task.priority = patch.priority ?? undefined
+    task.updatedAt = Date.now()
+    return task
   }
 
   /** A transition to a status of the category. Each such destination is good. */
-  async setState(home: TaskHome, category: TaskStatusCategory): Promise<ProviderTask> {
-    const target = jiraHome(home)
-    await transitionJiraIssue(
+  async setState(home: TaskHome, category: IssueStatusCategory, current: ProviderTask): Promise<ProviderTask> {
+    const to = await transitionJiraIssue(
       this.jira,
-      target,
-      (to) => jiraStatusCategory(to.statusCategory.key) === category,
+      jiraHome(home),
+      (status) => jiraStatusCategory(status.statusCategory.key) === category,
       category,
     )
-    return (await readJiraTask(this.jira, target.cloudId, target.key)).task
+    return movedJiraTask(current, to)
   }
 
   async comment(home: TaskHome, body: string): Promise<ProviderComment> {
@@ -239,7 +291,7 @@ export class JiraTaskProvider implements TaskProviderAdapter {
   }
 
   /** Solus does not write the assignee of a Jira issue, so it lists no candidates. */
-  async assignees(home: TaskHome): Promise<TaskAssigneeCandidate[]> {
+  async assignees(home: TaskHome): Promise<IssueAssigneeCandidate[]> {
     jiraHome(home)
     return []
   }

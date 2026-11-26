@@ -10,6 +10,9 @@ import {
 import {
   MIN_PRIMARY_PANE_WIDTH,
   companionMinimizesProjectPanel,
+  defaultWorkspaceRailWidth,
+  isSidebarDrawer,
+  SIDEBAR_DRAWER_BELOW_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
 } from '@solus/workspace-ui/components/layout/lib/workspace-body'
@@ -117,5 +120,29 @@ describe('project rail width', () => {
 
   test('a reveal never overrides a temporary minimize', () => {
     expect(isProjectRailOpen(true, PROJECT_RAIL_MIN_CONTAINER_WIDTH - 1, true, true)).toBe(false)
+  })
+
+  test('alone in the workspace, the rail folds at the same window width as the session sidebar', () => {
+    // WHY: two rails that fold at different widths leave the window lopsided
+    // between them, with one column of furniture still squeezing the conversation.
+    const beside = (window: number) => window - defaultWorkspaceRailWidth(window)
+    for (const window of [900, SIDEBAR_DRAWER_BELOW_WIDTH - 1, SIDEBAR_DRAWER_BELOW_WIDTH, 1280, 1440]) {
+      expect(isProjectRailOpen(true, beside(window), false, false, window)).toBe(!isSidebarDrawer(window))
+    }
+    // A 1440px window holds both rails, though its column alone is under 1200px.
+    expect(beside(1440)).toBeLessThan(PROJECT_RAIL_MIN_CONTAINER_WIDTH)
+    expect(isProjectRailOpen(true, beside(1440), false, false, 1440)).toBe(true)
+  })
+
+  test('a rail the window folded still offers its expand control and opens on a press', () => {
+    const window = SIDEBAR_DRAWER_BELOW_WIDTH - 1
+    expect(canExpandProjectRail(true, window, false, window)).toBe(true)
+    expect(toggleProjectRail(true, window, false, window)).toEqual({ open: true, revealed: true })
+  })
+
+  test('a view in a split still needs the room in its own column', () => {
+    const column = PROJECT_RAIL_MIN_CONTAINER_WIDTH - 1
+    expect(isProjectRailOpen(true, column)).toBe(false)
+    expect(isProjectRailOpen(true, column, false, false, 2560)).toBe(true)
   })
 })

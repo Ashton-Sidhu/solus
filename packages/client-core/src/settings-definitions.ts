@@ -105,6 +105,10 @@ export const settingsDefinitions = {
     label: "Delegation instructions",
     description: "Extra guidance for agents when they delegate work.",
   },
+  "sessions.completed-retention": {
+    label: "Completed sessions",
+    description: "Days that settled sessions stay on the Completed shelf of the sidebar.",
+  },
   "sessions.rate-limit-behavior": {
     label: "Rate limit behavior",
     description: "What your runs do when they hit a provider rate limit, on every host.",
@@ -115,17 +119,6 @@ export const settingsDefinitions = {
   "sessions.typesafe-key-required": {
     label: "TypeSafe key required",
     description: "Needs a TypeSafe key. Until then, Auto uses General use.",
-  },
-  "tasks.section-task-behavior": {
-    label: "Task behavior",
-  },
-  "tasks.task-lifecycle": {
-    label: "Task lifecycle control",
-    description: "None: no changes. Moderate: Done is yours. Autonomous: full control.",
-  },
-  "tasks.completed-retention": {
-    label: "Completed task history",
-    description: "Days to keep completed tasks in the sidebar.",
   },
   "appearance.section-theme": {
     label: "Theme",
@@ -154,7 +147,7 @@ export const settingsDefinitions = {
   },
   "appearance.sidebar-motion": {
     label: "Sidebar animation",
-    description: "Sidebar task animation length. 0 turns it off.",
+    description: "Sidebar animation length. 0 turns it off.",
   },
   "appearance.project-panel-items": {
     label: "Project panel",
@@ -316,6 +309,10 @@ export const settingsDefinitions = {
   "source-control.branch-names": {
     label: "Branch names",
   },
+  "source-control.managed-worktrees": {
+    label: "Solus worktrees",
+    description: "Each session that works in its own worktree keeps a copy of its project on this host. Delete one to free its space. Solus tells you first if you lose work.",
+  },
   "source-control.override-branch-names": {
     label: "Override branch names",
     description: "Use a different naming for this project. Saved in .solus/config.json, so you can commit it.",
@@ -341,6 +338,10 @@ export const settingsDefinitions = {
     label: "Not signed in",
     description: "Your settings and your agent profile are kept on your host. Sign in to Solus to keep them in your account and use them on every host and device.",
   },
+  "account.cloud-address": {
+    label: "Solus Cloud address",
+    description: "The Solus Cloud that this device signs in to. Change it only when your organization hosts its own.",
+  },
   "account.section-sync": {
     label: "Sync",
     description: "Your settings and your agent profile sync through your account. Device settings, host settings, and credentials never sync.",
@@ -361,6 +362,48 @@ export const settingsDefinitions = {
   },
   "organization.section-organization": {
     label: "Organization",
+  },
+  "organization.name": {
+    label: "Name",
+    description: "Shown to members and on invitations.",
+  },
+  "organization.url": {
+    label: "URL",
+    description: "Used in links to this organization. A rename keeps it.",
+  },
+  "organization.role": {
+    label: "Your role",
+  },
+  "organization.section-members": {
+    label: "Members",
+  },
+  "organization.section-hosts": {
+    label: "Hosts",
+    description: "Where members run this organization's work, and what a new cloud host starts with. An existing host keeps its own setup.",
+  },
+  "organization.allow-cloud-hosts": {
+    label: "Allow cloud hosts",
+    description: "Members can create cloud hosts, add the organization's own machines, and run work on them.",
+  },
+  "organization.allow-personal-hosts": {
+    label: "Allow personal hosts",
+    description: "Members can share a personal computer or server with this organization and run its work on it.",
+  },
+  "organization.default-packages": {
+    label: "Default packages",
+    description: "The apt packages a new cloud host starts with.",
+  },
+  "organization.default-setup-script": {
+    label: "Default setup script",
+    description: "The script a new cloud host runs when it starts.",
+  },
+  "organization.leave": {
+    label: "Leave organization",
+    description: "Its hosts leave your reach. Hosts you shared stop being shared.",
+  },
+  "organization.delete": {
+    label: "Delete organization",
+    description: "Removes it for everyone. Delete its cloud host first.",
   },
   "organization.policy": {
     label: "Policy",
@@ -514,6 +557,6 @@ export const settingsDefinitions = {
   },
   "host.delete-unfiled-recordings-after": {
     label: "Delete unfiled recordings after",
-    description: "Days to keep a browser recording that is not filed on a task or pull request, or sent to an agent.",
+    description: "Days to keep a browser recording that is not filed on an issue or pull request, or sent to an agent.",
   },
 } satisfies Record<string, SettingCopy>

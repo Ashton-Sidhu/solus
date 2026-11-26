@@ -29,7 +29,7 @@ process.env.SOLUS_PROJECTS_ROOT = projectsRoot
 const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
 const MEMBER: Principal = {
   kind: 'org-member', userId: 'user_records', organizationId: 'org-1', organizationRole: 'member',
-  teamIds: [], hostKind: 'managed', displayName: 'Member', deviceId: 'test', deviceLabel: 'Test', expiresAt: Date.now() + 60_000,
+  teamIds: [], hostKind: 'cloud', displayName: 'Member', deviceId: 'test', deviceLabel: 'Test', expiresAt: Date.now() + 60_000,
 }
 const GUEST: Principal = {
   kind: 'guest', guestId: 'guest-1', displayName: 'Guest', deviceId: 'guest-1', deviceLabel: 'Test', expiresAt: Date.now() + 60_000,

@@ -27,6 +27,7 @@
   } from "@lucide/svelte";
   import SidePanel from "../layout/SidePanel.svelte";
   import PanelSection from "./PanelSection.svelte";
+  import AddRepositoryButton from "./AddRepositoryButton.svelte";
   import GoalSection from "./GoalSection.svelte";
   import AgentsSection from "./AgentsSection.svelte";
   import { getClientShellContext } from "../../contexts/app/client-shell.svelte";
@@ -60,7 +61,7 @@
     gitCardRepositories,
     showsRepositoryRows,
   } from "./lib/git-repositories";
-  import { useDraftRepositoryReads } from "./lib/git-repository-reads.svelte";
+  import { useDraftRepositoryReads, useTaskFolderRead } from "./lib/git-repository-reads.svelte";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -84,6 +85,9 @@
     /** Width of the whole workspace body — the same measure the session sidebar
      *  sizes against, so the two rails match. */
     workspaceWidth: number;
+    /** The workspace width while this conversation has the workspace to itself,
+     *  so the rail folds with the session sidebar. Omitted in a split. */
+    soleViewWorkspaceWidth?: number;
     /** Temporarily minimize without changing the role's persisted preference. */
     minimized?: boolean;
     /** The user opened the rail in a view too narrow for it to open alone. */
@@ -99,6 +103,7 @@
     isSplit = false,
     containerWidth,
     workspaceWidth,
+    soleViewWorkspaceWidth,
     minimized = false,
     revealed = false,
     active = true,
@@ -192,7 +197,7 @@
   // honour it. Temporary minimization leaves that preference intact, so the
   // rail returns when the secondary panel closes.
   const open = $derived(
-    isProjectRailOpen(preferOpen, containerWidth, minimized, revealed),
+    isProjectRailOpen(preferOpen, containerWidth, minimized, revealed, soleViewWorkspaceWidth),
   );
 
   const panelSession = $derived(session.sessionFor(sourceId));
@@ -257,6 +262,20 @@
     },
     codebases: codebasesStore,
   });
+  // The task folder of a started session: its record names the repositories
+  // of the card, so no Git event can take one of them off it.
+  const taskFolder = useTaskFolderRead({
+    get active() {
+      return active && open && gitShown && hasStarted;
+    },
+    get path() {
+      return gitCwd;
+    },
+    get foldersKey() {
+      return (panelSession?.sessionFolders ?? []).map((folder) => folder.path).join("\n");
+    },
+    read: (root) => session.apiFor(sourceId).taskFolderOf(root),
+  });
   const gitRepositories = $derived(
     gitShown
       ? gitCardRepositories({
@@ -276,6 +295,7 @@
                 serverHostId,
               )
             : [],
+          taskFolder: taskFolder.current,
         })
       : [],
   );
@@ -422,6 +442,10 @@
   }
 </script>
 
+{#snippet gitHeaderExtra()}
+  <span class="header-extra"><AddRepositoryButton {sourceId} /></span>
+{/snippet}
+
 {#snippet environmentHeaderExtra()}
   <span class="header-extra">
     <button
@@ -557,6 +581,7 @@
         title="Git"
         collapsed={collapsedSections.git}
         onToggle={() => toggleSection("git")}
+        headerExtra={gitHeaderExtra}
         onResizePointerDown={startResize}
       >
         <GitCard

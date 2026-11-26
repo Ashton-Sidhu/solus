@@ -1,4 +1,4 @@
-import { addMachineOutcomeAnswers, PAIR_APPROVAL_TTL_MS, type AddMachineWay } from '@solus/contracts/add-machine'
+import { addMachineOutcomeAnswers, PAIR_APPROVAL_TTL_MS, type AddMachineAsk, type AddMachineWay } from '@solus/contracts/add-machine'
 import type { HostListing } from '@solus/contracts/host-list'
 import type { HostPairRequest } from '@solus/contracts/host-pairing'
 import type { SshAddProgress, SshAddRequest, SshAddResult } from '@solus/contracts/remote-machines'
@@ -8,12 +8,14 @@ import type { StatusCardState } from '@solus/contracts/types'
 import {
   addressAttempt,
   ANOTHER_ADDRESS_KEY,
+  ANOTHER_SSH_KEY,
   attemptField,
   candidateAttempt,
   nextIndex,
   outcomeWay,
   pairRequest,
   sshCardOutcome,
+  sshTargetAttempt,
   targetName,
   type CardAttempt,
   type CardField,
@@ -23,6 +25,8 @@ import { newCheckCode } from '../../../lib/check-code'
 /** What the card needs from the hosts. The SSH add and the pairing run on the session host. */
 export interface AddMachineCardDeps {
   candidates: () => readonly AddMachineCandidate[]
+  /** The agent's ask: an SSH target or a key in it fills the card. */
+  ask?: () => AddMachineAsk
   addOverSsh: (request: SshAddRequest) => Promise<SshAddResult>
   pair: (request: HostPairRequest) => Promise<HostListing>
   watchSshProgress: (requestId: string, onProgress: (progress: SshAddProgress) => void) => () => void
@@ -43,6 +47,12 @@ export type AddMachineCardPhase = 'choose' | 'sending' | 'added' | 'closed'
 
 type Added = { installationId: string; label: string; attempt: CardAttempt }
 
+/** SSH refuses the key because other users can read it. Fix permissions sends the same add with the fix. */
+export interface KeyPermissionsIssue {
+  identityFile: string
+  message: string
+}
+
 /** The add that runs, or the last one sent: what its setup card shows. */
 interface SentAttempt {
   id: string
@@ -61,6 +71,16 @@ interface SentAttempt {
  */
 export class AddMachineCardState {
   address = $state('')
+  /** The target of the "Another machine over SSH…" row. */
+  sshTarget = $state('')
+  /** A private key on the session host, as with `ssh -i`. Sent only while its field shows. */
+  identityFile = $state('')
+  /** On a `~/.ssh/config` row, the person chose another key than the config's. */
+  isKeyFieldOpen = $state(false)
+  /** The key that SSH refuses until its permissions are fixed. */
+  keyPermissions = $state<KeyPermissionsIssue | null>(null)
+  /** The next SSH add asks the host to fix the key first: the person chose Fix permissions. */
+  #isFixingKey = false
   code = $state('')
   password = $state('')
   /** The person chose to type a code for the selected machine. */
@@ -77,19 +97,54 @@ export class AddMachineCardState {
   #pickedKey = $state<string | null>(null)
   #sent = $state<SentAttempt | null>(null)
 
-  constructor(private readonly deps: AddMachineCardDeps) {}
+  constructor(private readonly deps: AddMachineCardDeps) {
+    // The agent's SSH target and key fill the card once; after that the fields are the person's.
+    const ask = deps.ask?.()
+    this.sshTarget = ask?.sshTarget?.trim() ?? ''
+    this.identityFile = ask?.identityFile?.trim() ?? ''
+    this.isKeyFieldOpen = !!this.identityFile
+  }
 
   get rowKeys(): string[] {
-    return [...this.deps.candidates().map((candidate) => candidate.key), ANOTHER_ADDRESS_KEY]
+    return [...this.deps.candidates().map((candidate) => candidate.key), ANOTHER_SSH_KEY, ANOTHER_ADDRESS_KEY]
   }
 
-  /** The person's pick, or the best match until they pick. */
+  /**
+   * The person's pick. Until they pick: the agent's SSH target (its config row,
+   * else "Another machine over SSH…"), or the best match.
+   */
   get selectedKey(): string {
     const keys = this.rowKeys
-    return this.#pickedKey && keys.includes(this.#pickedKey) ? this.#pickedKey : keys[0]
+    if (this.#pickedKey && keys.includes(this.#pickedKey)) return this.#pickedKey
+    const askedTarget = this.deps.ask?.().sshTarget?.trim()
+    if (askedTarget) {
+      return this.deps.candidates().find((candidate) => candidate.way === 'ssh' && candidate.sshTarget === askedTarget)?.key ?? ANOTHER_SSH_KEY
+    }
+    return keys[0]
   }
 
-  /** The selected candidate; null on "Another address…". */
+  get isSshTargetRow(): boolean {
+    return this.selectedKey === ANOTHER_SSH_KEY
+  }
+
+  /** The SSH target of the selected row, or empty when the row is not an SSH one. */
+  get selectedSshTarget(): string {
+    if (this.isSshTargetRow) return this.sshTarget.trim()
+    return this.selected?.way === 'ssh' ? this.selected.sshTarget ?? '' : ''
+  }
+
+  /** The identity file field shows: always for a typed target, on a config row once the person asks for another key. */
+  get showsKeyField(): boolean {
+    return this.isSshTargetRow || (this.selected?.way === 'ssh' && this.isKeyFieldOpen)
+  }
+
+  /** The name of the selected machine, as the card says it. */
+  get machineName(): string {
+    if (this.isSshTargetRow) return this.sshTarget.trim() || 'the other machine'
+    return targetName(this.selected, this.address)
+  }
+
+  /** The selected candidate; null on "Another machine over SSH…" and "Another address…". */
   get selected(): AddMachineCandidate | null {
     return this.deps.candidates().find((candidate) => candidate.key === this.selectedKey) ?? null
   }
@@ -128,6 +183,7 @@ export class AddMachineCardState {
     this.#pickedKey = key
     this.useCode = false
     this.isPasswordAsked = false
+    this.keyPermissions = null
     this.failure = null
     this.code = ''
     this.password = ''
@@ -138,6 +194,18 @@ export class AddMachineCardState {
     this.select(keys[nextIndex(keys.indexOf(this.selectedKey), keys.length, key)])
   }
 
+  /** A config row uses another key than its config's. */
+  openKeyField(): void {
+    this.isKeyFieldOpen = true
+  }
+
+  /** Back to the config's key: no key is sent. */
+  closeKeyField(): void {
+    this.isKeyFieldOpen = false
+    this.identityFile = ''
+    if (this.failure?.field === 'identity') this.failure = null
+  }
+
   enterCode(): void {
     this.useCode = true
     this.failure = null
@@ -146,7 +214,11 @@ export class AddMachineCardState {
   async add(): Promise<void> {
     if (this.phase !== 'choose') return
     const selected = this.selected
-    const build = selected ? candidateAttempt(selected, this.code, this.useCode) : addressAttempt(this.address, this.code, this.useCode)
+    const identityFile = this.showsKeyField ? this.identityFile : ''
+    const build = selected ? candidateAttempt(selected, this.code, this.useCode, identityFile)
+      : this.isSshTargetRow ? sshTargetAttempt(this.sshTarget, identityFile)
+      : addressAttempt(this.address, this.code, this.useCode)
+    this.keyPermissions = null
     if ('error' in build) {
       // Nothing was sent, so no setup card shows: the message is at its field.
       this.#sent = null
@@ -164,7 +236,7 @@ export class AddMachineCardState {
     this.#sent = {
       id: crypto.randomUUID(),
       way: outcomeWay(build.attempt),
-      name: targetName(selected, this.address),
+      name: this.machineName,
       sshTarget: build.attempt.way === 'ssh' ? build.attempt.sshTarget : undefined,
       needsPassword: false,
     }
@@ -179,7 +251,11 @@ export class AddMachineCardState {
       this.deps.noticeAdded(added.label, added.installationId)
       await this.deps.answer(addMachineOutcomeAnswers({ status: 'added', installationId: added.installationId, way: outcomeWay(added.attempt) }))
     } catch (error) {
-      this.failure = { field: attemptField(build.attempt, !selected, hasPassword), message: error instanceof Error ? error.message : String(error) }
+      const message = error instanceof Error ? error.message : String(error)
+      const field = attemptField(build.attempt, !selected && !this.isSshTargetRow, hasPassword, message)
+      // The host checks the key before SSH runs: nothing was sent, so the message is at the key's field.
+      if (field === 'identity') this.#sent = null
+      this.failure = { field, message }
     } finally {
       // No typed secret is kept after a send, also after a failed send.
       this.code = ''
@@ -187,6 +263,15 @@ export class AddMachineCardState {
       this.approval = null
       if (this.phase === 'sending') this.phase = 'choose'
     }
+  }
+
+  /** The same add again, with the host's fix of the key first: one request, nothing sent until the person chose it. */
+  async fixKeyPermissions(): Promise<void> {
+    if (!this.keyPermissions || this.phase !== 'choose') return
+    this.keyPermissions = null
+    this.#isFixingKey = true
+    await this.add()
+    this.#isFixingKey = false
   }
 
   async decline(): Promise<void> {
@@ -234,6 +319,9 @@ export class AddMachineCardState {
     const stop = this.deps.watchSshProgress(requestId, (progress) => { this.sshSteps.push(progress) })
     try {
       const request: SshAddRequest = { sshTarget: attempt.sshTarget, deviceLabel: this.deps.deviceLabel(), requestId }
+      if (attempt.identityFile) request.identityFile = attempt.identityFile
+      if (attempt.identityFile && this.#isFixingKey) request.fixIdentityFilePermissions = true
+      this.#isFixingKey = false
       if (this.password) request.authSecret = this.password
       this.password = ''
       const result = await this.deps.addOverSsh(request)
@@ -242,6 +330,12 @@ export class AddMachineCardState {
         this.isPasswordAsked = true
         if (this.#sent) this.#sent.needsPassword = true
         this.failure = { field: 'password', message: outcome.message }
+        return null
+      }
+      if (outcome.kind === 'key-permissions') {
+        // Nothing was sent, so no setup card shows: the card offers Fix permissions.
+        this.#sent = null
+        this.keyPermissions = { identityFile: outcome.identityFile, message: outcome.message }
         return null
       }
       if (outcome.kind === 'failed') throw new Error(outcome.message)

@@ -119,6 +119,65 @@ export interface WorktreeEntry {
   lastModified?: number
 }
 
+/** The project or the codebase that Settings shows a managed worktree under. */
+export interface ManagedWorktreeGroup {
+  /** `project:<path>` or `codebase:<id>`. */
+  key: string
+  name: string
+  /** The repositories of a codebase, or the folder of a project. */
+  detail: string
+}
+
+/**
+ * A worktree that Solus made, as Settings lists it: a worktree in
+ * `<project>/.git/solus/worktrees/`, or a task folder, which has one worktree
+ * of each of its repositories on one branch. Delete removes all of it and its
+ * branch.
+ */
+export interface ManagedWorktree {
+  /** The folder that Delete removes. */
+  path: string
+  kind: 'worktree' | 'task_folder'
+  group: ManagedWorktreeGroup
+  /** The title of the session that made it, else its branch, else its folder name. */
+  title: string
+  /** Null for a detached HEAD. */
+  branch: string | null
+  lastModified?: number
+  /** A worktree of it has changes that are not committed. */
+  hasUncommittedWork: boolean
+  /** Its branch has commits that are not in the default branch and not pushed. */
+  hasUnmergedCommits: boolean
+  /** The live sessions that work in it. Solus does not remove a worktree in use. */
+  sessions: { sessionId: string; title: string }[]
+}
+
+export type ManagedWorktreeState = 'safe' | 'unsaved' | 'in_use'
+
+/** In use, else unsaved when Delete loses work, else safe. The host refuses on the same rule. */
+export function managedWorktreeState(worktree: Pick<ManagedWorktree, 'sessions' | 'hasUncommittedWork' | 'hasUnmergedCommits'>): ManagedWorktreeState {
+  if (worktree.sessions.length > 0) return 'in_use'
+  return worktree.hasUncommittedWork || worktree.hasUnmergedCommits ? 'unsaved' : 'safe'
+}
+
+/**
+ * The result of a removal. `unsaved` and `in_use` remove nothing: the caller
+ * asks again with `force` after the person confirms the loss of work, and a
+ * worktree in use stays until its sessions leave it. `removed` with a
+ * `branchError` removed the folder but kept the branch.
+ */
+export type ManagedWorktreeRemoveResult =
+  | { status: 'removed'; branchError?: string }
+  | { status: 'unsaved'; hasUncommittedWork: boolean; hasUnmergedCommits: boolean }
+  | { status: 'in_use'; sessions: ManagedWorktree['sessions'] }
+  | { status: 'failed'; error: string }
+
+/** The size on disk of a managed worktree, in bytes. Null when the host could not read it. */
+export interface ManagedWorktreeSize {
+  path: string
+  bytes: number | null
+}
+
 /** One branch as the branch picker orders and labels it. */
 export interface BranchRef {
   name: string
@@ -327,6 +386,42 @@ export interface GitRepositoryStatus {
   branch: string | null
   primaryRemoteName: string | null
   primaryRemoteUrl: string | null
+  /** Present when the caller requests the working tree and branch status together. */
+  checkout?: ReturnType<typeof checkoutStatus>
+}
+
+function checkoutPullRequest(state: GitState | null, branch: string | null) {
+  const url = state?.prUrl
+  const match = url?.match(/\/(?:pull|merge_requests)\/(\d+)\/?$/)
+  if (!state || !url || !match) return null
+  return { number: Number(match[1]), url, title: url, baseRef: state.targetBranch, headRef: branch ?? '', state: 'open' as const }
+}
+
+/** The status consumed by the T3 Git menu, including an unborn or detached branch. */
+export function checkoutStatus(repo: Pick<GitRepositoryStatus, 'branch' | 'isRepository' | 'primaryRemoteName'>, state: GitState | null) {
+  const branch = state?.branch ?? repo.branch
+  return {
+    isRepo: repo.isRepository,
+    refName: branch,
+    hasPrimaryRemote: !!repo.primaryRemoteName,
+    isDefaultRef: !!branch && branch === state?.targetBranch,
+    hasWorkingTreeChanges: !!state?.uncommittedChanges.fileCount,
+    workingTree: {
+      files:
+        state?.uncommittedChanges.files.map((file) => ({
+          path: file.path,
+          insertions: 0,
+          deletions: 0,
+        })) ?? [],
+      insertions: state?.uncommittedTotals?.insertions ?? 0,
+      deletions: state?.uncommittedTotals?.deletions ?? 0,
+    },
+    hasUpstream: !!state?.upstreamRef,
+    aheadCount: state?.aheadCount ?? 0,
+    behindCount: state?.behindCount ?? 0,
+    aheadOfDefaultCount: state?.targetAheadCount,
+    pr: checkoutPullRequest(state, branch),
+  }
 }
 
 export interface GitInitRepositoryResult {

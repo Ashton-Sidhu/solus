@@ -13,6 +13,7 @@ const FALLBACK_LABELS = {
   codex: "Codex",
   opencode: "OpenCode",
   replay: "Replay (dev)",
+  antigravity: "Google Antigravity",
 } satisfies Record<AgentId, string>;
 
 export function agentLabel(

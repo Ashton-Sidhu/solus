@@ -75,7 +75,7 @@ function gatewayFor(...records: Integration[]) {
 }
 
 const MEMBER_ACTOR: Actor = {
-  principal: { kind: 'org-member', userId: 'member-1', organizationId: 'org-1', organizationRole: 'member', teamIds: [], hostKind: 'managed', displayName: 'Member', deviceId: 'member-device', deviceLabel: 'Browser', expiresAt: Date.now() + 300_000 },
+  principal: { kind: 'org-member', userId: 'member-1', organizationId: 'org-1', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Member', deviceId: 'member-device', deviceLabel: 'Browser', expiresAt: Date.now() + 300_000 },
   user: { id: { kind: 'account', accountId: 'member-1' }, displayName: 'Member' },
 }
 const MEMBER_SCOPE = { identity: HOST_IDENTITY, personKey: 'member-1' }

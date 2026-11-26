@@ -9,6 +9,7 @@
   import {
     Check as CheckIcon,
     Copy as CopyIcon,
+    AppWindow as AppWindowIcon,
     Monitor as MonitorIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
@@ -28,13 +29,16 @@
   import ForwardedHostRows from "./ForwardedHostRows.svelte";
   import PairApprovalRows from "./PairApprovalRows.svelte";
   import ReachedMachinesSection from "./ReachedMachinesSection.svelte";
+  import OutsideAppsSection from "./OutsideAppsSection.svelte";
   import { forwardedHostsStore } from "./forwarded-hosts.store.svelte";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
   import ManagedSettingNote from "../settings/policy/ManagedSettingNote.svelte";
   import { hostLock, pairingLock } from "../settings/policy/managed-setting.svelte";
   import type { RemoteAccessMode } from "@solus/contracts/host-api";
   import { tailscaleServePreview, tailscaleServeStateText } from './lib/tailscale-serve';
-  import { pairedDeviceDetail } from './lib/paired-devices';
+  import { isAppActive, pairedDeviceAppName, pairedDeviceDetail, revocableAppIds, revokeAllAppsQuestion } from './lib/paired-devices';
+  import { hostLabel } from './outside-apps/outside-apps-dialog.svelte';
+  import { toasts } from "../../lib/toasts";
 
   interface Props {
     serverId: string;
@@ -55,16 +59,20 @@
   const info = $derived(connections.serverInfo);
   $effect(() => { if (info?.tailscaleServe) servePort = info.tailscaleServe.port; });
   const servePreview = $derived(tailscaleServePreview(info?.tailscaleServe?.url ?? null, servePort));
-  // Pairing does not exist on a managed host or the workspace service: Solus cloud owns how they are reached.
+  // Pairing does not exist on a cloud host or the workspace service: the control plane owns how they are reached.
   const hasPairing = $derived(info?.hostKind === "personal");
   const canChangeNetwork = $derived(info?.principal === "local-owner");
   // Only the host's owner may read and revoke its pairings (plans/033 §4.4).
   const showsPairedDevices = $derived(hasPairing && (info?.principal === "local-owner" || info?.principal === "remote-owner"));
   // Only a principal with host.local.reach may list and decide approval requests.
   const showsApprovals = $derived(hasPairing && info?.principal !== undefined && !!hosts.get(serverId)?.me.may("host.local.reach"));
+  // Every person who uses the host connects outside apps that act as them (plans/035 §0.3), on a cloud machine too.
+  const showsOutsideApps = $derived(info?.principal !== undefined && !!hosts.get(serverId)?.me.may("host.use"));
   const connectedDeviceIds = $derived(new Set(connections.sessions.map((session) => session.deviceId)));
   const connectedPage = $derived(pageOf(connections.sessions, connectedExpanded));
   const pairedPage = $derived(pageOf(connections.pairedDevices, pairedExpanded));
+  const revocableApps = $derived(revocableAppIds(connections.pairedDevices));
+  let isRevokingApps = $state(false);
   // Watched here, not in its rows: the pairing card shows once the forwards are read.
   $effect(() => forwardedHostsStore.watch(serverId));
   const forwarded = $derived(forwardedHostsStore.hostsFor(serverId));
@@ -105,6 +113,15 @@
     const enabled = !info.tailscaleServe.enabled;
     if (!enabled && !window.confirm('Turn off Tailscale HTTPS for this host?')) return;
     await connections.setTailscaleServe(serverId, enabled, servePort);
+  }
+
+  async function revokeAllApps() {
+    if (isRevokingApps || revocableApps.length === 0) return;
+    if (!window.confirm(revokeAllAppsQuestion(revocableApps.length, hostLabel(serverId)))) return;
+    isRevokingApps = true;
+    const isDone = await connections.revokeDevices(serverId, revocableApps);
+    isRevokingApps = false;
+    if (!isDone) toasts.error("Some apps were not revoked", { description: "Try Revoke on each app that is still listed." });
   }
 
   function copyAddress() {
@@ -250,6 +267,12 @@
   {/key}
 </SettingsSection>
 
+<!-- Outside apps sign in here like a device pairs; they are listed and revoked
+     with the paired devices below (plans/035 §10). -->
+{#if showsOutsideApps}
+  <OutsideAppsSection {serverId} />
+{/if}
+
 {#if hasPairing && canChangeNetwork}
   {#key serverId}<ReachedMachinesSection {serverId} />{/key}
 {/if}
@@ -294,22 +317,47 @@
 </SettingsSection>
 
 {#if showsPairedDevices}
-  <SettingsSection label="Paired devices" description="Every device that paired with this host, connected or not. Revoke one to end its access.">
+  <SettingsSection label="Paired devices" description="Every device and outside app that paired with this host, connected or not. Revoke one to end its access.">
+    {#snippet action()}
+      {#if revocableApps.length > 0}
+        <Button variant="ghost" size="sm" disabled={isRevokingApps} onclick={() => void revokeAllApps()} class="text-(--solus-text-secondary) hover:text-(--solus-status-error)">
+          {isRevokingApps ? "Revoking…" : "Revoke all apps"}
+        </Button>
+      {/if}
+    {/snippet}
     {#if connections.pairedDevicesError}
       <p role="alert" class="px-4 py-3.5 text-workspace-chrome text-(--solus-status-error)">{connections.pairedDevicesError}</p>
     {:else if !connections.pairedDevicesLoaded}
       <p class="px-4 py-6 text-center text-[0.875em] text-(--solus-text-tertiary)">Reading paired devices…</p>
     {:else if connections.pairedDevices.length === 0}
       <p class="px-4 py-6 text-center text-[0.875em] text-(--solus-text-tertiary)">
-        No devices are paired with this host.
+        No devices or apps are paired with this host.
       </p>
     {:else}
       {#each pairedPage.rows as device (device.deviceId)}
+        {@const DeviceIcon = device.app ? AppWindowIcon : MonitorIcon}
+        {@const appName = pairedDeviceAppName(device)}
         <div class="group flex items-center gap-3 px-4 py-2.5">
-          <MonitorIcon size={16} class={["shrink-0", device.revokedAt === null ? "text-foreground" : "text-(--solus-text-tertiary)"]} />
+          <span class="relative shrink-0">
+            <DeviceIcon size={16} class={device.revokedAt === null ? "text-foreground" : "text-(--solus-text-tertiary)"} />
+            {#if device.app && device.revokedAt === null}
+              {@const isActive = isAppActive(device)}
+              <span
+                role="img"
+                aria-label={isActive ? "Used in the last 5 minutes" : "Not used in the last 5 minutes"}
+                title={isActive ? "Used in the last 5 minutes" : "Not used in the last 5 minutes"}
+                class={["absolute -right-0.5 -bottom-0.5 size-2 rounded-full ring-2 ring-(--solus-container-bg)", isActive ? "bg-(--solus-status-complete)" : "bg-(--solus-text-tertiary)/50"]}
+              ></span>
+            {/if}
+          </span>
           <div class="min-w-0 flex-1">
-            <p class={["truncate text-workspace-chrome font-medium", device.revokedAt === null ? "text-(--solus-text-primary)" : "text-(--solus-text-tertiary)"]}>
-              {device.deviceLabel}
+            <p class="flex min-w-0 items-baseline gap-2">
+              <span class={["truncate text-workspace-chrome font-medium", device.revokedAt === null ? "text-(--solus-text-primary)" : "text-(--solus-text-tertiary)"]}>
+                {device.deviceLabel}
+              </span>
+              {#if appName && appName !== device.deviceLabel}
+                <span class="shrink-0 text-chrome-dense text-(--solus-text-tertiary)">{appName}</span>
+              {/if}
             </p>
             <p class="truncate text-[0.875em] text-(--solus-text-tertiary)">
               {pairedDeviceDetail(device, connectedDeviceIds.has(device.deviceId))}

@@ -6,8 +6,8 @@ import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId } from
 import { sendRateLimitedNow } from '../../lib/rate-limit-actions'
 import { serversStore } from '../connections/servers.store.svelte'
 import { hosts } from '../hosts/hosts.svelte'
-import { hostIsManaged } from '../../components/servers/lib/managed-host'
-import { type TaskSnapshot } from '@solus/contracts/task-types'
+import { hostHasManagedCompute } from '../../components/servers/lib/managed-host'
+import { type IssueSnapshot } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
 import { ownedTaskId } from './session-draft.svelte'
 import { nextMsgId } from './session.utils'
@@ -16,6 +16,7 @@ import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot } from '@so
 import { requestConversationScrollToBottom } from './session-plan-operations'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
+import { afterPaint } from '../../lib/after-paint'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import { localApi } from '@solus/client-core/local-api'
@@ -58,7 +59,7 @@ type PromptDispatchWorkspace = Pick<WorkspaceContext,
   | 'tabIdForSession'
   | 'tabOrder'
   | 'tabs'
-  | 'tasksStore'
+  | 'issuesStore'
 >
 
 /**
@@ -332,7 +333,7 @@ export class PromptDispatch {
    * A failure here is not allowed to swallow the prompt. The send then runs
    * with no task.
    */
-  private async resolveTaskOnItsHost<T extends { taskId?: string; taskSnapshot?: TaskSnapshot }>(
+  private async resolveTaskOnItsHost<T extends { taskId?: string; taskSnapshot?: IssueSnapshot }>(
     tabId: string,
     options: T,
   ): Promise<T> {
@@ -348,15 +349,15 @@ export class PromptDispatch {
     if (!options.taskId) return options
     const project = projectHome(session.run)
     try {
-      const { task, snapshot } = await this.workspace.tasksStore.prepareForSession(project.serverId, {
-        taskId: options.taskId,
+      const { task, snapshot } = await this.workspace.issuesStore.prepareForSession(project.serverId, {
+        issueId: options.taskId,
         includeSnapshot: isDispatch(session.run),
       })
       if (!task) return options
       let preparedSnapshot = snapshot
       if (session.prReview) {
         try {
-          await this.workspace.tasksStore.get(task.id).link({
+          await this.workspace.issuesStore.get(task.id).link({
             kind: 'pr',
             targetScope: project.path,
             targetKey: String(session.prReview.number),
@@ -366,7 +367,7 @@ export class PromptDispatch {
           // The first snapshot was read in the binding transaction, before the
           // PR edge existed. A dispatched run must ship the linked version.
           if (snapshot) {
-            preparedSnapshot = await this.workspace.tasksStore.get(task.id).dispatchSnapshot(projectHome(session.run).serverId)
+            preparedSnapshot = await this.workspace.issuesStore.get(task.id).dispatchSnapshot(projectHome(session.run).serverId)
           }
         } catch (error) {
           console.warn('[Solus] PR task link failed; the prompt will still send.', error)
@@ -383,14 +384,14 @@ export class PromptDispatch {
   /** Re-ship a dispatched session's task state with a follow-up prompt. Best
    *  effort: a failure means the packet goes stale for one turn, never that the
    *  send is swallowed. */
-  private async attachTaskSnapshot<T extends { taskId?: string; taskSnapshot?: TaskSnapshot }>(
+  private async attachTaskSnapshot<T extends { taskId?: string; taskSnapshot?: IssueSnapshot }>(
     session: Session,
     options: T,
   ): Promise<T> {
-    const taskId = ownedTaskId(this.workspace.tasksStore, session)
+    const taskId = ownedTaskId(this.workspace.issuesStore, session)
     if (!taskId) return options
     try {
-      const snapshot = await this.workspace.tasksStore
+      const snapshot = await this.workspace.issuesStore
         .get(taskId)
         .dispatchSnapshot(projectHome(session.run).serverId)
       return snapshot ? { ...options, taskId, taskSnapshot: snapshot } : options
@@ -529,6 +530,10 @@ export class PromptDispatch {
     if (!isBusy && !session.agentSessionId && !session.handoffPending) session.threadProvider = session.run.provider
 
     const isFirstMessage = session.messages.length === 0 || (session.forked && !session.forkedFromSessionId)
+    // A fork's first prompt starts its thread, but its transcript already
+    // shows the history it copied. Only a prompt with no earlier prompt above
+    // it goes to the top of the view, as in T3 Code.
+    const opensTranscript = !session.messages.some((message) => message.role === 'user')
     const agent = session.run.provider ?? this.workspace.settings.activeAgent
     if (isFirstMessage) track('conversation_started', { agent })
     // The person sent this, so the project view moves the session to the top of its folder.
@@ -588,7 +593,7 @@ export class PromptDispatch {
       this.workspace.eventReducer.closeAgentConversationTurn(session)
     }
 
-    const promptTaskId = ownedTaskId(this.workspace.tasksStore, session)
+    const promptTaskId = ownedTaskId(this.workspace.issuesStore, session)
     const goalObjective = isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined
     const send = () => {
       const fullPrompt = this.workspace.promptComposer.compose(prompt, sent, session)
@@ -617,8 +622,10 @@ export class PromptDispatch {
     }
     const before = this.heldSends.get(session.id)
     if (isUploading || before) this.sendWhenUploaded(targetTabId, session, sent, { clientPromptId, isQueued: isBusy, before }, send)
-    else send()
-    requestConversationScrollToBottom(targetTabId)
+    else this.sendAfterPaint(targetTabId, session, send)
+    // Only the first prompt of a transcript moves to the top of the view, as
+    // in T3 Code. A later send keeps the conversation above it in view.
+    requestConversationScrollToBottom(targetTabId, { firstMessageId: opensTranscript && !isBusy ? clientPromptId : undefined })
     return true
   }
 
@@ -659,6 +666,23 @@ export class PromptDispatch {
       // A later send of the session waits on this one, so it must settle.
       .catch((error) => console.warn('[Solus] A send that waited for its uploads failed.', error))
     const settled: Promise<void> = held.finally(() => {
+      if (this.heldSends.get(session.id) === settled) this.heldSends.delete(session.id)
+    })
+    this.heldSends.set(session.id, settled)
+  }
+
+  /**
+   * The message, the cleared composer, and the busy row paint first. Then the
+   * send composes the prompt, writes its outbox record, and goes to the host.
+   * That work is synchronous and grows with the prompt and its images, so on
+   * the Enter frame it would delay the paint. A later send of the session
+   * waits for this one, as it waits for a send held for its uploads.
+   */
+  private sendAfterPaint(tabId: string, session: Session, send: () => void): void {
+    const painted = afterPaint().then(() => {
+      if (this.workspace.sessionFor(tabId) === session) send()
+    })
+    const settled: Promise<void> = painted.finally(() => {
       if (this.heldSends.get(session.id) === settled) this.heldSends.delete(session.id)
     })
     this.heldSends.set(session.id, settled)
@@ -746,9 +770,10 @@ export class PromptDispatch {
         activeStep = 'repository'
         throw new Error('This repository does not have a cloneable remote.')
       }
-      // A stopped Cloud host is started first (docs/plans/project-model.md §6):
-      // the client dials only a host the directory says is ready.
-      if (hostIsManaged(serversStore.hostFor(serverId)) && serversStore.readinessFor(serverId).readiness !== 'ready') {
+      // A stopped Cloud host with managed compute is started first
+      // (docs/plans/project-model.md §6): the client dials only one the directory
+      // says is ready. A cloud host that its operator runs is dialed as it is.
+      if (hostHasManagedCompute(serversStore.hostFor(serverId)) && serversStore.readinessFor(serverId).readiness !== 'ready') {
         session.statusCard = buildRemoteDispatchCard({ tabId, hostLabel: serversStore.hostFor(serverId)?.label ?? hostLabel, phase: 'connecting' })
         const started = await serversStore.startManagedHost(serverId)
         if (bailIfStale()) return

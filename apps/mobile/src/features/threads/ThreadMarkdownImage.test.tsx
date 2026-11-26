@@ -70,12 +70,13 @@ vi.mock("react-native-reanimated", async () => {
 });
 vi.mock("expo-image", () => ({
   Image: (props: {
+    style: { opacity?: number };
     onError: () => void;
     onLoad: (event: { source: { width: number; height: number } }) => void;
   }) => {
     harness.failImage = props.onError;
     harness.loadImage = props.onLoad;
-    return <img alt="" />;
+    return <img alt="" style={props.style} />;
   },
 }));
 vi.mock("expo/fetch", () => ({ fetch: vi.fn() }));
@@ -175,6 +176,8 @@ it("keeps the frame size when the same image reports a different decoded width",
         </MarkdownImageAvailableWidthContext>,
       ),
     );
+    // A native cache hit can paint before JavaScript receives the load event.
+    expect(container.querySelector("img")!.style.opacity).not.toBe("0");
     // Android reports the bitmap downsampled for the current frame, so the same file
     // alternates between widths (969 and 970 of 1000) as the frame changes size.
     await act(async () => harness.loadImage({ source: { width: 970, height: 567 } }));
@@ -183,6 +186,31 @@ it("keeps the frame size when the same image reports a different decoded width",
 
     await act(async () => harness.loadImage({ source: { width: 969, height: 567 } }));
     expect(frameSize()).toEqual(first);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("holds the transcript frame while a signed portrait image loads", async () => {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const frame = () => Array.from(container.querySelectorAll<HTMLElement>("div[data-style]"))
+    .map(node => JSON.parse(node.dataset.style ?? "null") as { width?: number; height?: number } | null)
+    .find(style => typeof style?.width === "number");
+  const render = (uri: string | null) => root.render(
+    <MarkdownImageAvailableWidthContext value={345}>
+      <ThreadMarkdownImageView keepInitialFrame sourceKey="portrait" uri={uri} alt={null}
+        unavailable={false} knownSize={uri ? { width: 90, height: 180 } : undefined}
+        onPressPreview={() => {}} />
+    </MarkdownImageAvailableWidthContext>,
+  );
+  try {
+    await act(async () => render(null));
+    const placeholder = frame();
+    expect(placeholder).toEqual({ width: 345, aspectRatio: 16 / 9 });
+    await act(async () => render("https://example.test/portrait.png"));
+    await act(async () => harness.loadImage({ source: { width: 90, height: 180 } }));
+    expect(frame()).toMatchObject({ width: 345, aspectRatio: 16 / 9 });
   } finally {
     await act(async () => root.unmount());
   }

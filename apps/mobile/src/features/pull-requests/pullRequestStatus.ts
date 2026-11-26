@@ -123,7 +123,7 @@ export function isFailingCheck(check: PullRequestCheck) {
 }
 
 export function pullRequestChecksSummary(
-  pr: Pick<PullRequestDetail, "checks">,
+  pr: Pick<PullRequestDetail, "checks" | "workflowApprovalsRequired">,
   resolve: MessageResolver = m,
 ) {
   const failed = pr.checks.filter(isFailingCheck).length;
@@ -146,10 +146,28 @@ export function pullRequestChecksSummary(
       tint: "accent-danger-foreground",
     } as const;
   }
+  // Runs held for approval have no checks yet, so the reported checks can all
+  // be green while the pull request is untested. The approval comes first.
+  const approvals = pr.workflowApprovalsRequired ?? 0;
+  if (approvals)
+    return {
+      label: resolve(
+        msg(
+          "{count, plural, one {{count} workflow waiting for approval} other {{count} workflows waiting for approval}}",
+          { count: approvals },
+        ),
+      ),
+      title: resolve(msg("Workflows need approval")),
+      count: resolve(
+        msg("{count, plural, one {{count} waiting} other {{count} waiting}}", { count: approvals }),
+      ),
+      icon: "exclamationmark.shield",
+      tint: "accent-warning-foreground",
+    } as const;
   if (required)
     return {
       label: resolve(
-        msg("{count, plural, one {{count} need attention} other {{count} need attention}}", {
+        msg("{count, plural, one {{count} needs attention} other {{count} need attention}}", {
           count: required,
         }),
       ),

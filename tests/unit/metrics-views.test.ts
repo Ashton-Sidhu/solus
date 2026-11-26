@@ -302,7 +302,7 @@ describe.serial('the two-table query model', () => {
       spanId: 'turn-c', traceId: 'turn-c', name: 'turn', startedAt: 600, endedAt: 700, status: 'ok',
       attrs: {
         automationId: '01AUTO', automationName: 'Nightly triage',
-        taskId: '01TASK', taskTitle: 'Fix flaky tests',
+        issueId: '01TASK', taskTitle: 'Fix flaky tests',
         branch: 'solus/fix-flaky', projectName: 'solus',
         hostname: 'builder-07', hostOs: 'linux',
       },
@@ -313,11 +313,11 @@ describe.serial('the two-table query model', () => {
     })
 
     const turn = metricsDb.getMetricsDb()
-      .prepare('SELECT automation, task, project, branch, hostname, host_os, automation_id FROM turns WHERE span_id = ?')
+      .prepare('SELECT automation, issue, project, branch, hostname, host_os, automation_id FROM turns WHERE span_id = ?')
       .get('turn-c')
     expect(turn).toEqual({
       automation: 'Nightly triage',
-      task: 'Fix flaky tests',
+      issue: 'Fix flaky tests',
       project: 'solus',
       branch: 'solus/fix-flaky',
       hostname: 'builder-07',
@@ -326,11 +326,11 @@ describe.serial('the two-table query model', () => {
     })
 
     const event = metricsDb.getMetricsDb()
-      .prepare('SELECT automation, task, branch, hostname, host_os FROM events WHERE span_id = ?')
+      .prepare('SELECT automation, issue, branch, hostname, host_os FROM events WHERE span_id = ?')
       .get('tool-c1')
     expect(event).toEqual({
       automation: 'Nightly triage',
-      task: 'Fix flaky tests',
+      issue: 'Fix flaky tests',
       branch: 'solus/fix-flaky',
       hostname: 'builder-07',
       host_os: 'linux',
@@ -338,9 +338,9 @@ describe.serial('the two-table query model', () => {
 
     // An event whose trace root recorded no dimensions stays null, not wrong.
     const bare = metricsDb.getMetricsDb()
-      .prepare('SELECT automation, task, branch, hostname, host_os FROM events WHERE span_id = ?')
+      .prepare('SELECT automation, issue, branch, hostname, host_os FROM events WHERE span_id = ?')
       .get('tool-a1')
-    expect(bare).toEqual({ automation: null, task: null, branch: null, hostname: null, host_os: null })
+    expect(bare).toEqual({ automation: null, issue: null, branch: null, hostname: null, host_os: null })
   })
 
   test('each view exposes only its own kinds — turn and internal spans never surface in events', () => {

@@ -15,11 +15,12 @@ import {
 } from '@solus/contracts/host-config'
 import type { HostConfig, HostConfigKey, HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-config'
 import { settingManagedMessage, type ManagedHostKey } from '@solus/contracts/policy'
+import { withRenamedSolusTools } from '@solus/contracts/agent-tools'
 import { enforce, hostPolicies } from './policy/host-policy-store'
 import { z } from 'zod'
 import { DEFAULT_EXECUTION_PREFERENCES, DEFAULT_TEXT_GENERATION_MODELS, type ExecutionPreferences } from '@solus/contracts/settings'
 import type { RemoteAccessMode } from '@solus/contracts/host-api'
-import { hostCategory } from './host-category'
+import { machineKind } from './machine-kind'
 
 const log = createLogger('main', 'server-settings')
 
@@ -147,7 +148,7 @@ function storedHostConfig(stored: z.infer<typeof persistedServerSettingsSchema>[
     // Retiring tools must not reset the person's other tool switches.
     const storedTools = key === 'solusTools' ? z.record(z.string(), z.boolean()).safeParse(value) : null
     const currentValue = storedTools?.success
-      ? Object.fromEntries(Object.entries(storedTools.data).filter(([name]) => !RETIRED_TOOL_NAMES.has(name)))
+      ? withRenamedSolusTools(Object.fromEntries(Object.entries(storedTools.data).filter(([name]) => !RETIRED_TOOL_NAMES.has(name))))
       : value
     const parsed = isHostConfigKey(key) ? HOST_CONFIG_FIELDS[key].patch.safeParse(currentValue) : null
     if (parsed?.success) Object.assign(patch, { [key]: parsed.data })
@@ -160,7 +161,7 @@ function storedHostConfig(stored: z.infer<typeof persistedServerSettingsSchema>[
 
 export function getHostConfig(): HostConfigSnapshot {
   const stored = getServerSettings().hostConfig
-  const config = hostCategory() === 'managed' && stored.continueSessionsAfterHostRestart
+  const config = machineKind() === 'cloud' && stored.continueSessionsAfterHostRestart
     ? { ...stored, continueSessionsAfterHostRestart: false }
     : stored
   return { config: withHostLocks(config) }
@@ -253,7 +254,7 @@ export function setHostConfig(patch: HostConfigPatch): HostConfigSnapshot {
     if (key in patch) enforce(hostPolicies().settingChangeDenial(key, label))
   }
   const hostConfig = mergeHostConfig(getServerSettings().hostConfig, patch)
-  if (hostCategory() === 'managed') hostConfig.continueSessionsAfterHostRestart = false
+  if (machineKind() === 'cloud') hostConfig.continueSessionsAfterHostRestart = false
   const next = { ...getServerSettings(), hostConfig }
   persistSettings(next)
   _settings = next

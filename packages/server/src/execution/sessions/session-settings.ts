@@ -1,7 +1,7 @@
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { getSessionRecord } from '../../data/sessions/session-records'
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
 
 /**
  * What each live session's current run was dispatched with, by Solus session

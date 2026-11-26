@@ -8,16 +8,22 @@
 </script>
 
 <script lang="ts">
-  let { path, size = 14, class: className = "" }: {
+  let { path, size = 14, class: className = "", specificOnly = false }: {
     path: string;
     size?: number;
     class?: string;
+    /** Show nothing when the path has no icon of its own, only the generic file. */
+    specificOnly?: boolean;
   } = $props();
+
+  const icon = $derived(resolveIcon?.(path));
 </script>
 
 <!-- The resolver returns only trusted package SVG and static local symbols. -->
+{#if !(specificOnly && icon?.token === "default")}
 <span class="inline-flex shrink-0 items-center justify-center [&>svg]:size-full {className}" style:width="{size}px" style:height="{size}px" aria-hidden="true">
-  {#if resolveIcon}
-    {@html resolveIcon(path).svg}
+  {#if icon}
+    {@html icon.svg}
   {/if}
 </span>
+{/if}

@@ -44,7 +44,7 @@ function writeUsers(path: string, users: MemberUser[], layout = LAYOUT): void {
   writeFileSync(path, readFileSync(`${path}.tmp`))
 }
 
-const memberPrincipal = (userId: string): Principal => ({ kind: 'org-member', userId, organizationId: 'org-1', organizationRole: 'member', teamIds: [], hostKind: 'managed', displayName: 'Ada Lovelace', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud' })
+const memberPrincipal = (userId: string): Principal => ({ kind: 'org-member', userId, organizationId: 'org-1', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Ada Lovelace', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud' })
 
 test('a member is ready only once the users file lists them, and leaves when it no longer does', () => {
   const file = join(temporaryDirectory(), 'member-users.json')

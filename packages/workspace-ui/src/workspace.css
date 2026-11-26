@@ -499,22 +499,29 @@
      its --card is the page. Fills and lines are washes of the text colour,
      the same recipe as the app's hover wash and hairlines, so a render reads
      as part of the conversation and never as grey or sand boxes. The accent
-     is the brand terracotta, the same as the app's chrome. The series is one
-     family: the accent first, then five
-     hues at the same OKLCH lightness and chroma (L 0.58, C 0.12). The
-     --solus-art-* ramp above keeps its hue roles for the app's own charts. */
+     is the brand terracotta, the same as the app's chrome. The series is six
+     hues at the same OKLCH lightness and chroma (L 0.58, C 0.12), in the
+     same hue order as the dark twin. Four hues come from the sidebar's sky
+     (sidebar-places-and-sky.md): day blue, dawn gold, night violet, and dusk
+     rose; teal keeps the blue apart from the warm hues. The terracotta is last: an agent takes
+     the first series for a category or a diagram zone, and a tint of the
+     terracotta reads as salmon, near the warning and error colours. Muted
+     text is a wash of the text colour, lighter than body text and still
+     WCAG AA on the page. The --solus-art-* ramp above keeps its hue roles
+     for the app's own charts. */
   --solus-render-raised: color-mix(in oklch, var(--solus-text-primary) 5%, transparent);
   --solus-render-border: color-mix(in oklch, var(--solus-text-primary) 10%, transparent);
   --solus-render-border-strong: color-mix(in oklch, var(--solus-text-primary) 18%, transparent);
+  --solus-render-text-muted: color-mix(in oklch, var(--solus-text-primary) 70%, transparent);
   --solus-render-accent: #d97757;
   --solus-render-on-accent: #ffffff;
-  --solus-render-accent-light: rgba(217, 119, 87, 0.09);
-  --solus-render-1: #d97757; /* the brand terracotta, the render accent */
+  --solus-render-selection: color-mix(in oklab, #467cc0 10%, transparent); /* a tint of the day blue of --solus-render-1 */
+  --solus-render-1: #467cc0; /* day blue */
   --solus-render-2: #00908a; /* teal */
-  --solus-render-3: #5f75c1; /* slate blue */
-  --solus-render-4: #a15e9c; /* plum */
-  --solus-render-5: #628835; /* moss */
-  --solus-render-6: #cb7f00; /* amber: lighter and stronger than the rest, a yellow at the series lightness reads as olive */
+  --solus-render-3: #ebb517; /* dawn gold: lighter and stronger than the rest (L 0.80, C 0.16), a yellow at the series lightness reads as olive */
+  --solus-render-4: #746fbe; /* night violet */
+  --solus-render-5: #b65964; /* dusk rose */
+  --solus-render-6: #d97757; /* the brand terracotta, the render accent */
 }
 
 /* "Conversation width" (Appearance). Comfortable keeps the rule above. */
@@ -745,24 +752,23 @@
   --solus-art-negative: #f75d59;
   /* ─── HTML render palette (dark twin) ───
      Dark keeps the brand terracotta as the render accent: on charcoal it
-     reads as warm light, not as chrome. Series 2 to 5 are the same hues as
+     reads as warm light, not as chrome. Each series is the same hue as in
      light, in the same order, so a legend keeps its colour meaning across
-     modes. Series 3 and 6 carry the warm hues: in light they are the brand
-     terracotta and amber; in dark, terracotta is the accent, so they are
-     ochre and the slate blue the light accent uses. Six hues at L 0.78,
-     C 0.11. */
+     modes: day blue, teal, dawn gold, night violet, dusk rose, and the
+     terracotta last. Six hues at L 0.78, C 0.11. */
   --solus-render-raised: color-mix(in oklch, var(--solus-text-primary) 7%, transparent);
   --solus-render-border: color-mix(in oklch, var(--solus-text-primary) 12%, transparent);
   --solus-render-border-strong: color-mix(in oklch, var(--solus-text-primary) 20%, transparent);
+  --solus-render-text-muted: color-mix(in oklch, var(--solus-text-primary) 70%, transparent);
   --solus-render-accent: #e68e6b;
   --solus-render-on-accent: #2c1a12;
-  --solus-render-accent-light: #e68e6b24;
-  --solus-render-1: #e68e6b; /* terracotta, the render accent */
+  --solus-render-selection: color-mix(in oklab, #87bafd 14%, transparent); /* a tint of the day blue of --solus-render-1 */
+  --solus-render-1: #87bafd; /* day blue */
   --solus-render-2: #4eccd3; /* teal */
-  --solus-render-3: #dcaf61; /* ochre */
-  --solus-render-4: #e39cd3; /* plum */
-  --solus-render-5: #91c985; /* moss */
-  --solus-render-6: #9cb4fe; /* indigo */
+  --solus-render-3: #dcaf61; /* dawn gold */
+  --solus-render-4: #b0adfb; /* night violet */
+  --solus-render-5: #f59aa2; /* dusk rose */
+  --solus-render-6: #e68e6b; /* terracotta, the render accent */
 }
 
 /* shadcn-svelte theme bridge — maps the semantic vars that shadcn components
@@ -979,7 +985,7 @@
     0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(60, 45, 30, 0.06),
     0 0.5rem 1.125rem -0.875rem rgba(60, 45, 30, 0.22);
 
-  /* Insights provider colours: orange for Claude, charcoal for Codex. The
+  /* Insights provider colours: orange for Claude, charcoal for Codex, blue for Antigravity. The
      fills are the marks' colours washed toward the card: a bar of solid
      charcoal beside a bar of orange is the loudest thing on the plot, and the
      legend's swatch, not the bar, carries the full hue. */
@@ -987,6 +993,8 @@
   --insights-provider-codex: #292929;
   --insights-provider-claude-fill: color-mix(in srgb, var(--insights-provider-claude) 85%, var(--card));
   --insights-provider-codex-fill: color-mix(in srgb, var(--insights-provider-codex) 62%, var(--card));
+  --insights-provider-antigravity: #4c8df6;
+  --insights-provider-antigravity-fill: color-mix(in srgb, var(--insights-provider-antigravity) 75%, var(--card));
 
   /* Blue distinguishes the spend line from the provider counts. */
   --insights-cost-line: var(--solus-art-5);
@@ -1286,9 +1294,8 @@ html, body, #root {
      a path. A keycap sets `leading-none` on itself and is unaffected. */
   --text-micro: 0.625rem;
   --text-micro--line-height: 1.25;
-  /* The chip rung the browser snapshot gallery and lightbox annotate an image
-     with: a viewport size or an error count laid over the capture, where the
-     chrome rung would cover what it labels. It began as the pull request
+  /* The small rung for a caption on a browser recording, where the chrome
+     rung would crowd what it labels. It began as the pull request
      review's meta rung; the review now reads at the chrome rung like the rest
      of the workspace, and only these overlays still want the smaller step. */
   --text-review-meta: 0.6875rem;
@@ -2814,6 +2821,12 @@ html.is-mac-workspace
   }
 }
 
+/* One dark background for every image and video viewer, in both themes, so
+   the picture stands out from the page behind it. Dialogs use modal-backdrop. */
+@utility media-backdrop {
+  background: rgb(0 0 0 / 0.7);
+}
+
 @utility menu-surface {
   overflow: hidden;
   border: 0;
@@ -2982,58 +2995,12 @@ html.is-mac-workspace
   justify-content: center;
 }
 
-/* ─── First-run onboarding motion ──────────────────────────────────────────────
-   Transform and opacity only. Every one of these runs on a dozen elements at
-   once — a `filter: blur()` in the keyframe re-rasterizes each of them on every
-   frame, and animating `left`/`width` relayouts the whole stage. Both were in
-   here and both were the jank. Nothing below touches paint or layout, so the
-   compositor can run the lot off the main thread. */
-@keyframes onboarding-enter {
-  from { opacity: 0; transform: translate3d(0, 0.625rem, 0); }
-  to   { opacity: 1; transform: none; }
-}
-
-/* The stage title and its supporting line: same curve, a touch more travel. */
-.onboarding-enter,
-.onboarding-title {
-  animation: onboarding-enter 0.44s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-.onboarding-title {
-  animation-duration: 0.52s;
-}
-
-.onboarding-fade {
-  animation: onboarding-fade 0.5s ease-out 0.24s both;
-}
-@keyframes onboarding-fade {
-  from { opacity: 0 }
-  to   { opacity: 1 }
-}
-
 /* An install, a sign-in, or a symbol lookup has no percentage to report, so the
    surface draws an indeterminate sweep. A fixed-width bar translated across its
    clip beats animating `left` — same picture, no layout per frame. */
 @keyframes indeterminate-sweep {
   from { transform: translate3d(-100%, 0, 0) }
   to   { transform: translate3d(250%, 0, 0) }
-}
-
-.onboarding-caret {
-  animation: onboarding-blink 1.05s step-end infinite;
-}
-@keyframes onboarding-blink {
-  0%, 45%  { opacity: 1 }
-  50%, 95% { opacity: 0.15 }
-  100%     { opacity: 1 }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .onboarding-enter,
-  .onboarding-title,
-  .onboarding-fade,
-  .onboarding-caret {
-    animation: none;
-  }
 }
 
 /* New response blocks enter once. Existing blocks and reopened history stay still. */

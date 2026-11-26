@@ -4,7 +4,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { unsupportedOnHost } from '@solus/client-core/host-capabilities'
 import { pickFiles } from '@solus/client-core/file-picker'
 import { toasts } from '@solus/workspace-ui/lib/toasts'
-import { uploadFileObjects } from '@solus/workspace-ui/components/input/lib/attachment-uploads.svelte'
+import { attachmentUploads, uploadFileObjects } from '@solus/workspace-ui/components/input/lib/attachment-uploads.svelte'
 import { runHost } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 export function createWebAttachments(session: WorkspaceContext) {
@@ -31,6 +31,7 @@ export function createWebAttachments(session: WorkspaceContext) {
       return;
     }
     const picking = files ? Promise.resolve(files) : pickFiles();
+    const finish = attachmentUploads.beginPreparation(serverId, ctx);
     try {
       const capabilities = knownCapabilities ?? await serverConnections.capabilitiesFor(serverId);
       if (capabilities.attachUpload !== true) {
@@ -45,6 +46,8 @@ export function createWebAttachments(session: WorkspaceContext) {
       else session.addAttachments(attachments, targetId);
     } catch (error) {
       toasts.error(error instanceof Error ? error.message : "Couldn't attach files");
+    } finally {
+      finish();
     }
   }
 

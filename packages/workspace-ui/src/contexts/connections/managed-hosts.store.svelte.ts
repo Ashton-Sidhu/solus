@@ -18,7 +18,7 @@ export interface ManagedHostsTiming {
 const DEFAULT_TIMING: ManagedHostsTiming = { listingTimeoutMs: 30_000, listingPollMs: 2_000 }
 
 /**
- * The lifecycle of Solus Cloud machines from this client (docs/plans/host-fleet.md D9):
+ * The lifecycle of Solus Cloud machines from this client:
  * create, start, stop, restart, change the spec of, and delete an organization's
  * managed host, and the size catalog a new one may take. Every call goes through the
  * account source, so desktop (native bridge) and web (account origin) act the same.
@@ -143,13 +143,15 @@ export class ManagedHostsStore {
   }
 
   /**
-   * Destroys the machine and its disk, and ends its registration; the saved host goes
-   * from this client too. Not "Forget": that ends only a registration
-   * (`serversStore.remove`) and leaves a cloud machine running.
+   * Removes a cloud machine from its organization and ends its registration; the saved
+   * host goes from this client too. Solus Cloud also destroys the machine and its disk
+   * when it operates the compute. A machine that its operator runs keeps running until
+   * the operator stops it. Not "Forget": that ends only a personal host's registration
+   * (`serversStore.remove`).
    */
   delete(serverId: string): Promise<boolean> {
     return this.run(serverId, 'delete', async (source, hostId) => {
-      if (!(await source.deleteManagedHost(hostId))) return 'Solus Cloud did not delete the machine. Only an organization owner can.'
+      if (!(await source.deleteManagedHost(hostId))) return 'Solus Cloud did not remove the machine. Only an organization owner can.'
       // The machine is gone, so edits that only it could take are gone with it.
       await serversStore.remove(serverId, { discardUnsent: true })
       return true
@@ -157,9 +159,10 @@ export class ManagedHostsStore {
   }
 
   /**
-   * One action on one managed host: refused without a request when the server is not
-   * a cloud machine or this client has no account. `call` answers true, or the sentence
-   * that says why it failed. The directory is read again either way.
+   * One action on one cloud machine: refused without a request when this client has no
+   * account, or when the action needs managed compute and Solus Cloud does not operate
+   * the server's compute. Only `delete` applies to every cloud machine. `call` answers
+   * true, or the sentence that says why it failed. The directory is read again either way.
    */
   private async run(
     serverId: string,
@@ -168,10 +171,11 @@ export class ManagedHostsStore {
   ): Promise<boolean> {
     if (this.busy) return false
     const uplink = serversStore.servers.find((server) => server.id === serverId)?.uplink
-    const hostId = uplink?.kind === 'managed' ? uplink.hostId : null
+    const isTarget = action === 'delete' ? uplink?.kind === 'cloud' : uplink?.hasManagedCompute === true
+    const hostId = uplink && isTarget ? uplink.hostId : null
     const source = uplinkAccountSource()
     if (!hostId || !source) {
-      this.fail(hostId ? 'Sign in to Solus Cloud to manage this machine.' : 'This host is not a Solus Cloud machine.')
+      this.fail(hostId ? 'Sign in to Solus Cloud to manage this machine.' : 'Solus Cloud does not run this machine.')
       return false
     }
     this.busy = { serverId, action }

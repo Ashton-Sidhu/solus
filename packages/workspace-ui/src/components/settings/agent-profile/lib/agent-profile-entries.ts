@@ -1,4 +1,5 @@
 import {
+  AGENT_PROFILE_ENTRIES,
   agentProfileEntrySchema,
   agentProfileKeyOf,
   type AgentProfile,
@@ -6,6 +7,7 @@ import {
   type AgentProfileIntegrationEntry,
   type AgentProfileKey,
   type AgentProfileSkillEntry,
+  PROFILE_PROVIDERS,
 } from '@solus/contracts/agent-profile'
 import { integrationSlug, type Integration, type IntegrationAuth, type IntegrationConnection } from '@solus/contracts/integration-types'
 import type { SeatProvider } from '@solus/contracts/seats'
@@ -20,7 +22,7 @@ import { IntegrationLabels } from '../../lib/integration-labels'
  * key, a side of a conflict, and the sync state.
  */
 
-const PROVIDER_LABELS = { 'claude-code': 'Claude Code', codex: 'Codex' } as const satisfies Record<SeatProvider, string>
+const PROVIDER_LABELS = { 'claude-code': 'Claude Code', codex: 'Codex', antigravity: 'Google Antigravity' } as const satisfies Record<SeatProvider, string>
 
 export function providerLabel(provider: SeatProvider): string {
   return PROVIDER_LABELS[provider]
@@ -53,11 +55,13 @@ export interface AgentProfileSections {
   integrations: AgentProfileIntegrationEntry[]
 }
 
-const PROVIDERS: readonly SeatProvider[] = ['claude-code', 'codex']
+
+/** The providers with files besides skills (skills have their own section): Antigravity's profile holds skills only. */
+const FILE_PROVIDERS = PROFILE_PROVIDERS.filter((provider) => AGENT_PROFILE_ENTRIES[provider].some((entry) => entry !== 'skills'))
 
 /** The page's four sections, each sorted by name so the list is stable between edits. */
 export function sectionsOf(entries: AgentProfile): AgentProfileSections {
-  const files: FileGroup[] = PROVIDERS.map((provider) => ({ provider, files: [] }))
+  const files: FileGroup[] = FILE_PROVIDERS.map((provider) => ({ provider, files: [] }))
   const registrySkills: AgentProfileSkillEntry[] = []
   const writtenSkills = new Map<string, WrittenSkill>()
   const integrations: AgentProfileIntegrationEntry[] = []

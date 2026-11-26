@@ -203,15 +203,15 @@ describe('the project row of the Environment section', () => {
   // WHY: a run with one project must see the row as it was before codebases.
   test('a run with no codebase shows the name of its project and its host', () => {
     expect(projectRow({ projectName: 'api', codebaseName: null, hostLabel: 'This Mac', isLocalHost: true }))
-      .toEqual({ label: 'api', isCodebase: false, badge: undefined, tooltip: 'Runs on This Mac' })
+      .toEqual({ label: 'api', badge: undefined, tooltip: 'Runs on This Mac' })
     expect(projectRow({ projectName: 'api', codebaseName: null, hostLabel: 'Build server', isLocalHost: false }))
-      .toEqual({ label: 'api', isCodebase: false, badge: 'Build server', tooltip: 'Runs on Build server' })
+      .toEqual({ label: 'api', badge: 'Build server', tooltip: 'Runs on Build server' })
   })
 
   // The row shows one name. The folders of the run are in the menu of the row.
   test('a run with a codebase shows the name of the codebase, not the name of its working folder', () => {
     const row = projectRow({ projectName: 'solus', codebaseName: 'solus + solus-cloud', hostLabel: 'This Mac', isLocalHost: true })
-    expect(row).toMatchObject({ label: 'solus + solus-cloud', isCodebase: true, badge: undefined })
+    expect(row).toMatchObject({ label: 'solus + solus-cloud', badge: undefined })
     // A container is a codebase with the name of its folder.
     expect(projectRow({ projectName: 'shop', codebaseName: 'shop', hostLabel: 'This Mac', isLocalHost: true }).label).toBe('shop')
   })

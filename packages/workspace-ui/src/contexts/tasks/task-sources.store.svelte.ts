@@ -3,21 +3,21 @@
 // Tasks belong to no project (docs/tasks.md). The sources are a personal
 // setting, synced with the account, and the client sends them to one host: the
 // task host (`taskHostId`). The host reads each source and says when a read
-// ends (`tasks.sourcesChanged`). Nothing here polls. The tasks themselves are
-// in `TasksStore`.
+// ends (`issues.sourcesChanged`). Nothing here polls. The tasks themselves are
+// in `IssuesStore`.
 
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { TaskSource } from '@solus/contracts/task-sources'
-import type { TaskSourceOptions, TaskSourceState } from '@solus/contracts/task-types'
+import { issueSourceKey, type IssueSource } from '@solus/contracts/task-sources'
+import type { IssueSourceOptions, IssueSourceState } from '@solus/contracts/task-types'
 import type { PersonalSettings } from '@solus/contracts/settings'
 import { hosts } from '../hosts/hosts.svelte'
 
 const SOURCES_CHANGED_DEBOUNCE_MS = 100
 
 /** The part of the personal settings that names the person's task sources. */
-export interface TaskSourceSettings {
-  readonly values: Pick<PersonalSettings, 'taskSources'>
+export interface IssueSourceSettings {
+  readonly values: Pick<PersonalSettings, 'issueSources'>
   onChange(listener: (change: { set: object; reset: readonly string[] }) => void): () => void
 }
 
@@ -39,20 +39,20 @@ export function taskHostId(): string | null {
   return primary && isReady(primary) ? primary : null
 }
 
-export class TaskSourcesStore {
+export class IssueSourcesStore {
   /** The task host's last read of each of the person's sources. */
-  sources = $state<TaskSourceState[]>([])
+  sources = $state<IssueSourceState[]>([])
   /** Why the last read failed, or null. */
   error = $state<string | null>(null)
   /** What a person can choose as a source, or null until read. */
-  options = $state<TaskSourceOptions | null>(null)
+  options = $state<IssueSourceOptions | null>(null)
   optionsError = $state<string | null>(null)
   /** The task host of the last read: undefined before the first read ends,
    *  null when no task host was connected. */
   host = $state<string | null | undefined>(undefined)
 
-  #settings: TaskSourceSettings | null = null
-  #optionLoad: Promise<TaskSourceOptions | null> | null = null
+  #settings: IssueSourceSettings | null = null
+  #optionLoad: Promise<IssueSourceOptions | null> | null = null
   /** Bumped by each read, so an older answer never replaces a newer one. */
   #readGeneration = 0
   #changeTimer: ReturnType<typeof setTimeout> | null = null
@@ -64,7 +64,7 @@ export class TaskSourcesStore {
   start(): void {
     if (this.#isStarted) return
     this.#isStarted = true
-    subscribeAllHosts('tasks.sourcesChanged', (serverId) => {
+    subscribeAllHosts('issues.sourcesChanged', (serverId) => {
       if (serverId !== taskHostId()) return
       // One refresh of several sources ends as several events.
       if (this.#changeTimer) clearTimeout(this.#changeTimer)
@@ -80,10 +80,10 @@ export class TaskSourcesStore {
 
   /** Follow the person's settings: the sources are read from them, and read
    *  again when they change. Returns the stop. */
-  useSources(settings: TaskSourceSettings): () => void {
+  useSources(settings: IssueSourceSettings): () => void {
     this.#settings = settings
     const stop = settings.onChange((change) => {
-      if ('taskSources' in change.set || change.reset.includes('taskSources')) void this.load()
+      if ('issueSources' in change.set || change.reset.includes('issueSources')) void this.load()
     })
     return () => {
       stop()
@@ -94,9 +94,9 @@ export class TaskSourcesStore {
   // --- Answers ------------------------------------------------------------
 
   /** The person's sources as their settings name them. Plain, so they cross IPC. */
-  get configured(): TaskSource[] {
+  get configured(): IssueSource[] {
     // SAFETY: a snapshot keeps the value of the setting and drops its proxy only.
-    return $state.snapshot(this.#settings?.values.taskSources ?? []) as TaskSource[]
+    return $state.snapshot(this.#settings?.values.issueSources ?? []) as IssueSource[]
   }
 
   /** True while a read is in flight, or while the host reads a source from its provider. */
@@ -105,7 +105,7 @@ export class TaskSourcesStore {
   }
 
   /** A source as the task host last read it, to name a task's placement. */
-  readonly sourceByKey: Map<string, TaskSourceState> = $derived(
+  readonly sourceByKey: Map<string, IssueSourceState> = $derived(
     new Map(this.sources.map((source) => [source.sourceKey, source])),
   )
 
@@ -125,10 +125,14 @@ export class TaskSourcesStore {
     }
     this.#pendingReads++
     try {
-      const answer = await serverConnections.apiFor(serverId)
-        .tasksSources(configured, opts.refresh ? { refresh: opts.refresh } : undefined)
+      // Source state alone: the rows come to `IssuesStore` with `issues.invalidated`.
+      const answer = await serverConnections.apiFor(serverId).issuesList({
+        sources: configured,
+        issueIds: [],
+        ...(opts.refresh && { refresh: opts.refresh }),
+      })
       if (this.#readGeneration !== generation) return
-      this.sources = answer
+      this.sources = answer.sources ?? []
       this.error = null
       this.host = serverId
     } catch (error) {
@@ -141,11 +145,19 @@ export class TaskSourcesStore {
     }
   }
 
-  async loadMore(source: TaskSource): Promise<void> {
-    const hostId = taskHostId()
-    if (!hostId) throw new Error('No connected task host.')
-    await serverConnections.apiFor(hostId).tasksLoadMore(source)
-    await this.load()
+  /** Read the next pages of a source; the same call answers the new source
+   *  state. A failure reaches the caller, which says so. */
+  async loadMore(source: IssueSource): Promise<void> {
+    const serverId = taskHostId()
+    if (!serverId) throw new Error('No connected task host.')
+    const generation = ++this.#readGeneration
+    const answer = await serverConnections.apiFor(serverId).issuesList({
+      sources: this.configured, loadMore: issueSourceKey(source), issueIds: [],
+    })
+    if (this.#readGeneration !== generation) return
+    this.sources = answer.sources ?? []
+    this.error = null
+    this.host = serverId
   }
 
 
@@ -154,13 +166,13 @@ export class TaskSourcesStore {
 
   /** Read the choices when the source setup opens. Each open reads again: a
    *  person connects GitHub or Jira in between. */
-  loadOptions(): Promise<TaskSourceOptions | null> {
+  loadOptions(): Promise<IssueSourceOptions | null> {
     if (this.#optionLoad) return this.#optionLoad
     const load = (async () => {
       try {
         const serverId = taskHostId()
         if (!serverId) throw new Error('No connected machine runs agents, so no machine can read GitHub or Jira.')
-        const options = await serverConnections.apiFor(serverId).tasksSourceOptions()
+        const options = await serverConnections.apiFor(serverId).issuesSourceOptions()
         this.options = options
         this.optionsError = null
         return options
@@ -176,4 +188,4 @@ export class TaskSourcesStore {
   }
 }
 
-export const taskSourcesStore = new TaskSourcesStore()
+export const issueSourcesStore = new IssueSourcesStore()

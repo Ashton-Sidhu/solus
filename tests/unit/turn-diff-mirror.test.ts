@@ -139,13 +139,13 @@ describe('turn diff mirror', () => {
   })
 
   test('with cloud sync off no turn sends its diff, a published session included; a turn that changed no file sends nothing', async () => {
-    // WHY: `sessionCloudSync` off means that code that is not committed does not leave the
-    // machine. Publication sends the rows of an organization session; it is no consent for its code.
+    // WHY: `sessionCloudSync` off means that nothing of a session leaves the machine: not
+    // its rows, and not its code that is not committed. Publication is no consent for either.
     await records.upsertOwnSessionRecord({ sessionId: 'quiet', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
     await records.upsertOwnSessionRecord({ sessionId: 'published', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
     await records.assignSessionOrganization('published', 'org1', { published: true })
     const organizationPolicy = (limits: { sessionCloudSync?: boolean }) => policy.useHostPolicyStore(new policy.HostPolicyStore({ mdm: null, standing: () => ({
-      hostId: 'host-1', category: 'personal', owner: null, hostOwnerOrganizationId: null, refreshedAt: 1,
+      hostId: 'host-1', kind: 'personal', owner: null, hostOwnerOrganizationId: null, refreshedAt: 1,
       organizations: [{ organizationId: 'org1', name: 'Org', shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true },
         policy: { schemaVersion: 1, organization: { name: 'Org' }, sessions: { limits } }, hostPolicy: null }],
     }) }))
@@ -154,10 +154,10 @@ describe('turn diff mirror', () => {
     try {
       const published = { organizationId: 'org1', actorUserId: '' }
       expect(await transcriptMirror.turnDiffDestination('published')).toEqual(published)
-      // The policy of the organization stops the code of its sessions, and not their rows.
+      // The policy of the organization stops the code of its sessions, and their rows with it.
       organizationPolicy({ sessionCloudSync: false })
       expect(await transcriptMirror.turnDiffDestination('published')).toBeNull()
-      expect(await transcriptMirror.mirrorDestination('published')).toEqual(published)
+      expect(await transcriptMirror.mirrorDestination('published')).toBeNull()
       expect(await transcriptMirror.turnDiffDestination('quiet')).toEqual(PERSONAL)
       // The host switch stops each session.
       organizationPolicy({})

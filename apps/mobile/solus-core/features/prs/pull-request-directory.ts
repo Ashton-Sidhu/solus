@@ -55,8 +55,8 @@ export interface PullRequestDetail {
   checks: PrChecksSummary | null
   /** The GitHub stack it is in; null when in none or the read failed. */
   stack: PrStack | null
-  /** The workflow runs of a fork pull request that wait for approval. Read
-   *  only for an open fork pull request on a host that can approve them;
+  /** The workflow runs that wait for approval. Read only for an open pull
+   *  request on a host that can approve them;
    *  absent otherwise, and in a device copy from an older version. */
   workflowRuns?: PrPendingWorkflowRuns
   /** Parts the host could not read; the rest still shows. */
@@ -351,9 +351,8 @@ export class PullRequestDirectory {
       if (listed) answered()
       const pr = await this.prRef(ref, connection)
       const overviewRead = connection.api.prGetOverview(pr)
-      // Only an open fork pull request can have runs that wait; others skip the call.
       const workflowRunsRead = overviewRead.then(({ pullRequest }) =>
-        pullRequest.state === 'open' && pullRequest.headRepo.isFork && pullRequest.capabilities.actions.includes('approve-workflows')
+        pullRequest.state === 'open' && pullRequest.capabilities.actions.includes('approve-workflows')
           ? connection.api.prPendingWorkflowRuns(pr)
           : null)
       const part = <V>(read: Promise<V>, file: (value: Settled<V>) => void) => settle(read).then((value) => {

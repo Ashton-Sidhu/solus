@@ -29,7 +29,7 @@ let app: { request(path: string, init?: RequestInit): Promise<Response> }
 const member = (userId: string, organizationId: string): WorkspaceRequestContext => ({
   principal: { kind: 'org-member', userId, organizationId, organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: userId, deviceId: `${userId}-device`, deviceLabel: 'Browser', expiresAt: Date.now() + 300_000 },
   home: { kind: 'organization', organizationId, serviceId: 'api' },
-  scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write'],
+  scopes: ['issues:read', 'issues:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write'],
 })
 const alice = member('alice', 'A')
 const bob = member('bob', 'A')
@@ -64,29 +64,29 @@ const call = (method: string, path: string, body: object, headers: Record<string
 test('a link put twice is one row, and the route answers 204', async () => {
   const task = { id: 'github:I_twice' }
   const work = await operations.createWork(alice, { title: 'Spec', type: 'doc', content: '# Spec' }, key())
-  const link = { from: { kind: 'task', id: task.id }, to: { kind: 'work', id: work.id } }
+  const link = { from: { kind: 'issue', id: task.id }, to: { kind: 'work', id: work.id } }
   expect((await call('PUT', '/links', link)).status).toBe(204)
   expect((await call('PUT', '/links', link)).status).toBe(204)
-  expect(await count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id}`)).toBe(1)
+  expect(await count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'issue' AND source_id = ${task.id}`)).toBe(1)
   expect((await call('DELETE', '/links', link)).status).toBe(204)
-  expect(await count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id}`)).toBe(0)
+  expect(await count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'issue' AND source_id = ${task.id}`)).toBe(0)
 })
 
 test('a link from a session needs an editor of the session; a link from a task needs the scope and a target the caller reads', async () => {
   const task = { id: 'github:I_refusals' }
-  const taskRows = () => count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id}`)
+  const taskRows = () => count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'issue' AND source_id = ${task.id}`)
   const alicesWork = await operations.createWork(alice, { title: "Alice's doc", type: 'doc', content: '# Doc' }, key())
   await expect(operations.putLink(bob, { from: { kind: 'session', id: 's1' }, to: { kind: 'pr', url: 'https://github.com/acme/app/pull/1' } })).rejects.toMatchObject({ status: 404 })
   // The task has no owner in Solus, but the link must not show Bob a work that he cannot open.
-  await expect(operations.putLink(bob, { from: { kind: 'task', id: task.id }, to: { kind: 'work', id: alicesWork.id } })).rejects.toMatchObject({ status: 404 })
+  await expect(operations.putLink(bob, { from: { kind: 'issue', id: task.id }, to: { kind: 'work', id: alicesWork.id } })).rejects.toMatchObject({ status: 404 })
   // A credential that may not write tasks makes no link.
-  const readOnly: WorkspaceRequestContext = { ...alice, scopes: ['tasks:read', 'works:read', 'works:write'] }
-  await expect(operations.putLink(readOnly, { from: { kind: 'task', id: task.id }, to: { kind: 'work', id: alicesWork.id } })).rejects.toMatchObject({ status: 403 })
+  const readOnly: WorkspaceRequestContext = { ...alice, scopes: ['issues:read', 'works:read', 'works:write'] }
+  await expect(operations.putLink(readOnly, { from: { kind: 'issue', id: task.id }, to: { kind: 'work', id: alicesWork.id } })).rejects.toMatchObject({ status: 403 })
   // An id from before tasks were provider-owned names no task.
-  await expect(operations.putLink(alice, { from: { kind: 'task', id: '01HZX3K5V0ULIDOFANOLDTASK00' }, to: { kind: 'work', id: alicesWork.id } })).rejects.toMatchObject({ status: 404 })
+  await expect(operations.putLink(alice, { from: { kind: 'issue', id: '01HZX3K5V0ULIDOFANOLDTASK00' }, to: { kind: 'work', id: alicesWork.id } })).rejects.toMatchObject({ status: 404 })
   expect(await taskRows()).toBe(0)
   // A pair that is not a link is refused before anything is read.
-  await expect(operations.putLink(alice, { from: { kind: 'task', id: task.id }, to: { kind: 'file', path: '/plan.md', hostId: 'runner-A' } })).rejects.toThrow('cannot link a file')
+  await expect(operations.putLink(alice, { from: { kind: 'issue', id: task.id }, to: { kind: 'file', path: '/plan.md', hostId: 'runner-A' } })).rejects.toThrow('cannot link a file')
 })
 
 test('a link from a task key needs no copy of the task, and is the organization\'s of who made it', async () => {
@@ -94,7 +94,7 @@ test('a link from a task key needs no copy of the task, and is the organization\
   // issue. Each reads its own links only, and neither removes the other's.
   const { taskAttachments } = await import('@solus/server/data/tasks/task-attachments')
   const { loadTask } = await import('@solus/server/data/tasks/task-store')
-  const task = { kind: 'task' as const, id: 'github:I_public' }
+  const task = { kind: 'issue' as const, id: 'github:I_public' }
   const pr = { kind: 'pr' as const, url: 'https://github.com/acme/app/pull/21' }
   await operations.putLink(alice, { from: task, to: pr, title: 'From A' })
   expect(await loadTask(task.id)).toBeNull()
@@ -111,21 +111,21 @@ test('a link from a task key needs no copy of the task, and is the organization\
 test('a link that crosses organizations is refused', async () => {
   const task = { id: 'github:I_crossing' }
   const elsewhere = await operations.createWork(carol, { title: 'In B', type: 'doc', content: '# B' }, key())
-  const link: WorkspaceLink = { from: { kind: 'task', id: task.id }, to: { kind: 'work', id: elsewhere.id } }
+  const link: WorkspaceLink = { from: { kind: 'issue', id: task.id }, to: { kind: 'work', id: elsewhere.id } }
   // Alice cannot read B's work at all.
   await expect(operations.putLink(alice, link)).rejects.toMatchObject({ status: 404 })
   // Even a caller that may read both ends cannot join two organizations: the link is made in A, and the work is in B.
   const system: WorkspaceRequestContext = { ...alice, principal: { kind: 'system' } }
   await expect(operations.putLink(system, link)).rejects.toThrow('one organization')
-  expect(await count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id}`)).toBe(0)
+  expect(await count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'issue' AND source_id = ${task.id}`)).toBe(0)
 })
 
 test('each (from, to) pair writes its own edge, and a delete by the same key removes it', async () => {
   const task = { id: 'github:I_every_pair' }
   const work = await operations.createWork(alice, { title: 'Doc', type: 'doc', content: '# Doc' }, key())
-  const fromTask = { kind: 'task' as const, id: task.id }
+  const fromTask = { kind: 'issue' as const, id: task.id }
   const fromSession = { kind: 'session' as const, id: 's1' }
-  const taskLinks = (kind: string) => count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id} AND target_kind = ${kind}`)
+  const taskLinks = (kind: string) => count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'issue' AND source_id = ${task.id} AND target_kind = ${kind}`)
   const sessionLinks = (kind: string) => count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'session' AND source_id = 's1' AND target_kind = ${kind}`)
   const workSessions = async () => z.object({ source_id: z.string() }).array().parse(await database.getDatabase().all(sql`
     SELECT source_id FROM resource_links WHERE source_kind = 'session' AND target_kind = 'work' AND target_key = ${work.id} AND relation = 'member'`)).map((row) => row.source_id)
@@ -178,8 +178,8 @@ test('the session links route lists all kinds from the remote home and checks re
   ]
   for (const to of targets) await operations.putLink(alice, { from: { kind: 'session', id: 's1' }, to })
   const taskLinks: WorkspaceLink[] = [
-    { from: { kind: 'task', id: 'github:I_working' }, to: { kind: 'session', id: 's1' } },
-    { from: { kind: 'task', id: 'linear:workspace:issue' }, to: { kind: 'session', id: 's1' }, role: 'referenced' },
+    { from: { kind: 'issue', id: 'github:I_working' }, to: { kind: 'session', id: 's1' } },
+    { from: { kind: 'issue', id: 'linear:workspace:issue' }, to: { kind: 'session', id: 's1' }, role: 'referenced' },
   ]
   for (const link of taskLinks) await operations.putLink(alice, link)
   const response = await app.request('/v1/sessions/s1/links', { headers: { Authorization: 'Bearer alice' } })

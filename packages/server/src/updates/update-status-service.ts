@@ -6,6 +6,7 @@ import { createLogger } from '../logger'
 import { AgentSoftware } from './agent-software'
 import { ClaudeSoftwareAdapter } from './claude-software-adapter'
 import { CodexSoftwareAdapter } from './codex-software-adapter'
+import { AntigravitySoftwareAdapter, antigravityVersion, verifyAntigravityPackage } from './antigravity-software-adapter'
 import { reduceCheckState } from './check-state'
 import type { LatestRelease } from './release-sources'
 
@@ -22,7 +23,7 @@ interface UpdateServiceDeps {
   now?: () => number
 }
 
-/** Schedules host checks and publishes the two agent modules' status. */
+/** Schedules host checks and publishes each agent module's status. */
 export class UpdateStatusService {
   readonly status: HostUpdateStatus
   readonly agents: Readonly<Record<SetupAgent, AgentSoftware>>
@@ -50,7 +51,11 @@ export class UpdateStatusService {
         if (deps.install === 'cloud') throw new Error('Agent software on this host is updated by Solus Cloud.')
       },
     }
-    this.agents = deps.agents ?? { claude: new AgentSoftware(new ClaudeSoftwareAdapter(), options), codex: new AgentSoftware(new CodexSoftwareAdapter(), options) }
+    this.agents = deps.agents ?? {
+      claude: new AgentSoftware(new ClaudeSoftwareAdapter(), options),
+      codex: new AgentSoftware(new CodexSoftwareAdapter(), options),
+      agy: new AgentSoftware(new AntigravitySoftwareAdapter(), { ...options, version: antigravityVersion, verify: verifyAntigravityPackage }),
+    }
     for (const agent of Object.values(this.agents)) {
       this.status.providers.push(agent.status)
       agent.on('changed', () => this.publish())

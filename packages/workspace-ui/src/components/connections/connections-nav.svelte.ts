@@ -2,11 +2,11 @@ import { hostCatalog } from "@solus/client-core/host-catalog"
 import type { AddWay } from "../fleet/lib/fleet-model"
 
 /** The tabs of one host's page. */
-export type HostPageTab = "overview" | "resources" | "access" | "git" | "providers" | "environment"
+export type HostPageTab = "overview" | "resources" | "git" | "providers" | "environment"
 
 /**
- * Where the Connections page is: the fleet, one host's page, or the Add page
- * (docs/plans/host-fleet.md D8). Held outside the
+ * Where the Connections page is: the fleet, one host's page, or the Add page.
+ * Held outside the
  * page so the settings breadcrumb can name the host without the page telling it,
  * and so leaving Connections altogether can put the page back on the list.
  */

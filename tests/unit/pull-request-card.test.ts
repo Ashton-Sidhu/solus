@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import type { PullRequest } from '@solus/contracts/providers'
 import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
-import type { TaskPrSnapshot } from '@solus/contracts/task-types'
+import type { IssuePrSnapshot } from '@solus/contracts/task-types'
 import { pullRequestCard, pullRequestGroupSummary } from '@solus/client-core/pull-request-card'
 import { pullRequestCardMeta } from '../../packages/workspace-ui/src/components/conversation/lib/pull-request-card'
 
 const baseRepo = { host: 'github.com', owner: 'modem-dev', repo: 'hunk' }
 
-function snapshot(state: TaskPrSnapshot['state'], updatedAt = '2026-11-13T10:00:00Z', draft = false): TaskPrSnapshot {
+function snapshot(state: IssuePrSnapshot['state'], updatedAt = '2026-11-13T10:00:00Z', draft = false): IssuePrSnapshot {
   return { number: 1285, url: '', title: '', state, draft, updatedAt, baseRepo }
 }
 

@@ -164,7 +164,7 @@ export async function recordObservation(db: Db, write: ObservationWrite): Promis
     `)
     return {
       sessionIds: [...new Set(edges.filter((edge) => edge.source_kind === 'session').map((edge) => edge.source_id))],
-      taskIds: [...new Set(edges.filter((edge) => edge.source_kind === 'task').map((edge) => edge.source_id))],
+      taskIds: [...new Set(edges.filter((edge) => edge.source_kind === 'issue').map((edge) => edge.source_id))],
     }
   })
 }

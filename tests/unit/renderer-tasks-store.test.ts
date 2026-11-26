@@ -1,11 +1,11 @@
 import { afterAll, afterEach, describe, expect, jest, test } from 'bun:test'
 import type {
-  Task as TaskRecord,
-  TaskDetails,
-  TaskLink,
-  TaskSidebarFilter,
-  TaskSidebarSnapshot,
-  TaskSummary,
+  Issue as TaskRecord,
+  IssueDetails,
+  IssueLink,
+  IssueListRequest,
+  IssueList,
+  IssueSummary,
 } from '@solus/contracts/task-types'
 import {
   BOARD_SOURCE_KEY,
@@ -30,7 +30,7 @@ afterEach(() => jest.useRealTimers())
 
 const TASK = 'github:I_1'
 
-function detailsOf(task: TaskRecord, overrides: Partial<TaskDetails> = {}): TaskDetails {
+function detailsOf(task: TaskRecord, overrides: Partial<IssueDetails> = {}): IssueDetails {
   return { task, comments: [], links: [], activity: [], ...overrides }
 }
 
@@ -41,13 +41,13 @@ function reconnect(world: Awaited<ReturnType<typeof createTasksWorld>>, serverId
 
 describe('renderer task hydration', () => {
   test('a list row never blanks the body or the epic a detail read filled in', async () => {
-    // WHY: the sidebar snapshot carries `TaskSummary` rows, without body or
-    // epic (plans/029 §8), and every `tasks.invalidated` re-hydrates from it.
+    // WHY: the sidebar snapshot carries `IssueSummary` rows, without body or
+    // epic (plans/029 §8), and every `issues.invalidated` re-hydrates from it.
     // A row that spoke for the body would empty the open task page on each
     // refresh. A full record still clears an epic it no longer has.
     const world = await createTasksWorld()
-    world.connections.registerPrimary('local', { tasksSidebarSnapshot: async () => snapshotOf([issueRow()]) })
-    const store = new world.TasksStore()
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([issueRow()]) })
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     const epic = { provider: 'jira' as const, externalId: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7', title: 'Release 2.0', body: 'Ship it.' }
@@ -57,7 +57,7 @@ describe('renderer task hydration', () => {
     expect(hydrated.epic).toEqual(epic)
 
     const { body: _body, epic: _epic, ...summary } = full
-    const listRow: TaskSummary = summary
+    const listRow: IssueSummary = summary
     hydrated.hydrate(listRow)
     expect(hydrated.body).toBe('Full body')
     expect(hydrated.epic).toEqual(epic)
@@ -75,8 +75,8 @@ describe('renderer task hydration', () => {
     // request discovery, whose effect issued the read.
     const world = await createTasksWorld()
     const row = () => issueRow(TASK, { labels: ['bug'], pr: { number: 5, url: 'https://github.com/acme/app/pull/5' } })
-    world.connections.registerPrimary('local', { tasksSidebarSnapshot: async () => snapshotOf([row()]) })
-    const store = new world.TasksStore()
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([row()]) })
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     const task = store.get(TASK)
     const held = { placements: task.placements, labels: task.labels, state: task.state, pr: task.pr, writableFields: task.writableFields }
@@ -103,12 +103,12 @@ describe('renderer task hydration', () => {
     // a read sees the result of it.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow()]),
-      tasksGet: async () => detailsOf(issueRecord(TASK, { title: 'Read from the provider' }), {
-        comments: [{ id: 'comment-1', taskId: TASK, body: 'Landed', createdAt: 1 }],
+      issuesList: async () => snapshotOf([issueRow()]),
+      issuesGet: async () => detailsOf(issueRecord(TASK, { title: 'Read from the provider' }), {
+        comments: [{ id: 'comment-1', issueId: TASK, body: 'Landed', createdAt: 1 }],
       }),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     const heldBeforeTheRead = store.get(TASK)
@@ -126,8 +126,8 @@ describe('renderer task hydration', () => {
     // WHY: `get` mints a task for a deep link or a session link. Until a host
     // describes it, a surface must not draw its empty defaults as a real task.
     const world = await createTasksWorld()
-    world.connections.registerPrimary('local', { tasksSidebarSnapshot: async () => snapshotOf([]) })
-    const store = new world.TasksStore()
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([]) })
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     const minted = store.get('jira:cloud-1:10001')
@@ -145,9 +145,9 @@ describe('renderer task hydration', () => {
     // an issue, or for a key that no host described.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow(), draftRow('github:DI_1')]),
+      issuesList: async () => snapshotOf([issueRow(), draftRow('github:DI_1')]),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     expect(store.get(TASK).canDelete).toBe(false)
@@ -160,9 +160,9 @@ describe('renderer task hydration', () => {
     // that field. A control for a field the provider drops would lose input.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow(TASK, { writableFields: ['title', 'labels'] })]),
+      issuesList: async () => snapshotOf([issueRow(TASK, { writableFields: ['title', 'labels'] })]),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     expect(store.get(TASK).canWrite('labels')).toBe(true)
@@ -176,13 +176,13 @@ describe('renderer task hydration', () => {
     const world = await createTasksWorld()
     const calls: unknown[] = []
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow()]),
-      tasksListAssigneeCandidates: async (target: unknown) => {
+      issuesList: async () => snapshotOf([issueRow()]),
+      issuesListAssigneeCandidates: async (target: unknown) => {
         calls.push(target)
         return [{ login: 'octocat', avatarUrl: 'https://avatars.test/octocat' }]
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     const target = { source: sourceState(REPO_SOURCE_KEY).source }
 
@@ -197,8 +197,8 @@ describe('renderer task hydration', () => {
     // Another source has its own people.
     expect(store.assigneeCandidates({ source: sourceState(BOARD_SOURCE_KEY).source })).toEqual([])
 
-    await store.loadAssigneeCandidates({ taskId: TASK })
-    expect(calls.at(-1)).toEqual({ taskId: TASK })
+    await store.loadAssigneeCandidates({ issueId: TASK })
+    expect(calls.at(-1)).toEqual({ issueId: TASK })
   })
 
   test('only the working link answers for a session, whatever order the snapshot lists it', async () => {
@@ -207,7 +207,7 @@ describe('renderer task hydration', () => {
     // sidebar row, to the referrer instead of the task the work belongs to.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf(
+      issuesList: async () => snapshotOf(
         [issueRow('github:I_referrer'), issueRow('github:I_owner')],
         {
           'github:I_referrer': [sessionLink('shared-session', { role: 'referenced', linkedAt: 2 })],
@@ -215,7 +215,7 @@ describe('renderer task hydration', () => {
         },
       ),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     expect(store.taskForSession('shared-session')?.id).toBe('github:I_owner')
@@ -230,20 +230,20 @@ describe('renderer task hydration', () => {
     const world = await createTasksWorld()
     const created: Array<{ serverId: string; input: unknown }> = []
     world.connections.registerPrimary('workshop', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow()]),
-      tasksCreate: async (input: unknown) => {
+      issuesList: async () => snapshotOf([issueRow()]),
+      issuesCreate: async (input: unknown) => {
         created.push({ serverId: 'workshop', input })
         return issueRecord('github:I_created_workshop')
       },
     })
     world.connections.registerHost('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([]),
-      tasksCreate: async (input: unknown) => {
+      issuesList: async () => snapshotOf([]),
+      issuesCreate: async (input: unknown) => {
         created.push({ serverId: 'local', input })
         return issueRecord('github:I_created_local')
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     const source = sourceState(REPO_SOURCE_KEY).source
 
@@ -260,10 +260,10 @@ describe('renderer task hydration', () => {
     // does not exist, so the list must not show a row for it.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([]),
-      tasksCreate: async () => { throw new Error('This project has no task source.') },
+      issuesList: async () => snapshotOf([]),
+      issuesCreate: async () => { throw new Error('This project has no task source.') },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     await expect(store.create({ cwd: '/workspace/app', title: 'Nowhere' }, 'local')).rejects.toThrow('no task source')
@@ -275,8 +275,8 @@ describe('renderer task hydration', () => {
     // "Agent running", so a task whose agent stopped hours ago still showed a
     // live tint. A link says a session exists; only the host knows if it works.
     const world = await createTasksWorld()
-    world.connections.registerPrimary('local', { tasksSidebarSnapshot: async () => snapshotOf([issueRow()]) })
-    const store = new world.TasksStore()
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([issueRow()]) })
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     const link = { sessionId: 'session-1', executionServerId: null }
     const noTab = () => undefined
@@ -315,24 +315,55 @@ describe('renderer task hydration', () => {
     const world = await createTasksWorld()
     const detailReads: string[] = []
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow('github:I_visible'), issueRow('github:I_hidden')]),
-      tasksGet: async (taskId: string) => {
+      issuesList: async () => snapshotOf([issueRow('github:I_visible'), issueRow('github:I_hidden')]),
+      issuesGet: async (taskId: string) => {
         detailReads.push(taskId)
         return detailsOf(issueRecord(taskId))
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     await store.get('github:I_visible').loadDetails()
     await store.get('github:I_hidden').loadDetails()
     detailReads.splice(0)
 
     const stopWatching = store.get('github:I_visible').watchDetails()
-    world.connections.emit('local', 'tasks.invalidated', {})
+    world.connections.emit('local', 'issues.invalidated', {})
     jest.advanceTimersByTime(101)
     await settle()
 
     expect(detailReads).toEqual(['github:I_visible'])
+    stopWatching()
+  })
+
+  test('a change to an open issue re-reads the host copy, not the provider', async () => {
+    // WHY: `issues.invalidated` means the host's copy already changed. A provider
+    // read on each event repeats a write the client already applied, and a
+    // provider round trip is the slow part of the page.
+    jest.useFakeTimers()
+    const world = await createTasksWorld()
+    const reads: Array<{ id: string; cached: boolean }> = []
+    const statusOptions = { columns: [], canSetStatus: true }
+    world.connections.registerPrimary('local', {
+      issuesList: async () => snapshotOf([issueRow('github:I_open')]),
+      issuesGet: async (taskId: string, read?: { cached?: true }) => {
+        reads.push({ id: taskId, cached: read?.cached === true })
+        return read?.cached ? detailsOf(issueRecord(taskId)) : { ...detailsOf(issueRecord(taskId)), statusOptions }
+      },
+    })
+    const store = new world.IssuesStore()
+    await store.ensureLoaded()
+    const task = store.get('github:I_open')
+    await task.loadDetails()
+    reads.splice(0)
+
+    const stopWatching = task.watchDetails()
+    world.connections.emit('local', 'issues.invalidated', { issueId: 'github:I_open' })
+    jest.advanceTimersByTime(101)
+    await settle()
+
+    expect(reads).toEqual([{ id: 'github:I_open', cached: true }])
+    expect(task.data.current.details.value?.statusOptions).toEqual(statusOptions)
     stopWatching()
   })
 
@@ -349,20 +380,20 @@ describe('renderer task hydration', () => {
       issueRow('github:I_untouched'),
     ]
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async (filter?: TaskSidebarFilter) => {
-        sidebarReads.push(filter?.taskIds)
-        const tasks = filter?.taskIds ? rows.filter((row) => filter.taskIds?.includes(row.id)) : rows
+      issuesList: async (filter?: IssueListRequest) => {
+        sidebarReads.push(filter?.issueIds)
+        const tasks = filter?.issueIds ? rows.filter((row) => filter.issueIds?.includes(row.id)) : rows
         return snapshotOf(tasks, Object.fromEntries(tasks.map((row) => [row.id, [sessionLink(`${row.id}-session`)]])))
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     const untouched = store.get('github:I_untouched')
     sidebarReads.splice(0)
 
     rows = [{ ...rows[0], title: 'New title' }, rows[2]]
-    world.connections.emit('local', 'tasks.invalidated', { taskId: 'github:I_renamed' })
-    world.connections.emit('local', 'tasks.invalidated', { taskId: 'github:I_gone' })
+    world.connections.emit('local', 'issues.invalidated', { issueId: 'github:I_renamed' })
+    world.connections.emit('local', 'issues.invalidated', { issueId: 'github:I_gone' })
     jest.advanceTimersByTime(101)
     await settle()
 
@@ -374,7 +405,7 @@ describe('renderer task hydration', () => {
     expect(store.tasks[1]).toBe(untouched)
 
     // A host that cannot name the change (a source refresh) still gets the whole list.
-    world.connections.emit('local', 'tasks.invalidated', {})
+    world.connections.emit('local', 'issues.invalidated', {})
     jest.advanceTimersByTime(101)
     await settle()
     expect(sidebarReads).toEqual([['github:I_renamed', 'github:I_gone'], undefined])
@@ -385,15 +416,15 @@ describe('renderer task hydration', () => {
     // on one frame. They must share the RPC rather than racing duplicate reads.
     const world = await createTasksWorld()
     let detailReads = 0
-    const details = Promise.withResolvers<TaskDetails>()
+    const details = Promise.withResolvers<IssueDetails>()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow()]),
-      tasksGet: () => {
+      issuesList: async () => snapshotOf([issueRow()]),
+      issuesGet: () => {
         detailReads++
         return details.promise
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     const first = store.get(TASK).loadDetails()
     const second = store.get(TASK).loadDetails()
@@ -413,20 +444,20 @@ describe('renderer task hydration', () => {
     const asked: string[] = []
     world.attachmentOnlyHosts.add('cloud')
     world.connections.registerPrimary('cloud', {
-      tasksSidebarSnapshot: async () => snapshotOf([]),
-      tasksGet: async () => {
+      issuesList: async () => snapshotOf([]),
+      issuesGet: async () => {
         asked.push('cloud')
         throw new Error('The Solus API does not read tasks.')
       },
     })
     world.connections.registerHost('workshop', {
-      tasksSidebarSnapshot: async () => snapshotOf([]),
-      tasksGet: async (id: string) => {
+      issuesList: async () => snapshotOf([]),
+      issuesGet: async (id: string) => {
         asked.push('workshop')
         return detailsOf(issueRecord(id, { title: 'Direct issue' }))
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
 
     const details = await store.get('github:I_87').loadDetails()
 
@@ -440,10 +471,10 @@ describe('renderer task hydration', () => {
     // stayed pending would show a loading state that never ends.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([]),
-      tasksGet: async () => { throw new Error('Not Found') },
+      issuesList: async () => snapshotOf([]),
+      issuesGet: async () => { throw new Error('Not Found') },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
 
     await expect(store.get('github:I_404').loadDetails()).rejects.toThrow('No connected host has this task.')
   })
@@ -455,14 +486,14 @@ describe('reading tasks from more than one host', () => {
     // read is in flight. The completed lifecycle on that host must reach the
     // first stable sidebar instead of waiting for later typing or task activity.
     const world = await createTasksWorld()
-    const localSnapshot = Promise.withResolvers<TaskSidebarSnapshot>()
-    const remoteSnapshot = Promise.withResolvers<TaskSidebarSnapshot>()
-    world.connections.registerPrimary('local', { tasksSidebarSnapshot: () => localSnapshot.promise })
-    const store = new world.TasksStore()
+    const localSnapshot = Promise.withResolvers<IssueList>()
+    const remoteSnapshot = Promise.withResolvers<IssueList>()
+    world.connections.registerPrimary('local', { issuesList: () => localSnapshot.promise })
+    const store = new world.IssuesStore()
     const firstLoad = store.ensureLoaded()
     await settle()
 
-    world.connectHost('remote', { tasksSidebarSnapshot: () => remoteSnapshot.promise })
+    world.connectHost('remote', { issuesList: () => remoteSnapshot.promise })
     localSnapshot.resolve(snapshotOf([]))
     await settle()
 
@@ -482,12 +513,12 @@ describe('reading tasks from more than one host', () => {
   test('shows a healthy host before a slow connected host answers', async () => {
     // WHY: one slow machine must not hold every other machine's tasks back.
     const world = await createTasksWorld()
-    const slow = Promise.withResolvers<TaskSidebarSnapshot>()
+    const slow = Promise.withResolvers<IssueList>()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('healthy-session')] }),
+      issuesList: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('healthy-session')] }),
     })
-    world.connections.registerHost('slow', { tasksSidebarSnapshot: () => slow.promise })
-    const store = new world.TasksStore()
+    world.connections.registerHost('slow', { issuesList: () => slow.promise })
+    const store = new world.IssuesStore()
     const load = store.load()
     await settle()
     expect(store.loaded).toBe(true)
@@ -506,21 +537,21 @@ describe('reading tasks from more than one host', () => {
     const world = await createTasksWorld()
     let localReads = 0
     let remoteReads = 0
-    const remoteSnapshot = Promise.withResolvers<TaskSidebarSnapshot>()
+    const remoteSnapshot = Promise.withResolvers<IssueList>()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => {
+      issuesList: async () => {
         localReads++
         return snapshotOf([issueRow('github:I_local')], { 'github:I_local': [sessionLink('local-session')] })
       },
     })
     world.connections.registerHost('remote', {
-      tasksSidebarSnapshot: () => {
+      issuesList: () => {
         remoteReads++
         return remoteSnapshot.promise
       },
     })
     world.connections.emitReadiness('remote', 'unreachable')
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     expect(store.loaded).toBe(true)
@@ -544,11 +575,11 @@ describe('reading tasks from more than one host', () => {
     // sidebar keeps its skeleton for as long as the first host is down.
     const { HostUnreachableError } = await import('@solus/client-core/rpc-error')
     const world = await createTasksWorld()
-    const local = Promise.withResolvers<TaskSidebarSnapshot>()
-    world.connections.registerPrimary('local', { tasksSidebarSnapshot: () => local.promise })
-    world.connections.registerHost('remote', { tasksSidebarSnapshot: () => new Promise<TaskSidebarSnapshot>(() => {}) })
+    const local = Promise.withResolvers<IssueList>()
+    world.connections.registerPrimary('local', { issuesList: () => local.promise })
+    world.connections.registerHost('remote', { issuesList: () => new Promise<IssueList>(() => {}) })
     world.connections.emitReadiness('remote', 'checking')
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     void store.load()
     // The remote host is accepted while the first pass waits, so the read runs one more pass.
     world.connections.emitReadiness('remote', 'ready')
@@ -563,13 +594,13 @@ describe('reading tasks from more than one host', () => {
   test('a host that fails its read is reported and does not empty the other hosts', async () => {
     // WHY: losing one machine must not read as "the sidebar lost my tasks".
     const world = await createTasksWorld()
-    world.connections.registerPrimary('local', { tasksSidebarSnapshot: async () => snapshotOf([issueRow()]) })
-    world.connections.registerHost('broken', { tasksSidebarSnapshot: async () => { throw new Error('database is locked') } })
-    const store = new world.TasksStore()
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([issueRow()]) })
+    world.connections.registerHost('broken', { issuesList: async () => { throw new Error('database is locked') } })
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     expect(store.tasks.map((row) => row.id)).toEqual([TASK])
-    expect(store.error).toBe("Couldn't read tasks from 1 host.")
+    expect(store.error).toBe("Couldn't read issues from 1 host.")
   })
 
   test('a reconnecting host re-reads its own list, not every host\'s', async () => {
@@ -583,18 +614,18 @@ describe('reading tasks from more than one host', () => {
     let remoteReads = 0
     let remoteTasks = [issueRow('github:I_kept'), issueRow('github:I_gone')]
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => {
+      issuesList: async () => {
         localReads++
         return snapshotOf([issueRow('github:I_local')])
       },
     })
     world.connections.registerHost('remote', {
-      tasksSidebarSnapshot: async () => {
+      issuesList: async () => {
         remoteReads++
         return snapshotOf(remoteTasks)
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     expect(store.tasks.map((row) => row.id).sort()).toEqual(['github:I_gone', 'github:I_kept', 'github:I_local'])
 
@@ -613,18 +644,18 @@ describe('reading tasks from more than one host', () => {
     // holds; a task it names and leaves out has gone, and a task it does not
     // name keeps its row. A host that gives no revision is read whole, as before.
     const world = await createTasksWorld()
-    const reads: Array<TaskSidebarFilter | undefined> = []
-    let answer: TaskSidebarSnapshot = {
+    const reads: Array<IssueListRequest | undefined> = []
+    let answer: IssueList = {
       ...snapshotOf([issueRow('github:I_kept'), issueRow('github:I_edited'), issueRow('github:I_gone')]),
       revision: 'boot.1.reader',
     }
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async (filter?: TaskSidebarFilter) => {
+      issuesList: async (filter?: IssueListRequest) => {
         reads.push(filter)
         return answer
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     const keptRow = store.get('github:I_kept')
 
@@ -668,20 +699,20 @@ describe('reading tasks from more than one host', () => {
     const updatedOn: string[] = []
     const shared = issueRow('github:I_shared')
     world.connections.registerPrimary('first', {
-      tasksSidebarSnapshot: async () => snapshotOf([{ ...shared, title: 'As the first host read it' }], { 'github:I_shared': [sessionLink('first-session', { linkedAt: 1 })] }),
-      tasksUpdate: async () => {
+      issuesList: async () => snapshotOf([{ ...shared, title: 'As the first host read it' }], { 'github:I_shared': [sessionLink('first-session', { linkedAt: 1 })] }),
+      issuesUpdate: async () => {
         updatedOn.push('first')
         return issueRecord('github:I_shared')
       },
     })
     world.connections.registerHost('second', {
-      tasksSidebarSnapshot: async () => snapshotOf([{ ...shared, title: 'As the second host read it' }], { 'github:I_shared': [sessionLink('second-session', { linkedAt: 2 })] }),
-      tasksUpdate: async () => {
+      issuesList: async () => snapshotOf([{ ...shared, title: 'As the second host read it' }], { 'github:I_shared': [sessionLink('second-session', { linkedAt: 2 })] }),
+      issuesUpdate: async () => {
         updatedOn.push('second')
         return issueRecord('github:I_shared')
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     expect(store.tasks.map((entry) => entry.id)).toEqual(['github:I_shared'])
@@ -698,12 +729,12 @@ describe('reading tasks from more than one host', () => {
     // WHY: which host reads a task must not depend on which answered first, or
     // the reader would change from one load to the next.
     const world = await createTasksWorld()
-    const preferred = Promise.withResolvers<TaskSidebarSnapshot>()
-    world.connections.registerPrimary('local', { tasksSidebarSnapshot: () => preferred.promise })
+    const preferred = Promise.withResolvers<IssueList>()
+    world.connections.registerPrimary('local', { issuesList: () => preferred.promise })
     world.connections.registerHost('mirror', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('mirror-session', { linkedAt: 1 })] }),
+      issuesList: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('mirror-session', { linkedAt: 1 })] }),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     const load = store.load()
     await settle()
     expect(store.get(TASK).serverId).toBe('mirror')
@@ -722,9 +753,9 @@ describe('reading tasks from more than one host', () => {
     const world = await createTasksWorld()
     let firstRows = [issueRow()]
     let secondRows = [issueRow()]
-    world.connections.registerPrimary('first', { tasksSidebarSnapshot: async () => snapshotOf(firstRows) })
-    world.connections.registerHost('second', { tasksSidebarSnapshot: async () => snapshotOf(secondRows) })
-    const store = new world.TasksStore()
+    world.connections.registerPrimary('first', { issuesList: async () => snapshotOf(firstRows) })
+    world.connections.registerHost('second', { issuesList: async () => snapshotOf(secondRows) })
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     expect(store.get(TASK).serverId).toBe('first')
 
@@ -745,9 +776,9 @@ describe('reading tasks from more than one host', () => {
     // WHY: restored sessions must never render between independently timed task
     // and link reads. The host response is the renderer's atomic boundary.
     const world = await createTasksWorld()
-    const snapshot = Promise.withResolvers<TaskSidebarSnapshot>()
-    world.connections.registerPrimary('local', { tasksSidebarSnapshot: () => snapshot.promise })
-    const store = new world.TasksStore()
+    const snapshot = Promise.withResolvers<IssueList>()
+    world.connections.registerPrimary('local', { issuesList: () => snapshot.promise })
+    const store = new world.IssuesStore()
     const hydration = store.ensureLoaded()
     await settle()
 
@@ -777,11 +808,11 @@ describe('reading tasks from more than one host', () => {
     // and the loose session until the link request completes.
     const world = await createTasksWorld()
     let snapshotRequest = 0
-    const refreshSnapshot = Promise.withResolvers<TaskSidebarSnapshot>()
+    const refreshSnapshot = Promise.withResolvers<IssueList>()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: () => snapshotRequest++ === 0 ? Promise.resolve(snapshotOf([])) : refreshSnapshot.promise,
+      issuesList: () => snapshotRequest++ === 0 ? Promise.resolve(snapshotOf([])) : refreshSnapshot.promise,
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     const refresh = store.load()
@@ -804,17 +835,17 @@ describe('attachments from a host that does not read the task', () => {
   async function twoHosts(cloudFirst = false) {
     const world = await createTasksWorld()
     const answers = {
-      workshop: snapshotOf([issueRow()], { [TASK]: [sessionLink('workshop-run', { linkedAt: 1 })] }) as TaskSidebarSnapshot,
-      cloud: snapshotOf([], { [TASK]: [sessionLink('cloud-run', { linkedAt: 2 })] }) as TaskSidebarSnapshot,
+      workshop: snapshotOf([issueRow()], { [TASK]: [sessionLink('workshop-run', { linkedAt: 1 })] }) as IssueList,
+      cloud: snapshotOf([], { [TASK]: [sessionLink('cloud-run', { linkedAt: 2 })] }) as IssueList,
     }
     const reads = { workshop: 0, cloud: 0 }
     const unlinkedOn: string[] = []
     const api = (name: 'workshop' | 'cloud') => ({
-      tasksSidebarSnapshot: async () => {
+      issuesList: async () => {
         reads[name]++
         return answers[name]
       },
-      tasksUnlinkSession: async (_taskId: string, sessionId: string) => { unlinkedOn.push(`${name}:${sessionId}`) },
+      issuesUnlinkSession: async (_taskId: string, sessionId: string) => { unlinkedOn.push(`${name}:${sessionId}`) },
     })
     world.attachmentOnlyHosts.add('cloud')
     if (cloudFirst) {
@@ -832,7 +863,7 @@ describe('attachments from a host that does not read the task', () => {
     // API, which has no task rows. Without the merge by task key, the task
     // page on the project host would not show the work that runs in the cloud.
     const { world } = await twoHosts()
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     const task = store.get(TASK)
@@ -847,7 +878,7 @@ describe('attachments from a host that does not read the task', () => {
     // the whole list, each refresh of the project host would drop the cloud
     // sessions until the Solus API was read again.
     const { world, reads } = await twoHosts()
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     reconnect(world, 'workshop')
@@ -862,7 +893,7 @@ describe('attachments from a host that does not read the task', () => {
     // WHY: each host is the truth for its own links. A link that the Solus API
     // removed must not stay because another host still lists the task.
     const { world, answers } = await twoHosts()
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     answers.cloud = snapshotOf([])
@@ -880,7 +911,7 @@ describe('attachments from a host that does not read the task', () => {
     // WHY: every task read and write goes to `serverId`. The Solus API cannot
     // reach GitHub or Jira, so a write sent there would fail.
     const { world } = await twoHosts(true)
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     expect(store.get(TASK).serverId).toBe('workshop')
@@ -892,7 +923,7 @@ describe('attachments from a host that does not read the task', () => {
     // links must not be lost, and the key alone must not draw an empty row.
     const { world, answers } = await twoHosts()
     world.connections.emitReadiness('workshop', 'unreachable')
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     expect(store.tasks).toHaveLength(0)
@@ -913,7 +944,7 @@ describe('attachments from a host that does not read the task', () => {
     // unlink sent to the reader of the task would change nothing, and the next
     // snapshot would bring the link back.
     const { world, unlinkedOn } = await twoHosts()
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     await store.get(TASK).unlinkSession('cloud-run')
@@ -927,7 +958,7 @@ describe('attachments from a host that does not read the task', () => {
     // WHY: every mounted surface must drop the link now. Until the next
     // snapshot the task page would still offer a session that is not linked.
     const { world } = await twoHosts()
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     const task = store.get(TASK)
     expect(task.sessions.map((link) => link.sessionId)).toEqual(['cloud-run', 'workshop-run'])
@@ -942,25 +973,25 @@ describe('attachments from a host that does not read the task', () => {
     // page must list it beside the links of the project host, and removing it
     // must reach the host that stores it.
     const { world } = await twoHosts()
-    const link = (targetKey: string): TaskLink => ({
-      taskId: TASK, kind: 'work', targetScope: '', targetKey, title: targetKey, createdBy: { kind: 'system' }, linkedAt: 1,
+    const link = (targetKey: string): IssueLink => ({
+      issueId: TASK, kind: 'work', targetScope: '', targetKey, title: targetKey, createdBy: { kind: 'system' }, linkedAt: 1,
     })
     const unlinkedOn: string[] = []
     Object.assign(world.connections.apiFor('workshop'), {
-      tasksGet: async () => detailsOf(issueRecord(), { links: [link('work-workshop')] }),
-      tasksUnlink: async () => {
+      issuesGet: async () => detailsOf(issueRecord(), { links: [link('work-workshop')] }),
+      issuesUnlink: async () => {
         unlinkedOn.push('workshop')
         return { links: [], activity: [] }
       },
     })
     Object.assign(world.connections.apiFor('cloud'), {
-      tasksAttachments: async () => ({ links: [link('work-cloud')], activity: [] }),
-      tasksUnlink: async () => {
+      issuesAttachments: async () => ({ links: [link('work-cloud')], activity: [] }),
+      issuesUnlink: async () => {
         unlinkedOn.push('cloud')
         return { links: [], activity: [] }
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     const task = store.get(TASK)
 
@@ -976,9 +1007,9 @@ describe('attachments from a host that does not read the task', () => {
     // WHY: the task comes from the project host. An offline Solus API must
     // cost its links only, not the page.
     const { world } = await twoHosts()
-    Object.assign(world.connections.apiFor('workshop'), { tasksGet: async () => detailsOf(issueRecord(TASK, { title: 'Still here' })) })
-    Object.assign(world.connections.apiFor('cloud'), { tasksAttachments: async () => { throw new Error('offline') } })
-    const store = new world.TasksStore()
+    Object.assign(world.connections.apiFor('workshop'), { issuesGet: async () => detailsOf(issueRecord(TASK, { title: 'Still here' })) })
+    Object.assign(world.connections.apiFor('cloud'), { issuesAttachments: async () => { throw new Error('offline') } })
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     const details = await store.get(TASK).loadDetails()
@@ -987,10 +1018,10 @@ describe('attachments from a host that does not read the task', () => {
 })
 
 describe('writes go to the provider first', () => {
-  async function oneTask(api: object, row: TaskSummary = issueRow()) {
+  async function oneTask(api: object, row: IssueSummary = issueRow()) {
     const world = await createTasksWorld()
-    world.connections.registerPrimary('local', { tasksSidebarSnapshot: async () => snapshotOf([row]), ...api })
-    const store = new world.TasksStore()
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([row]), ...api })
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     return { world, store, task: store.get(row.id) }
   }
@@ -1002,7 +1033,7 @@ describe('writes go to the provider first', () => {
     const moved = Promise.withResolvers<TaskRecord>()
     const targets: unknown[] = []
     const { store, task } = await oneTask({
-      tasksMove: (_id: string, target: unknown) => {
+      issuesMove: (_id: string, target: unknown) => {
         targets.push(target)
         return moved.promise
       },
@@ -1027,7 +1058,7 @@ describe('writes go to the provider first', () => {
     // GitHub refused would show a state that exists nowhere, and a caller
     // that got no error could not tell the person.
     const refused = Promise.withResolvers<TaskRecord>()
-    const { store, task } = await oneTask({ tasksMove: () => refused.promise })
+    const { store, task } = await oneTask({ issuesMove: () => refused.promise })
 
     const moving = task.move({ category: 'done' })
     expect(task.category).toBe('done')
@@ -1048,7 +1079,7 @@ describe('writes go to the provider first', () => {
         { sourceKey: BOARD_SOURCE_KEY, columnId: 'opt-todo' },
       ],
     })
-    const { task } = await oneTask({ tasksMove: () => refused.promise }, row)
+    const { task } = await oneTask({ issuesMove: () => refused.promise }, row)
 
     const moving = task.move({ sourceKey: BOARD_SOURCE_KEY, columnId: 'opt-doing' })
     expect(task.placements).toEqual([
@@ -1066,7 +1097,7 @@ describe('writes go to the provider first', () => {
     // WHY: null is a real place: a board item that has no column yet. The
     // undo of a refused move must not leave the card in the column it never reached.
     const row = draftRow('github:DI_1', { placements: [{ sourceKey: BOARD_SOURCE_KEY, columnId: null }] })
-    const { task } = await oneTask({ tasksMove: async () => { throw new Error('refused') } }, row)
+    const { task } = await oneTask({ issuesMove: async () => { throw new Error('refused') } }, row)
 
     await expect(task.move({ sourceKey: BOARD_SOURCE_KEY, columnId: 'opt-doing' })).rejects.toThrow('refused')
     expect(task.placements).toEqual([{ sourceKey: BOARD_SOURCE_KEY, columnId: null }])
@@ -1078,7 +1109,7 @@ describe('writes go to the provider first', () => {
     const patches: unknown[] = []
     let refuse = true
     const { task } = await oneTask({
-      tasksUpdate: async (_id: string, patch: { title?: string }) => {
+      issuesUpdate: async (_id: string, patch: { title?: string }) => {
         patches.push(patch)
         if (refuse) throw new Error('A field outside the writable fields.')
         return issueRecord(TASK, { title: patch.title })
@@ -1097,18 +1128,18 @@ describe('writes go to the provider first', () => {
   test('a comment that the provider did not take shows as unsent, and can be sent again or discarded', async () => {
     // WHY: each comment is a provider comment. One that did not arrive must
     // say so with its error, so the person does not think the team read it.
-    const unsent = { id: 'c1', taskId: TASK, body: 'Posted from Solus', createdAt: 1, unsent: true, sendError: 'GitHub did not answer' }
+    const unsent = { id: 'c1', issueId: TASK, body: 'Posted from Solus', createdAt: 1, unsent: true, sendError: 'GitHub did not answer' }
     const calls: string[] = []
     const { task } = await oneTask({
-      tasksComment: async (_id: string, body: string) => {
+      issuesComment: async (_id: string, body: string) => {
         calls.push(`comment:${body}`)
         return detailsOf(issueRecord(), { comments: [unsent] })
       },
-      tasksRetryComment: async (_id: string, commentId: string) => {
+      issuesRetryComment: async (_id: string, commentId: string) => {
         calls.push(`retry:${commentId}`)
-        return detailsOf(issueRecord(), { comments: [{ id: 'c1', taskId: TASK, body: 'Posted from Solus', createdAt: 1 }] })
+        return detailsOf(issueRecord(), { comments: [{ id: 'c1', issueId: TASK, body: 'Posted from Solus', createdAt: 1 }] })
       },
-      tasksDeleteComment: async (_id: string, commentId: string) => {
+      issuesDeleteComment: async (_id: string, commentId: string) => {
         calls.push(`discard:${commentId}`)
         return detailsOf(issueRecord())
       },
@@ -1125,19 +1156,6 @@ describe('writes go to the provider first', () => {
     expect(calls).toEqual(['comment:Posted from Solus', 'retry:c1', 'discard:c1'])
   })
 
-  test('a snooze goes to the host that reads the task and does not change the task', async () => {
-    // WHY: a snooze is the reader's own attachment. It hides the task from
-    // their lists; the provider's state and the agents do not change.
-    const { world, task } = await oneTask({})
-
-    await task.snooze(5_000, 'after the release')
-
-    expect(world.snoozeCalls).toEqual([{ serverId: 'local', taskId: TASK, until: 5_000, note: 'after the release' }])
-    expect(task.category).toBe('open')
-    world.snoozes.set(TASK, { taskId: TASK, snoozedUntil: 5_000, snoozeNote: 'after the release' })
-    expect(task.snoozedUntil).toBe(5_000)
-    expect(task.snoozeNote).toBe('after the release')
-  })
 })
 
 describe('pull request links', () => {
@@ -1147,8 +1165,8 @@ describe('pull request links', () => {
     // every write would invalidate the inputs of the effect that sent it, and
     // discovery would run again on its own answer.
     const world = await createTasksWorld()
-    const links: TaskLink[] = [{
-      taskId: TASK,
+    const links: IssueLink[] = [{
+      issueId: TASK,
       kind: 'pr',
       targetScope: 'github.com/acme/app',
       targetKey: '65',
@@ -1159,11 +1177,11 @@ describe('pull request links', () => {
       linkedAt: 1,
     }]
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow()]),
-      tasksGet: async () => detailsOf(issueRecord()),
-      tasksLink: async () => ({ links: links.map((link) => ({ ...link })), activity: [] }),
+      issuesList: async () => snapshotOf([issueRow()]),
+      issuesGet: async () => detailsOf(issueRecord()),
+      issuesLink: async () => ({ links: links.map((link) => ({ ...link })), activity: [] }),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     await store.get(TASK).loadDetails()
 
@@ -1184,7 +1202,7 @@ describe('pull request links', () => {
     // linked PR must still render before branch discovery runs again.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => ({
+      issuesList: async () => ({
         ...snapshotOf([issueRow()]),
         prLinkListsByTask: {
           [TASK]: [
@@ -1194,7 +1212,7 @@ describe('pull request links', () => {
         },
       }),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     expect(store.get(TASK).prLink).toEqual({
@@ -1211,9 +1229,9 @@ describe('pull request links', () => {
     // any host answered the link lists.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow(TASK, { pr: { number: 12, url: 'https://github.com/acme/app/pull/12' } })]),
+      issuesList: async () => snapshotOf([issueRow(TASK, { pr: { number: 12, url: 'https://github.com/acme/app/pull/12' } })]),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     expect(store.get(TASK).prLinks).toEqual([{ number: 12, url: 'https://github.com/acme/app/pull/12' }])
@@ -1223,19 +1241,19 @@ describe('pull request links', () => {
 describe('session bindings', () => {
   test('a session the host reports as taskless does not cost a full snapshot', async () => {
     // WHY: most restored tabs belong to no task, and every one of them asks for
-    // its binding on boot. The host's `tasksForSession` answer is authoritative,
+    // its binding on boot. The host's `issuesForSession` answer is authoritative,
     // so "no task" must be accepted as-is: reloading the whole sidebar per
     // taskless tab was one snapshot RPC per tab, serially, on every boot.
     const world = await createTasksWorld()
     let calls = 0
     world.connections.registerPrimary('local', {
-      tasksForSession: async () => null,
-      tasksSidebarSnapshot: async () => {
+      issuesForSession: async () => null,
+      issuesList: async () => {
         calls++
         return snapshotOf([])
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     const bound = await store.ensureSessionBinding('loose-session')
 
     expect(bound).toBeNull()
@@ -1250,12 +1268,12 @@ describe('session bindings', () => {
     const world = await createTasksWorld()
     let calls = 0
     world.connections.registerPrimary('local', {
-      tasksForSession: async () => { throw new Error('host unavailable') },
-      tasksSidebarSnapshot: async () => calls++ === 0
+      issuesForSession: async () => { throw new Error('host unavailable') },
+      issuesList: async () => calls++ === 0
         ? snapshotOf([])
         : snapshotOf([issueRow('github:I_parent'), issueRow('github:I_child')], { 'github:I_child': [sessionLink('resumed-session')] }),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureSessionBinding('resumed-session')
 
     expect(store.taskForSession('resumed-session')?.id).toBe('github:I_child')
@@ -1264,18 +1282,18 @@ describe('session bindings', () => {
 
   test('a session write refreshes its binding with the focused read, not a second snapshot', async () => {
     // WHY: every session start and branch change writes to the task host, and
-    // the host broadcasts `tasks.invalidated` for that write. A full reload
+    // the host broadcasts `issues.invalidated` for that write. A full reload
     // here on top of that broadcast doubled the snapshot traffic per session.
     const world = await createTasksWorld()
     let snapshots = 0
     world.connections.registerPrimary('local', {
-      tasksForSession: async () => ({ task: issueRecord('github:I_owner'), attempts: [] }),
-      tasksSidebarSnapshot: async () => {
+      issuesForSession: async () => ({ task: issueRecord('github:I_owner'), attempts: [] }),
+      issuesList: async () => {
         snapshots++
         return snapshotOf([])
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     const bound = await store.refreshSessionBinding('started-session')
 
     expect(bound?.id).toBe('github:I_owner')
@@ -1286,21 +1304,21 @@ describe('session bindings', () => {
   test('session writes that ask for the binding together share one read and one follow-up', async () => {
     // WHY: a session start, its branch, and its title each refresh the
     // binding within a few milliseconds. Each one sent its own
-    // `tasksForSession`; one read in flight plus one queued read still shows
+    // `issuesForSession`; one read in flight plus one queued read still shows
     // every write made before the requests.
     const world = await createTasksWorld()
     let taskReads = 0
     let release!: () => void
     const gate = new Promise<void>((done) => { release = done })
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([]),
-      tasksForSession: async () => {
+      issuesList: async () => snapshotOf([]),
+      issuesForSession: async () => {
         taskReads++
         if (taskReads === 1) await gate
         return { task: issueRecord('github:I_owner'), attempts: [] }
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     const first = store.refreshSessionBinding('started-session')
     await Promise.resolve()
@@ -1319,8 +1337,8 @@ describe('session bindings', () => {
     const world = await createTasksWorld()
     let taskReads = 0
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('selected-session')] }),
-      tasksForSession: async () => {
+      issuesList: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('selected-session')] }),
+      issuesForSession: async () => {
         taskReads++
         return {
           task: issueRecord(),
@@ -1331,7 +1349,7 @@ describe('session bindings', () => {
         }
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureSessionBinding('selected-session')
 
     expect(taskReads).toBe(1)
@@ -1343,8 +1361,8 @@ describe('session bindings', () => {
     // on the task as soon as the focused read lands, not after the next snapshot.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('selected-session')] }),
-      tasksForSession: async () => ({
+      issuesList: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('selected-session')] }),
+      issuesForSession: async () => ({
         task: issueRecord(),
         attempts: [
           sessionLink('selected-session', { sessionTitle: 'Selected session', linkedAt: 1 }),
@@ -1352,7 +1370,7 @@ describe('session bindings', () => {
         ],
       }),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     expect(store.get(TASK).sessions.map((link) => link.sessionId)).toEqual(['selected-session'])
 
@@ -1365,15 +1383,15 @@ describe('session bindings', () => {
   })
 
   test('a host that holds only attachments does not become the reader through a session read', async () => {
-    // WHY: the Solus API answers `tasksForSession` with the task snapshot that
+    // WHY: the Solus API answers `issuesForSession` with the task snapshot that
     // rode the prompt. It still cannot read or write the task on its provider.
     const world = await createTasksWorld()
     world.attachmentOnlyHosts.add('cloud')
     world.connections.registerPrimary('cloud', {
-      tasksSidebarSnapshot: async () => snapshotOf([]),
-      tasksForSession: async () => ({ task: issueRecord(), attempts: [sessionLink('cloud-run')] }),
+      issuesList: async () => snapshotOf([]),
+      issuesForSession: async () => ({ task: issueRecord(), attempts: [sessionLink('cloud-run')] }),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
 
     const bound = await store.ensureSessionBinding('cloud-run', 'cloud')
 
@@ -1387,15 +1405,15 @@ describe('session bindings', () => {
     // sessions. A session that just initialized must appear there on the same
     // frame rather than leaving the row idle until a follow-up RPC completes.
     const world = await createTasksWorld()
-    world.connections.registerPrimary('local', { tasksSidebarSnapshot: async () => snapshotOf([issueRow()]) })
-    const store = new world.TasksStore()
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([issueRow()]) })
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     store.get(TASK).trackSessionStart('session-1')
     store.get(TASK).trackSessionStart('session-1')
 
     expect(store.get(TASK).sessions).toEqual([
-      expect.objectContaining({ taskId: TASK, sessionId: 'session-1' }),
+      expect.objectContaining({ issueId: TASK, sessionId: 'session-1' }),
     ])
     expect(store.taskForSession('session-1')?.id).toBe(TASK)
   })
@@ -1405,9 +1423,9 @@ describe('session bindings', () => {
     // new session now, as it does for the first session of a task.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('earlier-session', { linkedAt: 1 })] }),
+      issuesList: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('earlier-session', { linkedAt: 1 })] }),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     expect(store.get(TASK).sessions).toHaveLength(1)
 
@@ -1423,13 +1441,13 @@ describe('session bindings', () => {
     const world = await createTasksWorld()
     const filedOn: string[] = []
     const api = (name: string) => ({
-      tasksSidebarSnapshot: async () => snapshotOf(name === 'workshop' ? [issueRow()] : []),
-      tasksLinkSession: async () => { filedOn.push(name) },
+      issuesList: async () => snapshotOf(name === 'workshop' ? [issueRow()] : []),
+      issuesLinkSession: async () => { filedOn.push(name) },
     })
     world.attachmentOnlyHosts.add('cloud')
     world.connections.registerPrimary('workshop', api('workshop'))
     world.connections.registerHost('cloud', api('cloud'))
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     await store.get(TASK).linkSession('session-1', null)
@@ -1448,10 +1466,10 @@ describe('deleting draft items', () => {
     const world = await createTasksWorld()
     const draft = 'github:DI_1'
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([draftRow(draft)]),
-      tasksGet: async () => detailsOf({ ...draftRow(draft), body: '' }),
+      issuesList: async () => snapshotOf([draftRow(draft)]),
+      issuesGet: async () => detailsOf({ ...draftRow(draft), body: '' }),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     const pending = store.softRemove([draft])
@@ -1474,8 +1492,8 @@ describe('deleting draft items', () => {
     let maximumActiveDeletes = 0
     const deletedIds: string[] = []
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf(drafts),
-      tasksDelete: async (taskId: string) => {
+      issuesList: async () => snapshotOf(drafts),
+      issuesDelete: async (taskId: string) => {
         activeDeletes++
         maximumActiveDeletes = Math.max(maximumActiveDeletes, activeDeletes)
         await Promise.resolve()
@@ -1483,7 +1501,7 @@ describe('deleting draft items', () => {
         activeDeletes--
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     const pending = store.softRemove(drafts.map(({ id }) => id))
 
@@ -1501,10 +1519,10 @@ describe('deleting draft items', () => {
     const world = await createTasksWorld()
     const draft = 'github:DI_1'
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([draftRow(draft)]),
-      tasksDelete: async () => {},
+      issuesList: async () => snapshotOf([draftRow(draft)]),
+      issuesDelete: async () => {},
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     const pending = store.softRemove([draft])
 
@@ -1521,12 +1539,12 @@ describe('deleting draft items', () => {
     // task still exists, so it must come back to the list with the error.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([draftRow('github:DI_1'), draftRow('github:DI_2')]),
-      tasksDelete: async (taskId: string) => {
+      issuesList: async () => snapshotOf([draftRow('github:DI_1'), draftRow('github:DI_2')]),
+      issuesDelete: async (taskId: string) => {
         if (taskId === 'github:DI_2') throw new Error('GitHub did not remove the item')
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     const pending = store.softRemove(['github:DI_1', 'github:DI_2'])
 
@@ -1546,14 +1564,15 @@ describe('provider search', () => {
     world.setSources([repo])
     const searches: Array<[unknown, string]> = []
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow()]),
-      tasksSources: async () => [sourceState(REPO_SOURCE_KEY)],
-      tasksSearch: async (sources: unknown, query: string) => {
+      issuesList: async (request?: { sources?: unknown }) => request?.sources
+        ? { ...snapshotOf([]), sources: [sourceState(REPO_SOURCE_KEY)] }
+        : snapshotOf([issueRow()]),
+      issuesSearch: async (sources: unknown, query: string) => {
         searches.push([sources, query])
         return [issueRow(TASK, { title: 'Listed, with a newer title' }), issueRow('github:I_old', { title: 'An old payment bug' })]
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     const found = await store.search('payment')
@@ -1574,12 +1593,12 @@ describe('provider search', () => {
     // WHY: the task host searches, and another host can read the same task.
     // The search answer must not move the task's writes to another machine.
     const world = await createTasksWorld()
-    world.connections.registerPrimary('first', { tasksSidebarSnapshot: async () => snapshotOf([issueRow()]) })
+    world.connections.registerPrimary('first', { issuesList: async () => snapshotOf([issueRow()]) })
     world.connections.registerHost('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([]),
-      tasksSearch: async () => [issueRow()],
+      issuesList: async () => snapshotOf([]),
+      issuesSearch: async () => [issueRow()],
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     const [found] = await store.search('hydrated')
@@ -1595,19 +1614,19 @@ describe('conversation-card reverse links', () => {
     jest.useFakeTimers()
     const world = await createTasksWorld()
     const target = { kind: 'work' as const, targetScope: '', targetKey: 'work-1' }
-    const linked = [{ ...target, taskId: TASK, title: 'Fix sync', category: 'active' as const, reference: 'acme/app#184' }]
+    const linked = [{ ...target, issueId: TASK, title: 'Fix sync', category: 'active' as const, reference: 'acme/app#184' }]
     const stale = Promise.withResolvers<typeof linked>()
     let reads = 0
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([]),
-      tasksLinkedTo: async () => {
+      issuesList: async () => snapshotOf([]),
+      issuesLinkedTo: async () => {
         reads++
         return reads === 1 ? linked : stale.promise
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLinkedTasks([target], 'local')
-    world.connections.emit('local', 'tasks.invalidated', {})
+    world.connections.emit('local', 'issues.invalidated', {})
     jest.advanceTimersByTime(101)
     await settle()
     expect(reads).toBe(2)
@@ -1630,18 +1649,18 @@ describe('conversation-card reverse links', () => {
     const world = await createTasksWorld()
     const target = { kind: 'work' as const, targetScope: '', targetKey: 'work-1' }
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([issueRow(TASK, { category: 'active' })]),
-      tasksLinkedTo: async () => [],
-      tasksLink: async () => ({ links: [], activity: [] }),
+      issuesList: async () => snapshotOf([issueRow(TASK, { category: 'active' })]),
+      issuesLinkedTo: async () => [],
+      issuesLink: async () => ({ links: [], activity: [] }),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     await store.ensureLinkedTasks([target], 'local')
 
     await store.get(TASK).link({ kind: 'work', targetKey: 'work-1' })
 
     expect(store.linkedTasksFor(target)).toEqual([
-      { ...target, taskId: TASK, title: 'Hydrated task', category: 'active', reference: 'acme/app#1' },
+      { ...target, issueId: TASK, title: 'Hydrated task', category: 'active', reference: 'acme/app#1' },
     ])
   })
 })
@@ -1652,12 +1671,12 @@ describe('which tasks the store lists', () => {
     // label that one task uses is a label the person can give another.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([
+      issuesList: async () => snapshotOf([
         issueRow('github:I_repo', { labels: ['bug'] }),
         issueRow('jira:cloud-1:10001', { providerId: 'jira', reference: 'SOL-1', labels: ['backend', 'bug'] }),
       ]),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     expect(store.knownLabels).toEqual(['backend', 'bug'])
@@ -1668,13 +1687,13 @@ describe('which tasks the store lists', () => {
     // provider state. An active task and an open task are both still work.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => snapshotOf([
+      issuesList: async () => snapshotOf([
         issueRow('github:I_open'),
         issueRow('github:I_active', { category: 'active' }),
         issueRow('github:I_done', { category: 'done', state: { name: 'Closed', category: 'done' } }),
       ]),
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     expect(store.upNext.map((task) => task.id)).toEqual(['github:I_open', 'github:I_active'])

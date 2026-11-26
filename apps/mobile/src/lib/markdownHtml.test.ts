@@ -328,6 +328,15 @@ describe("file embeds in native thread and file Markdown", () => {
     );
   });
 
+  it("reserves a native image block for a screenshot on a line between captions", () => {
+    const source = "Plain open:\n![Plain open](./open.png)\nAfter **Other ways**:\n![Other ways](./ways.png)";
+    expect(markdownForNativeParsing(source)).toBe(source.replaceAll("\n", "\n\n"));
+    const inline = "Use ![icon](./icon.png) here.\nNext line.";
+    const code = "```md\nCaption\n![example](./example.png)\n```";
+    expect(markdownForNativeParsing(inline)).toBe(inline);
+    expect(markdownForNativeParsing(code)).toBe(code);
+  });
+
   it("retains standalone audio players and image/video embeds in threads", () => {
     const source =
       "![sound](./sound.mp3)\n\n![image](./image.png)\n\n![clip](./clip.mp4)\n\ninline ![photo](./photo.png)";

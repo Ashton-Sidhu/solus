@@ -47,6 +47,7 @@
   $effect(() => {
     if (!host) return
     for (const attachment of attachments) {
+      if (attachment.needsReattach) continue
       if (attachment.type !== 'image' || attachment.dataUrl || !attachment.hostPath) continue
       const serverId = attachment.hostServerId ?? host.serverId
       hostImageSources.request({
@@ -56,6 +57,15 @@
         api: serverConnections.apiFor(serverId),
         ctx: host.ctx,
       })
+    }
+  })
+
+  $effect(() => {
+    for (const missing of attachments.filter((attachment) => attachment.needsReattach)) {
+      if (attachments.some((attachment) =>
+        attachment.id !== missing.id && attachment.name === missing.name &&
+        attachment.type === missing.type && !attachment.needsReattach && !attachmentUploads.stateFor(attachment.id),
+      )) removeAttachment(missing.id)
     }
   })
 
@@ -89,10 +99,10 @@
   <div class="flex flex-wrap gap-1.5">
     {#each attachments as a (a.id)}
       {@const label = attachmentLabel(a)}
-      {@const imageSrc = imageSource(a)}
-      {@const isAnnotation = a.type === 'design-selection'}
-      {@const isVideo = !!host && isVideoAttachment(a)}
       {@const upload = attachmentUploads.stateFor(a.id)}
+      {@const imageSrc = a.needsReattach ? undefined : imageSource(a)}
+      {@const isAnnotation = a.type === 'design-selection'}
+      {@const isVideo = !a.needsReattach && !!host && isVideoAttachment(a)}
       {@const marks = isAnnotation ? browserMarkChips(a) : []}
       {@const resourceIcon = resourceAttachments.chipIcon(a.id)}
       <!-- One animated root per item (Svelte requires the `animate:` element to
@@ -112,7 +122,19 @@
             ? "relative size-14 flex-shrink-0"
             : "flex h-[1.875rem] max-w-[12.5rem] flex-shrink-0 items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) bg-(--solus-input-pill-bg) pr-1.5 pl-2 text-workspace-chrome text-(--solus-text-secondary)"}
       >
-        {#if isAnnotation}
+        {#if a.needsReattach}
+          <span class="min-w-0 truncate text-(--destructive)" title="Attach this file again or remove it.">
+            {label} · Attach again
+          </span>
+          <button
+            type="button"
+            onclick={() => removeAttachment(a.id)}
+            aria-label="Remove {label}"
+            class="flex size-4 shrink-0 items-center justify-center rounded focus-visible:ring-2"
+          >
+            <XIcon size={11} />
+          </button>
+        {:else if isAnnotation}
           {#each marks as mark (mark.id)}
             <MarkChip
               chip={mark}
@@ -173,7 +195,7 @@
               <img
                 src={imageSrc}
                 alt={label}
-                class="size-full rounded-lg object-cover outline-[0.5px] -outline-offset-1 outline-black/20 dark:outline-white/20 {upload?.status === 'uploading' ? 'opacity-50' : ''}"
+                class="size-full rounded-lg object-cover outline-1 -outline-offset-1 outline-border/60 {upload?.status === 'uploading' ? 'opacity-50' : ''}"
               />
               {#if upload?.status === 'uploading'}
                 <span class="absolute inset-0 flex items-center justify-center text-white drop-shadow">
@@ -227,7 +249,7 @@
       aria-modal="true"
       aria-label={previewVideo.label}
       tabindex="-1"
-      class="fixed inset-0 z-[9999] flex items-center justify-center modal-backdrop p-4"
+      class="fixed inset-0 z-[9999] flex items-center justify-center media-backdrop p-4"
       transition:fly={{ duration: 150 }}
     >
       <!-- Focus moves into the dialog, so Tab reaches the player's controls. -->
@@ -258,7 +280,8 @@
       role="dialog"
       aria-modal="true"
       tabindex="-1"
-      style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;cursor:zoom-out"
+      class="media-backdrop"
+      style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out"
       transition:fly={{ duration: 150 }}
     >
       <button

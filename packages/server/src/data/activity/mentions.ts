@@ -3,7 +3,7 @@ import { mentionedPeople } from '@solus/contracts/mentions'
 import type { PlanComment } from '@solus/contracts/types'
 import { parseUserKey, type Attribution } from '@solus/contracts/user'
 import type { Db } from '../../db/database'
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
 import { appendActivity, newActivity } from './activity'
 import { recordNotification } from '../notifications/store'
 import { hostKeyOf } from '../../host/host-user'
@@ -36,7 +36,7 @@ export async function recordNewMentions(
     if (subject.kind === 'session') continue
     await recordNotification(db, {
       organizationId, eventId: `mention:${activity.id}`, activityId: activity.id, recipients: [mention.userId],
-      resource: subject.kind === 'work' ? { kind: 'work', workId: subject.id } : { kind: 'task', taskId: subject.id },
+      resource: subject.kind === 'work' ? { kind: 'work', workId: subject.id } : { kind: 'issue', issueId: subject.id },
       by, facts: threadId ? { kind: 'mention', threadId } : { kind: 'mention' },
       summary: { title: subject.title?.slice(0, 300) || (threadId ? 'Mentioned you in a comment' : 'Mentioned you') },
     })

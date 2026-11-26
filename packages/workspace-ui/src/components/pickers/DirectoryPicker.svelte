@@ -1,6 +1,6 @@
 <script lang="ts">
   import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
-  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
+  import DirectoryRowsSkeleton from "./DirectoryRowsSkeleton.svelte";
   import { fade, fly } from "svelte/transition";
   import { ModalResizeHandles, ResizableModal } from "../ui/modal-resize";
   import { expoOut } from "svelte/easing";
@@ -116,6 +116,13 @@
    * loading. Before the host is read the list is not empty, only unknown.
    */
   const isLoadingFolder = $derived(!hostReady || loading);
+  /**
+   * A folder has been listed since the picker opened. A move to the next
+   * folder keeps this listing on screen until that one answers, which is
+   * nearly always at once: blanking the list for each move made it stutter.
+   * Only the first listing has nothing to keep, and shows the placeholder.
+   */
+  let hasListing = $state(false);
   let loadError = $state<string | null>(null);
   let creating = $state(false);
   let reloadVersion = $state(0);
@@ -254,6 +261,7 @@
     const browseApi = host;
     let cancelled = false;
     hostReady = false;
+    hasListing = false;
     path = "";
     entries = [];
     resolvedDirectory = "";
@@ -322,6 +330,7 @@
         resolvedParentDirectory = result.parentPath;
         loadError = result.error;
         loading = false;
+        hasListing = true;
         const landedPath = pendingHighlightPath;
         pendingHighlightPath = null;
         highlightedIndex = landedPath ? rows.findIndex((row) => row.path === landedPath) : -1;
@@ -329,6 +338,7 @@
       .catch(() => {
         if (cancelled) return;
         loading = false;
+        hasListing = true;
         entries = [];
         loadError = "Couldn’t load this folder. Check the connection and try again.";
       });
@@ -694,6 +704,8 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
           class="virtual-scroll min-h-0 flex-1 overflow-hidden [overscroll-behavior-y:contain]"
+          class:is-stale={isLoadingFolder && hasListing}
+          aria-busy={isLoadingFolder}
           bind:clientHeight={listHeight}
           id="directory-picker-list"
           role="listbox"
@@ -726,13 +738,9 @@
             />
           {/snippet}
 
-          {#if isLoadingFolder}
-            <div
-              class="flex h-full flex-col items-center justify-center gap-2"
-              role="status"
-              aria-live="polite"
-            >
-              <ContentSkeleton label="Loading folders" />
+          {#if isLoadingFolder && !hasListing}
+            <div class="h-full overflow-hidden" aria-live="polite">
+              <DirectoryRowsSkeleton />
             </div>
           {:else if loadError}
             <div
@@ -897,5 +905,21 @@
      folder list only ever means scroll. */
   .virtual-scroll :global([data-virtual-list]) {
     touch-action: pan-y;
+  }
+
+  /* The last listing stays while the next folder loads. Only a slow load dims
+     it, after a moment, so a fast one changes nothing but the rows. */
+  .virtual-scroll {
+    transition: opacity 0.12s ease;
+  }
+  .virtual-scroll.is-stale {
+    opacity: 0.55;
+    transition: opacity 0.2s ease 0.3s;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .virtual-scroll,
+    .virtual-scroll.is-stale {
+      transition: none;
+    }
   }
 </style>

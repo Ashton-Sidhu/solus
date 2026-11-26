@@ -7,7 +7,7 @@
  */
 
 import type { HostOperatingSystem } from '@solus/contracts/types'
-import { isSolusApiId, type HostCategory, type MachineKind, type ManagedHostLifecycle } from '@solus/contracts/uplink'
+import { isSolusApiId, type MachineKind, type ManagedHostLifecycle } from '@solus/contracts/uplink'
 import { mergeRoutes, routeForUrl, routesFrom, type HostRoute } from '@solus/contracts/host-routes'
 import type { SshAddResult } from '@solus/contracts/remote-machines'
 import type { GuestCredential } from './ws-transport'
@@ -23,31 +23,32 @@ export interface KnownHostUplink {
   directoryUrl: string
   /** The organizations whose members may reach the host, as the directory last
    *  said (organization-scope §3.1, R15): the ones a personal host is shared
-   *  with, or the one a managed host belongs to. Absent when it is shared with none. */
+   *  with, or the one a cloud machine works for. Absent when it is shared with none. */
   organizationIds?: string[]
-  /** What kind of machine the control plane recorded at enrollment. */
-  category?: HostCategory
   /** Whose machine this is, for a host shared with the account rather than linked by it. */
   ownerName?: string
   /** The account that linked a personal host, so its `host-owner` presence is one person with their account elsewhere. */
   ownerUserId?: string
-  /** `managed` for a host Solus cloud provisioned for an organization (managed-hosts.md); absent is personal. */
+  /** `cloud` for a cloud machine of an organization (plans/034-one-cloud-machine-kind.md); absent is personal. */
   kind?: MachineKind
-  /** Managed hosts only: what the control plane last said of the compute. Only a `ready` host is dialed. */
+  /** The control plane operates this cloud machine's compute, so it has a lifecycle (`managedState`) to start and stop. */
+  hasManagedCompute?: boolean
+  /** Only with `hasManagedCompute`: what the control plane last said of the compute. Only a `ready` one is dialed. */
   managedState?: ManagedHostLifecycle
 }
 
 /**
- * A managed host whose compute the directory does not call `ready`. The client
- * does not dial it and does not send work to it. The directory names a state for
- * every managed host, so a state that is missing (or one this client does not
- * know) is not ready. A personal host never waits.
+ * A cloud machine with managed compute that the directory does not call `ready`. The
+ * client does not dial it and does not send work to it. The directory names a state
+ * for every such machine, so a state that is missing (or one this client does not
+ * know) is not ready. A personal host, and a cloud machine that its operator runs,
+ * never wait.
  */
 export function awaitsManagedCompute(uplink: KnownHostUplink | undefined): boolean {
-  return uplink?.kind === 'managed' && uplink.managedState !== 'ready'
+  return uplink?.hasManagedCompute === true && uplink.managedState !== 'ready'
 }
 
-/** Whether a host belongs to an organization: shared with it, or managed for it. */
+/** Whether a host belongs to an organization: shared with it, or its cloud machine. */
 export function hostInOrganization(uplink: Pick<KnownHostUplink, 'organizationIds'> | undefined, organizationId: string | null): boolean {
   return !!organizationId && !!uplink?.organizationIds?.includes(organizationId)
 }
@@ -120,8 +121,8 @@ export function chooseRunOnHost(input: {
   if (primaryId && !isSolusApiId(primaryId)) return primaryId
   if (localId) return localId
   const machines = known.filter((host) => isConnected(host.id))
-  const managed = machines.find((host) => host.uplink?.kind === 'managed' && hostInOrganization(host.uplink, activeOrganizationId))
-  return (managed ?? machines[0])?.id ?? null
+  const cloudMachine = machines.find((host) => host.uplink?.kind === 'cloud' && hostInOrganization(host.uplink, activeOrganizationId))
+  return (cloudMachine ?? machines[0])?.id ?? null
 }
 
 /** The address this client paired the host at, if it paired it. */
@@ -156,7 +157,7 @@ export function serverFromSshAdd(result: Extract<SshAddResult, { status: 'sessio
 export type InstallationIdDecision = 'match' | 'mismatch'
 
 /**
- * Whether the host on a known address is still the one known there. A managed host
+ * Whether the host on a known address is still the one known there. A cloud machine
  * is known under its directory id, never the id its server makes at first boot, so
  * the two are not compared: the directory owns its route, and the host refuses a
  * grant minted for another host id.
@@ -166,7 +167,7 @@ export function installationIdDecision(
   reportedInstallationId: string,
   uplink?: KnownHostUplink,
 ): InstallationIdDecision {
-  if (uplink?.kind === 'managed') return 'match'
+  if (uplink?.kind === 'cloud') return 'match'
   return storedInstallationId === reportedInstallationId ? 'match' : 'mismatch'
 }
 

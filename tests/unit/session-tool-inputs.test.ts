@@ -37,7 +37,7 @@ test('a summary click returns only its selected inputs and cannot select changed
 })
 
 test('visible resource cards, subagents and active or failed tools keep their inputs', () => {
-  const tools = ['create_work', 'mcp__solus__render_artifact', 'functions.create_automation',
+  const tools = ['create_work', 'mcp__solus__render_artifact', 'mcp__solus__manage_automations', 'functions.create_automation',
     'update_automation', 'start_sessions', 'send_session', 'stop_session',
     'Task', 'Agent', 'spawnAgent', 'claude_subagent', 'codex_subagent', 'ImageGeneration']
   const messages: SessionLoadMessage[] = tools.map((toolName) => ({ role: 'tool', toolName, content: '', toolInput: '{}', timestamp: 1 }))
@@ -47,4 +47,16 @@ test('visible resource cards, subagents and active or failed tools keep their in
     { role: 'tool', toolName: 'Read', parentToolUseId: 'agent', content: '', toolInput: '{}', timestamp: 1 },
   )
   expect(deferSessionToolInputs(projectSessionHistory(messages)).every((message) => message.toolInput === '{}')).toBe(true)
+})
+
+
+test('a viewed image keeps its path when the history page defers a long tool input', () => {
+  const path = '/checkout/' + 'subfolder/'.repeat(36) + 'screen.png'
+  const input: SessionLoadMessage = {
+    role: 'tool', content: '', toolName: 'view_image', toolId: 'view', toolStatus: 'completed',
+    toolInput: JSON.stringify({ path }),
+  }
+  const [row] = deferSessionToolInputs([input])
+  expect(row?.viewedImagePath).toBe(path)
+  expect(row?.toolInput).not.toContain(path)
 })

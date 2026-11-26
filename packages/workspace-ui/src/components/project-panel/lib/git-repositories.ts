@@ -1,6 +1,6 @@
-import type { CodebaseMember, SessionFolder } from '@solus/contracts/codebases'
+import { isTaskFolderPath, type CodebaseMember, type SessionFolder, type TaskFolder } from '@solus/contracts/codebases'
 import { hostPathBaseName, hostPathKey, sameHostPath } from '@solus/contracts/host-path'
-import type { GitState } from '@solus/contracts/types'
+import { isSolusWorktreePath, type GitState } from '@solus/contracts/types'
 import type { CodebaseHostMembers } from '../../../contexts/codebases/codebases.store.svelte'
 import type { SessionFolderPlace } from '../../../contexts/git/session-environment.store.svelte'
 import { changesRow } from './changes-row'
@@ -45,17 +45,55 @@ export interface GitRepositoriesInput {
   }
   /** The session folders of a started session, or the repositories of the codebase of a draft. */
   folders: readonly Pick<SessionFolder, 'path' | 'repositoryPath' | 'name' | 'state' | 'granted'>[]
+  /**
+   * The record of the task folder that a started session works in, or null.
+   * Its worktrees are the repositories of the session: a row for each, named
+   * by its repository, whatever the run's Git state says.
+   */
+  taskFolder?: Pick<TaskFolder, 'primaryPath' | 'primaryRepositoryPath' | 'primaryIsWorktree' | 'repositories'> | null
+}
+
+/**
+ * The worktrees of a task folder: the one of the primary member, then one for
+ * each other repository, in the order of the record. A primary member that is
+ * a plain folder has no worktree, so it has no row.
+ */
+function taskFolderWorktrees(taskFolder: NonNullable<GitRepositoriesInput['taskFolder']>): { path: string; repositoryPath: string; name: string }[] {
+  const primary = taskFolder.primaryIsWorktree
+    ? [{ path: taskFolder.primaryPath, repositoryPath: taskFolder.primaryRepositoryPath, name: hostPathBaseName(taskFolder.primaryRepositoryPath) || taskFolder.primaryPath }]
+    : []
+  return [...primary, ...taskFolder.repositories.map((repository) => ({ path: repository.worktreePath, repositoryPath: repository.repositoryPath, name: repository.name }))]
 }
 
 /**
  * The repository of the working directory first, then each `git` session
  * folder in the order of the host. A working directory with no repository has
  * no row of its own: the card lists the repositories that the folder holds.
+ *
+ * A session in a task folder lists the worktrees of its record instead, as
+ * the card of a session with one project shows its project: a `git_context`
+ * that the client takes for the wrong place, or session folders that are not
+ * read yet, cannot take a repository of the task folder off the card. The
+ * worktree at the working directory is the row of the working directory.
  */
 export function gitRepositoryRows(input: GitRepositoriesInput): GitRepositoryRow[] {
   const { working } = input
   const rows: GitRepositoryRow[] = []
-  if (working.repositoryPath) {
+  if (input.taskFolder) {
+    for (const worktree of taskFolderWorktrees(input.taskFolder)) {
+      const key = hostPathKey(worktree.path)
+      if (rows.some((row) => row.key === key)) continue
+      rows.push({
+        key,
+        path: worktree.path,
+        repositoryPath: worktree.repositoryPath,
+        name: worktree.name,
+        isWorkingDirectory: sameHostPath(worktree.path, working.path),
+        isIsolated: true,
+        isObserved: false,
+      })
+    }
+  } else if (working.repositoryPath) {
     rows.push({
       key: hostPathKey(working.path),
       path: working.path,
@@ -70,6 +108,8 @@ export function gitRepositoryRows(input: GitRepositoriesInput): GitRepositoryRow
     const key = hostPathKey(folder.path)
     // The host never lists the working directory as a session folder; an old list can.
     if (folder.state !== 'git' || sameHostPath(folder.path, working.path) || rows.some((row) => row.key === key)) continue
+    // A list from before the session moved into its task folder names the original of a repository that has its worktree there.
+    if (input.taskFolder && rows.some((row) => sameHostPath(row.repositoryPath, folder.repositoryPath))) continue
     rows.push({
       key,
       path: folder.path,
@@ -114,9 +154,11 @@ export function gitCardRepositories(input: {
   working: GitRepositoriesInput['working']
   sessionFolders: GitRepositoriesInput['folders'] | null
   members: readonly CodebaseMember[]
+  /** The task folder record of a started session (`useTaskFolderRead`): a draft has none. */
+  taskFolder?: GitRepositoriesInput['taskFolder']
 }): GitRepositoryRow[] {
   const folders = input.sessionFolders ?? (input.working.repositoryPath ? [] : memberRepositoryFolders(input.members))
-  return gitRepositoryRows({ working: input.working, folders })
+  return gitRepositoryRows({ working: input.working, folders, taskFolder: input.sessionFolders ? input.taskFolder : null })
 }
 
 /**
@@ -184,7 +226,11 @@ export function gitFolderOf(row: GitRepositoryRow | null): SessionFolderPlace | 
 
 /** What one repository row shows of its Git state. The component gives the status that the Git store has for the path of the row. */
 export interface GitRepositoryReading {
-  /** The branch. A folder that is not attached shows "Not attached" in its place: its branch is in the tooltip. */
+  /**
+   * "Not attached" for a folder that the agent was not given, else nothing.
+   * The Git rows below the divider name the branch of the chosen repository,
+   * so a row does not repeat it: the branch is in the tooltip.
+   */
   badge: string | undefined
   diffStat: { insertions: number; deletions: number } | undefined
   /** One line: the tooltip of a row does not keep a line break, so the facts are joined with " · ". */
@@ -192,17 +238,17 @@ export interface GitRepositoryReading {
 }
 
 export function gitRepositoryReading(row: GitRepositoryRow, status: GitState | null | undefined): GitRepositoryReading {
-  const branch = status?.branch ?? (status ? 'Detached HEAD' : undefined)
+  const branch = status?.branch ? `Branch ${status.branch}` : status ? 'Detached HEAD' : null
   const changes = changesRow(status)
   const facts = [
     row.path,
     row.isIsolated ? ISOLATED_NOTE : null,
     row.isObserved ? OBSERVED_NOTE : null,
-    row.isObserved && branch ? `Branch ${branch}` : null,
+    branch,
     changes.tooltip ?? null,
   ].filter((fact): fact is string => !!fact)
   return {
-    badge: row.isObserved ? 'Not attached' : branch,
+    badge: row.isObserved ? 'Not attached' : undefined,
     diffStat: changes.lines,
     tooltip: facts.join(' · '),
   }
@@ -212,6 +258,35 @@ export function gitRepositoryReading(row: GitRepositoryRow, status: GitState | n
 export function gitRepositoryRowLabel(row: GitRepositoryRow, isChosen: boolean): string {
   const place = row.isWorkingDirectory ? `${row.name}, the working directory` : row.name
   return isChosen ? `${place}: the Git actions below work in this repository` : `${place}: work in this repository with the Git actions below`
+}
+
+/**
+ * What "Add repository…" does in a session. The Git card of each started
+ * session that the person can drive has the row; what it does depends on
+ * where the session works:
+ *
+ * - `task-folder`: a menu of the repositories of the codebase with no
+ *   worktree in the task folder; a pick makes the worktree.
+ * - `folder`: the session works in its project folder, so it reaches the
+ *   original of each repository. The person chooses a folder, and the host
+ *   attaches it, as "Add folder…" does.
+ * - `worktree`: one worktree inside its repository holds no second
+ *   repository. The menu says so.
+ */
+export type AddRepositoryPlace = 'task-folder' | 'worktree' | 'folder'
+
+export function addRepositoryPlace(cwd: string): AddRepositoryPlace {
+  if (isTaskFolderPath(cwd)) return 'task-folder'
+  return isSolusWorktreePath(cwd) ? 'worktree' : 'folder'
+}
+
+export const SINGLE_WORKTREE_NOTE = 'This session works in one worktree inside its repository, which cannot hold a second repository. Start a new worktree session to work in more than one.'
+
+/** The tooltip of "Add repository…": what a click does. */
+export function addRepositoryTooltip(place: AddRepositoryPlace): string {
+  if (place === 'task-folder') return 'Make a worktree of one more repository, on the branch of this session'
+  if (place === 'folder') return 'Choose a repository on this host for the session to work in'
+  return SINGLE_WORKTREE_NOTE
 }
 
 /** The repositories that "Add repository" offers in a task folder session, by name. */

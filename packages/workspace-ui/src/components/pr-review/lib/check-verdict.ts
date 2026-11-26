@@ -19,16 +19,20 @@ export interface CheckVerdict {
   icon: 'passed' | 'failed' | 'running' | 'pending'
 }
 
+/** The one line a folded Checks section shows, and the glyph before it. */
+export interface ChecksSummaryLine {
+  text: string
+  icon: 'passed' | 'failed' | 'running' | 'waiting'
+}
+
 /**
  * The one line a folded Checks section shows: what is
- * broken leads, then what is still running, then the all-clear. A queued check
- * counts as running — it has not answered yet either way. The icon is the
- * row vocabulary's, so the summary and the rows under it read as one state.
+ * broken leads, then workflows that wait for approval, then what is still
+ * running, then the all-clear. A queued check counts as running — it has not
+ * answered yet either way. The icon is the row vocabulary's, so the summary
+ * and the rows under it read as one state.
  */
-export function checksSummary(checks: CheckItem[]): {
-  text: string
-  icon: 'passed' | 'failed' | 'running'
-} {
+export function checksSummary(checks: CheckItem[], waitingForApproval = 0): ChecksSummaryLine {
   let failed = 0
   let running = 0
   for (const check of checks) {
@@ -37,6 +41,7 @@ export function checksSummary(checks: CheckItem[]): {
     else if (icon === 'running' || icon === 'pending') running++
   }
   if (failed > 0) return { text: `${failed} of ${checks.length} failing`, icon: 'failed' }
+  if (waitingForApproval > 0) return { text: `${waitingForApproval} waiting for approval`, icon: 'waiting' }
   if (running > 0) return { text: `${running} of ${checks.length} running`, icon: 'running' }
   return { text: 'All checks passed', icon: 'passed' }
 }

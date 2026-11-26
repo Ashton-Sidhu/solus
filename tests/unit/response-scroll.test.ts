@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { JSDOM } from 'jsdom'
-import { createEndFollow, settleScroll } from '@solus/workspace-ui/components/conversation/lib/response-scroll'
+import { createEndFollow, newTurnMinHeight, settleScroll } from '@solus/workspace-ui/components/conversation/lib/response-scroll'
 
 describe('following the end of a conversation', () => {
   let dom: JSDOM
@@ -97,6 +97,66 @@ describe('following the end of a conversation', () => {
     setup(true, false)
     follower.follow(false)
     expect(requests).toEqual([])
+  })
+
+  // Rows below a sent prompt measure during its glide. A second smooth
+  // scroll restarts the browser's easing from rest and the glide stutters;
+  // an instant write cuts it off. The glide finishes, then glides on.
+  test('content that grows during a glide waits for it, then the view glides on to the new end', () => {
+    setup(false)
+    follower.jump(true)
+    Object.defineProperty(element, 'scrollHeight', { configurable: true, value: 1200 })
+    follower.follow(false)
+    follower.follow(false)
+    expect(requests).toEqual([{ top: 1000, behavior: 'smooth' }])
+    element.dispatchEvent(new dom.window.Event('scrollend'))
+    expect(requests).toEqual([{ top: 1000, behavior: 'smooth' }, { top: 1200, behavior: 'smooth' }])
+    element.dispatchEvent(new dom.window.Event('scrollend'))
+    follower.follow(false)
+    expect(requests.at(-1)).toEqual({ top: 1200, behavior: 'instant' })
+  })
+
+  test('a reader who takes over during a glide drops the growth it was waiting for', () => {
+    setup(false)
+    follower.jump(true)
+    follower.follow(false)
+    element.dispatchEvent(new dom.window.Event('wheel'))
+    element.dispatchEvent(new dom.window.Event('scrollend'))
+    expect(requests).toEqual([{ top: 1000, behavior: 'smooth' }, { top: 0, behavior: 'instant' }])
+  })
+
+  // Smooth scrolling runs on time. A glide that starts before a slow first
+  // paint is half done when that paint shows, and the sent message seems to
+  // appear in the middle of the view instead of rising into it.
+  test('a sent prompt glides only after its rows paint, and nothing starts a glide before then', async () => {
+    const scope = globalThis as unknown as { requestAnimationFrame?: unknown; cancelAnimationFrame?: unknown }
+    const previous = { request: scope.requestAnimationFrame, cancel: scope.cancelAnimationFrame }
+    const frames: FrameRequestCallback[] = []
+    scope.requestAnimationFrame = (callback: FrameRequestCallback) => frames.push(callback)
+    scope.cancelAnimationFrame = () => {}
+    const paint = () => { for (const callback of frames.splice(0)) callback(0) }
+    try {
+      setup(false)
+      follower.glideAfterPaint()
+      follower.follow(true)
+      expect(requests).toEqual([])
+      paint()
+      paint()
+      await Promise.resolve()
+      expect(requests).toEqual([{ top: 1000, behavior: 'smooth' }])
+    } finally {
+      scope.requestAnimationFrame = previous.request
+      scope.cancelAnimationFrame = previous.cancel
+    }
+  })
+})
+
+describe('the room a sent turn keeps', () => {
+  // The end of the conversation must show the sent turn at the top of the
+  // view: the room is the view under the band and the composer, less a gap.
+  test('fills the view under the floating band and the composer', () => {
+    expect(newTurnMinHeight(800, 58)).toBe('max(0px, calc(726px - var(--solus-composer-inset, 0px)))')
+    expect(newTurnMinHeight(800, 0)).toBe('max(0px, calc(784px - var(--solus-composer-inset, 0px)))')
   })
 })
 

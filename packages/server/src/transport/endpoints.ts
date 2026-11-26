@@ -7,7 +7,7 @@ import { findOnPath, getCliPath } from '../cli-env'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import { z } from 'zod'
 import type { HostRoute } from '@solus/contracts/host-routes'
-import { hostCategory } from '../host/host-category'
+import { machineKind } from '../host/machine-kind'
 import { isCloudMachine } from '../host/cloud-machine'
 import { DEFAULT_DESKTOP_SERVER_PORT, DEFAULT_SERVER_PORT } from '@solus/contracts/types'
 import { advertisedServeRoute } from '../host/tailscale-serve'
@@ -124,7 +124,7 @@ const ENDPOINT_REACH = { tailnet: 0, lan: 1, loopback: 2 } satisfies Record<Reac
 export async function advertisedRoutes(bindHost: string, port: number): Promise<HostRoute[]> {
   // A managed host's internal cloud network is not reachable from its clients.
   // The account directory supplies its tunnel route.
-  if (hostCategory() === 'managed') return []
+  if (machineKind() === 'cloud') return []
   const serveRoute = await advertisedServeRoute(port)
   const routes = (await listReachableEndpoints(bindHost, port))
     .filter((endpoint) => endpoint.kind !== 'loopback')

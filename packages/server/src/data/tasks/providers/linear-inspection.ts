@@ -58,7 +58,13 @@ const issueSchema = z.object({
   }),
   attachments: z.object({ nodes: z.array(z.object({ title: z.string(), url: z.string() })) })
 })
-const inspectionSchema = z.object({
+/** What the provider section reads of an issue, as a selection the detail
+ *  query adds to its own (`readIssue`), with `$before` for older history. */
+export const LINEAR_PROVIDER_FIELDS = `id creator { name } assignee { email avatarUrl } reactions { id emoji user { id } }
+    comments(first: 100) { nodes { id reactions { id emoji user { id } } } pageInfo { hasNextPage } }
+    history(last: 50, before: $before) { nodes { id createdAt actor { name } fromState { name } toState { name } fromTitle toTitle addedLabels { name } removedLabels { name } } pageInfo { hasPreviousPage startCursor } }
+    attachments(first: 100) { nodes { title url } }`
+export const linearInspectionSchema = z.object({
   organization: z.object({ id: z.string() }),
   viewer: z.object({ id: z.string() }),
   issue: issueSchema
@@ -70,17 +76,17 @@ export async function inspectLinearIssue(
   before?: string
 ): Promise<TaskProviderData> {
   const result = await linearRequest(
-    `query($id: String!, $before: String) { organization { id } viewer { id } issue(id: $id) {
-    id creator { name } assignee { email avatarUrl } reactions { id emoji user { id } }
-    comments(first: 100) { nodes { id reactions { id emoji user { id } } } pageInfo { hasNextPage } }
-    history(last: 50, before: $before) { nodes { id createdAt actor { name } fromState { name } toState { name } fromTitle toTitle addedLabels { name } removedLabels { name } } pageInfo { hasPreviousPage startCursor } }
-    attachments(first: 100) { nodes { title url } }
-  } }`,
+    `query($id: String!, $before: String) { organization { id } viewer { id } issue(id: $id) { ${LINEAR_PROVIDER_FIELDS} } }`,
     { id: issueId, before: before ?? null },
-    inspectionSchema
+    linearInspectionSchema
   )
   if (result.organization.id !== workspaceId)
     throw new TaskProviderError('no_access', 'This issue belongs to another Linear workspace.')
+  return linearProviderData(result)
+}
+
+/** The provider section of one inspection answer. */
+export function linearProviderData(result: z.infer<typeof linearInspectionSchema>): TaskProviderData {
   const issue = result.issue
   const reactions: TaskProviderData['reactions'] = []
   for (const target of [{ id: issue.id, reactions: issue.reactions }, ...issue.comments.nodes]) {

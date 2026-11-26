@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { NOTIFICATION_KINDS } from '../notification-hub'
 import { workspaceIdSchema } from './schemas'
+import { agentIdSchema } from '../types'
 
 export const WORKSPACE_TOKEN_TTL_MS = 8 * 60 * 60 * 1000
 export const INSIGHT_MAX_WINDOW_MS = 31 * 24 * 60 * 60 * 1000
@@ -29,15 +30,15 @@ export const workspaceSessionQuerySchema = z.strictObject({
   /** Only chats, the sessions with no project, in every chat folder. */
   chats: z.enum(['true', 'false']).optional(),
   /** `list` (the default): the caller's session list. `all`: every session they may read,
-   *  archived ones too, each marked with `listed` (docs/plans/session-archive.md). */
-  scope: z.enum(['list', 'all']).default('list'),
+   *  archived ones too, each marked with `listed`. `pinned` reads the caller's current pins. */
+  scope: z.enum(['list', 'all', 'pinned']).default('list'),
   /** The sessions this session started. Without it, only top-level sessions are answered. */
   parentSessionId: workspaceIdSchema.optional(),
   ...page,
   projectId: workspaceIdSchema.optional(),
   /** One repository's sessions on every machine that ran them, by repository key (`github.com/acme/web`; project-model §1). */
   repositoryKey: z.string().min(1).max(512).optional(),
-  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
+  provider: agentIdSchema.optional(),
   /** `created` (the default) pages by when a session started; `activity` by its last activity, so a
    *  client that lists the most recent sessions stops after its first pages. */
   order: z.enum(['created', 'activity']).optional(),
@@ -51,7 +52,7 @@ export const workspaceSessionSearchQuerySchema = z.strictObject({
   /** One repository's sessions on every machine that ran them, by repository key
    *  (project-model §1). Answered by the workspace service; a machine searches by `projectRoot`. */
   repositoryKey: z.string().min(1).max(512).optional(),
-  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
+  provider: agentIdSchema.optional(),
   /** Only chats, the sessions with no project, in every chat folder. */
   chats: z.enum(['true', 'false']).optional(),
   /** Match names and metadata only; read no message. */
@@ -68,7 +69,7 @@ export const workspaceInsightQuerySchema = z.strictObject({
   userId: workspaceIdSchema.optional(),
   hostId: workspaceIdSchema.optional(),
   sessionId: workspaceIdSchema.optional(),
-  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
+  provider: agentIdSchema.optional(),
 })
 /** A record's activity: its newest `limit` rows, oldest first. One bounded answer: no cursor. */
 export const workspaceActivityQuerySchema = z.strictObject({

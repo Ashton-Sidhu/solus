@@ -1,12 +1,12 @@
 import { expectOk, expectRefused, scenario } from '../src/scenario'
-import { checkNoLocalOwnerOnManaged, checkOwnership } from '../src/oracle'
+import { checkNoOwnerOnCloudMachine, checkOwnership } from '../src/oracle'
 import { ORGANIZATION_ID, PERSONAS } from '../src/personas'
 
 /**
  * Phase 1 exit (plan §9, §3.4 ownership): the creator owns a resource, sessions
  * included; only the owner transfers or deletes; a member is an editor through the
- * organization row (a managed host starts a resource with one, a personal host
- * needs the owner to share; decision 2026-09-16); a managed host has no owner person.
+ * organization row (a cloud machine starts a resource with one, a personal host
+ * needs the owner to share; decision 2026-09-16); a cloud machine has no owner person.
  */
 export default scenario('ownership: the creator owns a work and a session; transfer is the owner\'s alone', async (ctx) => {
   const alice = await ctx.as('alice')
@@ -23,9 +23,9 @@ export default scenario('ownership: the creator owns a work and a session; trans
   }
   await checkOwnership(ctx, resource, bobUserId, { bob: true, cara: true, alice: true })
   await expectOk(ctx, 'the organization owner opens it on either flavor', alice.api.request('getWork', { id: work.id }))
-  if (ctx.hostKind === 'managed') {
-    // A managed host's organization owner is a member like any other, not the owner person (§3.4, §13).
-    await expectRefused(ctx, 'the organization owner cannot transfer a member\'s work on a managed host', alice.rpc('shareTransfer', { resource, toUserId: caraUserId }))
+  if (ctx.hostKind === 'cloud') {
+    // A cloud machine's organization owner is a member like any other, not the owner person (§3.4, §13).
+    await expectRefused(ctx, 'the organization owner cannot transfer a member\'s work on a cloud machine', alice.rpc('shareTransfer', { resource, toUserId: caraUserId }))
   }
 
   ctx.step('only the owner transfers; the transfer target becomes the owner')
@@ -53,5 +53,5 @@ export default scenario('ownership: the creator owns a work and a session; trans
   await expectOk(ctx, 'cara reads its info', cara.rpc('getSessionInfo', sessionId))
   await expectOk(ctx, 'as an editor cara may stop it', cara.rpc('stopSession', sessionId))
 
-  await checkNoLocalOwnerOnManaged(ctx, ['alice', 'bob', 'cara'])
+  await checkNoOwnerOnCloudMachine(ctx, ['alice', 'bob', 'cara'])
 })

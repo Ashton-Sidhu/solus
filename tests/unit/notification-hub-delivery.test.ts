@@ -54,13 +54,13 @@ beforeEach(async () => {
 })
 
 const memberPrincipal = (userId: string): Extract<Principal, { kind: 'org-member' }> => ({
-  kind: 'org-member', userId, organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'cloud',
+  kind: 'org-member', userId, organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'api',
   displayName: userId, deviceId: `${userId}-device`, deviceLabel: 'Browser', expiresAt: Date.now() + 300_000,
 })
 const alice: WorkspaceRequestContext = {
   principal: memberPrincipal('alice'),
   home: { kind: 'organization', organizationId: 'org1', serviceId: 'api' },
-  scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read'],
+  scopes: ['issues:read', 'issues:write', 'works:read', 'works:write', 'sessions:read'],
 }
 const rows = async () => Number((await database.getDatabase().get<{ count: number }>(sql`SELECT COUNT(*) AS count FROM notifications`))?.count ?? 0)
 

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { agentIdSchema } from './types'
 
 export const SESSION_REPOSITORY_TOKEN_PATH = '/runner/session-repositories/token'
 export const SESSION_REPOSITORY_HEAD_PATH = '/runner/session-repositories/head'
@@ -45,7 +46,7 @@ export type SessionRepositoryTokenRefusal = z.infer<typeof sessionRepositoryToke
 
 export const sessionRepositoryCardSchema = z.strictObject({
   title: z.string().nullable(),
-  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
+  provider: agentIdSchema,
   model: z.string().nullable(),
   repositoryKey: z.string().nullable(),
   branch: z.string().nullable(),

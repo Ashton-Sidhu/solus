@@ -8,7 +8,7 @@ import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activit
 import type { McpAppReference } from '@solus/contracts/mcp-apps'
 import type { SessionFolder } from '@solus/contracts/codebases'
 import { stripSessionReferenceContext } from '@solus/contracts/injected-context'
-import type { BackgroundTask, BackgroundTaskKind, ContextCompaction, PermissionOption, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolProgress, WireNormalizedEvent } from '@solus/contracts/types'
+import type { BackgroundTask, BackgroundTaskKind, ContextCompaction, PermissionOption, PromptSender, PromptVia, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolProgress, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { planKey } from '@solus/contracts/types'
 import { settleSetupCard } from '@solus/contracts/setup-card'
@@ -31,10 +31,13 @@ export type { ToolItem } from './tool-item'
  * that row re-renders, and the order array changes only when a row is added.
  */
 
+// A live edit replaces its item. Only the unchanged saved item can reuse its host body.
+export const savedTurnItems = new WeakMap<TranscriptItem, NonNullable<WireSessionLoadMessage['turnItem']>>()
+
 export type Delivery = 'sending' | 'queued' | 'sent' | 'failed'
 
 export type TranscriptItem =
-  | { kind: 'user'; id: string; text: string; timestamp?: number; sourceSessionId?: string; delivery: Delivery; waitsForTurn?: boolean; error: string | null; attachments: readonly MessageAttachment[]; backgroundCommand?: BackgroundCommandWake }
+  | { kind: 'user'; id: string; text: string; sender?: PromptSender; via?: PromptVia; timestamp?: number; sourceSessionId?: string; delivery: Delivery; waitsForTurn?: boolean; error: string | null; attachments: readonly MessageAttachment[]; backgroundCommand?: BackgroundCommandWake }
   | { kind: 'assistant'; id: string; text: string; replyHtmlLayout?: import('@solus/contracts/session-history').ReplyHtmlLayout[]; streaming?: boolean; timestamp?: number; sourceSessionId?: string; forkPointId?: string }
   | { kind: 'browser_snapshot'; id: string; snapshot: BrowserSnapshotRef }
   | { kind: 'image'; id: string; path: string }
@@ -178,6 +181,7 @@ export class TranscriptModel {
   })
   private streamTarget: string | null = null
   /** The compaction that started and has not stopped. */
+  get isCompacting(): boolean { return this.runningCompactionId !== null }
   private runningCompactionId: string | null = null
   private proseSinceUser = false
   private lastResponseId: string | null = null
@@ -248,6 +252,7 @@ export class TranscriptModel {
         if (id) {
           ids.push(id)
           const item = this.items.get(id)
+          if (item && row.turnItem) savedTurnItems.set(item, row.turnItem)
           if (item) this.trackAgent(item)
         }
       }
@@ -270,6 +275,11 @@ export class TranscriptModel {
   /** One history row as an item; null for rows this client does not render yet
    *  (reasoning, most activity). */
   private historyItem(row: WireSessionLoadMessage): string | null {
+    const body = row.turnItem
+    if (body?.type === 'user_message' || body?.type === 'assistant_message') row = { ...row, content: body.text }
+    else if (body?.type === 'dynamic_tool' && body.input !== null && row.toolInput === undefined) {
+      row = { ...row, toolInput: JSON.stringify(body.input) }
+    }
     if (row.activity?.kind === 'mcp_app') return this.addMcpApp(row.activity, false)
     if (row.activity?.kind === 'worktree_offered') return this.addWorktreeOffer(row.activity, false)
     if (row.activity?.kind === 'agent_switched' || row.activity?.kind === 'forked') return this.addDivider(row.activity, false)
@@ -281,16 +291,16 @@ export class TranscriptModel {
       return id
     }
     if (row.role === 'user') {
-      const backgroundCommand = backgroundCommandWake(row.content)
+      const backgroundCommand = row.attachedFilePaths ? null : backgroundCommandWake(row.content)
       // A [session report] or notice is the orchestrator's, not the person's: it settles a card.
-      if (!backgroundCommand && this.agentCards.applyUserRow(row.content, row.timestamp)) return null
+      if (!row.attachedFilePaths && !backgroundCommand && this.agentCards.applyUserRow(row.content, row.timestamp)) return null
       this.agentCards.closeTurn()
       if (backgroundCommand) {
-        this.items.set(id, { kind: 'user', id, text: row.content, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [], backgroundCommand })
+        this.items.set(id, { kind: 'user', id, sender: row.sender, text: row.content, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [], backgroundCommand })
         return id
       }
-      const { text, files } = splitAttachedFiles(stripSessionReferenceContext(row.content))
-      this.items.set(id, { kind: 'user', id, text, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [...promptImageAttachments(row.imageAttachments, row.imageAttachmentRefs), ...files] })
+      const { text, files } = splitAttachedFiles(row.attachedFilePaths ? row.content : stripSessionReferenceContext(row.content), row.attachedFilePaths)
+      this.items.set(id, { kind: 'user', id, sender: row.sender, text, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [...promptImageAttachments(row.imageAttachments, row.imageAttachmentRefs), ...files] })
       return id
     }
     if (row.role === 'assistant' && row.content.trim()) {
@@ -305,6 +315,7 @@ export class TranscriptModel {
         kind: 'tool', id, toolId: row.toolId, toolName, timestamp: row.timestamp,
         input: row.toolInput ?? null,
         ...(row.toolInputKey && { toolInputKey: row.toolInputKey }),
+        ...(row.viewedImagePath && { viewedImagePath: row.viewedImagePath }),
         status,
         errorHead: null, childCount: 0,
         subagent: row.isSubagent ? row.subagentType ?? 'agent' : subagentFromToolName(toolName),
@@ -339,7 +350,7 @@ export class TranscriptModel {
     const toolId = this.toolRows.find(this, row.toolResultForId)
     const tool = toolId ? this.items.get(toolId) : undefined
     if (tool?.kind === 'tool') {
-      const render = artifactFromHistory(tool.toolName, tool.input, row, tool.toolInputKey)
+      const render = artifactFromHistory(tool.toolName, row)
       if (render) this.place({ kind: 'artifact', id: this.mintId('r'), ...render })
     }
     this.patchToolById(row.toolResultForId, false, (tool) => ({
@@ -353,11 +364,6 @@ export class TranscriptModel {
       leftOut: row.toolLeftOut ?? tool.leftOut,
       secretOutcomes: row.secretOutcomes ?? tool.secretOutcomes,
     }))
-  }
-
-  updateArtifact(id: string, update: Partial<Pick<ArtifactRender, 'html' | 'loading' | 'error'>>): void {
-    const item = this.items.get(id)
-    if (item?.kind === 'artifact') this.replace({ ...item, ...update }, id)
   }
 
   // ─── Live events ───
@@ -450,6 +456,9 @@ export class TranscriptModel {
           secretOutcomes: event.secretOutcomes ?? tool.secretOutcomes,
         }))
         return true
+      case 'subagent_running':
+        this.patchToolById(event.toolUseId, false, tool => ({ ...tool, status: 'running', completedAt: undefined, report: null }))
+        return true
       case 'subagent_report':
         this.patchToolById(event.toolUseId, false, (tool) => ({
           ...tool,
@@ -514,6 +523,13 @@ export class TranscriptModel {
         return true
       }
       case 'background_task_settled':
+        if (event.toolUseId) {
+          const id = this.toolRows.find(this, event.toolUseId, true)
+          const tool = id ? this.items.get(id) : undefined
+          if (tool?.kind === 'tool' && tool.subagent) {
+            this.replace({ ...tool, status: event.status === 'completed' ? 'completed' : 'error', completedAt: Date.now() })
+          }
+        }
         this.backgroundTasks = this.backgroundTasks.filter(task => task.taskId !== event.taskId)
         this.metaChanged = true
         return true
@@ -586,7 +602,7 @@ export class TranscriptModel {
         return true
       case 'question_request':
         if (this.questions.some((question) => question.questionId === event.questionId)) return true
-        this.questions = [...this.questions, { questionId: event.questionId, questions: event.questions, responseMode: event.responseMode, kind: event.kind, ...(event.hostLink && { hostLink: event.hostLink }) }]
+        this.questions = [...this.questions, { questionId: event.questionId, questions: event.questions, responseMode: event.responseMode, kind: event.kind, ...(event.hostLink && { hostLink: event.hostLink }), ...(event.cloudMachine && { cloudMachine: event.cloudMachine }) }]
         this.metaChanged = true
         return true
       case 'question_answered':
@@ -669,11 +685,18 @@ export class TranscriptModel {
     for (const item of this.items.values()) {
       if (item.kind === 'artifact' && item.workId === event.workId) earlier = item
     }
-    if (event.docType !== 'artifact' && !earlier) return
+    if ((event.docType !== 'artifact' && !earlier) || !event.contentVersion) return
     const applied = this.artifactUpdates.get(event.workId)
     if (applied !== undefined && applied >= event.updatedAt) return
     this.artifactUpdates.set(event.workId, event.updatedAt)
-    this.append({ kind: 'artifact', id: this.mintId('r'), html: event.content, title: event.title || earlier?.title || 'Artifact', workId: event.workId })
+    this.append({
+      kind: 'artifact',
+      id: this.mintId('r'),
+      title: event.title || earlier?.title || 'Artifact',
+      workId: event.workId,
+      contentVersion: event.contentVersion,
+      ...(event.layout && { layout: event.layout }),
+    })
   }
 
   private updateToolInput(toolId: string, input: string | undefined): void {
@@ -841,6 +864,7 @@ export class TranscriptModel {
     if (event.preTokens !== undefined) compaction.preTokens = event.preTokens
     if (event.postTokens !== undefined) compaction.postTokens = event.postTokens
     const runningId = this.runningCompactionId
+    if (runningId) this.metaChanged = true
     this.runningCompactionId = null
     if (runningId && this.items.has(runningId)) {
       this.replace({ kind: 'compaction', id: runningId, compaction })
@@ -939,7 +963,9 @@ export class TranscriptModel {
         if (existing.waitsForTurn) {
           this.order = [...this.order.filter(id => id !== existing.id), existing.id]
           this.orderChanged = true
-          this.replace({ ...existing, text: splitAttachedFiles(event.text).text, waitsForTurn: false })
+          this.replace({ ...existing, sender: event.sender, via: event.via, text: splitAttachedFiles(event.text).text, waitsForTurn: false })
+        } else if (event.sender || event.via) {
+          this.replace({ ...existing, sender: event.sender, via: event.via })
         }
         this.markDelivery(event.clientPromptId, 'sent')
         return
@@ -947,12 +973,12 @@ export class TranscriptModel {
     }
     const backgroundCommand = event.via === 'background-command' ? backgroundCommandWake(event.text) : null
     if (backgroundCommand) {
-      this.append({ kind: 'user', id: event.clientPromptId ?? this.mintId('u'), text: event.text, delivery: 'sent', error: null, attachments: [], backgroundCommand })
+      this.append({ kind: 'user', sender: event.sender, via: event.via, id: event.clientPromptId ?? this.mintId('u'), text: event.text, delivery: 'sent', error: null, attachments: [], backgroundCommand })
       return
     }
-    const { text, files } = splitAttachedFiles(event.text)
+    const { text, files } = splitAttachedFiles(event.text, event.attachedFilePaths)
     const attachments = [...promptImageAttachments(event.imageAttachments, event.imageAttachmentRefs), ...files]
-    this.append({ kind: 'user', id: event.clientPromptId ?? this.mintId('u'), text, delivery: 'sent', error: null, attachments })
+    this.append({ kind: 'user', sender: event.sender, via: event.via, id: event.clientPromptId ?? this.mintId('u'), text, delivery: 'sent', error: null, attachments })
   }
 
   private addPlanItem(id: string, plan: Omit<Extract<TranscriptItem, { kind: 'plan' }>, 'kind' | 'id' | 'planId'>, append: boolean): string {
@@ -1054,6 +1080,8 @@ export class TranscriptModel {
     const item = id ? this.items.get(id) : undefined
     if (!id || item?.kind !== 'tool') return
     const next = patch(item)
+    const body = savedTurnItems.get(item)
+    if (body && next.input === item.input && next.toolName === item.toolName) savedTurnItems.set(next, body)
     this.replace(next, id)
     // A failed orchestration call made no card: it shows after all.
     if (next.status === 'error' && this.heldTools.delete(id)) {

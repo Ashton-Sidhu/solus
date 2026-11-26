@@ -23,7 +23,7 @@ const LEGACY_HOST_OWNER_KEY = 'host-owner'
 
 const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
 const REMOTE_OWNER: Principal = { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud' }
-const BOB: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'managed', displayName: 'Bob', deviceId: 'd2', expiresAt: 0, deviceLabel: 'Solus cloud' }
+const BOB: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Bob', deviceId: 'd2', expiresAt: 0, deviceLabel: 'Solus cloud' }
 const guestOf = (sharedByUserId: string): Principal => ({ kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', share: { resource: { kind: 'session', id: 's1' }, role: 'editor', sharedByUserId, linkSecretHash: 'h' }, expiresAt: 0, deviceLabel: 'Guest link' })
 const GUEST_OF_BOB = guestOf('bob')
 
@@ -301,7 +301,7 @@ describe('lifecycle', () => {
     await seats.markFailed(BOB_SEAT, 'codex', 'exited with code 1')
     expect(events.map((event) => event.state)).toEqual(['connecting', 'none'])
     expect(events[1]?.error).toBe('exited with code 1')
-    expect((await seats.list(BOB_SEAT)).map((status) => status.state)).toEqual(['none', 'none'])
+    expect((await seats.list(BOB_SEAT)).map((status) => status.state)).toEqual(['none', 'none', 'none'])
   })
 
   test('disconnect deletes the credential and keeps the directory; remove deletes the directory', async () => {

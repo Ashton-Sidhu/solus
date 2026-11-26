@@ -1,3 +1,4 @@
+import { splitPromptFiles } from '@solus/contracts/injected-context'
 import { hostPathBaseName, UPLOAD_NAME_PREFIX } from '@solus/contracts/host-path'
 import { storedAttachmentImageMime, videoMimeType } from '@solus/contracts/media-types'
 import type { PromptImageRef } from '@solus/contracts/types'
@@ -16,8 +17,6 @@ export type MessageAttachment =
   | { readonly kind: 'host-image'; readonly mimeType?: string; readonly key: string; readonly name: string; readonly hostPath: string }
   | { readonly kind: 'local-video'; readonly key: string; readonly name: string; readonly uri: string; readonly mimeType: string }
   | { readonly kind: 'file'; readonly mimeType?: string; readonly key: string; readonly name: string; readonly hostPath: string; readonly video: boolean }
-
-const ATTACHED_FILE_LINE = /^\[Attached file: (.+)\]$/
 
 function fileAttachment(hostPath: string, index: number, name?: string, mimeType?: string): MessageAttachment {
   const storedName = (hostPathBaseName(hostPath) || hostPath).replace(UPLOAD_NAME_PREFIX, '')
@@ -39,20 +38,9 @@ export interface SentPromptParts {
   readonly files: MessageAttachment[]
 }
 
-export function splitAttachedFiles(content: string): SentPromptParts {
-  const lines = content.split('\n')
-  const paths: string[] = []
-  while (paths.length < lines.length) {
-    const match = ATTACHED_FILE_LINE.exec(lines[paths.length]!)
-    if (!match) break
-    paths.push(match[1]!)
-  }
-  const isComposed = paths.length > 0 && (paths.length === lines.length || lines[paths.length] === '')
-  if (!isComposed) return { text: content, files: [] }
-  return {
-    text: lines.slice(paths.length).join('\n').replace(/^\n+/, ''),
-    files: paths.map((path, index) => fileAttachment(path, index)),
-  }
+export function splitAttachedFiles(content: string, projectedPaths?: readonly string[]): SentPromptParts {
+  const { text, paths } = projectedPaths ? { text: content, paths: projectedPaths } : splitPromptFiles(content)
+  return { text, files: paths.map((path, index) => fileAttachment(path, index)) }
 }
 
 /** Images a prompt carried: inline bytes, or refs to the host's own copies. */
@@ -70,7 +58,7 @@ export function promptImageAttachments(
 export function uploadedMessageAttachments(uploads: readonly UploadedAttachment[]): MessageAttachment[] {
   return uploads.map((upload, index): MessageAttachment =>
     upload.kind === 'image'
-      ? upload.localUri ? { kind: 'local-image', key: `upload:${upload.id}`, name: upload.name, uri: upload.localUri, mimeType: upload.mimeType } : upload.dataUrl
+      ? upload.localUri ? { kind: 'local-image', key: upload.id, name: upload.name, uri: upload.localUri, mimeType: upload.mimeType } : upload.dataUrl
         ? { kind: 'image', key: `upload:${upload.id}`, name: upload.name, dataUrl: upload.dataUrl, mimeType: upload.mimeType }
         : { kind: 'host-image', key: `upload:${upload.id}`, name: upload.name, hostPath: upload.hostPath, mimeType: upload.mimeType }
       : fileAttachment(upload.hostPath, index, upload.name, upload.mimeType))

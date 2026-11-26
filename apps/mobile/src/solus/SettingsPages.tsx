@@ -25,8 +25,10 @@ import { SettingsScreen } from "../features/settings/components/SettingsScreen";
 import { SettingsRow } from "../features/settings/components/SettingsRow";
 import { SettingsSection } from "../features/settings/components/SettingsSection";
 import { SettingsSwitchRow } from "../features/settings/components/SettingsSwitchRow";
+import { CloudAddressSetting } from "./CloudAddressSetting";
 import { HostAccessSection } from "./HostAccessSection";
 import { HostRoutesSection } from "./HostRoutesSection";
+import { OutsideAppsSection } from "./OutsideAppsSection";
 import { ReachedMachinesSection } from "./ReachedMachinesSection";
 import { nearby, solus, useSolusWorkspace } from "./runtime";
 import { SYNC_STATE_LABELS } from "./settings-labels";
@@ -251,6 +253,10 @@ export function SolusAccount() {
             }
           />
         )}
+        <CloudAddressSetting
+          isSignedIn={account.kind === "signed-in"}
+          disabled={account.kind !== "signed-out" && account.kind !== "signed-in"}
+        />
       </SettingsSection>
       <SettingsSection title="Settings sync">
         <AppText className="px-4 py-3 text-foreground">
@@ -362,6 +368,14 @@ export function SolusHostDetail({
         isConnected={host?.connectionState === "connected"}
         makeCode={route.params.pairCode === "new"}
       />
+      <OutsideAppsSection hostId={id} hostName={host?.environmentLabel ?? "this host"} />
+      <SettingsSection>
+        <SettingsRow
+          label="Sharing & access"
+          icon="person.2"
+          onPress={() => nav.navigate("SettingsSharingAccess", { environmentId: id })}
+        />
+      </SettingsSection>
       <ReachedMachinesSection hostId={id} />
       <SettingsSection title="Host settings">
         {host?.connectionState !== "connected" || state.kind !== "loaded" ? (

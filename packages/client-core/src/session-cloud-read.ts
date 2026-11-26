@@ -129,7 +129,7 @@ export function sessionCloudReadView(input: SessionCloudReadViewInput): SessionC
  */
 export async function readSessionCloudPage(
   api: Pick<HostApi, 'loadSessionPage'>,
-  request: Pick<SessionHistoryPageRequest, 'sessionId' | 'provider' | 'before' | 'throughEntryId' | 'replyLayout'>,
+  request: Pick<SessionHistoryPageRequest, 'sessionId' | 'provider' | 'before' | 'throughEntryId' | 'replyLayout' | 'promptFiles' | 'turnItems'>,
 ): Promise<SessionHistoryPage> {
   try {
     return await api.loadSessionPage({ ...request, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true })

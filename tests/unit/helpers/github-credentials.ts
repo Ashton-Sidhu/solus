@@ -19,6 +19,8 @@ export interface FakeGithubSources {
   delegations?: Map<string, GithubDelegatedCredential>
   /** The paired device whose dispatch checkout every `cwd` is. */
   checkoutOwner?: string | null
+  /** The owner's account copy for `solus git-credential`, as the store holds it. */
+  ownerAccountCopy?: { token: string | null }
 }
 
 export interface FakeGithubCredentials {
@@ -56,6 +58,11 @@ export function fakeGithubCredentials(sources: FakeGithubSources = {}): FakeGith
       load: (deviceId) => sources.delegations?.get(deviceId) ?? null,
       save: (deviceId, credential) => { sources.delegations?.set(deviceId, credential) },
       clear: (deviceId) => { sources.delegations?.delete(deviceId) },
+    },
+    ownerAccountCopy: {
+      load: () => sources.ownerAccountCopy?.token ?? null,
+      save: (token) => { if (sources.ownerAccountCopy) sources.ownerAccountCopy.token = token },
+      clear: () => { if (sources.ownerAccountCopy) sources.ownerAccountCopy.token = null },
     },
     checkoutOwnerOf: async () => sources.checkoutOwner ?? null,
   }

@@ -52,7 +52,7 @@ export function hostAffinityGlyph(
 ): HostAffinityGlyph | null {
   if (!host || host.local) return null
   const statusLabel = hostReadinessCopy(readiness, host.label).label
-  const hostIcon = host.uplink?.kind === 'managed' ? CloudIcon : operatingSystemIcon(host.os)
+  const hostIcon = host.uplink?.kind === 'cloud' ? CloudIcon : operatingSystemIcon(host.os)
   return { ...glyphFor(readiness.readiness, hostIcon), statusLabel, tooltip: `Runs on ${host.label} · ${statusLabel}` }
 }
 

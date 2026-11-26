@@ -51,7 +51,8 @@ export class PrChecksStore {
     this.byProject.set(projectPrsKey(serverId, ctx), await api.prChecks(repo, numbers))
   }
 
-  /** Keep one pull request's check runs fresh while a review pane shows it. */
+  /** Keep one pull request's check runs fresh while a surface shows them: a
+   *  review pane, or the pull request group of the git rail. */
   wantReview(api: HostApi, serverId: string, ctx: IpcContext, number: number): () => void {
     return this.prs.want(api, serverId, ctx, [{ kind: 'review', number }])
   }

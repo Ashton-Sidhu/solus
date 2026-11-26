@@ -8,13 +8,16 @@ import { vaultSaveKeyRequestSchema, vaultConnectRequestSchema, vaultDisconnectRe
 import { accountSettingsPatchRequestSchema } from '@solus/contracts/settings'
 import { createManagedHostRequestSchema, managedHostSpecChangeRequestSchema } from '@solus/contracts/uplink'
 import type { CreateManagedHostOutcome } from '@solus/contracts/account-types'
-import { hostPolicyAssignRequestSchema, hostPolicyCreateRequestSchema, policyWriteRequestSchema } from '@solus/contracts/policy-api'
+import type { CloudAddressChange, CloudAddressState } from '@solus/contracts/cloud-address'
+import { hostPolicyAssignRequestSchema, hostPolicyCreateRequestSchema, organizationSettingsPatchRequestSchema, policyWriteRequestSchema } from '@solus/contracts/policy-api'
 import { desktopAgentProfileRequests } from './agent-profile-client'
 import { accountDocumentCall } from '@solus/client-core/account-documents'
 import { parseAccountDocumentRequest } from '@solus/contracts/account-documents'
 import { secureStorage } from '../secure-storage'
 import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
+import { DeviceCloudAddress } from './cloud-address'
+import { hostDisplayName } from '@solus/server/platform/host-display-name'
 import { loopbackAuthorizer } from './loopback-authorizer'
 import { desktopSettingsRequests } from './settings-client'
 import {
@@ -38,6 +41,9 @@ export const ACCOUNT_CHANNELS = {
   signOut: 'solus:account-sign-out',
   retryVerify: 'solus:account-retry-verify',
   stateChanged: 'solus:account-state-changed',
+  cloudAddress: 'solus:cloud-address',
+  setCloudAddress: 'solus:cloud-address-set',
+  cloudAddressChanged: 'solus:cloud-address-changed',
   uplinkDirectory: 'solus:uplink-directory',
   accountAccessToken: 'solus:account-access-token',
   uplinkStartManagedHost: 'solus:uplink-start-managed-host',
@@ -69,6 +75,8 @@ export const ACCOUNT_CHANNELS = {
   hostPolicyDelete: 'solus:host-policy-delete',
   hostPolicyAssign: 'solus:host-policy-assign',
   hostPolicyUnassign: 'solus:host-policy-unassign',
+  organizationSettingsGet: 'solus:organization-settings-get',
+  organizationSettingsPatch: 'solus:organization-settings-patch',
 } as const
 
 /** A renderer request that fails its schema never reaches the website. */
@@ -80,38 +88,29 @@ const policyIdSchema = z.string().min(1).max(128)
 /** A managed host's name and spec; the organization comes as its own argument. */
 const createManagedHostOptionsSchema = createManagedHostRequestSchema.omit({ organizationId: true }).strict()
 const INVALID_CREATE: CreateManagedHostOutcome = { ok: false, code: 'invalid_request', message: null }
+/** A typed Solus Cloud address, or null for the hosted one. */
+const cloudAddressInputSchema = z.string().max(2048).nullable()
+const INVALID_CLOUD_ADDRESS: CloudAddressChange = { ok: false, refusal: 'not-a-url' }
 /** What a renderer may get a token for: one host or the Solus API, never the account plane. */
 const connectionTokenResourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('host'), hostId: hostIdSchema }).strict(),
   z.object({ kind: z.literal('api') }).strict(),
 ])
 
-/** Production origin; `SOLUS_CLOUD_URL` overrides it for development and staging. */
-export const DEFAULT_CLOUD_ORIGIN = 'https://app.solus.sh'
-
-export function resolveCloudOrigin(env: NodeJS.ProcessEnv = process.env): string {
-  const candidate = env.SOLUS_CLOUD_URL?.trim()
-  if (!candidate) return DEFAULT_CLOUD_ORIGIN
-  const url = new URL(candidate)
-  const isLoopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1'
-  if (url.protocol !== 'https:' && !isLoopback) {
-    throw new Error('SOLUS_CLOUD_URL must use https unless it points at loopback')
-  }
-  return url.origin
-}
-
 /**
  * Wires the account session into Electron: IPC for the renderer, the keychain for
  * the refresh token, the system browser and a loopback callback for the sign-in. Returns the session so the
  * app can verify on boot and on window focus.
  */
-export function registerAccountIpc(broadcast: (channel: string, state: AccountState) => void): AccountSession {
+export function registerAccountIpc(broadcast: (channel: string, payload: AccountState | CloudAddressState) => void): AccountSession {
+  const cloudAddress = new DeviceCloudAddress(join(app.getPath('userData'), 'cloud-address.json'), process.env.SOLUS_CLOUD_URL)
   const session = new AccountSession({
-    cloudOrigin: resolveCloudOrigin(),
+    cloudOrigin: cloudAddress.current().origin,
     fetch: (input, init) => fetch(input, init),
     now: () => Date.now(),
     store: new AccountStore(join(app.getPath('userData'), 'account.bin'), secureStorage(safeStorage)),
     authorizer: loopbackAuthorizer({ openExternal: (url) => shell.openExternal(url) }),
+    machineName: hostDisplayName(),
     onStateChange: (state) => broadcast(ACCOUNT_CHANNELS.stateChanged, state),
   })
 
@@ -120,6 +119,15 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
   ipcMain.on(ACCOUNT_CHANNELS.cancelSignIn, () => session.cancelSignIn())
   ipcMain.handle(ACCOUNT_CHANNELS.signOut, () => session.signOut())
   ipcMain.handle(ACCOUNT_CHANNELS.retryVerify, () => session.verify('retry'))
+  // The Solus Cloud address of this computer: read by the renderer, changed only while signed out.
+  ipcMain.handle(ACCOUNT_CHANNELS.cloudAddress, () => cloudAddress.current())
+  ipcMain.handle(ACCOUNT_CHANNELS.setCloudAddress, (_event, rawAddress) => {
+    const address = cloudAddressInputSchema.safeParse(rawAddress)
+    if (!address.success) return INVALID_CLOUD_ADDRESS
+    const change = cloudAddress.change(address.data, session)
+    if (change.ok) broadcast(ACCOUNT_CHANNELS.cloudAddressChanged, change.address)
+    return change
+  })
   // Personal Uplink on the account's behalf; the renderer gets answers, never the token.
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkDirectory, () => listDirectory(session))
   ipcMain.handle(ACCOUNT_CHANNELS.accountAccessToken, (_event, rawResource, rawOptions) => {
@@ -252,6 +260,15 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
     const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
     const hostId = hostIdSchema.safeParse(rawHostId)
     return organizationId.success && hostId.success ? settings.hostPolicyUnassign(organizationId.data, hostId.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.organizationSettingsGet, (_event, rawOrganizationId) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    return organizationId.success ? settings.organizationSettingsGet(organizationId.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.organizationSettingsPatch, (_event, rawOrganizationId, rawRequest) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    const request = organizationSettingsPatchRequestSchema.safeParse(rawRequest)
+    return organizationId.success && request.success ? settings.organizationSettingsPatch(organizationId.data, request.data) : INVALID_REQUEST
   })
 
   // The keychain is not reliably readable before `ready`, and this module is

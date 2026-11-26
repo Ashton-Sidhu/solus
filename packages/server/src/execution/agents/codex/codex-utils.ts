@@ -20,6 +20,7 @@ import { sessionIdOfThread } from '../../../data/sessions/session-lineage'
 import { storeToolResultImages } from '../../../data/assets/transcript-images'
 import { toolResultMedia } from '../../../data/assets/tool-result-media'
 import { isAuthFailureMessage } from '../auth-failure'
+import { SOLUS_DIRECT_MCP_SERVER, SOLUS_MCP_SERVER } from './codex-solus-tools'
 
 const stringValueSchema = z.string()
 const finiteNumberSchema = z.number().finite()
@@ -751,6 +752,8 @@ export function codexToolNameForItem(item: { type?: string; name?: string; serve
       return 'Edit'
     case 'mcpToolCall':
     case 'mcp_tool_call':
+      // A Solus tool Codex never defers comes from a second server; it is the same tool.
+      if (item.server === SOLUS_DIRECT_MCP_SERVER) return item.tool ? `${SOLUS_MCP_SERVER}.${item.tool}` : 'MCP Tool'
       return item.server && item.tool ? `${item.server}.${item.tool}` : item.name || 'MCP Tool'
     case 'dynamicToolCall':
       return item.namespace ? `${item.namespace}.${item.tool}` : item.tool || item.name || 'Tool'

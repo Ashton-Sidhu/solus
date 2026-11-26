@@ -42,28 +42,6 @@ export function metricsDbPath(): string {
   return join(solusDir(), 'metrics.db')
 }
 
-/** node:sqlite spells the read-only open flag `readOnly`; bun:sqlite, which
- *  stands in for it under unit tests, reads `readonly` and rejects the other. */
-interface ReadOnlyOpenOptions {
-  readOnly?: true
-  readonly?: true
-}
-
-function openReadOnly(path: string): DatabaseSync {
-  try {
-    return new DatabaseSync(path, { readOnly: true })
-  } catch (error) {
-    // bun:sqlite (standing in for node:sqlite under unit tests) spells the
-    // open flag `readonly` and rejects the node spelling.
-    if (error instanceof TypeError) {
-      const openOptions: ReadOnlyOpenOptions = {}
-      openOptions.readonly = true
-      return new DatabaseSync(path, openOptions)
-    }
-    throw error
-  }
-}
-
 export function getMetricsDb(): DatabaseSync {
   if (metricsDb) return metricsDb
 
@@ -107,7 +85,7 @@ export function getReadOnlyMetricsDb(): DatabaseSync {
 
   getMetricsDb() // the file, schema, and views must exist before a read-only open
 
-  const openedDb = openReadOnly(metricsDbPath())
+  const openedDb = new DatabaseSync(metricsDbPath(), { readOnly: true })
   try {
     openedDb.exec('PRAGMA query_only = 1')
     openedDb.exec('PRAGMA busy_timeout = 2000')

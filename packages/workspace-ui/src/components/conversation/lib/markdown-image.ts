@@ -81,6 +81,17 @@ export function isMarkdownVideo(
 }
 
 /**
+ * The file name a missing image's placeholder shows, so the reader knows which
+ * file is gone. A stored asset's name is a hash, which tells the reader
+ * nothing, so it has none.
+ */
+export function markdownImageFileName(href: string, path: string | null, assetId: string | null): string | null {
+  if (assetId) return null;
+  const source = path ?? href.trim().split(/[?#]/, 1)[0];
+  return source.split(/[\\/]/).filter(Boolean).pop() ?? null;
+}
+
+/**
  * The scroll position that keeps the point a reader clicked under the pointer
  * when a fitted image grows to its actual size. `fraction` is where on the
  * fitted image the click landed (0–1); `pointerOffset` is how far the pointer

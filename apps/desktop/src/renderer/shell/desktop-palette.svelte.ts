@@ -1,6 +1,6 @@
 import { deviceCommands } from "@solus/workspace-ui/components/devices/lib/device-entry";
 import { sidebarViewCommand } from "@solus/workspace-ui/components/session/lib/sidebar-view-command";
-import { codebaseCommands, mcpCommands, settingsOwnerCommands, webhookCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
+import { codebaseCommands, mcpCommands, settingsOwnerCommands, sharingAccessCommands, webhookCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
 import { repositoryCommands } from "@solus/workspace-ui/components/project-panel/lib/repository-commands";
 import TaskIcon from "@solus/workspace-ui/components/ui/TaskIcon.svelte";
 import { GitPullRequestIcon } from "@solus/workspace-ui/components/ui/octicons";
@@ -9,6 +9,7 @@ import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/u
 import { addOverSshPaletteCommand } from "@solus/workspace-ui/components/servers/lib/add-over-ssh-commands";
 import { addWslDistroPaletteCommands } from "@solus/workspace-ui/components/servers/lib/add-wsl-distro-commands";
 import { fleetPaletteCommands } from "@solus/workspace-ui/components/fleet/fleet-commands";
+import { sharingAccessRoute } from "@solus/workspace-ui/components/connections/lib/sharing-access";
 import {
   Plus as PlusIcon,
   GitCompareArrows as GitDiffIcon,
@@ -179,7 +180,7 @@ export function createDesktopPalette(
       });
     void session.worksStore.loadAll();
     void session.automationsStore.loadAll();
-    void session.tasksStore.ensureLoaded();
+    void session.issuesStore.ensureLoaded();
   }
 
   // Seed command set for the editor command palette. Intentionally a small,
@@ -258,7 +259,7 @@ export function createDesktopPalette(
     },
     {
       id: "new-session-in-task",
-      label: "New session in task",
+      label: "New session in issue",
       group: "General",
       icon: PlusIcon,
       hint: comboHint("global.new-session-in-task"),
@@ -267,11 +268,11 @@ export function createDesktopPalette(
     },
     {
       id: "new-session-without-task",
-      label: "New session without task",
+      label: "New session without issue",
       group: "General",
       icon: PlusIcon,
       hint: comboHint("global.new-session-without-task"),
-      keywords: ["create", "session", "tab", "no task"],
+      keywords: ["create", "session", "tab", "no issue", "no task"],
       run: () =>
         session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
     },
@@ -306,7 +307,7 @@ export function createDesktopPalette(
       keywords: ["keybindings", "keys"],
       run: () => session.showSettings("keybindings", "palette"),
     },
-    ...fleetPaletteCommands(() => session.showSettings("api-access", "palette")),
+    ...fleetPaletteCommands(() => session.showSettings("api-access", "palette"), (serverId) => session.router.navigate(sharingAccessRoute(serverId), { replace: false })),
     addOverSshPaletteCommand(),
     ...addWslDistroPaletteCommands(() => session.showSettings("api-access", "palette")),
     {
@@ -513,6 +514,7 @@ export function createDesktopPalette(
     commands.push(...settingsOwnerCommands(session));
     commands.push(sidebarViewCommand(settings));
     commands.push(...webhookCommands(session));
+    commands.push(...sharingAccessCommands(session));
     commands.push(...codebaseCommands(session));
     commands.push(...repositoryCommands(session));
     commands.push(...mcpCommands(session));
@@ -590,8 +592,8 @@ export function createDesktopPalette(
     // A task belongs to no project; the composer asks for its task source.
     commands.push({
       id: "create-task",
-      label: "Create task",
-      group: "Tasks",
+      label: "Create issue",
+      group: "Issues",
       icon: TaskIcon,
       hint: comboHint("global.new-task"),
       keywords: ["task", "create", "new", "todo", "issue"],
@@ -601,11 +603,11 @@ export function createDesktopPalette(
     // Open any existing task (opens its detail). Like the other parent
     // commands, surface this the instant the palette opens so it never waits on
     // the tasks provider; children stream in once the store loads.
-    const goToTaskChildren: Command[] = session.tasksStore.loaded
-      ? session.tasksStore.tasks.map((t) => ({
+    const goToTaskChildren: Command[] = session.issuesStore.loaded
+      ? session.issuesStore.tasks.map((t) => ({
           id: `go-to-task:${t.id}`,
           label: t.title,
-          group: "Tasks",
+          group: "Issues",
           icon: TaskIcon,
           keywords: ["task", t.reference ?? "", t.assignee ?? "", ...t.labels],
           run: () => session.goToTask(t.id),
@@ -613,7 +615,7 @@ export function createDesktopPalette(
       : [];
     commands.push({
       id: "go-to-task",
-      label: "Open task…",
+      label: "Open issue…",
       group: "View",
       icon: TaskIcon,
       keywords: ["task", "go", "open", "find", "jump", "issue", "ticket"],

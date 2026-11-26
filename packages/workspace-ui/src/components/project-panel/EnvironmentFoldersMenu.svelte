@@ -40,6 +40,7 @@
   import { openAgentSession } from "../conversation/agent-conversation/lib/agent-conversation";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import solusIcon from "../../../../../resources/icon.iconset/icon_32x32@2x.png";
+  import AppLogo from "../settings/AppLogo.svelte";
   import FileManagerIcon from "./FileManagerIcon.svelte";
   import type { ActionRowIcon } from "./MenuRow.svelte";
   import { useEnvironmentFolderReads } from "./lib/environment-folder-reads.svelte";
@@ -52,6 +53,7 @@
     type EnvironmentMenuSection,
   } from "./lib/environment-folders";
   import { codebaseMembersOn } from "./lib/git-repositories";
+  import { OpenInEditor } from "./lib/open-in-editor.svelte";
   import { treeAgentRows } from "./lib/rail-agents";
   import { addSessionFolder, errorText } from "./lib/repository-actions";
 
@@ -123,6 +125,9 @@
   const canChange = $derived(!!sessionId && canDriveSession(serverId, sessionId));
   const me = $derived(hosts.get(serverId)?.me);
   const mayReadFiles = $derived(me?.may("host.files.read") ?? true);
+  // Each folder opens in the editor of the "Open in" row, not in a terminal: the menu has "Open terminal".
+  const openIn = new OpenInEditor({ get sourceId() { return sourceId; }, get active() { return active; } });
+  const editorId = $derived(openIn.target !== "terminal" && openIn.canOpen ? openIn.target : null);
 
   const menu = $derived(
     environmentMenu({
@@ -134,6 +139,7 @@
       codebaseName: codebase?.name ?? null,
       isInCodebase: (path) => !!codebaseId && codebasesStore.codebasesOfFolder({ serverId, path }).some((each) => each.id === codebaseId),
       fileManagerName: fileManager ? fileManagerNameFor(fileManager) : null,
+      editorName: editorId ? (openIn.editor?.name ?? null) : null,
       // A terminal opens on the screen of the host: only the desktop app has one, for its own machine.
       canOpenTerminal: !!hosts.device?.hasDesktopHandlers && hostPolicy.isClientMachine(serverId),
       canAddFolder: canChange,
@@ -146,11 +152,12 @@
     detach: DetachIcon,
     "add-to-codebase": AddFolderIcon,
     "track-with-git": GitIcon,
-  } satisfies Record<Exclude<EnvironmentFolderAction, "open-in-solus" | "open-in-file-manager">, ActionRowIcon>;
+  } satisfies Record<Exclude<EnvironmentFolderAction, "open-in-solus" | "open-in-file-manager" | "open-in-editor">, ActionRowIcon>;
 
   function isActionAllowed(section: EnvironmentMenuSection, action: EnvironmentFolderAction): boolean {
     if (action === "open-in-solus") return mayReadFiles && (section.place !== "working" || !!onOpenFiles);
     if (action === "open-in-file-manager") return true;
+    if (action === "open-in-editor") return !!editorId && openIn.mayOpen(editorId);
     if (action === "open-terminal") return me?.may("host.terminal") ?? false;
     return action === "track-with-git" ? (me?.may("host.git.write") ?? true) : canChange;
   }
@@ -195,6 +202,8 @@
       openInSolus(section);
     } else if (action === "open-in-file-manager") {
       void openInFileManager(section);
+    } else if (action === "open-in-editor") {
+      if (editorId) void openIn.open(editorId, [section.place === "working" ? openIn.workingFolder : section.path]);
     } else if (action === "open-terminal") {
       // The terminal opens at the folder of the section, on the host of the session.
       gitActionsFor(sourceId, session, environmentStore, pullRequests.projects, { path: section.path, repositoryPath: section.repositoryPath }).openTerminal();
@@ -252,6 +261,8 @@
           <img src={solusIcon} alt="" class="size-4 shrink-0" />
         {:else if item.action === "open-in-file-manager"}
           {#if fileManager}<FileManagerIcon kind={fileManager} />{/if}
+        {:else if item.action === "open-in-editor"}
+          {#if editorId}<AppLogo id={editorId} kind="editor" size={16} />{/if}
         {:else}
           {@const OptionIcon = OPTION_ICON[item.action]}
           <OptionIcon />

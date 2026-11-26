@@ -98,13 +98,13 @@ export interface ActivityWindow {
 }
 
 /** A subject's activity, oldest first. With `limit`, the newest `limit` rows; with `window`, only the rows inside it. */
-export function activityFor(scope: RecordScope, subject: ActivitySubject, options?: { limit?: number; window?: ActivityWindow; db?: Db }): Promise<Activity[]>
+export function activityFor(scope: RecordScope, subject: ActivitySubject, options?: { limit?: number; kind?: ActivityKind['kind']; window?: ActivityWindow; db?: Db }): Promise<Activity[]>
 /** What one user did, or what was aimed at them, since `since`, oldest first (the notifications hub, D15). */
 export function activityFor(scope: RecordScope, query: ActivityUserQuery, options?: { limit?: number; db?: Db }): Promise<Activity[]>
 export async function activityFor(
   scope: RecordScope,
   target: ActivitySubject | ActivityUserQuery,
-  options: { limit?: number; window?: ActivityWindow; db?: Db } = {},
+  options: { limit?: number; kind?: ActivityKind['kind']; window?: ActivityWindow; db?: Db } = {},
 ): Promise<Activity[]> {
   const where = 'userId' in target
     ? sql`created_by = ${userKey(target.userId)} AND at >= ${target.since}`
@@ -112,14 +112,15 @@ export async function activityFor(
       ? sql`user_id = ${userKey(target.targetUserId)} AND at >= ${target.since}`
       : sql`subject_kind = ${target.kind} AND subject_id = ${target.id}`
   // A history window or page reads only the activity inside it (plans/029 §8); the index on `(subject, at)` serves the range.
-  const inWindow = [
+  const filters = [
+    ...(options.kind ? [sql`kind = ${options.kind}`] : []),
     ...(options.window?.from !== undefined && Number.isFinite(options.window.from) ? [sql`at >= ${options.window.from}`] : []),
     ...(options.window?.until !== undefined && Number.isFinite(options.window.until) ? [sql`at < ${options.window.until}`] : []),
   ]
   const limit = options.limit ? sql`LIMIT ${options.limit}` : sql``
   const rows = z.array(activityRowSchema).parse(await (options.db ?? getDatabase()).all(sql`
     SELECT id, subject_kind, subject_id, at, turn_id, by, data FROM ${activityTable}
-    WHERE ${sql.join([where, scopeClause(scope), ...inWindow], sql` AND `)}
+    WHERE ${sql.join([where, scopeClause(scope), ...filters], sql` AND `)}
     ORDER BY at DESC, id DESC
     ${limit}
   `))
@@ -165,7 +166,7 @@ export async function sessionForkActivity(scope: RecordScope, sessionId: string,
 
 const activityRowSchema = z.object({
   id: z.string(),
-  subject_kind: z.enum(['session', 'task', 'work']),
+  subject_kind: z.enum(['session', 'issue', 'work']),
   subject_id: z.string(),
   at: z.coerce.number(),
   turn_id: z.string().nullable(),

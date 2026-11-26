@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import postgres from 'postgres'
+import { LINK_CODE_ENV, MACHINE_ADDRESS_ENV } from '@solus/contracts/uplink'
 import { LAB_BUILD_ENTRY } from './build'
 import type { LabIssuer } from './issuer'
 
@@ -84,8 +85,9 @@ export async function bootLabSolusApi(options: LabSolusApiOptions): Promise<LabS
     SOLUS_API_SIGNING_KEY: randomBytes(32).toString('base64'),
     DATABASE_URL: options.engine === 'postgres' ? options.databaseUrl : '',
   }
-  // No managed link, no host token: a workspace service is nobody's machine.
-  delete env.SOLUS_HOST_LINK
+  // No link code, no host token: a workspace service is nobody's machine, and it enrolls nowhere.
+  delete env[LINK_CODE_ENV]
+  delete env[MACHINE_ADDRESS_ENV]
   const logDir = join(dataDir, 'lab')
   mkdirSync(logDir, { recursive: true })
   const logPath = join(logDir, 'workspace.log')

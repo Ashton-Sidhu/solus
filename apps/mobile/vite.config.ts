@@ -5,11 +5,14 @@ import "vite-plus/test/config";
 
 const reactTests = [
   "src/solus/ConversationCards.test.tsx",
+  "src/features/home/first-layout-items.test.tsx",
+  "src/features/threads/CloudMachineCard.test.tsx",
   "src/features/browser/LocalPreviewRouteScreen.test.tsx",
   "src/features/threads/ThreadGuestShareSheet.test.tsx",
   "src/features/threads/ThreadQueueControl.test.tsx",
   "src/features/threads/useSubmitAfterNativeImages.test.tsx",
   "src/features/threads/git/GitBranchesSheet.test.tsx",
+  "src/features/threads/git/GitCommitSheet.test.tsx",
   "src/features/threads/new-task-flow-provider.test.tsx",
   "src/features/threads/NewTaskRouteScreen.test.tsx",
   "src/features/threads/ThreadHeader.test.tsx",
@@ -59,6 +62,8 @@ const reactTests = [
   "src/features/terminal/useTerminalExitNavigation.test.tsx",
   "src/features/threads/use-thread-list-now.test.tsx",
   "src/features/threads/use-composer-command-menu.select.test.tsx",
+  "src/features/layout/useCollapsedSplitColumn.test.tsx",
+  "src/features/voice-input/useVoiceInputController.test.tsx",
   "src/features/threads/useSidebarRowThreadKey.test.tsx",
   "src/features/threads/useThreadListV2.test.tsx",
   "src/features/home/home-list-options.test.tsx",

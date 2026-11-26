@@ -47,7 +47,7 @@ describe('the route list', () => {
   })
 
   test('a managed host lists only its tunnel, and nothing there can be removed', () => {
-    const holder: RouteHolder = { routes: [pairing, tunnel, { ...tunnel, url: 'https://b.tunnel.solus.sh' }], uplink: { kind: 'managed' } }
+    const holder: RouteHolder = { routes: [pairing, tunnel, { ...tunnel, url: 'https://b.tunnel.solus.sh' }], uplink: { kind: 'cloud' } }
     const rows = routeRows(holder, viewer)
     expect(rows.map((row) => row.kind)).toEqual(['tunnel', 'tunnel'])
     expect(rows.some((row) => row.canRemove)).toBe(false)
@@ -136,7 +136,7 @@ describe('adding a route', () => {
     const { fetchImpl, requests } = network({})
     expect(await checkRouteToAdd(fetchImpl, input({ address: 'ftp://box' }))).toEqual({ ok: false, refusal: 'invalid-address' })
     expect(await checkRouteToAdd(fetchImpl, input({ address: pairing.url }))).toEqual({ ok: false, refusal: 'already-saved' })
-    expect(await checkRouteToAdd(fetchImpl, input({ holder: { routes: [tunnel], uplink: { kind: 'managed' } } }))).toEqual({ ok: false, refusal: 'managed-host' })
+    expect(await checkRouteToAdd(fetchImpl, input({ holder: { routes: [tunnel], uplink: { kind: 'cloud' } } }))).toEqual({ ok: false, refusal: 'managed-host' })
     expect(await checkRouteToAdd(fetchImpl, input({ address: 'http://192.168.1.9:3000', viewer: { clientOrigin: 'https://app.solus.sh' } }))).toEqual({ ok: false, refusal: 'mixed-content' })
     expect(await checkRouteToAdd(fetchImpl, input({ identity: { installationId: INSTALLATION } }))).toEqual({ ok: false, refusal: 'no-identity-key' })
     expect(requests).toEqual([])
@@ -164,7 +164,7 @@ describe('adding a route', () => {
 
 describe('routes on web and desktop', () => {
   const NOW = 100
-  const listed = { hostId: 'cloud-1', installationId: INSTALLATION, label: 'Studio', routes: [{ kind: 'tunnel' as const, url: tunnel.url }], kind: 'personal' as const, category: 'personal' as const, organizationIds: [] }
+  const listed = { hostId: 'cloud-1', installationId: INSTALLATION, label: 'Studio', routes: [{ kind: 'tunnel' as const, url: tunnel.url }], kind: 'personal' as const, organizationIds: [] }
 
   test('a directory read keeps what the person chose', async () => {
     const directory = fakeDirectory('https://app.solus.sh')

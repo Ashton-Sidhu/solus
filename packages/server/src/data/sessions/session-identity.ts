@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { RecordPublication } from '@solus/contracts/types'
 import { getDatabase, type Db } from '../../db/database'
 import { LOCAL_ORGANIZATION_ID } from '../../admission/principal'
-import { provisionedOrganizationId } from '../../host/host-category'
+import { cloudOrganizationId } from '../../host/machine-kind'
 import { hostUserKey } from '../../host/host-user'
 import { session } from './schema'
 
@@ -40,7 +40,7 @@ const identityRowSchema = z.object({
 
 /** The organization this machine's own records start in when nothing else named one: a managed machine's, else Local. */
 export function machineOrganizationId(): string {
-  return provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID
+  return cloudOrganizationId() ?? LOCAL_ORGANIZATION_ID
 }
 
 /** The home a row this machine makes for a session nobody started here gets: the host's user, in the machine's organization. */

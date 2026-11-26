@@ -64,7 +64,8 @@ function laptop() {
   put(codex, 'skills/review/SKILL.md', 'Codex review skill')
   put(codex, 'skills/.system/builtin/SKILL.md')
   put(codex, 'auth.json', 'token')
-  const homes = (provider: SeatProvider) => provider === 'claude-code' ? [claude] : [codex, agents]
+  // The laptop has no Antigravity skills of its own.
+  const homes = (provider: SeatProvider) => ({ 'claude-code': [claude], codex: [codex, agents], antigravity: [] })[provider]
   return { homes }
 }
 
@@ -123,7 +124,7 @@ function fakeIntegrations(hostHas: HostRecord[] = []) {
 function seat(sourceHomes: (provider: SeatProvider) => string[] = () => [], hostIntegrations: HostRecord[] = [], account?: ProfileAccount) {
   const root = temporaryDirectory()
   const homeFor = (provider: SeatProvider) => {
-    const home = join(root, provider === 'claude-code' ? 'claude' : 'codex')
+    const home = join(root, { 'claude-code': 'claude', codex: 'codex', antigravity: 'antigravity' }[provider])
     mkdirSync(home, { recursive: true })
     return home
   }

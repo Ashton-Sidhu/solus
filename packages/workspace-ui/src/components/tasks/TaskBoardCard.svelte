@@ -83,8 +83,8 @@
  ? ''
  : 'shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_-1px_rgba(24,20,16,.10),0_6px_14px_-10px_rgba(24,20,16,.20)]'}"
   title={canReorder
-    ? `Open task · drag to reorder · ${moveKey}↑↓ ${moveKey}←→ move · 1-9 move to that column`
-    : "Open task · drag to change column · clear the search to reorder"}
+    ? `Open issue · drag to reorder · ${moveKey}↑↓ ${moveKey}←→ move · 1-9 move to that column`
+    : "Open issue · drag to change column · clear the search to reorder"}
   onclick={onSelect}
   onkeydown={(event) => {
     // The page also listens for Enter to open its selected row, so a key this

@@ -1,7 +1,10 @@
-import type { AgentId, ContextCompaction, ExchangeProgress, PromptImageRef, PromptSender, QuestionAnswer, ToolResultAudio, ToolResultImage } from './types'
+import type { AgentId, ContextCompaction, ExchangeProgress, SessionDescription, WatchSessionResult, PromptImageRef, PromptSender, QuestionAnswer, ToolResultAudio, ToolResultImage } from './types'
 import type { SessionReport } from './session-exchange'
 import type { SecretOutcomeRecord } from './secret-request'
 import type { Activity } from './activity'
+import type { User } from './user'
+import type { ArtifactLayout } from './artifact-page'
+import type { SavedMessageBody, SavedToolBody } from './session-feed-item'
 
 /** Opaque host cursor. A page is the `turnLimit` newest user turns before the
  * cursor, and it starts at a user turn. Once it holds `HISTORY_PAGE_ROWS` rows
@@ -26,8 +29,16 @@ export interface SessionHistoryPageRequest {
   deferArtifactHtml?: boolean
   /** Hashes of groups of rows held by this reader. Only these clients receive a historyBlocks manifest. */
   knownHistoryBlocks?: string[]
+  /** Join the settled session when this authorized opening page is still current. */
+  watchIfHistoryRevision?: string
+  /** Include the description and join the requesting reader to a settled session. Opening page only. */
+  openSession?: boolean
   /** Include layout for HTML pages inside assistant replies. */
   replyLayout?: boolean
+  /** Return composer file paths separately from the text of the prompt. */
+  promptFiles?: boolean
+  /** Send T3 turn-item bodies alongside Solus history metadata. */
+  turnItems?: boolean
 }
 
 /** The rows after which a history page ends at its next turn start. */
@@ -83,6 +94,12 @@ export interface HistoryBlock {
 }
 
 export interface SessionHistoryPage {
+  /** Hash of the ordered blocks, earlier cursor and turn diffs. Stable across host restarts. */
+  historyRevision?: string
+  /** Live state for this connection only. Never persist it with the page. */
+  resumedWatch?: WatchSessionResult
+  /** Connection-scoped opening metadata. Never persist it with the page. */
+  openingDescription?: SessionDescription
   historyBlocks?: HistoryBlock[]
   messages: WireSessionLoadMessage[]
   before: string | null
@@ -115,6 +132,9 @@ export interface SessionLoadMessage {
   imageAttachmentRefs?: PromptImageRef[]
   /** The agent or automation that sent a user turn, from the host's record. */
   sender?: PromptSender
+  /** The person who sent a user turn, from the host's record. Absent on a turn
+   *  from before the host kept it, and on one that no person wrote. */
+  author?: User
   /** Images a tool returned: on a `tool_result` row, or on a `tool` row that
    *  carries its own output (Codex). */
   toolImages?: ToolResultImage[]
@@ -136,6 +156,8 @@ export interface SessionLoadMessage {
   /** Set on sub-agent tool-result/text lines so history replay can divert them
    *  into the parent tool's `subMessages` instead of the flat thread. */
   parentToolUseId?: string
+  /** Stable provider task across calls that resume the same agent. */
+  providerTaskId?: string
   /** A host-recorded activity merged into the history by its time (plans/012 §5),
    *  or a provider handoff the lineage read rebuilt as `agent_switched`. */
   activity?: Activity
@@ -180,8 +202,22 @@ export interface ReplyHtmlLayout {
   heights?: Array<readonly [width: number, height: number]>
 }
 
+/** A height a client measured for a reply's HTML frame at one frame width.
+ *  `attachmentId` is the frame's id from the page's `replyHtmlLayout`. */
+export interface ArtifactFrameHeightReport {
+  sessionId: string
+  attachmentId: string
+  width: number
+  height: number
+}
+
 /** History row shape allowed across the host-to-client boundary. */
 export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolResultIsError'> {
+  /** On projected user rows, content holds only the typed text. */
+  attachedFilePaths?: string[]
+  /** When requested, a message's text travels in this body and content is empty.
+   * A dynamic tool's canonical JSON input can travel here in place of toolInput. */
+  turnItem?: SavedMessageBody | SavedToolBody
   replyHtmlLayout?: ReplyHtmlLayout[]
   /** Existing question-tool output, retained for answer details on reload. */
   questionResult?: string
@@ -189,6 +225,8 @@ export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolRe
   secretOutcomes?: SecretOutcomeRecord[]
   /** Content key for a tool input left on the host until its summary is opened. */
   toolInputKey?: string
+  /** Image read by this saved call, before its full input was deferred. */
+  viewedImagePath?: string
   /** A subagent's answer, separated from ordinary tool output. */
   report?: string
   status?: 'ok' | 'error'
@@ -198,8 +236,9 @@ export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolRe
    *  one for each exchange the row opened. A `start_sessions` call opens one for each session. */
   agentConversationResults?: AgentConversationResultProjection[]
   /** Stable work identity from a successful artifact tool result, and the
-   *  content version the call wrote, when the receipt names one. */
-  artifactWorkRef?: { workId: string; title: string; contentVersion?: number }
+   *  content version the call wrote, when the receipt names one. `layout` is
+   *  the frame the host measured for that version, on pages that ask for reply layout. */
+  artifactWorkRef?: { workId: string; title: string; contentVersion?: number; layout?: ArtifactLayout }
   /** A legacy update receipt can identify success without naming the work type. */
   workUpdateSucceeded?: boolean
   /** Saved content version from a successful update receipt. */

@@ -5,7 +5,7 @@
 
   interface Props {
     ref: {
-      taskId: string;
+      issueId: string;
       title: string;
       url: string | null;
     };
@@ -14,10 +14,10 @@
 
   let { ref, skipMotion = false }: Props = $props();
   const session = getWorkspaceContext();
-  const isOpen = $derived(session.router.params("task")?.taskId === ref.taskId);
+  const isOpen = $derived(session.router.params("task")?.taskId === ref.issueId);
 
   function open() {
-    session.goToTask(ref.taskId);
+    session.goToTask(ref.issueId);
   }
 </script>
 
@@ -25,11 +25,11 @@
   title={ref.title}
   type="task"
   actionLabel="Open"
-  ariaLabel={`Open task: ${ref.title}`}
+  ariaLabel={`Open issue: ${ref.title}`}
   onOpen={open}
   open={isOpen}
   {skipMotion}
 >
   {#snippet glyph()}<SquareIcon />{/snippet}
-  {#snippet rail()}{ref.taskId}{/snippet}
+  {#snippet rail()}{ref.issueId}{/snippet}
 </TranscriptCard>

@@ -10,7 +10,7 @@ import type { ShareManager } from '../../sharing/share-manager'
 import { apiScope, requireResource, requireScope } from '../workspace/context'
 import { activityFor } from './activity'
 
-const READ_SCOPE = { session: 'sessions:read', task: 'tasks:read', work: 'works:read' } as const satisfies Record<ActivitySubject['kind'], SolusApiScope>
+const READ_SCOPE = { session: 'sessions:read', issue: 'issues:read', work: 'works:read' } as const satisfies Record<ActivitySubject['kind'], SolusApiScope>
 
 /**
  * Activity on the record API (plans/012 §5, stage 8). A record's activity is
@@ -26,7 +26,7 @@ export class ActivityApiOperations {
     const query = workspaceActivityQuerySchema.parse(input)
     requireScope(context, READ_SCOPE[subject.kind])
     // A task is not a Solus resource: the activity of its attachments is read in the caller's scope.
-    if (subject.kind !== 'task') await requireResource(this.shares, context, { kind: subject.kind, id: subject.id }, 'read')
+    if (subject.kind !== 'issue') await requireResource(this.shares, context, { kind: subject.kind, id: subject.id }, 'read')
     return { items: await activityFor(apiScope(context), subject, { limit: query.limit }) }
   }
 
@@ -52,7 +52,7 @@ export class ActivityApiOperations {
 
   private async mayOpen(context: WorkspaceRequestContext, subject: ActivitySubject): Promise<boolean> {
     if (!context.scopes.includes(READ_SCOPE[subject.kind])) return false
-    if (subject.kind === 'task') return true
+    if (subject.kind === 'issue') return true
     try {
       await requireResource(this.shares, context, { kind: subject.kind, id: subject.id }, 'read')
       return true

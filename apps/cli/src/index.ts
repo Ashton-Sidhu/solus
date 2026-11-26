@@ -1,12 +1,14 @@
 import { runHostCommand } from './lib/hosts'
+import { runMcpCommand } from './lib/mcp'
 import { superviseServer } from './lib/server-supervisor'
 import { spawn } from 'child_process'
 import type { ChildProcess } from 'child_process'
 import { existsSync, mkdirSync } from 'fs'
 import { dirname, join } from 'path'
 import { createAdminHeaders, readSigningKey } from './lib/admin-auth'
-import { connectHost, connectSelfTest, connectStatus, disconnectHost, removeOrganization } from './lib/connect'
-import { describeConnection, describeSelfTest, onboard, type OnboardingDeps } from './lib/onboarding'
+import { parseMachineAddress, readCloudMachineRecord } from './lib/cloud-machine'
+import { connectHost, connectSelfTest, connectStatus, disconnectHost } from './lib/connect'
+import { describeCloudMachine, describeConnection, describeSelfTest, onboard, takeSetupLinkCode, type OnboardingDeps } from './lib/onboarding'
 import { followFile, readLastLines } from './lib/logs'
 import { setUpProvider } from './lib/provider-login'
 import { isInteractive, terminalPrompter } from './lib/prompts'
@@ -38,14 +40,17 @@ interface StartOptions extends CommonOptions {
 }
 
 interface SetupOptions extends CommonOptions {
-  /** A link code from Solus; links the server, or attaches it to an organization, once the service is healthy. */
+  /** A link code from Solus; connects the server once the service is healthy. */
   link?: string
+  /** This machine's own HTTPS address: the internet reaches the server there, with no tunnel. */
+  address?: string
   /** The account plane to sign in to when no code names one; the default is Solus Cloud. */
   cloudUrl?: string
 }
 
 interface ConnectCommandOptions extends CommonOptions {
   code?: string
+  address?: string
   cloudUrl?: string
   noOpen: boolean
 }
@@ -101,6 +106,9 @@ async function main(argv: string[]): Promise<void> {
     case 'pair':
       await pair(parsePairOptions(rest))
       return
+    case 'mcp':
+      await runMcpCommand(rest, console.log)
+      return
     case 'connect':
       await connect(rest)
       return
@@ -140,22 +148,31 @@ ${DESKTOP_USAGE}`)
   console.log(`solus ${packageJson.version}
 
 Usage:
-  solus setup [--data-dir PATH] [--link CODE] [--cloud-url URL]
+  solus setup [--data-dir PATH] [--link CODE] [--address URL] [--cloud-url URL]
+                     --link: a code from Solus; it decides whether this is your own machine or a cloud host of an organization.
+                            Or put the code in SOLUS_LINK_CODE, which keeps it out of the process arguments
+                     --address: the HTTPS address of this machine; without it the server gets a Cloudflare tunnel
   solus start [--data-dir PATH] [--host HOST] [--port PORT] [--remote-access off|private|any]
   solus status [--data-dir PATH]
   solus service <start|stop|restart|uninstall|status> [--data-dir PATH]
   solus logs [--data-dir PATH] [--lines N]
   solus host pair <url> [--code CODE | --code-file PATH] [--label NAME] [--data-dir PATH]
                      With no code, asks that host to approve this one and prints the check code
+  solus host add-ssh <user@host> [--identity-file PATH] [--fix-key-permissions] [--json] [--data-dir PATH]
+                     Adds a machine this host reaches over SSH; the key path is on this host
   solus host list [--json] [--data-dir PATH]
   solus host remove <installation-id> [--data-dir PATH]
   solus host approvals [--json] [--data-dir PATH]
   solus host approve <check-code> [--data-dir PATH]
   solus host deny <check-code> [--data-dir PATH]
   solus pair [--data-dir PATH] [--tailscale] [--tailscale-serve-port N]
-  solus connect [--data-dir PATH] [--code CODE] [--cloud-url URL] [--no-open]
+  solus mcp [--data-dir PATH]
+                     Prints the MCP addresses and the commands that connect Claude Code and Codex
+  solus mcp code [--access read|write|full] [--data-dir PATH]
+                     Prints a one-time pairing code that approves an outside app (default access: write)
+  solus connect [--data-dir PATH] [--code CODE] [--address URL] [--cloud-url URL] [--no-open]
+                     On a registered server, --address changes how the internet reaches it
   solus connect status [--data-dir PATH] [--json]
-  solus connect remove ORGANIZATION_ID [--data-dir PATH]
   solus connect unlink [--data-dir PATH]
   solus auth session create --json [--device-label LABEL] [--data-dir PATH]
   solus git-credential <get|store|erase> [--data-dir PATH] [--delegation DEVICE_ID | --member-home]
@@ -167,17 +184,18 @@ Usage:
 }
 
 /**
- * One command from a fresh install to a ready server (plans/009-organization-vms.md
- * §5): start the service, then connect it — a link code decides by itself; a
- * terminal asks how the server will be used and offers provider sign-in; without
- * either, the pairing details are printed. Running it again resumes: the service
- * install is idempotent and a linked server is not linked twice.
+ * One command from a fresh install to a ready server
+ * (plans/034-one-cloud-machine-kind.md): start the service, then connect it — a link
+ * code decides by itself what the server is, and `--address` says where the internet
+ * reaches it; a terminal asks how the server will be used and offers provider
+ * sign-in; without either, the pairing details are printed. Running it again resumes:
+ * the service install is idempotent and a linked server is not linked twice.
  */
 async function setup(opts: SetupOptions): Promise<void> {
   const paths = runtimePaths(opts.dataDir)
   await runSetup(paths, (line) => console.log(line))
   console.log('')
-  await withOnboarding(paths, (deps) => onboard({ dataDir: opts.dataDir, cloudUrl: opts.cloudUrl, link: opts.link, mode: 'setup' }, deps))
+  await withOnboarding(paths, (deps) => onboard({ dataDir: opts.dataDir, cloudUrl: opts.cloudUrl, link: opts.link, address: opts.address, mode: 'setup' }, deps))
 }
 
 async function withOnboarding(paths: RuntimePaths, run: (deps: OnboardingDeps) => Promise<void>): Promise<void> {
@@ -188,6 +206,7 @@ async function withOnboarding(paths: RuntimePaths, run: (deps: OnboardingDeps) =
       log: (line) => console.log(line),
       connect: connectHost,
       status: connectStatus,
+      cloudMachine: readCloudMachineRecord,
       pairLines: () => pairLines(paths, { dataDir: paths.dataDir, tailscale: false, tailscaleServePort: 443 }),
       setUpProvider,
     })
@@ -254,6 +273,12 @@ async function connect(args: string[]): Promise<void> {
   const subcommand = args[0]
   if (subcommand === 'status') {
     const opts = parseConnectStatusOptions(args.slice(1))
+    // A cloud host refuses the local socket; its records in the data directory say what it is.
+    const cloudMachine = readCloudMachineRecord(opts.dataDir)
+    if (cloudMachine) {
+      console.log(opts.json ? JSON.stringify({ kind: 'cloud', live: false, ...cloudMachine }) : describeCloudMachine(cloudMachine).join('\n'))
+      return
+    }
     const status = await connectStatus(opts.dataDir)
     const test = await connectSelfTest(opts.dataDir)
     console.log(opts.json ? JSON.stringify({ ...status, ...test }) : [...describeConnection(status), '', ...describeSelfTest(test)].join('\n'))
@@ -264,22 +289,14 @@ async function connect(args: string[]): Promise<void> {
     const uplink = await disconnectHost(dataDir)
     console.log(uplink.link.linked
       ? describeConnection(await connectStatus(dataDir)).join('\n')
-      : 'Solus: not linked. The internet no longer reaches this server; it stays registered to your account and its organizations. Remove it on the Devices page to end that.')
-    return
-  }
-  if (subcommand === 'remove') {
-    const organizationId = args[1]
-    if (!organizationId || organizationId.startsWith('-')) throw new Error('Usage: solus connect remove ORGANIZATION_ID')
-    const dataDir = parseCommonOptions(args.slice(2)).dataDir
-    const standing = await removeOrganization(dataDir, organizationId)
-    console.log(describeConnection({ uplink: (await connectStatus(dataDir)).uplink, standing }).join('\n'))
+      : 'Solus: not linked. The internet no longer reaches this server; it stays registered to your account. Remove it on the Devices page to end that. To link it again, run `solus connect` for a tunnel, or `solus connect --address URL` for its own HTTPS address.')
     return
   }
   if (subcommand && !subcommand.startsWith('-')) {
-    throw new Error('Unknown connect command. Expected: solus connect, status, remove, or unlink')
+    throw new Error('Unknown connect command. Expected: solus connect, status, or unlink')
   }
   const opts = parseConnectOptions(args)
-  await withOnboarding(runtimePaths(opts.dataDir), (deps) => onboard({ dataDir: opts.dataDir, cloudUrl: opts.cloudUrl, link: opts.code, noOpen: opts.noOpen, mode: 'connect' }, deps))
+  await withOnboarding(runtimePaths(opts.dataDir), (deps) => onboard({ dataDir: opts.dataDir, cloudUrl: opts.cloudUrl, link: opts.code, address: opts.address, noOpen: opts.noOpen, mode: 'connect', isDesktopApp: isDesktopCli() }, deps))
 }
 
 async function start(opts: StartOptions): Promise<void> {
@@ -309,6 +326,7 @@ async function logs(opts: LogsOptions): Promise<void> {
 }
 
 async function pair(opts: PairOptions): Promise<void> {
+  if (readCloudMachineRecord(opts.dataDir)) throw new Error('A cloud host has no pairing code. Members of its organization reach it through Solus.')
   console.log((await pairLines(runtimePaths(opts.dataDir), opts)).join('\n'))
 }
 
@@ -468,6 +486,7 @@ function parseConnectOptions(args: string[]): ConnectCommandOptions {
     '--cloud-url': { value: (value) => { opts.cloudUrl = value } },
     '--no-open': { set: () => { opts.noOpen = true } },
     '--code': { value: (value) => { opts.code = value.trim() } },
+    '--address': { value: (value) => { opts.address = parseMachineAddress(value) } },
   }, (arg) => new Error(`Unknown connect option: ${arg}`))
   return opts
 }
@@ -477,8 +496,10 @@ function parseSetupOptions(args: string[]): SetupOptions {
   parseFlags(args, {
     '--data-dir': { value: (value) => { opts.dataDir = value } },
     '--link': { value: (value) => { opts.link = value.trim() } },
+    '--address': { value: (value) => { opts.address = parseMachineAddress(value) } },
     '--cloud-url': { value: (value) => { opts.cloudUrl = value } },
   }, (arg) => new Error(`Unknown setup option: ${arg}`))
+  opts.link = takeSetupLinkCode(opts.link, process.env)
   return opts
 }
 

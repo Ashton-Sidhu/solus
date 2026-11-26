@@ -13,11 +13,14 @@ import {
   hostPolicySummarySchema,
   organizationPolicyPath,
   organizationPolicyResponseSchema,
+  organizationSettingsPath,
+  organizationSettingsResponseSchema,
   policyConflictBodySchema,
   policyHostSchema,
   policyRejectedBodySchema,
   type HostPolicyAssignRequest,
   type HostPolicyCreateRequest,
+  type OrganizationSettingsPatchRequest,
   type PolicyWriteRequest,
 } from '@solus/contracts/policy-api'
 import type { AccountSettingsResult, NativeSolusAPI, PolicyApiResult, SettingsRequestFailure } from '@solus/contracts/host-api'
@@ -46,6 +49,8 @@ export const POLICY_REQUEST_METHODS = [
   'hostPolicyDelete',
   'hostPolicyAssign',
   'hostPolicyUnassign',
+  'organizationSettingsGet',
+  'organizationSettingsPatch',
 ] as const satisfies readonly (keyof NativeSolusAPI)[]
 export type PolicyCloudRequests = Pick<NativeSolusAPI, (typeof POLICY_REQUEST_METHODS)[number]>
 
@@ -63,7 +68,7 @@ export type SettingsCloudRequests = Pick<NativeSolusAPI,
 export interface SettingsHttpRequest {
   method: 'GET' | 'PATCH' | 'PUT' | 'POST' | 'DELETE'
   path: string
-  body?: AccountSettingsPatchRequest | PolicyWriteRequest | HostPolicyCreateRequest | HostPolicyAssignRequest
+  body?: AccountSettingsPatchRequest | PolicyWriteRequest | HostPolicyCreateRequest | HostPolicyAssignRequest | OrganizationSettingsPatchRequest
 }
 
 /**
@@ -117,6 +122,8 @@ export function settingsCloudRequests(
     hostPolicyDelete: (organizationId, policyId) => policy({ method: 'DELETE', path: hostPolicyPath(organizationId, policyId) }, noBodySchema),
     hostPolicyAssign: (organizationId, hostId, body) => policy({ method: 'PUT', path: hostPolicyAssignmentPath(organizationId, hostId), body }, policyHostSchema),
     hostPolicyUnassign: (organizationId, hostId) => policy({ method: 'DELETE', path: hostPolicyAssignmentPath(organizationId, hostId) }, policyHostSchema),
+    organizationSettingsGet: (organizationId) => policy({ method: 'GET', path: organizationSettingsPath(organizationId) }, organizationSettingsResponseSchema),
+    organizationSettingsPatch: (organizationId, body) => policy({ method: 'PATCH', path: organizationSettingsPath(organizationId), body }, organizationSettingsResponseSchema),
   }
 }
 

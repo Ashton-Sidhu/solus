@@ -19,7 +19,7 @@ function managedHost(managedState: ManagedHostLifecycle): KnownHost {
     label: 'Basic',
     url: 'https://solus-h-abc.sprites.app',
     installationId: `install-${managedState}`,
-    uplink: { hostId: 'h_abc', directoryUrl, kind: 'managed', managedState },
+    uplink: { hostId: 'h_abc', directoryUrl, kind: 'cloud', hasManagedCompute: true, managedState },
   } as KnownHost
 }
 

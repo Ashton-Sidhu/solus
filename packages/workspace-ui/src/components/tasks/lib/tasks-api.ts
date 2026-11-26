@@ -1,13 +1,13 @@
 // Pure, non-reactive helpers for the tasks UI.
 import type {
-  Task,
-  TaskColumn,
-  TaskMoveTarget,
-  TaskPriority,
-  TaskProviderId,
-  TaskSourceState,
+  Issue,
+  IssueColumn,
+  IssueMoveTarget,
+  IssuePriority,
+  IssueProviderId,
+  IssueSourceState,
 } from '@solus/contracts/task-types'
-import type { TaskStatusCategory } from '@solus/contracts/task-sources'
+import type { IssueStatusCategory } from '@solus/contracts/task-sources'
 import type { TaskViewFilters } from '@solus/contracts/task-views'
 
 /** How the list/board orders tasks. `created` is the default;
@@ -49,9 +49,9 @@ export const PRIORITY_META = {
   high: { label: 'High', rank: 1, chipClass: 'text-[#bc4c00] bg-[#bc4c00]/10 [.dark_&]:text-[#db6d28] [.dark_&]:bg-[#db6d28]/10', flagClass: 'text-[#bc4c00] [.dark_&]:text-[#db6d28]' },
   medium: { label: 'Medium', rank: 2, chipClass: 'text-[#9a6700] bg-[#9a6700]/10 [.dark_&]:text-[#d29922] [.dark_&]:bg-[#d29922]/10', flagClass: 'text-[#9a6700] [.dark_&]:text-[#d29922]' },
   low: { label: 'Low', rank: 3, chipClass: 'text-(--solus-text-tertiary) bg-(--solus-surface-hover)', flagClass: 'text-(--solus-text-tertiary)' },
-} satisfies Record<TaskPriority, PriorityMeta>
+} satisfies Record<IssuePriority, PriorityMeta>
 
-type SortableTask = Pick<Task, 'priority' | 'dueDate' | 'updatedAt' | 'createdAt'>
+type SortableTask = Pick<Issue, 'priority' | 'dueDate' | 'updatedAt' | 'createdAt'>
 
 function priorityRank(t: SortableTask): number {
   return t.priority ? PRIORITY_META[t.priority].rank : 4
@@ -106,21 +106,21 @@ export const CATEGORY_META = {
   open: { label: 'Open', dotClass: 'border border-(--solus-text-tertiary)', token: '--idle', glyph: STATUS_GLYPHS.idle },
   active: { label: 'Active', dotClass: 'bg-(--running)', token: '--running', glyph: STATUS_GLYPHS.clock },
   done: { label: 'Done', dotClass: 'bg-(--success)', token: '--success', glyph: STATUS_GLYPHS.check },
-} satisfies Record<TaskStatusCategory, CategoryMeta>
+} satisfies Record<IssueStatusCategory, CategoryMeta>
 
 /** The three status categories, in the order a view that mixes sources shows them. */
-export const TASK_CATEGORIES: TaskStatusCategory[] = ['open', 'active', 'done']
+export const TASK_CATEGORIES: IssueStatusCategory[] = ['open', 'active', 'done']
 
 /** Every priority a person can set, most urgent first. Unset is offered as
  *  "No priority" by the menus rather than living in this list, because it is
  *  the absence of one. */
-export const PRIORITY_OPTIONS: TaskPriority[] = ['urgent', 'high', 'medium', 'low']
+export const PRIORITY_OPTIONS: IssuePriority[] = ['urgent', 'high', 'medium', 'low']
 
 export const PROVIDER_NAMES = {
   github: 'GitHub',
   jira: 'Jira',
   linear: 'Linear',
-} satisfies Record<TaskProviderId, string>
+} satisfies Record<IssueProviderId, string>
 
 /**
  * A task as a row names it: `#123` for a GitHub issue, `PROJ-12` for a Jira
@@ -129,7 +129,7 @@ export const PROVIDER_NAMES = {
  * The repository of a GitHub issue is left out: a row has a narrow cell, and
  * the full reference (`owner/repo#123`) is the cell's title.
  */
-export function taskRef(task: Pick<Task, 'reference' | 'kind'>): string {
+export function taskRef(task: Pick<Issue, 'reference' | 'kind'>): string {
   if (!task.reference) return task.kind === 'draft' ? 'Draft' : ''
   const hash = task.reference.lastIndexOf('#')
   return hash > 0 ? task.reference.slice(hash) : task.reference
@@ -196,7 +196,7 @@ export function dueDateMeta(
  *  of the project grouped by status category. */
 export type BoardView =
   | { kind: 'all' }
-  | { kind: 'source'; source: Pick<TaskSourceState, 'sourceKey' | 'columns'> }
+  | { kind: 'source'; source: Pick<IssueSourceState, 'sourceKey' | 'columns'> }
 
 /** The id of a board view, to key what a person keeps for one view. */
 export function boardViewId(view: BoardView): string {
@@ -208,14 +208,14 @@ export function boardViewId(view: BoardView): string {
 export const NO_COLUMN_ID = ''
 
 export interface BoardColumn<T> {
-  /** A `TaskColumn.id` in a source view, a status category in the mixed view. */
+  /** A `IssueColumn.id` in a source view, a status category in the mixed view. */
   id: string
   label: string
-  category: TaskStatusCategory
+  category: IssueStatusCategory
   tasks: T[]
 }
 
-type BoardTask = Pick<Task, 'category' | 'placements'>
+type BoardTask = Pick<Issue, 'category' | 'placements'>
 
 /** The column that holds a task in a view, or null when the view does not
  *  show the task (a source that does not list it). */
@@ -241,7 +241,7 @@ export function boardColumnIdOf(task: BoardTask, view: BoardView): string | null
 export function buildBoard<T extends BoardTask>(tasks: readonly T[], view: BoardView): BoardColumn<T>[] {
   const columns: BoardColumn<T>[] = view.kind === 'all'
     ? TASK_CATEGORIES.map((category) => ({ id: category, label: CATEGORY_META[category].label, category, tasks: [] }))
-    : view.source.columns.map((column: TaskColumn) => ({ id: column.id, label: column.name, category: column.category, tasks: [] }))
+    : view.source.columns.map((column: IssueColumn) => ({ id: column.id, label: column.name, category: column.category, tasks: [] }))
   const byId = new Map(columns.map((column) => [column.id, column]))
   const unplaced: T[] = []
   for (const task of tasks) {
@@ -255,9 +255,9 @@ export function buildBoard<T extends BoardTask>(tasks: readonly T[], view: Board
   return [{ id: NO_COLUMN_ID, label: 'No column', category: 'open', tasks: unplaced }, ...columns]
 }
 
-/** What `tasksMove` takes to put a task in a column of a view. Null for the
+/** What `issuesMove` takes to put a task in a column of a view. Null for the
  *  "No column" column, which no provider has. */
-export function moveTargetFor(view: BoardView, columnId: string): TaskMoveTarget | null {
+export function moveTargetFor(view: BoardView, columnId: string): IssueMoveTarget | null {
   if (columnId === NO_COLUMN_ID) return null
   if (view.kind === 'source') return { sourceKey: view.source.sourceKey, columnId }
   const category = TASK_CATEGORIES.find((candidate) => candidate === columnId)
@@ -271,14 +271,14 @@ export interface TaskPlacementLabel {
   sourceLabel: string
   /** Null for a board item that has no column yet. */
   columnName: string | null
-  columns: TaskColumn[]
+  columns: IssueColumn[]
   columnId: string | null
 }
 
 /** A task's column in each source that lists it. */
 export function taskPlacementLabels(
-  task: Pick<Task, 'placements'>,
-  sourceByKey: ReadonlyMap<string, Pick<TaskSourceState, 'label' | 'columns'>>,
+  task: Pick<Issue, 'placements'>,
+  sourceByKey: ReadonlyMap<string, Pick<IssueSourceState, 'label' | 'columns'>>,
 ): TaskPlacementLabel[] {
   return task.placements.map((placement) => {
     const source = sourceByKey.get(placement.sourceKey)

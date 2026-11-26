@@ -6,7 +6,7 @@ import type { ManagedHostLifecycle } from '@solus/contracts/uplink'
 import type { FoundMachine } from './discover'
 
 /**
- * The fleet view's model (docs/plans/host-fleet.md D3, D4): every host as one
+ * The fleet view's model: every host as one
  * `FleetMachine`, the zone it is in, its state, and the numbers the
  * map and the summary show. Pure, so the map, the summary, and the tests read the
  * same answers.
@@ -15,7 +15,7 @@ import type { FoundMachine } from './discover'
 /** A zone is whose machine a host is: yours, Solus Cloud's, or one that someone shares with you. `device` is this device itself, at the map's center. */
 export type FleetZoneId = 'own' | 'cloud' | 'shared'
 
-/** What a host is doing now, as one icon shows it (D3). */
+/** What a host is doing now, as one icon shows it. */
 export type FleetState = 'running' | 'idle' | 'checking' | 'starting' | 'reconnecting' | 'unreachable' | 'stopped'
 
 /** The four colors the map uses. Healthy is green; only a problem gets amber or red. */
@@ -27,8 +27,10 @@ export interface FleetMachine {
   installationId: string | null
   label: string
   os?: HostOperatingSystem
-  /** A Solus Cloud machine: its mark is the cloud, and it can start, stop, and resize. */
-  isManaged: boolean
+  /** A cloud machine of an organization: its mark is the cloud, and it is in the cloud zone. */
+  isCloud: boolean
+  /** Solus Cloud operates its compute: it can start, stop, and restart. */
+  hasManagedCompute: boolean
   /** This device: the center of the map, not a zone. */
   isThisDevice: boolean
   zone: FleetZoneId | 'device'
@@ -42,11 +44,11 @@ export interface FleetMachine {
   memory: number | null
   /** The round trip of the last load read, in milliseconds. */
   latencyMs: number | null
-  /** The traffic on this device's connection to the host; null while it does not answer or before two reads (D13). */
+  /** The traffic on this device's connection to the host; null while it does not answer or before two reads. */
   traffic: Traffic | null
   /** The kind of the route this device dials the host on. */
   routeKind: RouteKind | null
-  /** The route this device is on, or tries, now, and how that goes; null when it dials none. Its line names it (D13). */
+  /** The route this device is on, or tries, now, and how that goes; null when it dials none. Its line names it. */
   routeInUse: RouteInUse | null
   /** Where the host answers; null for this device. */
   address: string | null
@@ -78,7 +80,8 @@ export interface FleetMachineInput {
   label: string
   os?: HostOperatingSystem
   isThisDevice: boolean
-  isManaged: boolean
+  isCloud: boolean
+  hasManagedCompute: boolean
   /** How this client is admitted there: a member or guest uses a host someone else shares. */
   principal?: 'local-owner' | 'remote-owner' | 'org-member' | 'guest' | 'runner' | 'system'
   ownerName?: string
@@ -107,7 +110,8 @@ export function fleetMachine(input: FleetMachineInput): FleetMachine {
     installationId: input.installationId ?? null,
     label: input.label,
     os: input.os,
-    isManaged: input.isManaged,
+    isCloud: input.isCloud,
+    hasManagedCompute: input.hasManagedCompute,
     isThisDevice: input.isThisDevice,
     zone,
     group: groupOf(zone, input),
@@ -152,7 +156,7 @@ function routeInUseOf(kind: RouteKind, readiness: HostReadiness): RouteInUse | n
 /** A cloud machine and a host someone else shares have their own zone. Each other host is yours, whatever its route: an SSH or WSL host too. */
 function zoneOf(input: FleetMachineInput): FleetMachine['zone'] {
   if (input.isThisDevice) return 'device'
-  if (input.isManaged) return 'cloud'
+  if (input.isCloud) return 'cloud'
   if (input.principal === 'org-member' || input.principal === 'guest') return 'shared'
   return 'own'
 }
@@ -165,9 +169,10 @@ function groupOf(zone: FleetMachine['zone'], input: FleetMachineInput): string |
 }
 
 /**
- * A Solus Cloud machine's lifecycle wins over the connection: a stopped machine is
+ * The lifecycle of managed compute wins over the connection: a stopped machine is
  * stopped, not unreachable. Otherwise the connection says it, and a host that
- * answers is running when sessions work on it.
+ * answers is running when sessions work on it. A cloud machine that its operator
+ * runs has no lifecycle, so the connection says its state.
  */
 export function fleetStateOf(readiness: HostReadiness, managedState: ManagedHostLifecycle | undefined, sessions: number): FleetState {
   if (managedState === 'stopped' || managedState === 'stopping' || managedState === 'deleting') return 'stopped'
@@ -305,13 +310,21 @@ const UNMEASURED_MAP_WIDTH = 48
 /** A zone's place on the map, in percent of the map box. */
 export interface ZoneBox { x: number; y: number; w: number; h: number }
 
-/** What one row of a zone with room shows: a host, a found machine to add, a way to add one, that the zone has nothing, or that its hosts are not read yet. */
+/**
+ * What one row of a zone with room shows: a host, a found machine to add, a way to
+ * add one, that the zone has nothing, that its hosts are not read yet, or, in a
+ * zone opened in place, how many more hosts the zone's own page lists.
+ */
 export type ZoneSlot =
   | { kind: 'host'; machine: FleetMachine }
   | { kind: 'found'; machine: FoundMachine }
   | { kind: 'add'; way: Extract<AddWay, 'cloud' | 'pair'> }
   | { kind: 'empty' }
   | { kind: 'unread'; state: Exclude<AnswerState, 'ready'> }
+  | { kind: 'more'; count: number }
+
+/** A zone opened in place shows this many cards; its page lists the rest. */
+export const OPEN_ZONE_CARDS = 40
 
 export interface ZoneRow {
   slot: ZoneSlot
@@ -326,6 +339,8 @@ export interface ZoneLayout {
   hosts: FleetMachine[]
   /** More hosts than cards fit: the zone shows tiles and one link. */
   isFull: boolean
+  /** More hosts than cards fit, and the person opened it in place: it shows a card for each, and can fold again. */
+  isOpen: boolean
   /** The rows of a zone with room, its hosts first; none when it is full. */
   rows: ZoneRow[]
   /** The found machines that would join the zone and have no row in it. */
@@ -338,7 +353,11 @@ export interface ZoneLayout {
 }
 
 export interface MapLayout {
+  /** The map's height in rem: `MAP_HEIGHT`, or more when a side's zones need it. */
+  height: number
   zones: ZoneLayout[]
+  /** The lanes of the lines between your hosts, on the outer side of Your machines: the x of the lane nearest the cards, and the step outward, in percent. */
+  lanes: { first: number; step: number }
   /** This device, at the map's center: its center and its width. */
   hub: Point & { w: number }
   /** The Solus tunnel, between this device and the zones past it. */
@@ -355,7 +374,8 @@ export interface MapLayout {
  * place of room to grow: what it would offer depends on the answer.
  */
 function zoneSlots(zone: FleetZone, hosts: readonly FleetMachine[], found: readonly FoundMachine[], answer: AnswerState): ZoneSlot[] {
-  const slots: ZoneSlot[] = hosts.map((machine) => ({ kind: 'host', machine }))
+  const slots: ZoneSlot[] = hosts.slice(0, OPEN_ZONE_CARDS).map((machine) => ({ kind: 'host', machine }))
+  if (hosts.length > OPEN_ZONE_CARDS) return [...slots, { kind: 'more', count: hosts.length - OPEN_ZONE_CARDS }]
   if (answer !== 'ready') return [...slots, { kind: 'unread', state: answer }]
   for (const machine of found.filter((machine) => machine.zone === zone.id).slice(0, Math.max(0, zone.cardCapacity - slots.length))) {
     slots.push({ kind: 'found', machine })
@@ -367,38 +387,59 @@ function zoneSlots(zone: FleetZone, hosts: readonly FleetMachine[], found: reado
   return slots
 }
 
+/** The space between two lanes of the lines between your hosts. */
+export const REACH_LANE_PITCH = 0.625
+
+export interface MapLayoutOptions {
+  /** The zones the person opened in place: a card for each host, however many. */
+  open?: ReadonlySet<FleetZoneId>
+  /** The lanes the lines between your hosts need, on the outer side of Your machines. */
+  reachLanes?: number
+}
+
 /**
- * Where everything on the map sits (D4), for a map `mapWidth` rem wide; 0 before
- * it is measured. A zone is as tall as its rows, or as its capacity when it
- * shows tiles. The zones of a side stack, and each stack is centered on this
- * device, so the links spread evenly above and below it.
+ * Where everything on the map sits, for a map `mapWidth` rem wide; 0 before it is
+ * measured. A zone is as tall as its rows, or as its capacity when it shows
+ * tiles. The zones of a side stack, and each stack is centered on this device, so
+ * the links spread evenly above and below it. A side taller than `MAP_HEIGHT` (a
+ * zone opened in place) makes the map taller; the frame fits or pans it.
  */
-export function mapLayout(byZone: MachinesByZone, found: readonly FoundMachine[], mapWidth: number, answers: ZoneAnswers = ZONES_ANSWERED): MapLayout {
+export function mapLayout(byZone: MachinesByZone, found: readonly FoundMachine[], mapWidth: number, answers: ZoneAnswers = ZONES_ANSWERED, options: MapLayoutOptions = {}): MapLayout {
   const across = (rem: number) => (rem / (mapWidth > 0 ? mapWidth : UNMEASURED_MAP_WIDTH)) * 100
-  const down = (rem: number) => (rem / MAP_HEIGHT) * 100
   const zoneWidth = Math.min(ZONE_WIDTH.share, across(ZONE_WIDTH.most))
   const hubWidth = Math.min(HUB_WIDTH.share, across(HUB_WIDTH.most))
   const margin = across(MAP_MARGIN)
+  // The lanes take room from the links, not from the zones.
+  const laneRoom = across((options.reachLanes ?? 0) * REACH_LANE_PITCH)
   const zoneInset = across(ZONE_INSET)
-  const linkRoom = 100 - 2 * margin - 2 * zoneWidth - hubWidth
-  const hubLeft = margin + zoneWidth + linkRoom * LINK_ROOM.beforeDevice
-  const hub = { x: hubLeft + hubWidth / 2, y: 50, w: hubWidth }
+  const linkRoom = 100 - 2 * margin - laneRoom - 2 * zoneWidth - hubWidth
+  const ownLeft = margin + laneRoom
+  const hubLeft = ownLeft + zoneWidth + linkRoom * LINK_ROOM.beforeDevice
   const tunnel = { x: hubLeft + hubWidth + linkRoom * LINK_ROOM.toTunnel, y: 50 }
 
   const stacked = ZONES.map((zone) => {
     const hosts = byZone[zone.id]
-    const isFull = isZoneFull(zone, hosts.length)
+    const isOpen = isZoneFull(zone, hosts.length) && !!options.open?.has(zone.id)
+    const isFull = isZoneFull(zone, hosts.length) && !isOpen
     const slots = isFull ? [] : zoneSlots(zone, hosts, found, answers[zone.id])
     const rowCount = isFull ? zone.cardCapacity : slots.length
     const moreFound = found.filter((machine) => machine.zone === zone.id).length - slots.filter((slot) => slot.kind === 'found').length
-    return { zone, hosts, isFull, slots, moreFound, height: ZONE_HEADER + rowCount * CARD_HEIGHT + (rowCount - 1) * CARD_GAP + ZONE_FOOT }
+    return { zone, hosts, isFull, isOpen, slots, moreFound, height: ZONE_HEADER + rowCount * CARD_HEIGHT + (rowCount - 1) * CARD_GAP + ZONE_FOOT }
   })
   const heightOf = (zones: typeof stacked) => zones.reduce((sum, other) => sum + other.height, 0)
-  const zones = stacked.map(({ zone, hosts, isFull, slots, moreFound, height }) => {
+  const sideHeight = (isViaTunnel: boolean) => {
+    const stack = stacked.filter((other) => other.zone.isViaTunnel === isViaTunnel)
+    return heightOf(stack) + (stack.length - 1) * ZONE_GAP
+  }
+  const height = Math.max(MAP_HEIGHT, sideHeight(false) + 2 * MAP_MARGIN, sideHeight(true) + 2 * MAP_MARGIN)
+  const down = (rem: number) => (rem / height) * 100
+  const hub = { x: hubLeft + hubWidth / 2, y: 50, w: hubWidth }
+
+  const zones = stacked.map(({ zone, hosts, isFull, isOpen, slots, moreFound, height: zoneHeight }) => {
     const stack = stacked.filter((other) => other.zone.isViaTunnel === zone.isViaTunnel)
     const above = stack.slice(0, stack.findIndex((other) => other.zone.id === zone.id))
-    const top = (MAP_HEIGHT - heightOf(stack) - (stack.length - 1) * ZONE_GAP) / 2 + heightOf(above) + above.length * ZONE_GAP
-    const x = zone.isViaTunnel ? 100 - margin - zoneWidth : margin
+    const top = (height - sideHeight(zone.isViaTunnel)) / 2 + heightOf(above) + above.length * ZONE_GAP
+    const x = zone.isViaTunnel ? 100 - margin - zoneWidth : ownLeft
     const facingEdge = zone.isViaTunnel ? x : x + zoneWidth
     const rows = slots.map((slot, index) => {
       const y = down(top + ZONE_HEADER + index * (CARD_HEIGHT + CARD_GAP) + CARD_HEIGHT / 2)
@@ -408,14 +449,23 @@ export function mapLayout(byZone: MachinesByZone, found: readonly FoundMachine[]
       zone,
       hosts,
       isFull,
+      isOpen,
       rows,
       moreFound,
-      box: { x, y: down(top), w: zoneWidth, h: down(height) },
+      box: { x, y: down(top), w: zoneWidth, h: down(zoneHeight) },
       linkStart: zone.isViaTunnel ? tunnel : { x: hubLeft, y: hub.y },
-      port: { x: facingEdge, y: down(top + height / 2) },
+      port: { x: facingEdge, y: down(top + zoneHeight / 2) },
     }
   })
-  return { zones, hub, tunnel, cardWidth: zoneWidth - 2 * zoneInset, zoneInset }
+  return {
+    height,
+    zones,
+    hub,
+    tunnel,
+    cardWidth: zoneWidth - 2 * zoneInset,
+    zoneInset,
+    lanes: { first: ownLeft - across(REACH_LANE_PITCH) / 2, step: -across(REACH_LANE_PITCH) },
+  }
 }
 
 /* ---------- links ---------- */
@@ -425,7 +475,7 @@ export function linkPath(from: Point, to: Point): string {
   return `M ${from.x} ${from.y} C ${middle} ${from.y}, ${middle} ${to.y}, ${to.x} ${to.y}`
 }
 
-/** How long the light takes along a link that carries sessions: busier is faster, never quick enough to pull the eye (D5). */
+/** How long the light takes along a link that carries sessions: busier is faster, never quick enough to pull the eye. */
 export function travelSeconds(sessions: number): number {
   return Math.max(3.5, 8 - Math.log2(sessions + 1) * 0.7)
 }
@@ -478,7 +528,7 @@ const ROUTE_NAMES = {
   forwarded: 'SSH forward',
 } satisfies Record<RouteKind, string>
 
-/** The words of a host's route mark (D13): "Tailscale: in use", "Local network: connecting". */
+/** The words of a host's route mark: "Tailscale: in use", "Local network: connecting". */
 export function routeInUseLabel(route: RouteInUse): string {
   const phase = route.phase === 'in-use' ? 'in use' : route.phase === 'connecting' ? 'connecting' : 'sign-in refused'
   return `${ROUTE_NAMES[route.kind]}: ${phase}`
@@ -571,7 +621,7 @@ export function sparklinePath(values: readonly number[]): string | null {
   return values.map((value, index) => `${index ? 'L' : 'M'} ${(index / (values.length - 1)) * 100} ${(22 - (value / 100) * 20).toFixed(2)}`).join(' ')
 }
 
-/* ---------- traffic on the lines (D13) ---------- */
+/* ---------- traffic on the lines ---------- */
 
 /** The total KB/s of these hosts' connections, both ways. */
 export function trafficOf(machines: readonly FleetMachine[]): number {
@@ -633,7 +683,7 @@ export interface LoadPoint {
 /** How many of the busiest hosts are named on the plot. */
 const NAMED_POINTS = 4
 
-/** The dots of the load plot (D13): every host that answers with both readings. The busiest are named. */
+/** The dots of the load plot: every host that answers with both readings. The busiest are named. */
 export function loadPoints(machines: readonly FleetMachine[]): LoadPoint[] {
   const ranked = busiestHosts(machines).filter((machine) => machine.cpu !== null && machine.memory !== null)
   return ranked.map((machine, index) => ({
@@ -666,7 +716,7 @@ export interface StatusLine {
 }
 
 /**
- * The status of the fleet on one line (D13): how many hosts answer, then each
+ * The status of the fleet on one line: how many hosts answer, then each
  * other state as an icon with its count, worst first. A host that does not
  * answer is counted by its readiness words ("Needs pairing", "Offline").
  */

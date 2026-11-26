@@ -12,8 +12,8 @@ import { bigint, defineTable, integer, json, text } from '../../db/schema/define
 const ORGANIZATION = text({ notNull: true, default: 'local' })
 
 /** The host's copy of a task. The provider is the truth; the next read replaces the row. */
-export const tasks = defineTable('tasks', {
-  /** The task key (`taskKey`): `github:<nodeId>` or `jira:<cloudId>:<issueId>`. */
+export const issues = defineTable('issues', {
+  /** The task key (`issueKey`): `github:<nodeId>` or `jira:<cloudId>:<issueId>`. */
   id: text({ primaryKey: true }),
   provider: text({ notNull: true }),
   /** `issue`, or `draft` for a GitHub Project item that is not an issue. */
@@ -36,9 +36,9 @@ export const tasks = defineTable('tasks', {
   labels: json({ notNull: true, default: '[]' }),
   priority: text(),
   due_date: text(),
-  /** The epic snapshot (`TaskEpic`) of the last read. */
+  /** The epic snapshot (`IssueEpic`) of the last read. */
   epic: json(),
-  /** The `TaskField`s the provider takes a change of for this task. */
+  /** The `IssueField`s the provider takes a change of for this task. */
   writable_fields: json({ notNull: true, default: '[]' }),
   /** `TaskHome` JSON: what the adapter needs to write (repository and issue number, Jira key). */
   home: json({ notNull: true }),
@@ -55,12 +55,12 @@ export const tasks = defineTable('tasks', {
 })
 
 /** One task source, shared by each person who reads it. */
-export const taskSources = defineTable('task_sources', {
+export const issueSources = defineTable('issue_sources', {
   source_key: text({ primaryKey: true }),
-  /** `TaskSource` JSON. */
+  /** `IssueSource` JSON. */
   source: json({ notNull: true }),
   label: text({ notNull: true }),
-  /** `TaskColumn[]` JSON, in the provider's order. */
+  /** `IssueColumn[]` JSON, in the provider's order. */
   columns: json({ notNull: true, default: '[]' }),
   /** `SourceWriteState` JSON: what the adapter needs to write to the source. */
   write_state: json(),
@@ -71,19 +71,19 @@ export const taskSources = defineTable('task_sources', {
 })
 
 /** Where a source puts each of its tasks. A read of the source replaces its rows. */
-export const taskSourceItems = defineTable('task_source_items', {
+export const issueSourceItems = defineTable('issue_source_items', {
   source_key: text({ notNull: true }),
-  task_id: text({ notNull: true }),
-  /** A `TaskColumn.id` of the source. Null for a board item with no column. */
+  issue_id: text({ notNull: true }),
+  /** A `IssueColumn.id` of the source. Null for a board item with no column. */
   column_id: text(),
   /** The board item, for a write to a GitHub Project. */
   item_id: text(),
   /** The order the provider gave the tasks in. */
   position: integer({ notNull: true, default: 0 }),
 }, {
-  primaryKey: ['source_key', 'task_id'],
+  primaryKey: ['source_key', 'issue_id'],
   indexes: [
-    { name: 'task_source_items_task', columns: ['task_id'] },
+    { name: 'issue_source_items_issue', columns: ['issue_id'] },
   ],
 })
 
@@ -93,13 +93,13 @@ export const taskSourceItems = defineTable('task_source_items', {
  * (`checked_at`). `health` is the result of that person's last read: it is
  * about their connection, not about the source.
  */
-export const taskSourceAccess = defineTable('task_source_access', {
+export const issueSourceAccess = defineTable('issue_source_access', {
   /** The person whose connection this is: their user key. */
   user_id: text({ notNull: true }),
   source_key: text({ notNull: true }),
   /** When this person's own connection last read the source. Null = never. */
   checked_at: bigint(),
-  /** `TaskSourceHealth` of this person's last read. */
+  /** `IssueSourceHealth` of this person's last read. */
   health: text({ notNull: true, default: 'ok' }),
   message: text(),
 }, {
@@ -117,10 +117,10 @@ export const assetPublications = defineTable('asset_publications', {
   primaryKey: ['asset_id', 'provider', 'target_key'],
 })
 
-export const TASK_TABLES = [
-  tasks,
-  taskSources,
-  taskSourceItems,
-  taskSourceAccess,
+export const ISSUE_TABLES = [
+  issues,
+  issueSources,
+  issueSourceItems,
+  issueSourceAccess,
   assetPublications,
 ]

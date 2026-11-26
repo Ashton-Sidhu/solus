@@ -158,7 +158,7 @@ test('restored history and live attachment finish before secondary metadata, wit
       eventReducer: { rebuildAgentConversations() {} }, lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
       planStore: { hydrateAnnotations() {} }, adoptSessionId() {}, refreshThreadGoal() {}, applyPendingQuestions() {},
       environment: { refreshEnvironment: async () => { events.push('git'); return new Promise(() => {}) } },
-      tasksStore: { ensureSessionBinding: async () => { events.push('task'); return new Promise(() => {}) } },
+      issuesStore: { ensureSessionBinding: async () => { events.push('task'); return new Promise(() => {}) } },
     }
     const execute = new Function('serverConnections', 'afterPaint', 'requestSessionHistoryPage', 'loadRestoredSessionTranscript',
       'replaceHydratedMessages', 'markStartupTranscriptApplied', 'INITIAL_HISTORY_TURNS', 'isSessionBusyStatus',

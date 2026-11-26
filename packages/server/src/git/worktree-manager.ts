@@ -298,7 +298,7 @@ interface WorktreeStartPoint {
 }
 
 /** A full SHA-1 or SHA-256 object name. A child session's worktree starts from its parent's commit. */
-const COMMIT_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
+export const COMMIT_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
 
 /**
  * A commit is its own start point: it has no `origin/<commit>`, and it is
@@ -750,7 +750,22 @@ export async function syncWithOrigin(
 }
 
 const EXISTING_PR_TTL_MS = 60_000
-const existingPrCache = new Map<string, { at: number; url: Promise<string | null> }>()
+interface ExistingPrLookup {
+  at: number
+  url: Promise<string | null>
+  resolved?: string
+}
+const existingPrCache = new Map<string, ExistingPrLookup>()
+
+function existingPrKey(branch: string, cwd: string) {
+  return `${currentIdentity('a pull request lookup').cacheKey}\0${cwd}\0${branch}`
+}
+
+/** A header can show a known PR without starting or waiting for a network call. */
+export function cachedExistingPR(branch: string, cwd: string): string | undefined {
+  const cached = existingPrCache.get(existingPrKey(branch, cwd))
+  return cached && Date.now() - cached.at < EXISTING_PR_TTL_MS ? cached.resolved : undefined
+}
 
 /**
  * Which pull request this branch has, if any.
@@ -778,12 +793,14 @@ async function queryExistingPR(branch: string, cwd: string): Promise<string | nu
  *  the in-flight promise so multiple visible clients of one person collapse to a
  *  single read. Another person asks with their own connection (plans/019). */
 export function getExistingPR(branch: string, cwd: string, bypassCache = false): Promise<string | null> {
-  const key = `${currentIdentity('a pull request lookup').cacheKey}\0${cwd}\0${branch}`
+  const key = existingPrKey(branch, cwd)
   if (bypassCache) existingPrCache.delete(key)
   const cached = existingPrCache.get(key)
   if (cached && Date.now() - cached.at < EXISTING_PR_TTL_MS) return cached.url
   const url = queryExistingPR(branch, cwd)
-  existingPrCache.set(key, { at: Date.now(), url })
+  const entry: ExistingPrLookup = { at: Date.now(), url }
+  existingPrCache.set(key, entry)
+  void url.then(value => { if (value) entry.resolved = value })
   return url
 }
 
@@ -1068,34 +1085,37 @@ export async function fetchAndCheckoutPr(
   return { worktreePath: resolvedWorktreePath, branch: resolvedBranch, baseSha, headSha, reused: !!existingWorktreePath }
 }
 
+/** One entry of `git worktree list --porcelain`. `branch` is null for a detached HEAD. */
+export interface ListedWorktree {
+  path: string
+  branch: string | null
+  isBare: boolean
+}
+
+export function parseWorktreeList(projectPath: string, output: string): ListedWorktree[] {
+  const entries: ListedWorktree[] = []
+  let current: ListedWorktree | null = null
+  for (const line of output.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      if (current) entries.push(current)
+      current = { path: gitOutputPath(projectPath, line.slice(9)), branch: null, isBare: false }
+    } else if (current && line.startsWith('branch ')) {
+      current.branch = line.slice(7).replace('refs/heads/', '')
+    } else if (current && line === 'bare') {
+      current.isBare = true
+    } else if (line === '') {
+      if (current) entries.push(current)
+      current = null
+    }
+  }
+  if (current) entries.push(current)
+  return entries
+}
+
 export function listProjectWorktrees(projectPath: string): WorktreeEntry[] {
   try {
-    const output = git(['worktree', 'list', '--porcelain'], projectPath)
-    interface ParsedWorktree {
-      path?: string
-      branch?: string
-      isBare?: boolean
-    }
-    const entries: ParsedWorktree[] = []
-    let current: ParsedWorktree = {}
-
-    for (const line of output.split('\n')) {
-      if (line.startsWith('worktree ')) {
-        if (current.path) entries.push(current)
-        current = { path: gitOutputPath(projectPath, line.slice(9)), branch: '', isBare: false }
-      } else if (line.startsWith('branch ')) {
-        current.branch = line.slice(7).replace('refs/heads/', '')
-      } else if (line === 'bare') {
-        current.isBare = true
-      } else if (line === '') {
-        if (current.path) entries.push(current)
-        current = {}
-      }
-    }
-    if (current.path) entries.push(current)
-
-    return entries
-      .filter((e): e is { path: string; branch: string; isBare: boolean } => !e.isBare && !!e.branch && !!e.path && existsSync(e.path))
+    return parseWorktreeList(projectPath, git(['worktree', 'list', '--porcelain'], projectPath))
+      .filter((e): e is ListedWorktree & { branch: string } => !e.isBare && !!e.branch && existsSync(e.path))
       .map(e => {
         let lastModified: number | undefined
         try { lastModified = statSync(e.path).mtimeMs } catch { /* ignore */ }

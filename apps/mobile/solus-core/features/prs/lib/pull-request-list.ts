@@ -133,8 +133,7 @@ export function filterPullRequestRows(
     const held = unique.get(key)
     if (!held || (!reachable(held) && reachable(row))) unique.set(key, row)
   }
-  const facts = new Map(kept.map((row) => [row.pr, { viewerLogin: viewerOf(row.hostId), checks: row.checks }]))
-  return Array.from(unique.values()).sort((a, b) => comparePrs(a.pr, b.pr, controls.sort, (pr) => facts.get(pr) ?? { viewerLogin: null, checks: null }))
+  return Array.from(unique.values()).sort((a, b) => comparePrs(a.pr, b.pr, controls.sort))
 }
 
 function matchesInvolvement(pr: PullRequest, involvement: PullRequestInvolvement, viewer: string | null): boolean {

@@ -6,9 +6,11 @@
   import { userBurstAt, type UserBurst } from "./lib/user-burst";
   import { TranscriptVirtualizer } from "./lib/transcript-virtualizer.svelte";
 
-  let { tabId, turns, scrollElement, active, paintReady = true, element = $bindable(null), virtualizer, children }: {
+  let { tabId, turns, reservedTurn, scrollElement, active, paintReady = true, element = $bindable(null), virtualizer, children }: {
     tabId: string;
     turns: Turn[];
+    /** A turn that keeps at least this CSS height, measured like any row. */
+    reservedTurn?: { key: string; minHeight: string };
     scrollElement: HTMLElement | null;
     active: boolean;
     paintReady?: boolean;
@@ -69,7 +71,7 @@
          that arrives live re-asks this row and the one above it. -->
     {@const burst = userBurstAt(turns, slot.index)}
     <!-- A burst's rows close the turn gap: the bubbles below sit 6px apart. -->
-    <div use:virtualizer.row={slot.key} data-slot="transcript-turn" data-transcript-turn-id={slot.key} class="virtual-turn flow-root {burst.groupedWithNext ? '' : 'pb-4'}">
+    <div use:virtualizer.row={slot.key} data-slot="transcript-turn" data-transcript-turn-id={slot.key} class="virtual-turn flow-root {burst.groupedWithNext ? '' : 'pb-4'}" style:min-height={slot.key === reservedTurn?.key ? reservedTurn.minHeight : undefined}>
       <div class="space-y-2 @max-[30rem]/pane:space-y-3">
         {#if turns[slot.index]}
           {@render children(turns[slot.index], slot.index, burst)}

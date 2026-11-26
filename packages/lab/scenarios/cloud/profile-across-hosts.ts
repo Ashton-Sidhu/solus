@@ -22,8 +22,9 @@ import { recordedRuns } from '../../src/oracle'
  * server refused that list, and runs read only that cache, so alice's agent got no
  * tools. Here host B restarts (nothing cached), alice prompts it remotely through its
  * ticket door, and the run the mock agent receives carries the server's tools, listed
- * with her key. bob, a member of her organization, reaches host B after she shares it:
- * his run gets none of her tools, and he cannot list or read her server.
+ * with her key. bob, a member of her organization, reaches host B after she shares it.
+ * The share leaves host B her personal host: his run gets none of her tools, and he
+ * cannot list or read her server.
  */
 
 const PROFILE_PATH = '/v1/agent-profile'
@@ -132,10 +133,13 @@ export default cloudModeScenario('profile across hosts: one profile on two hosts
   })
   remote.close()
   // A running host reads its standing every five minutes, and at boot.
-  const attached = await ctx.restartHost(hostB)
-  const standing = await ctx.until(() => localRpc(attached, persona, 'hostOrganizations'), (read) => read.attachedAt !== null, 15_000)
-  ctx.check('host B is attached for organization work', standing.attachedAt !== null, String(standing.attachedAt))
-  const member = hostClient(attached, bob, b.hostId, { asOwner: false, organizationId: lab, organizationRole: 'member' })
+  const sharedHostB = await ctx.restartHost(hostB)
+  const isShared = (read: { organizations: Array<{ organizationId: string; shared: boolean }> }) => read.organizations.some((entry) => entry.organizationId === lab && entry.shared)
+  const standing = await ctx.until(() => localRpc(sharedHostB, persona, 'hostOrganizations'), isShared, 15_000)
+  ctx.check('host B stands in her organization, shared', isShared(standing), JSON.stringify(standing.organizations.map((entry) => [entry.organizationId, entry.shared])))
+  // A share does not change what the machine is (plans/034-one-cloud-machine-kind.md §2): it is alice's own still.
+  ctx.check('host B stays her personal host', standing.kind === 'personal' && standing.owner?.userId === persona.userId, JSON.stringify({ kind: standing.kind, owner: standing.owner }))
+  const member = hostClient(sharedHostB, bob, b.hostId, { asOwner: false, organizationId: lab, organizationRole: 'member' })
   ctx.defer('bob closes his socket', async () => member.close())
   const bobDial = await member.connect()
   ctx.check('bob passes host B\'s ticket door as a member', bobDial.ok, JSON.stringify(bobDial))
@@ -155,9 +159,9 @@ export default cloudModeScenario('profile across hosts: one profile on two hosts
   const seat = await member.rpc('seatConnectToken', { provider: 'claude-code', token: 'lab-token-bob' }).then(() => 'ok', (error: unknown) => error instanceof Error ? error.message : String(error))
   ctx.check('bob connects a Claude seat by token', seat === 'ok', seat)
   const bobMarker = `bob member run ${randomBytes(3).toString('hex')}`
-  const bobSent = await promptNewSession(member, attached, bobMarker, lab)
+  const bobSent = await promptNewSession(member, sharedHostB, bobMarker, lab)
   ctx.check('host B admits bob\'s prompt in the organization', bobSent === 'ok', bobSent)
-  const bobRun = (await ctx.until(() => recordedRuns({ host: attached }), (runs) => runs.some((run) => run.prompt.includes(bobMarker)), 20_000)).find((run) => run.prompt.includes(bobMarker))
+  const bobRun = (await ctx.until(() => recordedRuns({ host: sharedHostB }), (runs) => runs.some((run) => run.prompt.includes(bobMarker)), 20_000)).find((run) => run.prompt.includes(bobMarker))
   ctx.check('bob\'s run reached the mock agent backend', bobRun !== undefined)
   ctx.check('bob\'s run was handed none of alice\'s MCP tools', bobRun !== undefined && bobRun.tools !== undefined && !bobRun.tools.some((name) => name.startsWith(`${mcp.slug}__`)), JSON.stringify(bobRun?.tools?.filter((name) => name.includes('__'))))
 })

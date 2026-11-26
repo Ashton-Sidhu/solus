@@ -307,7 +307,7 @@ export function ReadOnlyThreadHistory({
 }: {
   readonly view: Pick<
     ReturnType<typeof useLinkedSession>,
-    "error" | "feed" | "ready" | "hasOlder" | "paging" | "retry" | "loadEarlier"
+    "error" | "feed" | "ready" | "hasOlder" | "paging" | "historyFailed" | "retry" | "loadEarlier"
   >;
   readonly label: string;
 }) {
@@ -318,6 +318,8 @@ export function ReadOnlyThreadHistory({
   const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
   // Follows new items only while the reader is already at the end.
   const atEnd = useRef(true);
+  const showHistoryError = view.ready && view.hasOlder && view.historyFailed;
+  const lastLayoutHadHistoryError = useRef(false);
   return (
     <ScrollView
       ref={scroll}
@@ -333,7 +335,9 @@ export function ReadOnlyThreadHistory({
         atEnd.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 80;
       }}
       onContentSizeChange={() => {
-        if (atEnd.current) scroll.current?.scrollToEnd({ animated: false });
+        const historyErrorChanged = lastLayoutHadHistoryError.current !== showHistoryError;
+        lastLayoutHadHistoryError.current = showHistoryError;
+        if (atEnd.current && !historyErrorChanged) scroll.current?.scrollToEnd({ animated: false });
       }}
     >
       {!view.ready ? (
@@ -350,7 +354,7 @@ export function ReadOnlyThreadHistory({
       ) : (
         <>
           {view.hasOlder ? (
-            <View className="self-center">
+            <View className="flex-row flex-wrap justify-center">
               <Button
                 size="compact"
                 tone="text"
@@ -359,6 +363,15 @@ export function ReadOnlyThreadHistory({
                 disabled={view.paging}
                 onPress={view.loadEarlier}
               />
+              {showHistoryError ? (
+                <Text
+                  accessibilityLiveRegion="polite"
+                  accessibilityRole="alert"
+                  className="w-full text-center text-xs text-danger-foreground"
+                >
+                  {gt("Could not load earlier turns. Try again.")}
+                </Text>
+              ) : null}
             </View>
           ) : null}
           {view.feed.length === 0 ? (

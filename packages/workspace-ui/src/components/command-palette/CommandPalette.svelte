@@ -5,6 +5,9 @@
     ChevronRight as CaretRightIcon,
     ChevronLeft as CaretLeftIcon,
   } from "@lucide/svelte";
+  import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
+  import SnoozeTaskMenu from "../session/SnoozeTaskMenu.svelte";
+  import { currentSessionCommands, type CustomSessionSnooze } from "./lib/session-commands";
   import Kbd from "../ui/Kbd.svelte";
   import { menuRowVariants } from "../ui/menu/menu-row";
   import {
@@ -38,9 +41,17 @@
 
   let {
     open = $bindable(),
-    commands,
+    commands: baseCommands,
     initialPage = $bindable(null),
   }: Props = $props();
+
+  const workspace = getWorkspaceContext();
+  const sidebar = getSessionSidebarStore();
+  let customSnooze = $state.raw<CustomSessionSnooze | null>(null);
+  const commands = $derived(open ? [
+    ...baseCommands,
+    ...currentSessionCommands(workspace, sidebar, (snooze) => (customSnooze = snooze)),
+  ] : baseCommands);
 
   let query = $state("");
   let selectedValue = $state("");
@@ -386,6 +397,22 @@
     </div>
   </div>
 </div>
+
+{#if customSnooze}
+  <SnoozeTaskMenu
+    customTime
+    taskTitle={customSnooze.title}
+    onConfirm={(until, note) => {
+      const snooze = customSnooze;
+      customSnooze = null;
+      snooze?.confirm(until, note);
+    }}
+    onClose={() => {
+      customSnooze = null;
+      requestInputFocus();
+    }}
+  />
+{/if}
 
 <style>
   /* Keyframes can't be expressed as Tailwind utilities; referenced via

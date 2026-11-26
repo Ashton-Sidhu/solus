@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { AtomRegistry } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { sessionDetailAtom } from "./session-detail";
@@ -6,6 +7,7 @@ const host = vi.hoisted(() => ({
   account: "first",
   listeners: new Set<() => void>(),
   read: vi.fn(() => ({})),
+  retained: vi.fn<() => { sessionId: string } | null>(() => null),
   observe: vi.fn(() => () => {}),
 }));
 vi.mock("./runtime", () => ({
@@ -20,13 +22,15 @@ vi.mock("./runtime", () => ({
     },
     sessionCache: { scope: () => host.account },
     threads: { thread: () => ({ record: {} }) },
-    openConversation: () => null,
+    openConversation: host.retained,
     conversation: host.read,
     observeConversation: host.observe,
   },
 }));
 
 it("hands the navigation read to the screen and starts a new read after an account switch", () => {
+  host.read.mockClear();
+  host.observe.mockClear();
   const registry = AtomRegistry.make();
   try {
     const atom = sessionDetailAtom("host", "thread");

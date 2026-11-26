@@ -1,3 +1,6 @@
+import { hostNoticeKind, watchNotification } from '@solus/client-core/host-notice'
+import { toolFeedBody, userMessageBody } from '@solus/contracts/session-feed-item'
+import { splitPromptFiles, stripSessionReferenceContext } from '@solus/contracts/injected-context'
 import { isArtifactRenderTool } from '@solus/contracts/agent-tools'
 import { isQuestionTool } from '@solus/contracts/question-history'
 import { isSecretTool, secretOutcomesFromResult } from '@solus/contracts/secret-request'
@@ -49,6 +52,44 @@ export function projectSessionEvent(event: NormalizedEvent): WireNormalizedEvent
   }
 
   return event
+}
+
+/** Keep the old page format for readers that parse composer file lines themselves. */
+export function projectPromptFiles(messages: WireSessionLoadMessage[]): WireSessionLoadMessage[] {
+  return messages.map(message => {
+    if (message.role !== 'user' || message.attachedFilePaths || !message.content.startsWith('[Attached file: ')) return message
+    const { text, paths } = splitPromptFiles(stripSessionReferenceContext(message.content))
+    return paths.length ? { ...message, content: text, attachedFilePaths: paths } : message
+  })
+}
+
+function hasToolCard(row: WireSessionLoadMessage): boolean {
+  return !!(isSubagentTool(row) || row.report || row.toolImages?.length || row.toolAudio?.length ||
+    row.toolLeftOut?.length || row.secretOutcomes?.length)
+}
+
+/** Keep Solus card metadata and row order. Send each message or structured input once. */
+export function withTurnItemBodies(messages: WireSessionLoadMessage[]): WireSessionLoadMessage[] {
+  return messages.map(row => {
+    if (row.activity || row.compaction || row.parentToolUseId) return row
+    if (row.role === 'assistant' && row.content.trim()) {
+      return { ...row, content: '', turnItem: { type: 'assistant_message', text: row.content, streaming: false } }
+    }
+    if (row.role === 'user') {
+      const notice = row.sender ? null : hostNoticeKind(row)
+      const monitor = notice === 'resource-watch' || notice === 'pull-request-watch' ? watchNotification(row.content, notice) : null
+      return { ...row, content: '', turnItem: userMessageBody(row.content, row.sender, !!notice, monitor ?? undefined) }
+    }
+    if (row.role !== 'tool' || !row.toolId || !row.toolName || hasToolCard(row)) return row
+    const turnItem = toolFeedBody(row.toolName, row.toolInput ?? null)
+    // Only omit a raw input when its exact spelling is recoverable. Other
+    // clients and rich cards can need whitespace, quoted strings or shell arguments.
+    if (turnItem.type === 'dynamic_tool' && turnItem.input !== null && row.toolInput && JSON.stringify(turnItem.input) === row.toolInput) {
+      const { toolInput: _raw, ...metadata } = row
+      return { ...metadata, turnItem }
+    }
+    return { ...row, turnItem }
+  })
 }
 
 export function projectSessionHistory(messages: SessionLoadMessage[]): WireSessionLoadMessage[] {

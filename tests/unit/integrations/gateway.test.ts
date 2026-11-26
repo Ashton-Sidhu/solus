@@ -639,7 +639,7 @@ describe('integration gateway with sign-in', () => {
     const personal: Integration = { ...oauthIntegration, id: 'int-personal', ownerKey: 'member-1' }
     const { gateway } = signedInGateway(new Map([['member-1', 'Bearer good']]), personal)
     const memberActor = {
-      principal: { kind: 'org-member' as const, userId: 'member-1', organizationId: 'org-1', organizationRole: 'member' as const, teamIds: [], hostKind: 'managed' as const, displayName: 'Member', deviceId: 'member-device', deviceLabel: 'Browser', expiresAt: Date.now() + 300_000 },
+      principal: { kind: 'org-member' as const, userId: 'member-1', organizationId: 'org-1', organizationRole: 'member' as const, teamIds: [], hostKind: 'cloud' as const, displayName: 'Member', deviceId: 'member-device', deviceLabel: 'Browser', expiresAt: Date.now() + 300_000 },
       user: { id: { kind: 'account' as const, accountId: 'member-1' }, displayName: 'Member' },
     }
     setIntegrationGateway(gateway)

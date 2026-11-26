@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentTool, AgentToolResult } from './agent-tool'
+import type { AgentTool, AgentToolContext, AgentToolResult } from './agent-tool'
 import type { AgentId } from '@solus/contracts/types'
 import { resolveRepoRoot } from '../../../git/git-helpers'
 import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
@@ -21,6 +21,7 @@ import { readOwnSessionArtifacts } from '../../../data/sessions/session-artifact
 import { linkedAppNamed } from './app-tools'
 import type { WorkspaceLinkTarget } from '@solus/contracts/solus-api'
 import { toolAgentAttribution } from './agent-attribution'
+import { APP_NEEDS_SESSION_ID, findSession } from './session-tools'
 
 type ToolHome = Awaited<ReturnType<typeof workspaceToolContext>>
 
@@ -252,25 +253,25 @@ function byRepository(identities: readonly PullRequestIdentity[]): string {
 
 /** A task the calling session works on. The link is the task's, so the task
  *  page lists the session; it is written where the session's records live. */
-async function changeCallerTaskLink(ctx: SessionLinkCtx, verb: 'link' | 'unlink', taskKey: string): Promise<AgentToolResult> {
+async function changeCallerTaskLink(ctx: SessionLinkCtx, verb: 'link' | 'unlink', issueKey: string): Promise<AgentToolResult> {
   const sessionId = ctx.sessionId
   if (!sessionId) return { ok: false, text: `${verb} needs a calling session id.` }
   const home = await workspaceToolContext(sessionId)
-  const from = { kind: 'task' as const, id: taskKey.trim() }
+  const from = { kind: 'issue' as const, id: issueKey.trim() }
   const to = { kind: 'session' as const, id: sessionId }
   if (verb === 'link') {
     await home.operations.putLink(home.context, { from, to, role: 'working', originSessionId: sessionId })
-    return { ok: true, text: `Linked this session to task ${from.id}.` }
+    return { ok: true, text: `Linked this session to issue ${from.id}.` }
   }
   await home.operations.deleteLink(home.context, { from, to })
-  return { ok: true, text: `Removed this session from task ${from.id}.` }
+  return { ok: true, text: `Removed this session from issue ${from.id}.` }
 }
 
 function countOf(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
-const listLinkKind = z.enum(['work', 'automation', 'pr', 'file', 'app', 'task'])
+const listLinkKind = z.enum(['work', 'automation', 'pr', 'file', 'app', 'issue'])
 
 /** List only the calling session's links, from the home that owns them. */
 async function listCallerLinks(ctx: SessionLinkCtx, kind?: z.infer<typeof listLinkKind>): Promise<AgentToolResult> {
@@ -285,7 +286,7 @@ async function listCallerLinks(ctx: SessionLinkCtx, kind?: z.infer<typeof listLi
     }
     if (target.kind === 'file') return `- file: ${JSON.stringify(target.path)} — ${item.title}`
     if (target.kind === 'work' || target.kind === 'automation') return `- ${target.kind}: ${target.id} — ${item.title}`
-    if (target.kind === 'task') return `- task: ${target.id}`
+    if (target.kind === 'issue') return `- issue: ${target.id}`
     return ''
   })
   // An app link is on this host alone, so it is read here and not through the home's link list.
@@ -304,27 +305,53 @@ export interface SessionLinkCtx {
 }
 
 const LINK_DESC =
-  "Link an item to this session. Files and images use kind=file and path; others use target_id. Use kind=task with the task key when this session works on a GitHub, Jira or Linear task. Link each PR you create or work on immediately. For several PRs, such as a stack or a pasted list, pass them all as target_ids in one call; use target_id for one PR. Solus updates PR state and settles the session when its PRs end. Repeated links are safe."
+  "Link an item to this session. Files and images use kind=file and path; others use target_id. Use kind=issue with the issue key when this session works on a GitHub, Jira or Linear issue. Link each PR you create or work on immediately. For several PRs, such as a stack or a pasted list, pass them all as target_ids in one call; use target_id for one PR. Solus updates PR state and settles the session when its PRs end. Repeated links are safe."
 const UNLINK_DESC =
   "Remove a link from this session, keeping the target. Uses the same inputs as link. To remove every PR in some states, such as all closed or merged PRs, pass kind=pr and states in one call; use target_id for one PR. Removed PRs stay excluded from automatic linking until explicitly linked again. Missing files use their saved path from list_links."
 const LIST_LINKS_DESC =
   "List this session's links, with IDs or paths and last known PR states. Before finishing PR work, use kind=pr and link missing PRs."
 
+const sessionIdField = z.string().trim().min(1).optional()
+  .describe('The session to act on. Omit to use this session. An outside app must pass it.')
+
+/**
+ * The session a link tool acts on: `session_id` when the call names one, else
+ * the calling session (plans/035 §8). A named session's working directory
+ * resolves its relative paths and PR numbers. The access rule (`TOOL_ACCESS`)
+ * already checked the person may act on it.
+ */
+async function linkCtxFor(named: string | undefined, context: AgentToolContext): Promise<SessionLinkCtx | { error: string }> {
+  const callerSessionId = context.sessionId()
+  const ctx: SessionLinkCtx = { cwd: resolveHomePath(context.cwd), sessionId: callerSessionId, agentProvider: context.provider }
+  if (!named || named === callerSessionId) {
+    if (!callerSessionId && context.requesterKey?.()) return { error: APP_NEEDS_SESSION_ID }
+    return ctx
+  }
+  const meta = await findSession(named)
+  if (!meta) return { error: `Session ${named} not found.` }
+  return { ...ctx, sessionId: meta.sessionId, cwd: resolveHomePath(meta.cwd) }
+}
+
 function sessionLinkTool<Fields extends NonNullable<AgentTool['inputFields']>>(
   name: string,
   description: string,
-  inputFields: Fields,
+  sessionFields: Fields,
   requiresApproval: boolean,
   run: (input: z.output<z.ZodObject<Fields>>, ctx: SessionLinkCtx) => Promise<AgentToolResult>,
 ): AgentTool {
+  const inputFields = { ...sessionFields, session_id: sessionIdField }
   const schema = z.object(inputFields).strict()
+  const named = z.object({ session_id: sessionIdField })
+  const fields = z.object(sessionFields)
   return {
     name, description, inputFields, requiresApproval, strictInput: true,
     execute: async (args, context) => {
       const parsed = schema.safeParse(args)
       if (!parsed.success) return { ok: false, text: `Invalid arguments for ${name}: ${z.prettifyError(parsed.error)}` }
       try {
-        return await run(parsed.data, { cwd: resolveHomePath(context.cwd), sessionId: context.sessionId(), agentProvider: context.provider })
+        const ctx = await linkCtxFor(named.parse(parsed.data).session_id, context)
+        if ('error' in ctx) return { ok: false, text: ctx.error }
+        return await run(fields.parse(parsed.data), ctx)
       } catch (error) {
         return { ok: false, text: `${name} failed: ${error instanceof Error ? error.message : String(error)}` }
       }
@@ -333,8 +360,8 @@ function sessionLinkTool<Fields extends NonNullable<AgentTool['inputFields']>>(
 }
 
 export const linkAgentTool = sessionLinkTool('link', LINK_DESC, {
-  kind: z.enum(['work', 'automation', 'pr', 'file', 'app', 'task']).describe('The item to link to this session. Use file for plan files.'),
-  target_id: z.string().min(1).optional().describe('The work or automation id, an app\'s slug or id, a pull request number or URL, or a task key. Required except for files and target_ids.'),
+  kind: z.enum(['work', 'automation', 'pr', 'file', 'app', 'issue']).describe('The item to link to this session. Use file for plan files.'),
+  target_id: z.string().min(1).optional().describe('The work or automation id, an app\'s slug or id, a pull request number or URL, or an issue key. Required except for files and target_ids.'),
   target_ids: z.array(z.string().min(1)).min(1).max(200).optional().describe('For kind=pr: several pull request numbers or URLs to link in one call.'),
   path: z.string().min(1).optional().describe('For files: an absolute path on the execution host, or a path relative to this session’s working directory.'),
   title: z.string().optional().describe('Optional label; resolved from the target when omitted.'),
@@ -349,7 +376,7 @@ export const linkAgentTool = sessionLinkTool('link', LINK_DESC, {
     return linkCallerPullRequest(ctx, () => workspaceToolContext(ctx.sessionId), await resolveRepoRoot(ctx.cwd) ?? ctx.cwd, input)
   }
   if (input.kind === 'app') return changeCallerAppLink(ctx, 'link', input)
-  if (input.kind === 'task') return changeCallerTaskLink(ctx, 'link', input.target_id!)
+  if (input.kind === 'issue') return changeCallerTaskLink(ctx, 'link', input.target_id!)
   return linkCallerItem(ctx, { ...input, kind: input.kind })
 })
 
@@ -358,8 +385,8 @@ export const listLinksAgentTool = sessionLinkTool('list_links', LIST_LINKS_DESC,
 }, false, async (input, ctx) => listCallerLinks(ctx, input.kind))
 
 export const unlinkAgentTool = sessionLinkTool('unlink', UNLINK_DESC, {
-  kind: z.enum(['work', 'automation', 'pr', 'file', 'app', 'task']).describe('Link kind.'),
-  target_id: z.string().min(1).optional().describe('The work or automation id, an app\'s slug or id, a PR number or URL, or a task key. Required except for files and states.'),
+  kind: z.enum(['work', 'automation', 'pr', 'file', 'app', 'issue']).describe('Link kind.'),
+  target_id: z.string().min(1).optional().describe('The work or automation id, an app\'s slug or id, a PR number or URL, or an issue key. Required except for files and states.'),
   states: z.array(z.enum(PULL_REQUEST_STATES)).min(1).optional().describe('For kind=pr without target_id: remove every linked PR whose last synced state is one of these. PRs with no synced state stay.'),
   path: z.string().min(1).optional().describe('Linked file path, absolute or relative to this session’s directory.'),
 }, true, async (input, ctx) => {
@@ -371,7 +398,7 @@ export const unlinkAgentTool = sessionLinkTool('unlink', UNLINK_DESC, {
   }
   if (input.kind !== 'file' && !input.target_id?.trim()) return { ok: false, text: `unlink requires target_id for kind=${input.kind}.` }
   if (input.kind === 'app') return changeCallerAppLink(ctx, 'unlink', input)
-  if (input.kind === 'task') return changeCallerTaskLink(ctx, 'unlink', input.target_id!)
+  if (input.kind === 'issue') return changeCallerTaskLink(ctx, 'unlink', input.target_id!)
   const home = await workspaceToolContext(ctx.sessionId)
   if (input.kind === 'pr') {
     return unlinkCallerPullRequest(ctx, async () => home, await resolveRepoRoot(ctx.cwd) ?? ctx.cwd, { target_id: input.target_id! })

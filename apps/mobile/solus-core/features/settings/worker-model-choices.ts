@@ -1,4 +1,5 @@
 import type { WorkerModelSelection } from '@solus/contracts/settings'
+import { SESSION_AGENT_IDS } from '@solus/contracts/types'
 import { PROVIDERS, modelChoices } from '../conversation/lib/run-settings'
 
 /** One row of the worker model or fallback model list. No selection is the row that turns the setting off. */
@@ -15,8 +16,8 @@ export interface WorkerModelChoice {
  */
 export function workerModelChoices(current: WorkerModelSelection | null, offLabel: string): WorkerModelChoice[] {
   const models = PROVIDERS.flatMap((provider) => {
-    if (provider.id !== 'claude-code' && provider.id !== 'codex') return []
-    const id = provider.id
+    const id = SESSION_AGENT_IDS.find((agent) => agent === provider.id)
+    if (!id) return []
     return modelChoices(id, current?.provider === id ? current.model : null).map((model): WorkerModelChoice => ({
       key: `${id}:${model.id}`,
       label: `${provider.label} · ${model.label}`,

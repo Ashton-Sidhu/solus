@@ -4,7 +4,7 @@ import type { HostActivityReport, HostRegistration } from '@solus/contracts/upli
 import type { FetchLike } from '../admission/access-tokens'
 import type { HostCredential } from './host-credential'
 import { createLogger } from '../logger'
-import { hostCategory } from './host-category'
+import { hasManagedCompute } from './machine-kind'
 
 const log = createLogger('main', 'managed-host-activity')
 
@@ -99,7 +99,7 @@ export class ManagedHostActivity {
   }
 
   private async checkNow(): Promise<void> {
-    if (hostCategory() !== 'managed') {
+    if (!hasManagedCompute()) {
       await this.release()
       return
     }

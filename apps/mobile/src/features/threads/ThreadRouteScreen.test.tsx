@@ -16,7 +16,8 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("@react-navigation/native", () => ({
   useIsFocused: () => true,
-  useNavigation: () => ({ navigate: state.navigate }),
+  useNavigation: () => ({ navigate: state.navigate, dispatch: vi.fn() }),
+  CommonActions: { setParams: (params: { inspector?: string }) => ({ type: "SET_PARAMS", payload: params }) },
   StackActions: {},
 }));
 vi.mock("react-native", () => ({ View: ({ children }: { children: ReactNode }) => children }));
@@ -53,7 +54,7 @@ vi.mock("../layout/workspace/useAndroidWorkspaceNavigation", () => ({
 }));
 vi.mock("../../solus/use-thread-screen-data", () => ({
   useThreadScreenData: () => ({
-    binding: {},
+    binding: { environmentId: "host" },
     draft: state.draft
       ? { title: "project", chooseProject: state.chooseProject, chooseEnvironment: state.chooseHost }
       : null,
@@ -74,10 +75,25 @@ vi.mock("./ThreadHeader", () => ({
   ThreadNavigationHeader: () => null,
 }));
 vi.mock("../layout/AdaptiveWorkspaceLayout", () => ({
-  useAdaptiveWorkspaceLayout: () => ({ layout: { variant: "expanded" } }),
-  Inspector: ({ content }: { content: { panes: { render: () => ReactNode }[] } }) =>
-    content.panes[0]?.render(),
+  useAdaptiveWorkspaceLayout: () => ({ layout: { variant: "expanded" }, showInspector: vi.fn() }),
+  Inspector: ({ content }: { content: { active: string; panes: { key: string; render: () => ReactNode }[] } }) =>
+    content.panes.find(pane => pane.key === content.active)?.render(),
 }));
+vi.mock("../../solus/session-feed", async () => {
+  const { createContext } = await import("react");
+  return { SessionCardRenderer: createContext(null) };
+});
+vi.mock("../../solus/ConversationCard", () => ({ ConversationCard: () => null }));
+vi.mock("@solus-mobile/features/threads/ThreadMcpApp", () => ({ ThreadMcpApp: () => null }));
+vi.mock("../layout/workspace-inspector-sheet", async () => {
+  const { createContext } = await import("react");
+  return { InspectorSheetContext: createContext(null) };
+});
+vi.mock("../files/thread-file-navigator-pane", () => ({
+  ThreadFileNavigatorPane: ({ onSelectFile }: { onSelectFile: (path: string) => void }) =>
+    <button onClick={() => onSelectFile("src/file.ts")}>src/file.ts</button>,
+}));
+vi.mock("./git/GitOverviewSheet", () => ({ GitOverviewSheet: () => null }));
 vi.mock("./ThreadDetailScreen", () => ({
   ThreadDetailScreen: ({
     draftMode,
@@ -112,8 +128,13 @@ vi.mock("../../components/ui/ScreenScrollView", () => ({
 vi.mock("../../components/ui/EmptyState", () => ({
   EmptyState: ({ title }: { title: string }) => <span>{title}</span>,
 }));
-vi.mock("../../components/LoadingScreen", () => ({
-  LoadingScreen: ({ message }: { message: string }) => <span>{message}</span>,
+vi.mock("../../components/ui/AppActivityIndicator", () => ({
+  AppActivityIndicator: ({ size }: { size: string }) => (
+    <span role="progressbar" data-size={size} />
+  ),
+}));
+vi.mock("../../components/ui/AppText", () => ({
+  AppText: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
 vi.mock("./NewTaskHero", () => ({
   draftHeroContent: () => () => null,
@@ -168,7 +189,6 @@ it("keeps the same editor when the draft becomes a thread and opens its files on
               ? { draft: { environmentId: "host", projectId: "/repo" } }
               : { environmentId: "host", threadId: "session" },
           }}
-          renderInspector={() => <span>File navigator</span>}
         />,
       ),
     );
@@ -177,9 +197,12 @@ it("keeps the same editor when the draft becomes a thread and opens its files on
     const input = container.querySelector("input");
     expect(input?.dataset.state).toBe("draft");
     expect(input?.dataset.layout).toBe("expanded");
-    expect(container.textContent).toContain("File navigator");
-    act(() => container.querySelector("button")!.click());
-    expect(state.navigate).toHaveBeenLastCalledWith("NewTaskFiles", {
+    const click = (label: string) => act(() => [...container.querySelectorAll("button")].find(button => button.textContent === label)!.click());
+    click("Files");
+    click("src/file.ts");
+    expect(state.navigate).toHaveBeenLastCalledWith("NewTaskFile", {
+      threadId: "session",
+      path: ["src", "file.ts"],
       environmentId: "host",
       cwd: "/repo/worktree",
       projectName: "project",
@@ -189,8 +212,10 @@ it("keeps the same editor when the draft becomes a thread and opens its files on
     render();
     expect(container.querySelector("input")).toBe(input);
     expect(input?.dataset.state).toBe("live");
-    act(() => container.querySelector("button")!.click());
-    expect(state.navigate).toHaveBeenLastCalledWith("ThreadFiles", {
+    click("Files");
+    click("src/file.ts");
+    expect(state.navigate).toHaveBeenLastCalledWith("ThreadFile", {
+      path: ["src", "file.ts"],
       environmentId: "host",
       threadId: "session",
       cwd: "/repo/worktree",
@@ -238,8 +263,10 @@ it("keeps the inspector close control while a thread loads or is unavailable", (
   try {
     render("loading");
     expect(container.textContent).toContain("Opening thread");
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("data-size")).toBe("small");
     expect(container.querySelector("button")?.textContent).toBe("Close thread");
     render("unavailable");
+    expect(container.querySelector('[role="progressbar"]')).toBeNull();
     expect(container.textContent).toContain("Thread unavailable");
     expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
       "Close thread",

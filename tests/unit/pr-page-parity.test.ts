@@ -38,7 +38,7 @@ const saved: PrSavedView = {
     draft: 'hide',
     review: 'approved',
     checks: 'passing',
-    sort: 'smallest',
+    sort: 'oldest',
     guide: true,
     lens: true
   }
@@ -143,50 +143,35 @@ describe('personal PR views across clients', () => {
   })
 })
 describe('shared PR queue ordering', () => {
-  const facts = (pr: PullRequest) => ({ viewerLogin: 'ada', checks: pr.checksState ?? null })
-  test('blocked on me prioritizes open review requests and authored failures without guessing the viewer', () => {
-    const prs = [
-      pullRequestFixture(1),
-      pullRequestFixture(2, { author: 'ADA', checksState: 'failing' }),
-      pullRequestFixture(3, { requestedReviewers: [{ login: 'Ada' }] }),
-      pullRequestFixture(4, { author: 'ada', mergeable: false }),
-      pullRequestFixture(5, { author: 'ada', reviewStatus: 'changes-requested' }),
-      pullRequestFixture(6, { state: 'merged', needsMyReview: true })
-    ]
-    expect(
-      prs.toSorted((a, b) => comparePrs(a, b, 'blocked', facts)).map((pr) => pr.number)
-    ).toEqual([2, 3, 4, 5, 1, 6])
-    expect(
-      prs
-        .toSorted((a, b) =>
-          comparePrs(a, b, 'blocked', () => ({ viewerLogin: null, checks: 'failing' }))
-        )
-        .map((pr) => pr.number)
-    ).toEqual([1, 2, 3, 4, 5, 6])
-  })
-  test('native and workspace sorts give the same order, with unknown size after measured diffs', () => {
-    const prs = [
-      pullRequestFixture(1, { updatedAt: '2026-02-01', createdAt: '2026-02-01' }),
-      pullRequestFixture(2, { additions: 100, checksState: 'passing', reviewStatus: 'approved' }),
-      pullRequestFixture(3, { additions: 2, checksState: 'passing', reviewStatus: 'approved' }),
-      pullRequestFixture(4, { additions: 1, mergeable: false })
-    ]
-    for (const { value } of PR_SORT_OPTIONS) {
-      const expected = prs.toSorted((a, b) => comparePrs(a, b, value, facts)).map((pr) => pr.number)
-      expect(
-        filterPullRequestRows(
-          prs.map(row),
-          { involvement: 'all', filters: {}, sort: value },
-          () => 'ada'
-        ).map((item) => item.pr.number)
-      ).toEqual(expected)
-    }
-    expect(
-      prs.toSorted((a, b) => comparePrs(a, b, 'smallest', facts)).map((pr) => pr.number)
-    ).toEqual([4, 3, 2, 1])
-    expect(prs.toSorted((a, b) => comparePrs(a, b, 'ready', facts)).map((pr) => pr.number)).toEqual(
-      [3, 2, 1, 4]
+  const prs = [
+    pullRequestFixture(1, { updatedAt: '2026-02-03', createdAt: '2026-01-02' }),
+    pullRequestFixture(2, { updatedAt: '2026-02-01', createdAt: '2026-01-03' }),
+    pullRequestFixture(3, { updatedAt: '2026-02-02', createdAt: '2026-01-01' })
+  ]
+  test('the sorts are the three time sorts of T3 Code, and native and workspace agree on each', () => {
+    // WHY: the phone runs T3 Code's list; desktop and web must offer the same
+    // sorts and put the rows in the same order.
+    expect(PR_SORT_OPTIONS.map((option) => option.value)).toEqual(['updated', 'created', 'oldest'])
+    const orders = Object.fromEntries(
+      PR_SORT_OPTIONS.map(({ value }) => {
+        const workspace = prs.toSorted((a, b) => comparePrs(a, b, value)).map((pr) => pr.number)
+        expect(
+          filterPullRequestRows(prs.map(row), { involvement: 'all', filters: {}, sort: value }, () => null).map(
+            (item) => item.pr.number
+          )
+        ).toEqual(workspace)
+        return [value, workspace]
+      })
     )
+    expect(orders).toEqual({ updated: [1, 3, 2], created: [2, 1, 3], oldest: [2, 3, 1] })
+  })
+  test('a saved view with a sort that was removed keeps its filters and opens as Recently updated', () => {
+    // WHY: synced views from an older build must not be refused whole.
+    for (const sort of ['ready', 'blocked', 'smallest', 'largest']) {
+      const parsed = prSavedViewsSchema.parse([{ ...saved, filters: { ...saved.filters, sort } }])
+      expect(parsed[0]!.filters).toEqual({ ...saved.filters, sort: 'updated' })
+    }
+    expect(prSavedViewsSchema.safeParse([{ ...saved, filters: { ...saved.filters, sort: 'size' } }]).success).toBe(false)
   })
 })
 

@@ -5,7 +5,43 @@ import { solusApiId } from '@solus/contracts/uplink'
 export interface SessionHomeConnections {
   serverIds(): string[]
   /** A machine provisioned for an organization, whose sessions the Solus API keeps. Absent: every machine is personal. */
-  isManagedHost?(serverId: string): boolean
+  isCloudHost?(serverId: string): boolean
+  /**
+   * Whether the organization saves the conversations of its sessions in Solus
+   * Cloud: its policy limit `sessionCloudSync`, as the directory gives it
+   * (`DirectoryWorkspace.sessionCloudSync`). Absent: it does.
+   */
+  savesSessionsToCloud?(organizationId: string): boolean
+}
+
+/**
+ * Where the sessions of an organization are read from (docs/session-cloud-copy.md).
+ * The first question is the setting, the second is the kind of the machine:
+ *
+ * | The organization saves sessions to Solus Cloud | The session ran on | Source |
+ * | --- | --- | --- |
+ * | no | any machine | the machine |
+ * | yes | a personal machine | the machine |
+ * | yes | a cloud machine | the organization's Solus API |
+ *
+ * `false` here means the first row: no conversation of these sessions is in
+ * Solus Cloud, so the Solus API is not a source of them and each machine
+ * answers for its own.
+ */
+export function readsSessionsFromSolusApi(organizationId: string, connections: Pick<SessionHomeConnections, 'savesSessionsToCloud'>): boolean {
+  return connections.savesSessionsToCloud?.(organizationId) !== false
+}
+
+/**
+ * Whether a machine is asked for its own sessions, in a list or a search. A
+ * personal machine always is. A cloud machine is asked only when the Solus API
+ * of its organization does not answer for it: the organization keeps its
+ * sessions on their hosts, or this client has no connection to that Solus API.
+ */
+export function answersForOwnSessions(machine: { serverId: string; organizationId: string | null }, connections: SessionHomeConnections): boolean {
+  if (!connections.isCloudHost?.(machine.serverId) || !machine.organizationId) return true
+  if (!readsSessionsFromSolusApi(machine.organizationId, connections)) return true
+  return !connections.serverIds().includes(solusApiId(machine.organizationId))
 }
 
 /**
@@ -18,7 +54,9 @@ export interface SessionHomeConnections {
  * transcript) stays on the machine either way.
  *
  * A client that is not connected to the organization's Solus API reaches the
- * session only through its machine, so the machine stands in.
+ * session only through its machine, so the machine stands in. So does the
+ * machine of an organization that keeps its sessions on their hosts
+ * (`readsSessionsFromSolusApi`): the Solus API has no conversation of them.
  */
 export function sessionHomeId(
   machineServerId: string,
@@ -26,7 +64,8 @@ export function sessionHomeId(
   connections: SessionHomeConnections,
 ): string {
   const { organizationId, publication } = session
-  if (!organizationId || organizationId === 'local' || publication !== 'published' || !connections.isManagedHost?.(machineServerId)) return machineServerId
+  if (!organizationId || organizationId === 'local' || publication !== 'published' || !connections.isCloudHost?.(machineServerId)) return machineServerId
+  if (!readsSessionsFromSolusApi(organizationId, connections)) return machineServerId
   const serviceId = solusApiId(organizationId)
   return connections.serverIds().includes(serviceId) ? serviceId : machineServerId
 }

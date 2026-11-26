@@ -89,7 +89,7 @@ async function main(): Promise<void> {
   await issuer.start()
   const service = await bootLabSolusApi({ issuer, engine: 'sqlite', entry: process.env.SOLUS_LAB_ENTRY })
   const account = await startOrigin()
-  const alice = new LabClient({ persona: personaForHost('alice', 'managed'), hostUrl: service.url, issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud' })
+  const alice = new LabClient({ persona: personaForHost('alice', 'api'), hostUrl: service.url, issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'api' })
   let browser: Browser | null = null
   try {
     if (!(await alice.connect()).ok) throw new Error('Owner could not connect')

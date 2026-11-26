@@ -17,7 +17,7 @@ import { linkPlainFolder, openPlaceInLinks, removeLinks } from './task-folder-li
 import type { TaskFolderPlan } from './task-folder-plan'
 import { findTaskFolderContaining, putTaskFolder, removeTaskFolderRecord, type TaskFolderRecord } from './task-folder-store'
 import {
-  checkOutMissingWorktree, createWorktree, freeBranchName, getWorkingBranch, listProjectWorktrees, localBranchNames,
+  COMMIT_HASH, checkOutMissingWorktree, createWorktree, freeBranchName, getWorkingBranch, listProjectWorktrees, localBranchNames,
   type WorktreeSetupStage, type WorktreeStageUpdate,
 } from './worktree-manager'
 
@@ -43,7 +43,7 @@ const log = createLogger('TaskFolders', 'task-folders.ts')
 const CHECKOUTS_AT_ONE_TIME = 4
 
 /** One checkout of a task folder: a repository and the place of its worktree. */
-interface Checkout {
+export interface Checkout {
   repositoryPath: string
   worktreePath: string
 }
@@ -66,8 +66,10 @@ export interface CreateTaskFolderOptions {
   member?: ProcessUser | null
   /** The branch of the session. It gets a suffix when it is not free in each repository. */
   branch: string
-  /** A repository that has this branch starts from it. Each other one starts from its default branch. */
+  /** A repository that has this branch or commit starts from it. Each other one uses its default branch. */
   baseBranch: string | null
+  /** An override for the other repositories. Null selects their default branches. */
+  siblingBaseBranch?: string | null
   /** The session that the task folder is made for. The record names it when the creation ends. */
   sessionId?: string
   signal?: AbortSignal
@@ -97,7 +99,7 @@ const samePlace = (a: string, b: string): boolean => path.resolve(a) === path.re
 const messageOf = (error: Parameters<typeof String>[0]): string => (error instanceof Error ? error.message : String(error))
 
 /** The worktrees of a task folder. A worktree is before each one inside it. */
-function checkoutsOf(taskFolder: TaskFolder): Checkout[] {
+export function checkoutsOf(taskFolder: TaskFolder): Checkout[] {
   const primary = taskFolder.primaryIsWorktree ? [{ repositoryPath: taskFolder.primaryRepositoryPath, worktreePath: taskFolder.primaryPath }] : []
   return [...primary, ...taskFolder.repositories].sort((a, b) => a.worktreePath.length - b.worktreePath.length)
 }
@@ -129,6 +131,15 @@ async function hasBranch(repositoryPath: string, branch: string): Promise<boolea
   return await gitCommitExists(repositoryPath, `refs/heads/${branch}`) || await gitCommitExists(repositoryPath, `refs/remotes/origin/${branch}`)
 }
 
+/** HEAD is the default-base choice for a task folder. Each repository has its own default branch. */
+export async function taskFolderBaseRef(repositoryPath: string, baseBranch: string | null): Promise<string | undefined> {
+  if (!baseBranch || baseBranch === 'HEAD') return undefined
+  const exists = COMMIT_HASH.test(baseBranch)
+    ? await gitCommitExists(repositoryPath, baseBranch)
+    : await hasBranch(repositoryPath, baseBranch)
+  return exists ? baseBranch : undefined
+}
+
 /** The Git directory that each worktree of a repository shares, or null when `folder` is not in a repository. */
 async function sharedGitDirectoryOf(folder: string): Promise<string | null> {
   const output = await runAsync('git', ['rev-parse', '--git-common-dir'], folder).catch(() => null)
@@ -149,14 +160,14 @@ async function isEmptyPlace(place: string): Promise<boolean> {
   return entries === null || entries.length === 0
 }
 
-/** A worktree of `checkout` on the branch of the task folder. A new branch starts from the base branch when the repository has it. */
+/** A worktree of `checkout` on the branch of the task folder. A new branch starts from the base ref when the repository has it. */
 async function checkOut(
   checkout: Checkout,
   branch: { name: string; exists: boolean },
   options: Pick<CreateTaskFolderOptions, 'baseBranch' | 'signal' | 'onRepository'>,
 ): Promise<void> {
   const { baseBranch, onRepository } = options
-  const base = !branch.exists && baseBranch && await hasBranch(checkout.repositoryPath, baseBranch) ? baseBranch : undefined
+  const base = branch.exists ? undefined : await taskFolderBaseRef(checkout.repositoryPath, baseBranch)
   // The stages of this repository that started and did not end, the newest last.
   const openStages = new Set<WorktreeSetupStage>()
   try {
@@ -213,7 +224,8 @@ async function makeRoot(baseFolder: string, branch: string, member: ProcessUser 
  * is made after it. The first failure stops the checkouts that run, and each
  * one that ended is in `made`.
  */
-async function checkOutAll(checkouts: readonly Checkout[], branch: string, options: CreateTaskFolderOptions, made: Checkout[]): Promise<void> {
+async function checkOutAll(record: TaskFolderRecord, options: CreateTaskFolderOptions, made: Checkout[]): Promise<void> {
+  const checkouts = checkoutsOf(record)
   const stop = new AbortController()
   const signal = options.signal ? AbortSignal.any([options.signal, stop.signal]) : stop.signal
   const failures: unknown[] = []
@@ -224,7 +236,9 @@ async function checkOutAll(checkouts: readonly Checkout[], branch: string, optio
     await runBounded(checkouts.filter((checkout) => depthOf(checkout) === depth).map((checkout) => async () => {
       if (failures.length > 0) return
       try {
-        await checkOut(checkout, { name: branch, exists: false }, { ...options, signal })
+        const isPrimary = record.primaryIsWorktree && checkout.repositoryPath === record.primaryRepositoryPath
+        const baseBranch = !isPrimary && options.siblingBaseBranch !== undefined ? options.siblingBaseBranch : options.baseBranch
+        await checkOut(checkout, { name: record.branch, exists: false }, { baseBranch, onRepository: options.onRepository, signal })
         made.push(checkout)
       } catch (error) {
         failures.push(error)
@@ -343,7 +357,7 @@ export async function createTaskFolder(plan: TaskFolderPlan, options: CreateTask
     if (layout) {
       await createWithCommand(layout.create, plan, record, candidates, options)
     } else {
-      await checkOutAll(checkoutsOf(record), branch, options, made)
+      await checkOutAll(record, options, made)
       // After the worktrees: a working folder inside a chosen repository is in the worktree of that repository.
       if (!plan.workingMemberIsRepository) await linkPlainFolder(plan.workingMember, record.primaryPath, [...planned, ...plan.otherRepositories])
     }

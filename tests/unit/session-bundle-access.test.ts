@@ -4,7 +4,7 @@ import type { Principal } from '@solus/server/admission/principal'
 
 const principal: Principal = {
   kind: 'org-member', userId: 'reader', organizationId: 'org-one', organizationRole: 'member', teamIds: [],
-  hostKind: 'managed', displayName: 'Reader', deviceId: 'device-one', expiresAt: Date.now() + 60_000, deviceLabel: 'Test',
+  hostKind: 'cloud', displayName: 'Reader', deviceId: 'device-one', expiresAt: Date.now() + 60_000, deviceLabel: 'Test',
 }
 
 // WHY: the repository holds full provider transcripts. A person with no

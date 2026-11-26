@@ -1,12 +1,21 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import type { Permission, ResourceActionPath } from '@solus/contracts/permissions'
 import type { ResourceRole, ShareResource } from '@solus/contracts/sharing'
 import type { Principal } from './principal'
-import { assertRpcAccess, type ResourceAccess } from './access-policy'
+import { actorFor, type Actor } from './actor'
+import type { AccessResource } from './access'
+import { assertRpcAccess, authorize, type ResourceAccess } from './access-policy'
 
 /** Set at admitted turn execution, never from model-supplied tool arguments. */
 const authority = new AsyncLocalStorage<Principal>()
 export function withWorkspaceToolAuthority<T>(principal: Principal, run: () => T): T { return authority.run(principal, run) }
 export function workspaceToolAuthority(): Principal | undefined { return authority.getStore() }
+
+/** The person a tool call with no calling session acts for (an outside app's); none for the host's own work. */
+export function toolCallActor(): Actor | undefined {
+  const principal = workspaceToolAuthority()
+  return principal && principal.kind !== 'system' ? actorFor(principal) : undefined
+}
 
 let roleOfResource: ((principal: Principal, resource: ShareResource) => Promise<ResourceRole>) | null = null
 let resourceAccess: ResourceAccess | null = null
@@ -57,4 +66,15 @@ export async function toolMayRead(resource: ShareResource): Promise<boolean> {
   const principal = workspaceToolAuthority()
   if (!principal || !roleOfResource) return true
   return (await roleOfResource(principal, resource)) !== 'none'
+}
+
+/**
+ * Why `principal` may not take `action` in a tool call: a host permission, or a
+ * verb on the record the call names. Null when it may. The decision is the RPC
+ * gate's (`authorize`), so a tool reaches only what its person reaches from a
+ * client (plans/035 §5).
+ */
+export async function toolActionRefusal(toolName: string, principal: Principal, action: Permission | ResourceActionPath, resource: AccessResource | null): Promise<string | null> {
+  const refusal = await authorize(principal, action, resource, { name: toolName, resources: resourceAccess ?? undefined })
+  return refusal?.detail ?? null
 }

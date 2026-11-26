@@ -42,6 +42,7 @@ const TOKEN_REUSE_MARGIN_MS = 60_000
  * the host yet. A failed upload blocks Send until it is retried or removed.
  */
 class AttachmentUploads {
+  private readonly preparations = new Map<string, number>()
   private readonly states = new SvelteMap<string, AttachmentUploadState>()
   private readonly uploads = new Map<string, StreamedUpload>()
   /** Chips whose contents the host reads, by attachment id: each runs its read again on Retry. */
@@ -52,12 +53,39 @@ class AttachmentUploads {
     return this.states.get(attachmentId)
   }
 
+  beginPreparation(serverId: string, ctx: IpcContext): () => void {
+    const key = this.preparationKey(serverId, ctx)
+    this.preparations.set(key, (this.preparations.get(key) ?? 0) + 1)
+    return () => {
+      const remaining = (this.preparations.get(key) ?? 1) - 1
+      if (remaining > 0) this.preparations.set(key, remaining)
+      else this.preparations.delete(key)
+    }
+  }
+
+  isPreparing(serverId: string, ctx: IpcContext): boolean {
+    return this.preparations.has(this.preparationKey(serverId, ctx))
+  }
+
+  async prepare(serverId: string, ctx: IpcContext, action: () => Promise<void>): Promise<void> {
+    const finish = this.beginPreparation(serverId, ctx)
+    try { await action() }
+    finally { finish() }
+  }
+
+  private preparationKey(serverId: string, ctx: IpcContext): string {
+    return JSON.stringify([serverId, ctx.session.sessionId || ctx.session.draftId])
+  }
+
   isUploading(attachments: Attachment[]): boolean {
     return attachments.some((attachment) => this.states.get(attachment.id)?.status === 'uploading')
   }
 
   /** Why a prompt holding these attachments cannot go, or null. */
   sendBlocker(attachments: Attachment[]): string | null {
+    if (attachments.some((attachment) => attachment.needsReattach)) {
+      return 'Attach missing files again or remove them before sending.'
+    }
     return attachments.some((attachment) => this.states.get(attachment.id)?.status === 'failed')
       ? 'Retry or remove the failed upload.'
       : null
@@ -67,6 +95,7 @@ class AttachmentUploads {
    *  not land. One that is not uploading answers at once. Never rejects. */
   landed(attachment: Attachment): Promise<AttachmentUploadOutcome> {
     const state = this.states.get(attachment.id)
+    if (attachment.needsReattach) return Promise.resolve({ status: 'failed', message: 'Attach this file again or remove it.' })
     if (state?.status === 'failed') return Promise.resolve({ status: 'failed', message: state.message })
     if (state?.status !== 'uploading') return Promise.resolve({ status: 'landed', attachment })
     return new Promise((resolve) => {

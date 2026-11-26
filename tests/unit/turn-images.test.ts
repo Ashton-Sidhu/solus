@@ -3,6 +3,7 @@ import type { Message } from '@solus/contracts/types'
 import { toolResultImages } from '@solus/client-core/reply-images'
 import { galleryHrefs, hasGallerySlides, toolGroupViewedImages, toolRowImages } from '@solus/workspace-ui/components/conversation/lib/turn-images'
 import { markdownAssetId } from '@solus/workspace-ui/components/conversation/lib/markdown-image'
+import { snapshotHref } from '@solus/workspace-ui/components/browser/lib/snapshot-card'
 
 test('the viewer can browse images across replies in one turn, in carousel order', () => {
   const messages: Message[] = [
@@ -12,6 +13,32 @@ test('the viewer can browse images across replies in one turn, in carousel order
     { id: 'image', role: 'assistant', content: '', artifact: { kind: 'image', path: '/tmp/detail.png' }, timestamp: 4 },
   ]
   expect(galleryHrefs(messages)).toEqual(['/tmp/before.png', '/tmp/after.png', '/tmp/detail.png'])
+})
+
+test('one viewer steps through the images and the browser captures of a turn, in turn order', () => {
+  // WHY: the gallery under a turn shows both kinds of picture side by side. If
+  // the viewer only knew one kind, the arrows would skip the other and the strip
+  // would open two different viewers.
+  const capture = {
+    browserPageId: 'browser_1',
+    assetId: 'a'.repeat(64) + '.png',
+    url: 'http://localhost:5173/',
+    title: 'Solus',
+    viewport: 'Desktop — 1440×900',
+    appearance: 'light' as const,
+    elementCount: 9,
+    consoleErrors: 0,
+    capturedAt: 1,
+  }
+  const messages: Message[] = [
+    { id: 'before', role: 'assistant', content: '![Before](/tmp/before.png)', timestamp: 1 },
+    { id: 'capture', role: 'assistant', content: '', browserSnapshot: capture, timestamp: 2 },
+    { id: 'after', role: 'assistant', content: '![After](/tmp/after.png)', timestamp: 3 },
+  ]
+  const gallery = galleryHrefs(messages)
+  expect(gallery).toEqual(['/tmp/before.png', snapshotHref(capture), '/tmp/after.png'])
+  // The capture's path is an asset the host signs, so the viewer can load it.
+  expect(markdownAssetId(gallery[1]!)).toBe(capture.assetId)
 })
 
 test('a turn mounts its image carousel only when it has an image to show', () => {

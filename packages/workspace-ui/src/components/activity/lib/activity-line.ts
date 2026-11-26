@@ -125,12 +125,12 @@ function taskLine(
 ): ActivityLine {
   const target = activity.target?.title || activity.target?.key || ''
   switch (activity.change) {
-    case 'created': return line('created this task', GLYPHS.plus)
+    case 'created': return line('created this issue', GLYPHS.plus)
     case 'status_changed': return line(`moved this to ${statusName(activity.to)}`)
     case 'priority_changed': return line(`set priority to ${activity.to ?? 'none'}`)
     case 'assignee_changed': return line(`assigned this to ${activity.to ?? 'nobody'}`)
     case 'due_date_changed': return line(`set the target to ${activity.to ?? 'none'}`)
-    case 'title_changed': return line('renamed this task')
+    case 'title_changed': return line('renamed this issue')
     case 'labels_changed': return line(labelsChangedPredicate(activity.from, activity.to))
     case 'linked': return line(`linked ${target}`, GLYPHS.link)
     case 'unlinked': return line(`unlinked ${target}`, GLYPHS.link)

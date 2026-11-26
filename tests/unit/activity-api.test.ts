@@ -54,7 +54,7 @@ afterAll(async () => {
 const member = (userId: string, displayName: string): WorkspaceRequestContext => ({
   principal: { kind: 'org-member', userId, organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName, deviceId: `${userId}-device`, deviceLabel: 'Browser', expiresAt: Date.now() + 300_000 },
   home: { kind: 'organization', organizationId: 'org1', serviceId: 'api' },
-  scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read'],
+  scopes: ['issues:read', 'issues:write', 'works:read', 'works:write', 'sessions:read'],
 })
 const alice = member('alice', 'Alice')
 const bob = member('bob', 'Bob')
@@ -162,7 +162,7 @@ describe('activity on the Solus API', () => {
     const hidden = await operations.createWork(alice, { title: 'Private', type: 'doc', content: `Hi ${mention('bob', 'Bob')} ${mention('carol', 'Carol')}` }, 'activity-api-private-01')
     const shared = await operations.createWork(alice, { title: 'Shared', type: 'doc', content: `Hi ${mention('bob', 'Bob')} ${mention('carol', 'Carol')}` }, 'activity-api-shared-001')
     // On the Solus API a member stands in the organization's space (`cloud`), where a share with it is given.
-    await shares.shareWithOrganization({ kind: 'work', id: shared.id }, { ...alice.principal, hostKind: 'cloud' })
+    await shares.shareWithOrganization({ kind: 'work', id: shared.id }, { ...alice.principal, hostKind: 'api' })
 
     expect((await operations.listWorkActivity(alice, hidden.id, {})).items.map((row) => row.kind)).toEqual(['mentioned', 'mentioned'])
     await expect(operations.listWorkActivity(bob, hidden.id, {})).rejects.toMatchObject({ status: 404 })
@@ -176,6 +176,6 @@ describe('activity on the Solus API', () => {
     // `since` leaves out what came before it.
     expect((await operations.listMyActivity(bob, { since: new Date(Date.now() + 60_000).toISOString() })).items).toEqual([])
     // A credential that may not read works reads no work mentions.
-    expect((await operations.listMyActivity({ ...bob, scopes: ['tasks:read'] }, {})).items).toEqual([])
+    expect((await operations.listMyActivity({ ...bob, scopes: ['issues:read'] }, {})).items).toEqual([])
   })
 })

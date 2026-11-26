@@ -8,6 +8,7 @@ import type { SolusAPI } from '@solus/contracts/host-api'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import { hostSetupStore, type HostSetupSession } from './host-setup.store.svelte'
 import { messageFor } from './lib/setup-rpc'
+import { discoveredAddFailure } from './lib/add-over-ssh'
 import type { PairingView } from './lib/host-onboarding'
 
 export interface OnboardingHost {
@@ -192,7 +193,7 @@ export class HostOnboardingStore {
 
       if (result.status !== 'needs-auth') {
         // No link is sent for a discovered server, which is dialed where it was found: any other answer is unexpected.
-        this.pairingError = `${target.name} could not be added at the address it was found at. Pair it with a code instead.`
+        this.pairingError = discoveredAddFailure(result, target.name)
         this.pairingView = 'error'
         return
       }

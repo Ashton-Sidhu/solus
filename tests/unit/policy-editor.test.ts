@@ -6,12 +6,12 @@ import type { PolicyCloudRequests } from '@solus/client-core/settings-requests'
 import {
   assignableHostPolicies,
   checkPolicyText,
-  hostOwnerName,
   policyDifferences,
   policyText,
   readPolicy,
 } from '@solus/workspace-ui/components/settings/policy/lib/policy-editor'
 import { exportChoice, readImport } from '@solus/workspace-ui/components/settings/policy/lib/policy-document-editor'
+import { appliedPolicies, policyRules, storedPolicyRules } from '@solus/workspace-ui/components/settings/policy/lib/policy-rules'
 
 // plans/030 §7, Settings → Policy: the editor refuses what the validator
 // refuses, an import shows what it changes before it applies, a host owned by
@@ -81,12 +81,49 @@ describe('policy editor', () => {
     const owned: PolicyHost = { hostId: 'h', label: 'Laptop', policyId: null, hostOwner: { organizationId: 'globex', name: 'Globex' } }
     expect(assignableHostPolicies(owned, 'acme', [unknownPolicy])[0]?.blockedReason).not.toBeNull()
   })
+})
 
-  test('with an MDM policy no organization manages the host settings', () => {
-    const set = { mdm: null, hostOwnerOrganizationId: 'globex', organizations: {} }
-    expect(hostOwnerName(set, [{ organizationId: 'globex', name: 'Globex' }])).toBe('Globex')
+// Settings → Policy shows each policy as rules in words, in the order the host
+// applies them, so a person sees what is locked without reading JSON.
+describe('policy rules', () => {
+  test('a policy reads as one rule for each key it sets', () => {
+    const document: PolicyDocument = {
+      schemaVersion: 1,
+      organization: { name: 'Acme' },
+      host: { remoteAccess: 'private', analyticsEnabled: false },
+      sessions: {
+        settings: { defaultPermissionMode: 'supervised' },
+        limits: { maxPermissionMode: 'auto', providers: { allowed: ['claude-code'] }, models: { codex: ['gpt-5'] } },
+      },
+    }
+    expect(policyRules(document)).toEqual([
+      { label: 'Remote access', value: 'Private networks only' },
+      { label: 'Analytics', value: 'Off' },
+      { label: 'Default permission mode', value: 'Supervised' },
+      { label: 'Highest permission mode', value: 'Auto' },
+      { label: 'Allowed agents', value: 'Claude' },
+      { label: 'Allowed Codex models', value: 'gpt-5' },
+    ])
+    expect(policyRules({ schemaVersion: 1, organization: { name: 'Acme' } })).toEqual([])
+  })
+
+  test('a stored document this Solus version cannot read has no rules, not empty rules', () => {
+    expect(storedPolicyRules(readPolicy({ revision: 1, document: { schemaVersion: 2 } }, 'host').document)).toBeNull()
+    expect(storedPolicyRules(readPolicy({ revision: 1, document: acmeDocument }, 'organization').document)).toEqual([{ label: 'Send all Insights', value: 'On' }])
+  })
+
+  test('the host lists its policies in the order they win: MDM, host policy, organization policy', () => {
     const mdm = { kind: 'mdm' as const, organizationId: null, document: { schemaVersion: 1 as const, organization: { name: 'IT' } } }
-    expect(hostOwnerName({ ...set, mdm }, [])).toBeNull()
+    const hostPolicy = { kind: 'host' as const, organizationId: 'acme', document: { ...acmeDocument, name: 'Laptops', host: { cloudTunnel: false } } }
+    const policy = { kind: 'organization' as const, organizationId: 'acme', document: acmeDocument }
+    const set = { mdm, hostOwnerOrganizationId: 'acme', organizations: { acme: { state: 'ready' as const, policy, hostPolicy }, globex: { state: 'unavailable' as const } } }
+    const applied = appliedPolicies(set, [{ organizationId: 'globex', name: 'Globex' }])
+    expect(applied.map((entry) => entry.title)).toEqual(['MDM policy', 'Laptops', 'Acme policy', 'Globex policy'])
+    // With an MDM policy, no organization manages the host settings.
+    expect(applied[1]?.detail).not.toContain('all work on this host')
+    expect(applied[3]?.rules).toBeNull()
+    expect(appliedPolicies({ ...set, mdm: null }, [])[0]?.detail).toContain('all work on this host')
+    expect(appliedPolicies(undefined, [])).toEqual([])
   })
 })
 
@@ -107,6 +144,8 @@ describe('policy store', () => {
       hostPolicyDelete: ok(null),
       hostPolicyAssign: async () => ({ kind: 'forbidden' }),
       hostPolicyUnassign: async () => ({ kind: 'forbidden' }),
+      organizationSettingsGet: async () => ({ kind: 'forbidden' }),
+      organizationSettingsPatch: async () => ({ kind: 'forbidden' }),
       ...overrides,
     }
   }

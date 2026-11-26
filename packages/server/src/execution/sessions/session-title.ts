@@ -1,4 +1,4 @@
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
 import { z } from 'zod'
 import { TextGenerator } from '../agents/text-generator'
 import type { AgentDispatcher } from '../agents/agent-runner'

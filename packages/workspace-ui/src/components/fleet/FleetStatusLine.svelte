@@ -2,7 +2,7 @@
   import HostStateIcon from "./HostStateIcon.svelte";
   import { statusLine, type FleetMachine } from "./lib/fleet-model";
 
-  /** The status of the fleet on one line (docs/plans/host-fleet.md D13): how many
+  /** The status of the fleet on one line: how many
    *  hosts answer, then each other state as an icon with its count. The words
    *  are in each icon's tooltip. The map shows it above this device; the narrow
    *  tree shows it under this device. */

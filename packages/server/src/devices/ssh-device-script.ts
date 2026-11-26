@@ -110,9 +110,12 @@ async function install(name, version, entry) {
   const hubFile = path.join(state, 'hub.json');
   const daemonFile = path.join(state, 'daemon.json');
   const hubRecord = read(hubFile);
+  const hubRunningVersion = hubRecord?.owner === owner && typeof hubRecord.entryPath === 'string'
+    ? path.relative(path.join(root, 'tools', 'expo-device-hub'), hubRecord.entryPath).split(path.sep)[0]
+    : null;
   const tools = {
-    hub: versionsOf('expo-device-hub', hubVersion, 'dist/server/cli.mjs', hubRecord && hubRecord.owner === owner ? hubVersion : null),
-    agent: versionsOf('agent-device', agentVersion, 'bin/agent-device.mjs', read(daemonFile) ? agentVersion : null),
+    hub: versionsOf('expo-device-hub', hubVersion, 'dist/server/cli.mjs', hubRunningVersion),
+    agent: versionsOf('agent-device', agentVersion, 'bin/agent-device.mjs', read(daemonFile)?.version ?? null),
   };
   if (mode === 'probe') {
     console.log(JSON.stringify({ nodeVersion: process.versions.node, nodeOk, npmOk, platforms, tools }));
@@ -151,14 +154,15 @@ async function install(name, version, entry) {
   if (mode === 'agent-start') {
     const agentEntry = await install('agent-device', agentVersion, 'bin/agent-device.mjs');
     let daemon = read(daemonFile);
-    if (daemon && !await healthy(daemon.httpPort, '/health')) { fs.rmSync(daemonFile, { force: true }); daemon = null; }
-    if (!daemon) {
+    if (daemon?.version !== agentVersion || !await healthy(daemon.httpPort, '/health')) {
+      // Leave the daemon record for the CLI to verify and retire.
       const env = { ...process.env, AGENT_DEVICE_STATE_DIR: state, AGENT_DEVICE_DAEMON_SERVER_MODE: 'http', AGENT_DEVICE_DAEMON_IDLE_TIMEOUT_MS: '0', AGENT_DEVICE_NO_UPDATE_NOTIFIER: '1' };
       delete env.AGENT_DEVICE_DAEMON_BASE_URL; delete env.AGENT_DEVICE_DAEMON_AUTH_TOKEN; delete env.AGENT_DEVICE_CONFIG;
-      run(process.execPath, [agentEntry, 'devices', '--json'], { env });
+      const result = run(process.execPath, [agentEntry, 'devices', '--json'], { env });
       daemon = read(daemonFile);
+      if (daemon?.version !== agentVersion) throw Error(String(result.stderr || '').trim().split('\n')[0] || 'agent-device ' + agentVersion + ' did not start on the device host.');
+      if (!await healthy(daemon.httpPort, '/health')) throw Error('agent-device did not start on the device host.');
     }
-    if (!daemon || !await healthy(daemon.httpPort, '/health')) throw Error('agent-device did not start on the device host.');
     agent = { daemonPort: daemon.httpPort, token: daemon.token };
   }
   const vendor = path.resolve(path.dirname(hubEntry), '../../vendor/serve-sim/dist');

@@ -15,7 +15,7 @@ import {
   type FleetMachineInput,
 } from '@solus/workspace-ui/components/fleet/lib/fleet-model'
 
-// WHY: docs/plans/host-fleet.md D2–D8. The map puts each host in the zone of the
+// WHY: The map puts each host in the zone of the
 // route this device reaches it by, says its state as one icon, keeps healthy hosts
 // green and only problems loud, switches a full zone to tiles, and the Add page
 // recommends one way. These answers are what the map, the summary, and the host
@@ -25,7 +25,8 @@ const base: FleetMachineInput = {
   serverId: 'h1',
   label: 'studio-mini',
   isThisDevice: false,
-  isManaged: false,
+  isCloud: false,
+  hasManagedCompute: false,
   principal: 'local-owner',
   readiness: 'ready',
   routeKind: 'lan',
@@ -42,10 +43,19 @@ describe('the zone of a host', () => {
     expect(fleetMachine({ ...base, routeKind: 'tunnel' }).zone).toBe('own')
   })
 
-  test('a Solus Cloud machine is in the cloud whatever its route, grouped by its organization', () => {
-    const machine = fleetMachine({ ...base, isManaged: true, routeKind: 'tunnel', organizationName: 'Acme' })
+  test('a cloud machine is in the cloud whatever its route, grouped by its organization', () => {
+    const machine = fleetMachine({ ...base, isCloud: true, routeKind: 'tunnel', organizationName: 'Acme' })
     expect(machine.zone).toBe('cloud')
     expect(machine.group).toBe('Acme')
+  })
+
+  test('a cloud machine that its operator runs is in the cloud with no lifecycle: the connection says its state', () => {
+    // WHY: the kind decides whose machine it is; only managed compute has a lifecycle.
+    // A Start control on a machine Solus Cloud cannot start would do nothing.
+    const down = fleetMachine({ ...base, isCloud: true, routeKind: 'tunnel', readiness: 'unreachable' })
+    expect(down).toMatchObject({ zone: 'cloud', isCloud: true, hasManagedCompute: false, state: 'unreachable' })
+    const stopped = fleetMachine({ ...base, isCloud: true, hasManagedCompute: true, managedState: 'stopped', readiness: 'unreachable' })
+    expect(stopped).toMatchObject({ zone: 'cloud', hasManagedCompute: true, state: 'stopped' })
   })
 
   test('a host someone else shares is shared, grouped by its owner', () => {
@@ -114,7 +124,7 @@ describe('the layout of the map', () => {
   const fleet = (own: number, cloud: number, shared: number) =>
     machinesByZone([
       ...hosts(own, 'own', {}),
-      ...hosts(cloud, 'cloud', { isManaged: true }),
+      ...hosts(cloud, 'cloud', { isCloud: true }),
       ...hosts(shared, 'shared', { principal: 'guest' }),
     ])
   const nearby: FoundMachine = { kind: 'ssh', key: 'ssh:lab', name: 'lab', source: 'ssh-config', detail: 'lab', zone: 'own', sshTarget: 'lab' }
@@ -227,7 +237,7 @@ describe('color and motion', () => {
     for (const mode of ['status', 'cpu', 'sessions'] as const) {
       expect(tileFill(fleetMachine({ ...base, readiness: 'unreachable' }), mode)).toBe('var(--solus-status-error)')
     }
-    expect(tileFill(fleetMachine({ ...base, isManaged: true, managedState: 'stopped' }), 'status')).toBeNull()
+    expect(tileFill(fleetMachine({ ...base, isCloud: true, hasManagedCompute: true, managedState: 'stopped' }), 'status')).toBeNull()
   })
 
   test('a busier link moves its light faster, but never faster than 3.5 s a trip', () => {

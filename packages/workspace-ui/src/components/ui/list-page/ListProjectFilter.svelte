@@ -23,10 +23,8 @@
     /** When set, an "All projects" row leads the group and clears the scope. */
     onSelectAll?: () => void;
     allLabel?: string;
-    /** When set, a "Current project" row scopes the page to the project the
-     *  input bar is in — one explicit step, never automatic
-     *  (docs/plans/project-model.md §5). */
-    onSelectCurrent?: () => void;
+    /** The key of the project the input bar is in; its row says so. */
+    currentKey?: string | null;
     /** What the page does to the rest of its controls when the scope changes. */
     footerNote?: string;
   }
@@ -38,7 +36,7 @@
     onRemoveProject,
     onSelectAll,
     allLabel = "All projects",
-    onSelectCurrent,
+    currentKey,
     footerNote = "Switching clears search and filters",
   }: Props = $props();
 
@@ -69,7 +67,7 @@
       {onRemoveProject}
       {onSelectAll}
       {allLabel}
-      {onSelectCurrent}
+      {currentKey}
     />
     <div class="px-2 pt-1.5 pb-0.5 text-xs text-muted-foreground">{footerNote}</div>
   </DropdownMenu.SubContent>

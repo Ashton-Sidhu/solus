@@ -27,12 +27,17 @@
 # Flags:
 #   -Setup            run `solus setup` after the install
 #   -Link CODE        run `solus setup --link CODE`: start the logon task and
-#                     link this host to Solus Cloud with a code from onboarding
+#                     link this host to Solus Cloud with a code from onboarding.
+#                     The code decides the kind: a personal host, or a cloud host
+#                     of an organization
+#   -Address URL      optional: the HTTPS address of this machine. The internet
+#                     reaches the host there. Without it the host gets a tunnel
 #   -CloudUrl URL     the Solus Cloud origin that issued the code
 
 param(
   [switch]$Setup,
   [string]$Link = '',
+  [string]$Address = '',
   [string]$CloudUrl = ''
 )
 
@@ -183,6 +188,7 @@ function Get-Archive([string]$Uri, [string]$OutFile) {
 function Invoke-SolusSetup([string]$BinDir) {
   $setupArgs = @('setup')
   if ($Link) { $setupArgs += @('--link', $Link) }
+  if ($Address) { $setupArgs += @('--address', $Address) }
   if ($CloudUrl) { $setupArgs += @('--cloud-url', $CloudUrl) }
   Write-Host ''
   Write-InstallProgress 'setup'

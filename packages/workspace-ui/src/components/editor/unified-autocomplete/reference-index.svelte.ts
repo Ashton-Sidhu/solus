@@ -13,7 +13,7 @@ import type {
   SessionMeta,
 } from '@solus/contracts/types'
 import type { PullRequest } from '@solus/contracts/providers'
-import type { Task, TaskLink } from '@solus/contracts/task-types'
+import type { Issue, IssueLink } from '@solus/contracts/task-types'
 import type { PlanStore, WorkspaceContext } from '../../../contexts'
 import type { PrsStore } from '../../../contexts/prs/prs.store.svelte'
 import { matchesOpenProjects } from '../../../lib/sessionUtils'
@@ -220,7 +220,7 @@ export class ReferenceIndex {
   })
 
   taskItems = $derived.by((): MenuItem[] =>
-    this.deps.session.tasksStore.tasks.map((task: Task) => ({
+    this.deps.session.issuesStore.tasks.map((task: Issue) => ({
       id: `task:${task.id}`,
       title: task.title,
       meta: task.state.name,
@@ -252,21 +252,21 @@ export class ReferenceIndex {
       })),
   )
 
-  /** Every host of this client (docs/plans/host-fleet.md D12). */
+  /** Every host of this client. */
   hostItems = $derived.by((): MenuItem[] => (this.deps.hosts?.() ?? []).map(hostMenuItem))
 
   /** The task this conversation is working on. A link records the durable Solus
    *  session id, so the provider-native id only answers for links written
    *  before that identity existed. */
-  linkedTask = $derived.by((): Task | null => {
+  linkedTask = $derived.by((): Issue | null => {
     const tabId = this.deps.tabId?.()
     if (!tabId) return null
     const session = this.deps.session.sessionFor(tabId)
     if (!session) return null
-    const { tasksStore } = this.deps.session
+    const { issuesStore } = this.deps.session
     return (
-      tasksStore.taskForSession(session.id)
-      ?? tasksStore.taskForSession(session.agentSessionId)
+      issuesStore.taskForSession(session.id)
+      ?? issuesStore.taskForSession(session.agentSessionId)
     )
   })
 
@@ -278,7 +278,7 @@ export class ReferenceIndex {
   linkedItems = $derived.by((): MenuItem[] => {
     const task = this.linkedTask
     if (!task) return []
-    const details = this.deps.session.tasksStore.get(task.id).details
+    const details = this.deps.session.issuesStore.get(task.id).details
     if (!details) return []
     return [...details.links]
       .sort((a, b) => b.linkedAt - a.linkedAt)
@@ -288,7 +288,7 @@ export class ReferenceIndex {
 
   /** A link carries a link-time snapshot, so a row renders even when its target
    *  is remote (`pr`) or has since been deleted. */
-  #linkedItem(link: TaskLink): MenuItem | null {
+  #linkedItem(link: IssueLink): MenuItem | null {
     const title = link.liveTitle || link.title
     const shared = {
       title,
@@ -396,7 +396,7 @@ export class ReferenceIndex {
       // The session→task binding only exists once the list has loaded, so the
       // links of this conversation's task are fetched behind that load rather
       // than on a second `#`.
-      void session.tasksStore
+      void session.issuesStore
         .ensureLoaded()
         .then(() => this.#loadTaskLinks())
         .catch(() => {})
@@ -409,10 +409,10 @@ export class ReferenceIndex {
    *  to the same cache, so this only has to fill it the first time. */
   async #loadTaskLinks(): Promise<void> {
     const task = this.linkedTask
-    const { tasksStore } = this.deps.session
-    if (!task || tasksStore.get(task.id).details) return
+    const { issuesStore } = this.deps.session
+    if (!task || issuesStore.get(task.id).details) return
     try {
-      await tasksStore.get(task.id).loadDetails()
+      await issuesStore.get(task.id).loadDetails()
     } catch {
       // A task whose host is unreachable simply contributes no linked band.
     }

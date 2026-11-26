@@ -18,10 +18,10 @@ describe('the plane map', () => {
   test('records are collaboration; a checkout or an agent process is execution', () => {
     // What Solus attaches to a task is a record. The task itself is read and
     // written on GitHub or Jira by a host that has the project and the person's connection.
-    expect(rpcPlaneOf('tasksAttachments')).toBe('collaboration')
-    expect(rpcPlaneOf('tasksLinkSession')).toBe('collaboration')
-    expect(rpcPlaneOf('tasksComment')).toBe('execution')
-    expect(rpcPlaneOf('tasksGet')).toBe('execution')
+    expect(rpcPlaneOf('issuesAttachments')).toBe('collaboration')
+    expect(rpcPlaneOf('issuesLinkSession')).toBe('collaboration')
+    expect(rpcPlaneOf('issuesComment')).toBe('execution')
+    expect(rpcPlaneOf('issuesGet')).toBe('execution')
     expect(rpcPlaneOf('loadWorkRevisions')).toBe('collaboration')
     expect(rpcPlaneOf('shareSet')).toBe('collaboration')
     expect(rpcPlaneOf('prList')).toBe('collaboration')
@@ -51,11 +51,11 @@ describe('SOLUS_ROLES', () => {
 
   test('a host refuses a method on a plane it does not serve with PLANE_DISABLED, and serves the rest', async () => {
     const server = new SolusServer()
-    server.register('tasksSidebarSnapshot', async () => ({ tasks: [], sessionsByTask: {} }))
+    server.register('issuesList', async () => ({ tasks: [], sessionsByTask: {} }))
     server.register('gitRefreshState', async () => undefined)
     server.useRoles(resolveRoles({ SOLUS_ROLES: 'collaboration' }))
 
-    await expect(server.handle('tasksSidebarSnapshot', [], TEST_HANDLER_CTX)).resolves.toEqual({ tasks: [], sessionsByTask: {} })
+    await expect(server.handle('issuesList', [], TEST_HANDLER_CTX)).resolves.toEqual({ tasks: [], sessionsByTask: {} })
     const refusal = server.handle('gitRefreshState', ['/repo'], TEST_HANDLER_CTX)
     await expect(refusal).rejects.toBeInstanceOf(PlaneDisabledError)
     await expect(refusal).rejects.toMatchObject({ code: 'PLANE_DISABLED', plane: 'execution' })

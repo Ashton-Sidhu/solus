@@ -254,9 +254,8 @@ both `ready`.
 - **Reverse states:** pair and forget; revoke (no un-revoke: pair again).
 - **States:** loading, failed, and ready for the list and for the directory.
 - **Docs:** 031 D7 ("beside the hosts it keeps itself" changes to "joined with
-  its credentials"), `docs/plans/host-routes.md` (persistence row),
-  `docs/plans/workspace-and-machines.md` (`solus.servers`), and
-  `docs/plans/host-fleet.md`.
+  its credentials"), `docs/plans/host-routes.md` (persistence row), and
+  `docs/plans/workspace-and-machines.md` (`solus.servers`).
 
 ## 6. Stages
 

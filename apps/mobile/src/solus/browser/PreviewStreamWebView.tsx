@@ -1,5 +1,10 @@
 // Adapted from T3 Code apps/mobile/src/features/browser/PreviewStreamWebView.tsx (MIT, see UPSTREAM.md).
-import { browserGuestViewport, type BrowserPage } from "@solus/contracts/browser-types";
+import {
+  browserGuestViewport,
+  type BrowserPage,
+  type BrowserSelectMenu,
+} from "@solus/contracts/browser-types";
+import { LegendList } from "@legendapp/list/react-native";
 import * as Clipboard from "expo-clipboard";
 import {
   useEffect,
@@ -16,15 +21,19 @@ import { WebView } from "react-native-webview";
 import { solus as app } from "../runtime";
 import { AppText } from "../../components/ui/AppText";
 import { ControlPill } from "../../components/ui/ControlPill";
+import { ListChoiceRow } from "../../components/ui/ListChoiceRow";
+import { Sheet } from "../../components/ui/Sheet";
 import { BrowserPageRequests } from "./BrowserPageRequests";
 import { browserPageStatusLabel } from "./browserPages";
 import { FrameBridge } from "./frame-bridge";
 import type { BrowserFrameWatch } from "@solus-mobile/features/browser/native-browser";
+import { useListened } from "@solus-mobile/app/app-context";
 import {
   editableProbeExpression,
   previewStreamDocument,
   previewStreamMessage,
   type PreviewStreamConfiguration,
+  type PreviewStreamInput,
 } from "./preview-stream-document";
 import { previewStreamSource } from "./preview-stream-source.generated";
 
@@ -68,7 +77,7 @@ export function PreviewStreamWebView({ ref, ...props }: PreviewStreamProps) {
   } satisfies PreviewStreamConfiguration);
   return (
     <PreviewStreamDocumentView
-      key={`${attempt}:${props.page.browserPageId}:${configuration}`}
+      key={`${attempt}:${props.hostId}:${props.page.browserPageId}:${configuration}`}
       {...props}
       ref={ref}
       configuration={configuration}
@@ -118,8 +127,19 @@ function PreviewStreamDocumentView({
   const [status, setStatus] = useState<"connecting" | "streaming" | "error">("connecting");
   const [error, setError] = useState<string | null>(null);
   const [inputError, setInputError] = useState<string | null>(null);
+  const [selectOffer, setSelectOffer] = useState<BrowserSelectMenu | null>(null);
+  const clickSequence = useRef(0);
   const { browserPageId } = page;
   const takesInput = interactive && pageTakesInput(page);
+  const connected = useListened(
+    app.connections.changes,
+    () => app.connections.readiness(hostId).readiness === "ready",
+  );
+  const canOfferMenu = takesInput && connected && !compact;
+  const selectMenu =
+    canOfferMenu && status === "streaming" && selectOffer?.id === page.selectMenuId
+      ? selectOffer
+      : null;
   const inject = (script: string) => webView.current?.injectJavaScript(`${script}; true;`);
   // Made when the view mounts: it posts into the WebView, which only exists then.
   const bridge = useRef<FrameBridge | null>(null);
@@ -171,16 +191,40 @@ function PreviewStreamDocumentView({
   useEffect(() => {
     inject(`window.SolusPreviewStream?.enabled(${JSON.stringify(takesInput)})`);
   }, [takesInput]);
+  useLayoutEffect(() => {
+    if (!canOfferMenu) {
+      clickSequence.current++;
+      setSelectOffer(null);
+    }
+  }, [canOfferMenu]);
   const [source] = useState(() => ({
     html: previewStreamDocument(configuration, previewStreamSource),
     baseUrl: Platform.OS === "android" ? "https://localhost/" : "file:///",
   }));
-  const send = (op: Parameters<typeof app.browser.interact>[2]) =>
-    app.browser.interact(hostId, browserPageId, op).then(
-      (result) =>
-        setInputError(result.ok ? null : (result.message ?? "The page did not take the input.")),
+  const send = (op: Parameters<typeof app.browser.interact>[2]) => {
+    const sequence = op.kind === "clickAt" ? ++clickSequence.current : null;
+    return app.browser.interact(hostId, browserPageId, op).then(
+      (result) => {
+        if (!active.current || failed.current) return;
+        setInputError(result.ok ? null : (result.message ?? "The page did not take the input."));
+        if (sequence !== null && sequence === clickSequence.current) {
+          setSelectOffer(result.selectMenu ?? null);
+        }
+      },
       (cause: unknown) => setInputError(cause instanceof Error ? cause.message : String(cause)),
     );
+  };
+  const answerSelectMenu = (id: string, index: number | null) => {
+    if (selectMenu?.id !== id) return;
+    setSelectOffer((current) => (current?.id === id ? null : current));
+    void send({ kind: "answerSelectMenu", id, index });
+  };
+  const forwardInput = (input: PreviewStreamInput) => {
+    if (!takesInput) return;
+    if (input.kind === "scrollAt" && input.deltaY)
+      onScrollDirection?.(input.deltaY > 0 ? "down" : "up");
+    void send(canOfferMenu && input.kind === "clickAt" ? { ...input, selectMenu: true } : input);
+  };
   // Reads here rather than in the screen: a page switch during the iOS paste prompt unmounts
   // this view, so the text can never type into another page.
   const paste = () =>
@@ -264,9 +308,7 @@ function PreviewStreamDocumentView({
                 onSize?.({ width: message.width, height: message.height });
                 return;
               case "input":
-                if (message.input.kind === "scrollAt" && message.input.deltaY)
-                  onScrollDirection?.(message.input.deltaY > 0 ? "down" : "up");
-                void send(message.input);
+                forwardInput(message.input);
                 return;
               case "probe": {
                 const { x, y } = message;
@@ -302,6 +344,33 @@ function PreviewStreamDocumentView({
       </View>
       {status === "streaming" && !compact && interactive ? (
         <BrowserPageRequests hostId={hostId} page={page} />
+      ) : null}
+      {selectMenu ? (
+        <Sheet
+          key={selectMenu.id}
+          title="Choose an option"
+          onClose={() => answerSelectMenu(selectMenu.id, null)}
+        >
+          <LegendList
+            data={selectMenu.options}
+            keyExtractor={(_, index) => String(index)}
+            extraData={selectMenu}
+            estimatedItemSize={48}
+            className="flex-1"
+            nestedScrollEnabled
+            contentInsetAdjustmentBehavior="automatic"
+            contentContainerStyle={{ padding: 16 }}
+            renderItem={({ item, index }) => (
+              <ListChoiceRow
+                label={item.label}
+                selected={index === selectMenu.selectedIndex}
+                separated={index > 0}
+                disabled={item.disabled}
+                onPress={() => answerSelectMenu(selectMenu.id, index)}
+              />
+            )}
+          />
+        </Sheet>
       ) : null}
       {status !== "streaming" ? (
         <View

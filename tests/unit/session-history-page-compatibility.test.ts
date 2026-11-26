@@ -72,3 +72,49 @@ test('a mobile account change or reconnect cannot consume the previous first pag
   await requestSessionHistoryPage(api, request, 'current')
   expect(api.loadSessionPage).toHaveBeenCalledTimes(2)
 })
+
+test('a page read on hover serves the click only while the same run goes on', async () => {
+  const { prefetchSessionHistoryPage } = await import('@solus/client-core/session-history-page')
+  const { sessionRunKey } = await import('@solus/contracts/session-execution')
+  const working = { revision: 1, current: { runId: 'run-1', phase: 'running' as const, startedAt: 1 }, lastTurn: null }
+  let execution: Parameters<typeof sessionRunKey>[0] = working
+  const api = { loadSessionPage: mock(async () => ({ messages: [], before: null })) }
+  const readDuring = sessionRunKey(execution)
+  const isCurrent = () => sessionRunKey(execution) === readDuring
+
+  // The same run goes on: the watch replays it, so the hovered page serves the click.
+  await prefetchSessionHistoryPage(api, request, 10_000, undefined, undefined, isCurrent)
+  execution = { ...working, revision: 2 }
+  await requestSessionHistoryPage(api, request)
+  expect(api.loadSessionPage).toHaveBeenCalledTimes(1)
+
+  // The run ended before the click: its end is in no replay, so the click reads again.
+  execution = working
+  await prefetchSessionHistoryPage(api, request, 10_000, undefined, undefined, isCurrent)
+  execution = { revision: 3, current: null, lastTurn: { runId: 'run-1', outcome: 'completed', startedAt: 1, endedAt: 2 } }
+  await requestSessionHistoryPage(api, request)
+  expect(api.loadSessionPage).toHaveBeenCalledTimes(3)
+})
+
+test('the pointer-down read replaces a hovered page that went stale', async () => {
+  const { prefetchSessionHistoryPage } = await import('@solus/client-core/session-history-page')
+  const api = { loadSessionPage: mock(async () => ({ messages: [], before: null })) }
+  let isStale = false
+  await prefetchSessionHistoryPage(api, request, 10_000, undefined, undefined, () => !isStale)
+  isStale = true
+  const pressed = await prefetchSessionHistoryPage(api, request)
+  expect(api.loadSessionPage).toHaveBeenCalledTimes(2)
+  expect(await requestSessionHistoryPage(api, request)).toBe(pressed)
+  expect(api.loadSessionPage).toHaveBeenCalledTimes(2)
+})
+
+test('the run key changes when a run starts or ends, and not while one goes on', async () => {
+  const { sessionRunKey } = await import('@solus/contracts/session-execution')
+  const idle = { revision: 1, current: null, lastTurn: { runId: 'run-1', outcome: 'completed' as const, startedAt: 1, endedAt: 2 } }
+  const working = { ...idle, revision: 2, current: { runId: 'run-2', phase: 'running' as const, startedAt: 3 } }
+  const waiting = { ...working, revision: 3, current: { ...working.current, phase: 'awaiting_input' as const } }
+  const ended = { revision: 4, current: null, lastTurn: { runId: 'run-2', outcome: 'completed' as const, startedAt: 3, endedAt: 4 } }
+  expect(sessionRunKey(working)).not.toBe(sessionRunKey(idle))
+  expect(sessionRunKey(waiting)).toBe(sessionRunKey(working))
+  expect(sessionRunKey(ended)).not.toBe(sessionRunKey(working))
+})

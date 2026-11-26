@@ -2,7 +2,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { serversStore } from '../connections/servers.store.svelte'
 import { projectsStore, type ProjectsStore } from '../projects/projects.store.svelte'
-import { hostIsManaged } from '../../components/servers/lib/managed-host'
+import { hostHasManagedCompute } from '../../components/servers/lib/managed-host'
 import { cloneUrlForRepoKey } from '../../components/servers/run-on'
 
 type CheckoutApi = Pick<HostApi, 'listProjects' | 'setupCloneProject' | 'trackRecentProject'>
@@ -16,9 +16,9 @@ export interface CheckoutHost {
 }
 
 export const liveCheckoutHost: CheckoutHost = {
-  // A cloud host may be stopped, and starting one takes minutes; any other
+  // Managed compute may be stopped, and starting it takes minutes; any other
   // machine either answers soon or is not there.
-  reach: (serverId) => hostIsManaged(serversStore.hostFor(serverId))
+  reach: (serverId) => hostHasManagedCompute(serversStore.hostFor(serverId))
     ? serversStore.startManagedHost(serverId, { timeoutMs: 300_000 })
     : serversStore.connectNow(serverId, { timeoutMs: 30_000 }),
   api: (serverId) => serverConnections.apiFor(serverId),

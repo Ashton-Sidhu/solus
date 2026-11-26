@@ -81,6 +81,7 @@ function settingsSyncEnvironment(): DocumentSyncEnvironment {
 }
 
 export const expoPlatform: PlatformAdapters = {
+  isIOS: Platform.OS === 'ios',
   storage,
   secrets,
   fetch: (input, init) => fetch(input, init),

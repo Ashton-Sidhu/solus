@@ -74,7 +74,7 @@ export class HostCatalog {
   private readonly pageHosts = new Map<string, KnownHost>()
   private joined: KnownHost[] = []
   private byId = new Map<string, KnownHost>()
-  private managedIds: ReadonlySet<string> = new Set()
+  private cloudIds: ReadonlySet<string> = new Set()
   private readonly listeners = new Set<() => void>()
   private readonly forgottenListeners = new Set<(host: KnownHost) => void>()
 
@@ -132,9 +132,9 @@ export class HostCatalog {
     this.rejoin()
   }
 
-  /** The hosts provisioned for an organization (`uplink.kind === 'managed'`). */
-  managedHostIds(): ReadonlySet<string> {
-    return this.managedIds
+  /** The cloud machines (`uplink.kind === 'cloud'`): a client reads them as a member, with the organization's filters. */
+  cloudHostIds(): ReadonlySet<string> {
+    return this.cloudIds
   }
 
   /** The organizations' workspace services, as the directory last listed them. */
@@ -558,7 +558,7 @@ export class HostCatalog {
     const knownIds = new Set(known.map((host) => host.id))
     this.joined = [...[...this.pageHosts.values()].filter((host) => !knownIds.has(host.id)), ...known]
     this.byId = new Map(this.joined.map((host) => [host.id, host]))
-    this.managedIds = new Set(this.joined.filter((host) => host.uplink?.kind === 'managed').map((host) => host.id))
+    this.cloudIds = new Set(this.joined.filter((host) => host.uplink?.kind === 'cloud').map((host) => host.id))
     for (const listener of this.listeners) listener()
   }
 }

@@ -3,21 +3,28 @@ import { isFailing, type ChecksPresentation } from '../../prs/lib/checks'
 import type { MergeAction } from '../../pr-review/lib/merge-readiness'
 
 /**
- * The words beside the checks glyph on the pull request row: the failures if
- * any, else the checks still running, else nothing — a green glyph says "all
- * passed" by itself. A result read against an older head is not asserted.
+ * What stands beside the checks glyph on the pull request row: the failures
+ * if any, else the count of checks still running, else nothing — the glyph
+ * says "running" and "all passed" by itself. A result read against an older
+ * head is not asserted. The word is the part a narrow rail drops; the glyph
+ * and the count stay.
  */
+export interface ChecksButtonLabel {
+  count: number | null
+  word: string | null
+}
+
 export function checksButtonLabel(
   presentation: ChecksPresentation,
   summary: PrChecksSummary | undefined,
-): string | null {
-  if (presentation.state === 'unavailable') return 'Unavailable'
-  if (!summary || presentation.stale) return 'Checking'
+): ChecksButtonLabel | null {
+  if (presentation.state === 'unavailable') return { count: null, word: 'Unavailable' }
+  if (!summary || presentation.stale) return { count: null, word: 'Checking' }
   const items = [...summary.required, ...summary.optional]
   const failed = items.filter(isFailing).length
-  if (failed > 0) return `${failed} failed`
+  if (failed > 0) return { count: failed, word: 'failed' }
   const running = items.filter((item) => item.inFlight).length
-  if (running > 0) return `${running} running`
+  if (running > 0) return { count: running, word: null }
   return null
 }
 
@@ -76,6 +83,7 @@ export function nextMoveLabel(kind: MergeAction['kind']): string {
     case 'resolve-conflicts': return 'Resolve'
     case 'fix-checks': return 'Fix'
     case 'update-branch': return 'Update'
+    case 'approve-workflows': return 'Approve'
   }
 }
 

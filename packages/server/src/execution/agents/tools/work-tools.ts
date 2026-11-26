@@ -13,6 +13,9 @@ import type { WorkspaceRecordHome } from '@solus/contracts/solus-api'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { readWorkFile } from './work-file'
+import { previewArtifactHtml, saveCheckPreview } from '../../../data/works/artifact-preview'
+import { keepArtifactVersionLayout } from '../../../data/works/artifact-layout'
+import type { ArtifactLayout } from '@solus/contracts/artifact-page'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { randomUUID } from 'node:crypto'
 import {
@@ -44,6 +47,8 @@ export interface WorkUpdatedPayload extends WorkOwner {
   docType: WorkType
   content: string
   updatedAt: string
+  /** The frame the save check measured for an artifact's new version. */
+  layout?: ArtifactLayout
 }
 
 export type OnWorkUpdated = (work: WorkUpdatedPayload) => void
@@ -69,15 +74,22 @@ export interface WorkToolDeps {
   onWorkUpdated?: OnWorkUpdated
   onWorkCreated?: OnWorkCreated
   ctx?: WorkCreateCtx
+  /** Renders a page in the headless browser. Replaced in tests. */
+  preview?: typeof previewArtifactHtml
+}
+
+/** The frame of an artifact's saved version, measured as `render_artifact` measures a new one. */
+async function savedArtifactLayout(workId: string, contentVersion: number, html: string, deps: WorkToolDeps): Promise<ArtifactLayout | undefined> {
+  return keepArtifactVersionLayout(workId, contentVersion, await saveCheckPreview(html, deps.preview))
 }
 
 // ─── Schemas (raw zod shapes, reused by every shape we export) ───
 
 const readWorkFields = {
-  work_id: z.string().describe('The id of the work to read (from find_works).'),
+  work_id: z.string().describe('The id of the work to read (from list_works).'),
 }
 
-const findWorksFields = {
+const listWorksFields = {
   cursor: z.string().max(2048).optional().describe('Continue an open-work listing with its next cursor.'),
   query: z.string().optional().describe('Full-text query to match against work titles and content. Omit it to list every open work.'),
   type: z.enum(['doc', 'slides', 'artifact', 'any']).default('any').describe("Restrict a search to one kind of work. Defaults to 'any'; ignored when listing."),
@@ -87,7 +99,7 @@ const findWorksFields = {
 const markdownPathField = z.string().optional().describe('Path to a .md file on this host to use as the content, relative to your working directory.')
 
 const updateWorkFields = {
-  work_id: z.string().describe('The id of the work to update (from find_works).'),
+  work_id: z.string().describe('The id of the work to update (from list_works).'),
   content: z.string().optional().describe('The full new content. Replaces the existing content.'),
   markdown_path: markdownPathField,
   html_path: z.string().optional().describe('Artifacts only: path to a self-contained .html file on this host, relative to your working directory.'),
@@ -104,7 +116,7 @@ const createWorkFields = {
   markdown_path: markdownPathField,
 }
 
-const FIND_DESC =
+const LIST_DESC =
   "Find the user's works — documents, slide decks, HTML artifacts. Pass `query` to search titles AND content: reach for this WHENEVER the user refers to an artifact that already exists — 'that doc', 'the deck about X', 'the diagram we drew', 'update the spec' — rather than answering from memory. Omit `query` to list every work open in Solus with its id, title, type and last-updated time. Either way each result carries the work's id; take that id and call read_work to load the full content before you revise it with update_work."
 const READ_DESC =
   'Read the full current content of a work by id, including any edits the user made manually, and its content_version. Always call this before update_work so you revise the latest version, and pass that content_version to update_work as expected_content_version.'
@@ -112,7 +124,7 @@ const CREATE_DESC = [
   'Create a NEW durable document or slide deck the user will keep, export, or hand off. It streams into a card in the conversation.',
   'Not for routine answers, reviews, analyses, comparisons, or plans: those go inline in your reply. When in doubt, answer inline. Never write a work as a fenced code block in your reply. To revise an existing work, call read_work then update_work; never create a duplicate.',
   'Pass the markdown as content or, for a file you already wrote, its path as markdown_path, so the text does not pass through your output.',
-  'For an architecture, system, data-flow, or ER view, call render_artifact and embed the token it returns. To embed an artifact, put the token find_works or read_work prints on its own line: [<title>](work://embed?workId=<work_id>&type=artifact). A standalone work://embed link or a ```html fence in existing content is a live render: keep it unless the user asks to remove it.',
+  'For an architecture, system, data-flow, or ER view, call render_artifact and embed the token it returns. To embed an artifact, put the token list_works or read_work prints on its own line: [<title>](work://embed?workId=<work_id>&type=artifact). A standalone work://embed link or a ```html fence in existing content is a live render: keep it unless the user asks to remove it.',
 ].join('\n')
 const UPDATE_DESC = [
   'Replace the content, and optionally the title, of an existing work by id. Call read_work first and pass its content_version as expected_content_version; if the work changed since, nothing is saved and you must read it again.',
@@ -178,7 +190,7 @@ export async function createAgentWork(
   if (foreignTaskId) {
     const workId = randomUUID()
     const payload: WorkCreateOpPayload = {
-      taskId: foreignTaskId,
+      issueId: foreignTaskId,
       title,
       docType,
       content,
@@ -245,7 +257,7 @@ export async function executeWorkTool(
   deps: WorkToolDeps = {},
 ): Promise<WorkToolResult> {
   try {
-    if (name === 'find_works') {
+    if (name === 'list_works') {
       const query = args.query?.trim() ?? ''
       // No query is the list: every open work, titles only. A query searches
       // content too, which is the only way to answer "that doc about X".
@@ -365,13 +377,14 @@ export async function executeWorkTool(
           if (args.markdown_path && foreign.workType === 'artifact') return markdownPathOnArtifact(foreign.title)
           if (foreign.contentVersion !== expectedContentVersion) return staleWrite(foreign.title, expectedContentVersion)
           const payload: WorkUpdateOpPayload = {
-            taskId: foreignTaskId,
+            issueId: foreignTaskId,
             content,
             expectedContentVersion,
           }
           if (title !== undefined) payload.title = title
           const op = recordOutboxOp({ domain: 'works', resourceId: workId, name: 'update', payload, sessionId: deps.ctx?.sessionId })
           applyWorkOpToForeignTask(deps.ctx?.sessionId, op)
+          const foreignLayout = foreign.workType === 'artifact' ? await savedArtifactLayout(workId, foreign.contentVersion, content, deps) : undefined
           deps.onWorkUpdated?.({
             workId,
             title: title ?? foreign.title,
@@ -380,6 +393,7 @@ export async function executeWorkTool(
             updatedAt: new Date().toISOString(),
             contentVersion: foreign.contentVersion,
             organizationId: null,
+            ...(foreignLayout && { layout: foreignLayout }),
           })
           return { ok: true, text: `Updated "${title ?? foreign.title}"${foreign.workType === 'artifact' ? ` (artifact, id: ${workId})` : ''}. New content_version: ${foreign.contentVersion}. The change syncs to the task's host.` }
         }
@@ -400,6 +414,7 @@ export async function executeWorkTool(
         throw error
       }
 
+      const layout = saved.type === 'artifact' ? await savedArtifactLayout(saved.id, saved.contentVersion, saved.content, deps) : undefined
       deps.onWorkUpdated?.({
         workId: saved.id,
         title: saved.title,
@@ -408,6 +423,7 @@ export async function executeWorkTool(
         updatedAt: saved.updatedAt,
         contentVersion: saved.contentVersion,
         organizationId: organizationOf(context.home),
+        ...(layout && { layout }),
       })
       // The result text starts as it always has: transcripts project the artifact id from it.
       return { ok: true, text: `Updated "${saved.title}"${saved.type === 'artifact' ? ` (artifact, id: ${saved.id})` : ''}. New content_version: ${saved.contentVersion}.` }
@@ -461,12 +477,13 @@ function workAgentTool(
         updatedAt: work.updatedAt,
         contentVersion: work.contentVersion,
         organizationId: work.organizationId,
+        ...(work.layout && { layout: work.layout }),
       }),
     }),
   }
 }
 
-export const findWorksAgentTool = workAgentTool('find_works', FIND_DESC, findWorksFields, false)
+export const listWorksAgentTool = workAgentTool('list_works', LIST_DESC, listWorksFields, false)
 export const readWorkAgentTool = workAgentTool('read_work', READ_DESC, readWorkFields, false)
 // Both descriptions carry rules the agent needs before it decides to call
 // anything: when a work is the wrong shape, and that an embed line or an html

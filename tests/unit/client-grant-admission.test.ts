@@ -28,7 +28,7 @@ const clientToken = (over: Partial<PersonAccessTokenClaims>): PersonAccessTokenC
 const delegated = (): DelegatedAccessTokenClaims => ({
   iss: 'https://app.example.test', aud: ['urn:solus:api', 'urn:solus:account'], sub: 'alice', client_id: 'host_h1',
   jti: crypto.randomUUID(), iat: now(), exp: now() + 300, act: { sub: 'host_h1', host_id: 'h1' }, grant_id: 'grant_1',
-  access: 'org-member', hostKind: 'cloud', organizationId: 'org_a', organizationRole: 'member', teamIds: ['t1'],
+  access: 'org-member', hostKind: 'api', organizationId: 'org_a', organizationRole: 'member', teamIds: ['t1'],
 })
 const member = (over: Partial<PersonAccessTokenClaims> = {}) => clientToken({
   access: 'org-member', hostKind: 'personal', displayName: 'Alice',
@@ -79,11 +79,11 @@ describe('a Solus client token at admission', () => {
     // WHY: the account plane decided where the person may work; a client cannot pick an organization outside that list.
     expect(principalForClaims(member(), 'org_c', 'host')).toEqual({ ok: false, reason: 'organization-not-listed' })
     expect(principalForClaims(member(), undefined, 'host')).toEqual({ ok: false, reason: 'organization-not-listed' })
-    expect(principalForClaims(member({ aud: 'urn:solus:api', hostKind: 'cloud' }), 'org_c', 'api')).toEqual({ ok: false, reason: 'organization-not-listed' })
+    expect(principalForClaims(member({ aud: 'urn:solus:api', hostKind: 'api' }), 'org_c', 'api')).toEqual({ ok: false, reason: 'organization-not-listed' })
   })
 
   test('the Solus API admits a member in a listed organization and never an owner token', () => {
-    expect(admitted(member({ aud: 'urn:solus:api', hostKind: 'cloud' }), 'org_a', 'api')).toMatchObject({ kind: 'org-member', organizationId: 'org_a', hostKind: 'cloud' })
+    expect(admitted(member({ aud: 'urn:solus:api', hostKind: 'api' }), 'org_a', 'api')).toMatchObject({ kind: 'org-member', organizationId: 'org_a', hostKind: 'api' })
     expect(principalForClaims(clientToken({ access: 'owner' }), undefined, 'api')).toEqual({ ok: false, reason: 'member-required' })
   })
 

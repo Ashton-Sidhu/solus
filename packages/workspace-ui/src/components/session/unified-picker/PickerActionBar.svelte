@@ -5,8 +5,8 @@
     Ellipsis as MoreIcon,
     ExternalLink as ArrowSquareOutIcon,
   } from "@lucide/svelte";
-  import type { Task } from "@solus/contracts/task-types";
-  import type { TaskStatusCategory } from "@solus/contracts/task-sources";
+  import type { Issue } from "@solus/contracts/task-types";
+  import type { IssueStatusCategory } from "@solus/contracts/task-sources";
   import { getWorkspaceContext } from "../../../contexts";
   import { toasts } from "../../../lib/toasts";
   import * as DropdownMenu from "../../ui/dropdown-menu";
@@ -27,7 +27,7 @@
   interface Props {
     /** Null for a session no task claims: the bar then has only its leaving
      *  actions, and nothing to edit. */
-    task: Task | null;
+    task: Issue | null;
     /** Where the dropdowns portal, so they paint above the picker's scrim. */
     portalTarget: HTMLElement | null;
     /** What ⏎ does. */
@@ -36,8 +36,8 @@
     secondaryLabel?: string;
     onSecondary?: () => void;
     showTaskControls?: boolean;
-    onOpenTask: (task: Task) => void;
-    onOpenSource: (task: Task) => void;
+    onOpenTask: (task: Issue) => void;
+    onOpenSource: (task: Issue) => void;
   }
   let {
     task,
@@ -55,9 +55,9 @@
 
   const menuPortalProps = $derived({ to: portalTarget ?? undefined });
 
-  async function moveTo(task: Task, category: TaskStatusCategory): Promise<void> {
+  async function moveTo(task: Issue, category: IssueStatusCategory): Promise<void> {
     try {
-      await session.tasksStore.get(task.id).move({ category });
+      await session.issuesStore.get(task.id).move({ category });
     } catch (error) {
       toasts.error("Couldn't update status", {
         description: error instanceof Error ? error.message : String(error),
@@ -77,7 +77,7 @@
           {...props}
           type="button"
           class="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-workspace-chrome font-medium text-muted-foreground transition-[background-color,color] duration-100 hover:bg-[var(--wash-2)] hover:text-foreground max-md:order-5 max-md:h-11 max-md:bg-[var(--wash-2)] max-md:px-3.5"
-          aria-label="Set task status"
+          aria-label="Set issue status"
         >
           <TaskStatusGlyph category={task.category} size={13} />
           {task.state.name}

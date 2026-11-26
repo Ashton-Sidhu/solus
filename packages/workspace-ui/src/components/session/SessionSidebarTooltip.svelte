@@ -2,11 +2,10 @@
   import TaskIcon from "../ui/TaskIcon.svelte";
   import {
     GitBranch as GitBranchIcon,
-    Folder as WorktreeIcon,
     Laptop as LaptopIcon,
   } from "@lucide/svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
-  import { hostIsManaged } from "../servers/lib/managed-host";
+  import { hostIsCloud } from "../servers/lib/managed-host";
   import type { AttentionState, LiveMarkFacts } from "../../lib/sessionUtils";
   import { attentionLabel } from "../../lib/sessionUtils";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
@@ -30,7 +29,6 @@
     /** The task this session belongs to, when the row names one. */
     taskTitle?: string;
     branchName?: string | null;
-    worktreePath?: string | null;
     serverId?: string | null;
     provider?: AgentId | null;
     modelId?: string | null;
@@ -51,7 +49,6 @@
     projectLabel,
     taskTitle,
     branchName,
-    worktreePath,
     serverId,
     provider,
     modelId,
@@ -118,7 +115,7 @@
           {#if isRemote}
             <HostOperatingSystemIcon
               os={remoteOs}
-              managed={hostIsManaged(host)}
+              cloud={hostIsCloud(host)}
               class="size-3.5 shrink-0"
             />
           {:else}
@@ -133,12 +130,6 @@
         <div class="flex min-w-0 items-center gap-2">
           <GitBranchIcon class="size-3.5 shrink-0" />
           <MiddleTruncate value={resolvedBranchLabel} class="text-(--solus-text-secondary)" />
-        </div>
-      {/if}
-      {#if worktreePath}
-        <div class="flex min-w-0 items-center gap-2" title={worktreePath}>
-          <WorktreeIcon class="size-3.5 shrink-0" />
-          <MiddleTruncate value={worktreePath} class="text-(--solus-text-secondary)" />
         </div>
       {/if}
       {#if attention}

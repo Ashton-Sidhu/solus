@@ -25,8 +25,8 @@ export class FakeNotificationSource {
 
   add(notification: Partial<HubNotification> & { id: string; createdAt: number }): HubNotification {
     const full: HubNotification = {
-      eventId: `event-${notification.id}`, organizationId: 'local', facts: { kind: 'task.assigned' },
-      resource: { kind: 'task', taskId: `task-${notification.id}` }, by: { kind: 'system' },
+      eventId: `event-${notification.id}`, organizationId: 'local', facts: { kind: 'issue.assigned' },
+      resource: { kind: 'task', issueId: `task-${notification.id}` }, by: { kind: 'system' },
       summary: { title: notification.id }, readAt: null, archivedAt: null,
       ...notification,
     }

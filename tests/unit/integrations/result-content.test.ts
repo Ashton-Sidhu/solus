@@ -7,8 +7,7 @@ import type { ClaudeEvent } from '@solus/contracts/claude-types'
 import { createAssetUrl, serveAssetToken } from '@solus/server/data/assets/assets'
 import { toolResultMedia } from '@solus/server/data/assets/tool-result-media'
 import { ClaudeTurnNormalizer } from '@solus/server/execution/agents/claude/claude-event-normalizer'
-import { claudeToolResponse } from '@solus/server/execution/agents/claude/claude-tool-adapter'
-import { codexToolContentItems } from '@solus/server/execution/agents/codex/codex-tool-adapter'
+import { mcpToolResult } from '@solus/server/execution/agents/tools/agent-tool-endpoint'
 import { upstreamToolToAgentTool } from '@solus/server/integrations/integration-tools'
 import {
   agentResultOf,
@@ -67,16 +66,10 @@ describe('images', () => {
     expect(result.images?.map((each) => each.mimeType)).toEqual(['image/png', 'image/jpeg', 'image/webp'])
     expect(result.images?.map((each) => each.data)).toEqual(parts.map((bytes) => bytes.toString('base64')))
 
-    // WHY: both providers get the same content (§3 rule 1).
-    const claude = claudeToolResponse(result).content
+    // WHY: both providers get the same content (§3 rule 1): one MCP result from the host's endpoint.
+    const claude = mcpToolResult(result).content
     expect(claude.map((block) => block.type)).toEqual(['text', 'image', 'image', 'image'])
-    const codex = codexToolContentItems(result.text, result.images)
-    expect(codex.map((item) => item.type)).toEqual(['inputText', 'inputImage', 'inputImage', 'inputImage'])
-    expect(codex.slice(1).map((item) => item.type === 'inputImage' && item.imageUrl)).toEqual([
-      `data:image/png;base64,${parts[0].toString('base64')}`,
-      `data:image/jpeg;base64,${parts[1].toString('base64')}`,
-      `data:image/webp;base64,${parts[2].toString('base64')}`,
-    ])
+    expect(claude.slice(1).map((block) => block.type === 'image' && block.data)).toEqual(parts.map((bytes) => bytes.toString('base64')))
 
     // WHY: the person sees each image the agent got, for either provider.
     const claudeEvent = new ClaudeTurnNormalizer().push(claudeToolResult(claude)).find((event) => event.type === 'tool_result')
@@ -124,8 +117,7 @@ describe('audio', () => {
     const result = await map({ content: [audio(bytes)] }, { assetsDir: directory })
     // WHY: no provider model takes audio in a tool result (§1 item 8), so neither adapter sends it.
     expect(result.images).toBeUndefined()
-    expect(claudeToolResponse(result).content).toEqual([{ type: 'text', text: result.text }])
-    expect(codexToolContentItems(result.text, result.images)).toEqual([{ type: 'inputText', text: result.text }])
+    expect(mcpToolResult(result).content).toEqual([{ type: 'text', text: result.text }])
 
     expect(result.text).toMatch(/^\[Audio: audio\/mpeg, 67 B, saved at .+\.mp3\]$/)
     const path = /saved at (.+)\]$/.exec(result.text)![1]
@@ -133,7 +125,7 @@ describe('audio', () => {
     expect(toolResultMedia(result.text).toolAudio).toEqual([{ assetId: basename(path), mimeType: 'audio/mpeg' }])
 
     // WHY: the line comes back from each provider's own transcript, so the player survives a reload.
-    const claudeEvent = new ClaudeTurnNormalizer().push(claudeToolResult(claudeToolResponse(result).content)).find((event) => event.type === 'tool_result')
+    const claudeEvent = new ClaudeTurnNormalizer().push(claudeToolResult(mcpToolResult(result).content)).find((event) => event.type === 'tool_result')
     expect(claudeEvent?.type === 'tool_result' && claudeEvent.toolAudio).toEqual([{ assetId: basename(path), mimeType: 'audio/mpeg' }])
   })
 

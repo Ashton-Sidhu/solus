@@ -1,11 +1,13 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { LinkedThreadTarget } from "@t3tools/client-runtime/linked-thread";
 import { TranscriptModel } from "@solus-mobile/features/conversation/lib/transcript-model";
+import { keptOnHostText } from "@solus-mobile/features/threads/cloud-history";
 import { Atom } from "effect/reactivity";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { hostQueryScopeAtom } from "../state/host-query-scope";
 import { mobileHost } from "../state/mobile-host";
 import { useEnvironmentQuery } from "../state/query";
+import { remoteAgentChild } from "./agent-child-host";
 import { conversationFeed } from "./conversation-feed";
 import { solus } from "./runtime";
 import { sessionDetailAtom } from "./session-detail";
@@ -48,6 +50,11 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
     solus.cloudSessions.changes.subscribe,
     () => solus.cloudSessions.recordFor(threadId)?.provider,
   );
+  // The organization keeps its sessions on their hosts: Solus Cloud has no record and no copy of this one.
+  const keptOnHost = useSyncExternalStore(
+    solus.cloudSessions.changes.subscribe,
+    () => solus.cloudSessions.isKeptOnHost(threadId),
+  );
   const [attempt, setAttempt] = useState(0);
   const [copy, setCopy] = useState<{
     scope: string;
@@ -57,6 +64,7 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
     model?: TranscriptModel;
     title?: string | null;
     error?: string;
+    historyFailed?: boolean;
     paging?: boolean;
   }>();
   const mirror =
@@ -122,8 +130,9 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
           if (store) return store.controller.readToolInput(key);
           throw new Error("This tool input is available on the host.");
         },
+        { provider: store?.controller.run.provider ?? provider, child: remoteAgentChild(environmentId) },
       ),
-    [source, threadId, store],
+    [source, threadId, store, provider, environmentId],
   );
   const sequence = mirror?.model?.order ?? order;
   const reader = useMemo(() => project?.(sequence), [project, sequence]);
@@ -135,7 +144,7 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
   const loadEarlier = async () => {
     if (store) return store.controller.loadOlder();
     if (!mirror?.model || mirror.paging) return;
-    const pending = { ...mirror, paging: true, error: undefined };
+    const pending = { ...mirror, paging: true, historyFailed: false };
     setCopy(pending);
     try {
       const relay = mirror.relay;
@@ -147,9 +156,9 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
         mirror.model.prependHistory(page);
       } else await solus.cloudHistory.readOlder(mirror.model);
       setCopy((current) => (current === pending ? { ...pending, paging: false } : current));
-    } catch (error) {
+    } catch {
       setCopy((current) =>
-        current === pending ? { ...pending, paging: false, error: String(error) } : current,
+        current === pending ? { ...pending, paging: false, historyFailed: true } : current,
       );
     }
   };
@@ -163,17 +172,18 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
     working: meta?.status === "running",
     hasOlder: meta?.history.hasMoreHistory ?? !!mirror?.model?.olderCursor,
     paging: meta?.history.loading ?? mirror?.paging,
+    historyFailed: !!(meta?.history.error || mirror?.historyFailed),
     error:
       record.error ??
-      (meta?.phase.kind === "error" ? meta.phase.message : meta?.history.error) ??
+      (meta?.phase.kind === "error" ? meta.phase.message : null) ??
       mirror?.error ??
-      (!host && (!cloud || !provider) && (!via || (!parentSessionId && !isLinked)) ? "Connect to the host to read this session." : null),
+      (!host && (!cloud || !provider) && (!via || (!parentSessionId && !isLinked))
+        ? keptOnHost ? keptOnHostText() : "Connect to the host to read this session."
+        : null),
     retry: () => {
       if (store) {
-        if (meta?.history.error) void loadEarlier();
-        else void store.controller.load();
+        void store.controller.load();
       } else if (host) record.refresh();
-      else if (mirror?.model) void loadEarlier();
       else setAttempt((n) => n + 1);
     },
     loadEarlier,

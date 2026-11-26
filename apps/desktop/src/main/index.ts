@@ -10,6 +10,7 @@ import { desktopPlatform } from './platform/desktop-platform'
 
 import { app, BrowserWindow, ipcMain, screen, globalShortcut, Tray, Menu, nativeTheme, safeStorage, shell, powerSaveBlocker, protocol } from 'electron'
 import { join } from 'path'
+import { homedir } from 'os'
 import { readFileSync, statSync, writeFileSync } from 'fs'
 import { importLoginShellEnv, warmCliPath } from '@solus/server/cli-env'
 import { createLogger, flushLogs } from '@solus/server/logger'
@@ -49,6 +50,12 @@ import { ensureScreenCaptureAccess, handleMicrophoneRequests } from '@solus/desk
 import { markStartup, traceRendererMarks } from '@solus/desktop-main/startup-trace'
 import { z } from 'zod'
 import { remoteEditorFileUrl } from '@solus/contracts/local-editor-links'
+import { outsideAppLinkUrl } from './outside-app-links'
+import { parseAppLink, type AppShortcutTarget } from '@solus/contracts/app-shortcuts'
+import { appLinkTargetIn } from '@solus/desktop-main/app-shortcuts/app-links'
+import { AppShortcutRecords } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
+import { AppWindows } from '@solus/desktop-main/app-shortcuts/app-windows'
+import { registerAppShortcutIpc } from '@solus/desktop-main/app-shortcuts/ipc'
 
 // Every static import above has now evaluated, so this is the main bundle's
 // module-graph cost — the first item on the startup critical path.
@@ -62,7 +69,13 @@ desktopPlatform.prepare(app)
 // A second launch would boot a second server against the same data folder.
 if (desktopPlatform.singleInstance && !isHeadless && process.env.SOLUS_TEST_MODE !== '1') {
   if (!app.requestSingleInstanceLock()) app.exit(0)
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, launchArguments) => {
+    // A second launch from an app shortcut opens that app, not the workspace.
+    const appTarget = appLinkTargetIn(launchArguments)
+    if (appTarget) {
+      openAppTarget(appTarget)
+      return
+    }
     hiddenUntilTrayShow = false
     if (app.isReady()) showMainWindow()
     else app.once('ready', () => showMainWindow())
@@ -143,6 +156,14 @@ let quoteContextTabId: string | null = null
 /** The Solus shortcuts a focused browser page gives up; the renderer names them. */
 let guestShortcuts: GuestShortcut[] = []
 let hiddenUntilTrayShow = false
+/**
+ * An app shortcut started this launch (docs/app-shortcuts.md §4): its app
+ * opens, and the workspace stays hidden, as after its window closes, until
+ * the person asks for it.
+ */
+let startedByAppShortcut = false
+/** App links that arrived before a window can open. */
+const pendingAppTargets: AppShortcutTarget[] = []
 let sessionIndexerStartTimer: ReturnType<typeof setTimeout> | null = null
 
 /**
@@ -338,19 +359,15 @@ function focusMainWindow(): void {
 
 // ─── Window Creation ───
 
-function loadRenderer(win: BrowserWindow): void {
+/** Loads the Solus renderer page. `search` makes it an app window's page (docs/app-shortcuts.md §2). */
+function loadRenderer(win: BrowserWindow, search = new URLSearchParams()): void {
+  if (skipOnboarding) search.set('skip-onboarding', '')
   if (process.env.ELECTRON_RENDERER_URL) {
-    if (skipOnboarding) {
-      const url = new URL(process.env.ELECTRON_RENDERER_URL)
-      url.searchParams.set('skip-onboarding', '')
-      win.loadURL(url.toString())
-    } else {
-      win.loadURL(process.env.ELECTRON_RENDERER_URL)
-    }
+    const url = new URL(process.env.ELECTRON_RENDERER_URL)
+    for (const [name, value] of search) url.searchParams.set(name, value)
+    win.loadURL(url.toString())
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'), skipOnboarding
-      ? { query: { 'skip-onboarding': '' } }
-      : undefined)
+    win.loadFile(join(__dirname, '../renderer/index.html'), { search: search.toString() })
   }
 }
 
@@ -483,7 +500,7 @@ const BOOT_SHELL_DEADLINE_MS = 2_000
 let bootShellDeadline: ReturnType<typeof setTimeout> | null = null
 
 function armBootShellDeadline(): void {
-  if (isTestMode) return
+  if (isTestMode || startedByAppShortcut) return
   clearBootShellDeadline()
   bootShellDeadline = setTimeout(() => {
     bootShellDeadline = null
@@ -506,6 +523,7 @@ function showMainWindow(options: { fromTrayShow?: boolean } = {}): void {
   if (isTestMode) return
   if (hiddenUntilTrayShow && !options.fromTrayShow) return
   if (options.fromTrayShow) hiddenUntilTrayShow = false
+  startedByAppShortcut = false
   if (!isLive(mainWindow)) {
     createMainWindow()
     return
@@ -619,7 +637,7 @@ const attachmentReadSchema = z.tuple([z.string(), z.string()])
 ipcMain.handle('solus:open-external', async (_event, input, options?: { hideAppAfterOpen?: boolean }) => {
   const parsedUrl = externalUrlSchema.safeParse(input)
   if (!parsedUrl.success) return false
-  const target = /^https?:\/\//i.test(parsedUrl.data) ? parsedUrl.data : remoteEditorFileUrl(parsedUrl.data)
+  const target = /^https?:\/\//i.test(parsedUrl.data) ? parsedUrl.data : remoteEditorFileUrl(parsedUrl.data) ?? outsideAppLinkUrl(parsedUrl.data)
   if (!target) return false
   try {
     await shell.openExternal(target)
@@ -739,7 +757,7 @@ ipcMain.on('solus:renderer-ready', (event) => {
   markStartup('renderer.ready')
   traceRendererMarks(mainWindow.webContents)
   clearBootShellDeadline()
-  if (!isTestMode && !mainWindow.isVisible()) {
+  if (!isTestMode && !startedByAppShortcut && !mainWindow.isVisible()) {
     mainWindow.show()
     focusMainWindow()
   }
@@ -774,6 +792,53 @@ ipcMain.on('solus:set-zoom-factor', (event, rawFactor) => {
   const factor = z.number().safeParse(rawFactor)
   if (!factor.success) return
   event.sender.setZoomFactor(clampZoomFactor(factor.data))
+})
+
+// ─── App windows and app shortcuts (docs/app-shortcuts.md) ───
+
+const appShortcutRecords = new AppShortcutRecords(join(app.getPath('userData'), 'app-shortcuts.json'))
+const appLaunchers = desktopPlatform.appLaunchers({
+  isPackaged: app.isPackaged,
+  executablePath: process.execPath,
+  launchArguments: app.isPackaged ? [] : [app.getAppPath()],
+  filesDirectory: join(app.getPath('userData'), 'app-shortcuts'),
+  homeDirectory: homedir(),
+  appDataDirectory: app.getPath('appData'),
+  env: process.env,
+})
+const appWindows = isHeadless ? null : new AppWindows({
+  records: appShortcutRecords,
+  launchers: appLaunchers,
+  preloadPath: join(__dirname, '../preload/index.js'),
+  loadRenderer,
+  bringToFront: (window) => desktopPlatform.bringToFront(app, window),
+})
+if (appWindows) registerAppShortcutIpc({ records: appShortcutRecords, launchers: appLaunchers, windows: appWindows })
+
+/** Opens the app of an app link. Before the app is ready, the link waits. */
+function openAppTarget(target: AppShortcutTarget): void {
+  if (!appWindows) return
+  if (!app.isReady()) {
+    pendingAppTargets.push(target)
+    return
+  }
+  appWindows.open({ ...target, name: appShortcutRecords.find(target)?.name ?? '' })
+}
+
+// Windows and Linux: the launcher starts Solus with the app link as an argument.
+const launchAppTarget = appLinkTargetIn(process.argv.slice(1))
+if (launchAppTarget && !isHeadless) {
+  startedByAppShortcut = true
+  pendingAppTargets.push(launchAppTarget)
+}
+
+// macOS: the launcher opens the app link, and macOS gives it to the Solus that runs or starts.
+app.on('open-url', (event, url) => {
+  const target = parseAppLink(url)
+  if (!target) return
+  event.preventDefault()
+  if (!app.isReady()) startedByAppShortcut = true
+  openAppTarget(target)
 })
 
 /**
@@ -907,6 +972,7 @@ app.whenReady().then(async () => {
     if (!isHeadless) {
       createMainWindow()
       markStartup('window.created')
+      for (const target of pendingAppTargets.splice(0)) openAppTarget(target)
     }
 
     await loginShellEnv

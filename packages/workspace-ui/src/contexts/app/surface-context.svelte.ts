@@ -1,5 +1,5 @@
 import type { GitCheckout, IpcContext, RunConfig, Session } from '@solus/contracts/types'
-import type { TasksStore } from '../tasks/tasks.store.svelte'
+import type { IssuesStore } from '../tasks/tasks.store.svelte'
 import type { LogicalProject, ProjectPageScope, ProjectRef } from '../projects/project-catalog'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import type { WorksStore, WorkListing } from '../works/works.store.svelte'
@@ -32,7 +32,7 @@ import { createAppContext } from './create-app-context'
  */
 export interface SurfaceContext {
   readonly settings: SettingsContext
-  readonly tasksStore: TasksStore
+  readonly issuesStore: IssuesStore
   readonly worksStore: WorksStore
   readonly outboxStore: OutboxStore
   /** A transcript's plan and automation cards resolve against these. */
@@ -61,6 +61,8 @@ export interface SurfaceContext {
   projectRootOfTask(taskId: string): string | null
   /** Scope the project pages to the input bar's project; false when it names none. */
   scopePageToCurrentProject(): boolean
+  /** The input bar's project as a page scope key; null when it names none. */
+  readonly currentProjectKey: string | null
   /** Scope the project pages to one project, by its key. */
   scopePageToProject(projectKey: string): void
   /** Every project the pages list, one per repository (docs/plans/project-model.md). */

@@ -20,8 +20,11 @@ const record = (sessionId: string, fields: Partial<SessionRecord> = {}) =>
 
 interface FakeHome { records: SessionRecord[]; events: HostEventSubscriber; lists: Array<SessionRecordListFilter | undefined>; gets: string[]; viewWrites: string[] }
 
-/** Every fake machine is managed unless named in `personal` (plans/031: only a managed machine's published sessions are the Solus API's). */
-function fakeHomes(homes: Record<string, SessionRecord[]>, runners: Record<string, string> = {}, update?: SolusAPI['sessionUpdate'], personal: readonly string[] = []) {
+/**
+ * Every fake machine is managed unless named in `personal` (plans/031: only a managed machine's published sessions are the Solus API's).
+ * `keptOnHosts` names the organizations that do not save their sessions in Solus Cloud; a test changes it as the directory would.
+ */
+function fakeHomes(homes: Record<string, SessionRecord[]>, runners: Record<string, string> = {}, update?: SolusAPI['sessionUpdate'], personal: readonly string[] = [], keptOnHosts: readonly string[] = []) {
   const fakes = new Map<string, FakeHome>(Object.entries(homes).map(([serverId, records]) => [serverId, { records, events: new HostEventSubscriber(), lists: [], gets: [], viewWrites: [] }]))
   const apis = new Map([...fakes].map(([serverId, home]) => [serverId, asHostApi({
     sessionRecordList: async (filter) => { home.lists.push(filter); return { records: home.records, indexing: false } },
@@ -36,7 +39,8 @@ function fakeHomes(homes: Record<string, SessionRecord[]>, runners: Record<strin
   const store = new SessionListStore({
     connectedRunnerFor: (runnerHostId) => runners[runnerHostId] ?? null,
     serverIds: () => [...fakes.keys()],
-    isManagedHost: (serverId) => !isSolusApiId(serverId) && !personal.includes(serverId),
+    isCloudHost: (serverId) => !isSolusApiId(serverId) && !personal.includes(serverId),
+    savesSessionsToCloud: (organizationId) => !keptOnHosts.includes(organizationId),
   })
   const announce = (serverId: string, type: 'session.stateChanged' | 'session.viewChanged', sessionId: string, value: SessionState | SessionView) =>
     fakes.get(serverId)!.events.receive(type === 'session.stateChanged'
@@ -213,6 +217,70 @@ test('a published organization session on a personal machine keeps the machine a
   } finally { restore() }
 })
 
+test('an organization that does not save its sessions in Solus Cloud: its Solus API lists no session, and its cloud machine lists and opens its own', async () => {
+  // WHY: the hosts of such an organization send no conversation to Solus Cloud.
+  // A row from the Solus API opens on a copy that does not exist, so the machine
+  // that ran a session is its one source, and keeps its place in the list.
+  const published = { organizationId: 'org-1', publication: 'published' as const }
+  const { store, fakes, restore } = fakeHomes({
+    'workspace:org-1': [
+      record('on-vm', { ...published, runnerHostId: 'vm-host', syncedTurn: 3, head: 'h3' }),
+      record('vm-off', { ...published, runnerHostId: 'vm-gone' }),
+    ],
+    vm: [record('on-vm', published)],
+  }, { 'vm-host': 'vm' }, undefined, [], ['org-1'])
+  try {
+    await store.load()
+    expect(store.sessions.map((listed) => listed.sessionId)).toEqual(['on-vm'])
+    expect(store.listed('on-vm')).toMatchObject({ serverId: 'vm', homeServerId: 'vm', runnerOffline: false })
+    // The Solus API is not asked for its records, and no fact of a record is kept from it.
+    expect(fakes.get('workspace:org-1')!.lists).toEqual([])
+    expect(store.cloud.factsFor('on-vm')).toBeUndefined()
+    // The machine is the home, so the person's archive goes there.
+    expect(store.homeFor({ serverId: 'vm', sessionId: 'not-listed', ...published })).toBe('vm')
+    await store.setArchived({ serverId: 'vm', sessionId: 'on-vm' }, true)
+    expect(fakes.get('vm')!.viewWrites).toEqual(['on-vm'])
+    expect(fakes.get('workspace:org-1')!.viewWrites).toEqual([])
+  } finally { restore() }
+})
+
+test('when the directory changes whether an organization saves its sessions, each row moves to its new source, with one read for one change', async () => {
+  // WHY: the directory answers after the first lists are read, and an
+  // administrator can change the setting at any time. Without a new read, a row
+  // stays with a source that the rule no longer permits until the app starts again.
+  const published = { organizationId: 'org-1', publication: 'published' as const }
+  const keptOnHosts: string[] = []
+  const { store, fakes, restore } = fakeHomes({
+    'workspace:org-1': [record('on-vm', { ...published, runnerHostId: 'vm-host' }), record('vm-off', { ...published, runnerHostId: 'vm-gone' })],
+    vm: [record('on-vm', published)],
+  }, { 'vm-host': 'vm' }, undefined, [], keptOnHosts)
+  const reads = () => [fakes.get('workspace:org-1')!.lists.length, fakes.get('vm')!.lists.length]
+  try {
+    await store.load()
+    expect(store.listed('on-vm')).toMatchObject({ serverId: 'vm', homeServerId: 'workspace:org-1' })
+    expect(store.listed('vm-off')).toMatchObject({ serverId: 'workspace:org-1', runnerOffline: true })
+    // A directory answer that changes nothing reads no list.
+    store.readChangedSources()
+    await Bun.sleep(0)
+    expect(reads()).toEqual([1, 1])
+
+    keptOnHosts.push('org-1')
+    store.readChangedSources()
+    await Bun.sleep(0)
+    expect(store.listed('on-vm')).toMatchObject({ serverId: 'vm', homeServerId: 'vm' })
+    expect(store.listed('vm-off')).toBeUndefined()
+    expect(reads()).toEqual([1, 2])
+
+    keptOnHosts.length = 0
+    store.readChangedSources()
+    store.readChangedSources()
+    await Bun.sleep(0)
+    expect(store.listed('on-vm')).toMatchObject({ serverId: 'vm', homeServerId: 'workspace:org-1' })
+    expect(store.listed('vm-off')).toMatchObject({ serverId: 'workspace:org-1', runnerOffline: true })
+    expect(reads()).toEqual([2, 3])
+  } finally { restore() }
+})
+
 test('an organization session that is not published keeps its machine as home, and its snooze stays', async () => {
   // WHY: a session belongs to the window's organization for its Insights alone
   // while its record stays on the machine; the Solus API never lists it. Its
@@ -326,5 +394,25 @@ test('a session on two hosts is one row, from the host with the newer turn, and 
     fakes.get('mac')!.records = []
     await store.load()
     expect(store.listed('moved')?.homeServerId).toBe('studio')
+  } finally { restore() }
+})
+
+test('a conversation opened from archive can restore through its record home', async () => {
+  const home = 'workspace:org-1'
+  const archived = record('old', {
+    organizationId: 'org-1', publication: 'published', listed: false,
+    view: { ...EMPTY_SESSION_VIEW, archivedAt: 4 },
+  })
+  const { store, fakes, restore } = fakeHomes({ runner: [], [home]: [archived] })
+  try {
+    store.markOpened({ serverId: 'runner', sessionId: 'old', organizationId: 'org-1', publication: 'published' })
+    await Bun.sleep(0)
+    expect(store.stateFor('old')?.archivedAt).toBe(4)
+    expect(store.sessions).toEqual([])
+    fakes.get(home)!.records[0] = { ...archived, listed: true, view: EMPTY_SESSION_VIEW }
+    await store.setArchived({ serverId: 'runner', sessionId: 'old' }, false)
+    expect(fakes.get(home)?.viewWrites).toEqual(['old'])
+    expect(fakes.get('runner')?.viewWrites).toEqual([])
+    expect(store.stateFor('old')?.archivedAt ?? null).toBeNull()
   } finally { restore() }
 })

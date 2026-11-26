@@ -12,7 +12,7 @@
   import CopyButton from "../ui/CopyButton.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
-  import { signInSteps, type SignInCodeFlow } from "@solus/client-core/sign-in-steps";
+  import { signInCodeFlowOf, signInSteps, type SignInCodeFlow } from "@solus/client-core/sign-in-steps";
   import StepRail from "../steps/StepRail.svelte";
 
   interface Props {
@@ -57,7 +57,7 @@
     autofocus = false,
   }: Props = $props();
 
-  const flow = $derived<SignInCodeFlow>(verification ? (verification.requiresCodeInput ? "paste" : "enter") : codeFlow);
+  const flow = $derived<SignInCodeFlow>(verification ? signInCodeFlowOf(verification) : codeFlow);
   let code = $state("");
   let submitting = $state(false);
   /** The login a code went to. A new login starts with the field open again. */
@@ -98,13 +98,13 @@
           <code class="font-sans text-base font-semibold tracking-[0.2em] tabular-nums text-(--solus-text-primary)">{verification.userCode}</code>
           <CopyButton text={verification.userCode} title="Copy the code" />
         </div>
-      {:else if step.state === "current" && verification && flow === "paste" && !sent}
+      {:else if step.state === "current" && verification && flow !== "enter" && !sent}
         <form class="mt-2 flex items-center gap-2" onsubmit={submit}>
           <Input
             bind:value={code}
             class="h-8 min-w-0 flex-1 bg-(--solus-tx-card-bg)"
-            placeholder="Paste your code here"
-            autocomplete="one-time-code"
+            placeholder={flow === "paste-address" ? "http://127.0.0.1:…" : "Paste your code here"}
+            autocomplete={flow === "paste-address" ? "off" : "one-time-code"}
             aria-label="{label} sign-in code"
             dictation={false}
             disabled={submitting}

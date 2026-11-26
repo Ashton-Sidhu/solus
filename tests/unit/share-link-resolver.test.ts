@@ -12,7 +12,7 @@ import { ShareLinkResolver } from '@solus/server/sharing/share-link-resolver'
 
 const SECRET = 's'.repeat(32)
 const LINK: ResolvedLinkShare = { organizationId: 'org1', resource: { kind: 'session', id: 'sess1' }, role: 'editor', expiresAt: null, sharedByUserId: 'alice', linkSecretHash: 'h' }
-const BOB: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Bob', deviceId: 'g1', expiresAt: 0, deviceLabel: 'Solus cloud' }
+const BOB: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'api', displayName: 'Bob', deviceId: 'g1', expiresAt: 0, deviceLabel: 'Solus cloud' }
 
 function resolver(options: { link?: ResolvedLinkShare | null; role?: ResourceRole; actions?: SessionActionLeaf[]; runner?: string | null } = {}) {
   const asked: string[] = []

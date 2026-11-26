@@ -3,7 +3,7 @@
 #
 # The control plane's bootstrap installs a verified server release, read-only, at the
 # directory given as $1 and runs this as the Sprite's `solus` service, with
-# SOLUS_HOST_LINK set when it has a new link to hand over. A Sprite boots a standard
+# SOLUS_LINK_CODE set for the boot that joins the machine. A Sprite boots a standard
 # Ubuntu image, so what the host needs beyond it is installed here once per release.
 #
 # It runs as the Sprite's own user (passwordless sudo) only long enough to set the
@@ -62,8 +62,8 @@ sudo chmod 0700 /data/state /data/state-seats
 sudo chmod 0755 /data/home /data/projects
 
 # ── Hand over to the server as `solus` ──────────────────────────────────────
-# The link travels in the environment only (never argv); the server removes it from
-# its own environment as soon as it has stored it.
+# The link code travels in the environment only (never argv); the server removes it
+# from its own environment on its first read, before it enrolls with it.
 export HOME=/data/home
 export SOLUS_DATA_DIR=/data/state
 export SOLUS_INSTALL_DIR="$RELEASE_DIR"
@@ -73,6 +73,6 @@ export SOLUS_PROJECTS_ROOT=/data/projects
 export PLAYWRIGHT_BROWSERS_PATH="$RELEASE_DIR.browsers"
 export PATH="$RELEASE_DIR.agents/bin:$RELEASE_DIR/bin:/usr/local/bin:/usr/bin:/bin"
 cd /data/home
-exec sudo --preserve-env=HOME,SOLUS_DATA_DIR,SOLUS_INSTALL_DIR,SOLUS_NO_LAN_DISCOVERY,SOLUS_TUNNEL_PORT,SOLUS_PROJECTS_ROOT,PLAYWRIGHT_BROWSERS_PATH,PATH,SOLUS_HOST_LINK \
+exec sudo --preserve-env=HOME,SOLUS_DATA_DIR,SOLUS_INSTALL_DIR,SOLUS_NO_LAN_DISCOVERY,SOLUS_TUNNEL_PORT,SOLUS_PROJECTS_ROOT,PLAYWRIGHT_BROWSERS_PATH,PATH,SOLUS_LINK_CODE \
   setpriv --reuid=solus --regid=solus --init-groups \
   "$RELEASE_DIR/bin/node" "$RELEASE_DIR/libexec/server/standalone.js" --data-dir /data/state

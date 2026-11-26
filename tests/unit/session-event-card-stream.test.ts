@@ -44,7 +44,7 @@ async function createReducer(
     // `linkSession` is the durable write to the task's host; this test is about
     // what the renderer holds while that write is in flight, so it only has to
     // exist and not resolve.
-    tasksStore: {
+    issuesStore: {
       refreshSessionBinding,
       get: (taskId: string) => ({
         trackSessionStart: (sessionId: string) => trackSessionStart(taskId, sessionId),
@@ -122,7 +122,7 @@ describe('SessionEventReducer card stream boundaries', () => {
       () => hydration,
       (taskId, sessionId) => { tracked = [taskId, sessionId] },
     )
-    session.task = { kind: 'existing', taskId: 'new-task-1' }
+    session.task = { kind: 'existing', issueId: 'new-task-1' }
     session.currentTurnStart = 'fresh'
     session.run.location = folderLocation({ serverId: 'remote-host', path: '~' }, { project: { serverId: 'task-host', path: '~' } })
 
@@ -136,14 +136,14 @@ describe('SessionEventReducer card stream boundaries', () => {
     // WHY: clearing this before hydration resolves gives the sidebar one frame
     // where the new task is rendered as an unrelated loose session.
     expect(tracked).toEqual(['new-task-1', 'session-1'])
-    expect(session.task).toEqual({ kind: 'existing', taskId: 'new-task-1' })
+    expect(session.task).toEqual({ kind: 'existing', issueId: 'new-task-1' })
 
     finishHydration({ id: 'new-task-1' })
     await hydration
     await Promise.resolve()
     // WHY: the durable link is authoritative once it exists, so the mounted
     // session keeps its durable task identity.
-    expect(session.task).toEqual({ kind: 'existing', taskId: 'new-task-1' })
+    expect(session.task).toEqual({ kind: 'existing', issueId: 'new-task-1' })
   })
 
   test('links a fresh dispatched session without task-owned branch metadata', async () => {
@@ -155,7 +155,7 @@ describe('SessionEventReducer card stream boundaries', () => {
       () => {},
       async (...args) => { linked = args },
     )
-    session.task = { kind: 'existing', taskId: 'task-1' }
+    session.task = { kind: 'existing', issueId: 'task-1' }
     session.currentTurnStart = 'fresh'
     session.run.provider = 'claude-code'
     session.run.location = folderLocation(
@@ -202,7 +202,7 @@ describe('SessionEventReducer card stream boundaries', () => {
       () => {},
       async () => { links++ },
     )
-    session.task = { kind: 'existing', taskId: 'task-1' }
+    session.task = { kind: 'existing', issueId: 'task-1' }
     session.currentTurnStart = 'follow_up'
     session.run.location = folderLocation({ serverId: 'remote-host', path: '~' }, { project: { serverId: 'task-host', path: '~' } })
 

@@ -3,20 +3,22 @@ import type { CodebaseMember, SessionFolder } from '@solus/contracts/codebases'
 import type { GitState } from '@solus/contracts/types'
 import type { CodebaseHostMembers } from '@solus/workspace-ui/contexts/codebases/codebases.store.svelte'
 import {
+  addRepositoryPlace,
+  addRepositoryTooltip,
   candidateRows,
   chosenGitRepository,
   codebaseMembersOn,
   foldGitRepositoryRows,
   gitCardRepositories,
   gitFolderOf,
-  gitRepositoriesDetail,
   gitRepositoryChoice,
   gitRepositoryReading,
   gitRepositoryRowLabel,
   gitRepositoryRows,
   showsRepositoryRows,
+  SINGLE_WORKTREE_NOTE,
 } from '@solus/workspace-ui/components/project-panel/lib/git-repositories'
-import { useDraftRepositoryReads, useGitRepositoryReads } from '@solus/workspace-ui/components/project-panel/lib/git-repository-reads.svelte'
+import { useDraftRepositoryReads, useGitRepositoryReads, useTaskFolderRead } from '@solus/workspace-ui/components/project-panel/lib/git-repository-reads.svelte'
 import { tooltipDisplay } from '@solus/workspace-ui/components/ui/tooltip/content'
 
 /**
@@ -60,14 +62,12 @@ describe('the repository rows of the Git card', () => {
     const rows = gitRepositoryRows({ working, folders: [folder('/code/notes', { state: 'plain', source: 'attached' })] })
     expect(rows).toHaveLength(1)
     expect(showsRepositoryRows(rows)).toBe(false)
-    expect(gitRepositoriesDetail(rows)).toBeUndefined()
     expect(showsRepositoryRows([])).toBe(false)
   })
 
-  test('a session in more than one repository shows the rows, and the card says how many', () => {
+  test('a session in more than one repository shows the rows', () => {
     const rows = gitRepositoryRows({ working, folders: [folder('/code/shop/api'), folder('/code/libs/ui')] })
     expect(showsRepositoryRows(rows)).toBe(true)
-    expect(gitRepositoriesDetail(rows)).toBe('3 repositories')
   })
 
   // The folder is the place of repositories, not a project that lacks one: the card lists them and says which one it works in.
@@ -75,7 +75,6 @@ describe('the repository rows of the Git card', () => {
     const one = gitRepositoryRows({ working: plainWorking, folders: [folder('/code/shop/api')] })
     expect(one.map((row) => [row.name, row.isWorkingDirectory])).toEqual([['api', false]])
     expect(showsRepositoryRows(one)).toBe(true)
-    expect(gitRepositoriesDetail(one)).toBe('1 repository')
   })
 
   test('a worktree in a task folder is marked as isolated, and Git is read at the worktree', () => {
@@ -91,6 +90,60 @@ describe('the repository rows of the Git card', () => {
   test('the row of a run names the project, and an old list that names the working directory adds no second row', () => {
     const rows = gitRepositoryRows({ working: { ...working, projectPath: '/code/shop/web' }, folders: [folder('/code/shop/web/'), folder('/code/shop/api'), folder('/code/shop/api')] })
     expect(rows.map((row) => row.name)).toEqual(['web', 'api'])
+  })
+})
+
+describe('the repositories of a task folder session', () => {
+  const root = '/data/solus-task-folders/unify-1a2b3c4d'
+  const record = {
+    primaryPath: `${root}/solus`,
+    primaryRepositoryPath: '/code/solus',
+    primaryIsWorktree: true,
+    repositories: [{ repositoryPath: '/code/solus-cloud', worktreePath: `${root}/solus-cloud`, name: 'solus-cloud' }],
+  }
+  const inPrimary = { path: `${root}/solus`, repositoryPath: '/code/solus', projectPath: '/code/solus' }
+  const cloudFolder = folder(`${root}/solus-cloud`, { repositoryPath: '/code/solus-cloud', name: 'solus-cloud' })
+
+  // WHY: a session moved into its task folder. A Git event for its second
+  // worktree moved the run there, and the card showed that repository alone.
+  // The record names both repositories, whatever the run's Git state says.
+  test('the record names every repository, also when the run took the checkout of the other worktree', () => {
+    const moved = { path: `${root}/solus-cloud`, repositoryPath: '/code/solus-cloud', projectPath: '/code/solus-cloud' }
+    const rows = gitCardRepositories({ working: moved, sessionFolders: [cloudFolder], members: [], taskFolder: record })
+    expect(rows.map((row) => [row.name, row.path, row.isWorkingDirectory])).toEqual([
+      ['solus', `${root}/solus`, false],
+      ['solus-cloud', `${root}/solus-cloud`, true],
+    ])
+    // The row of the primary worktree is read as a folder: its Git section does not depend on the run.
+    expect(gitFolderOf(rows[0]!)).toEqual({ path: `${root}/solus`, repositoryPath: '/code/solus' })
+  })
+
+  test('before the session folders arrive, the worktree of the working directory and the others show', () => {
+    const rows = gitCardRepositories({ working: { ...inPrimary, repositoryPath: null }, sessionFolders: [], members: [], taskFolder: record })
+    expect(rows.map((row) => [row.name, row.isWorkingDirectory, row.isIsolated])).toEqual([['solus', true, true], ['solus-cloud', false, true]])
+    expect(showsRepositoryRows(rows)).toBe(true)
+  })
+
+  // A list from before the move names the original checkout; the task folder has its worktree.
+  test('an old list that names the original of a repository adds no second row', () => {
+    const rows = gitCardRepositories({ working: inPrimary, sessionFolders: [folder('/code/solus-cloud', { name: 'solus-cloud' })], members: [], taskFolder: record })
+    expect(rows.map((row) => row.path)).toEqual([`${root}/solus`, `${root}/solus-cloud`])
+  })
+
+  test('a folder attached outside the task folder still has its row', () => {
+    const rows = gitCardRepositories({ working: inPrimary, sessionFolders: [cloudFolder, folder('/code/notes', { source: 'attached' })], members: [], taskFolder: record })
+    expect(rows.map((row) => row.name)).toEqual(['solus', 'solus-cloud', 'notes'])
+  })
+
+  test('a primary member that is a plain folder has no row', () => {
+    const rows = gitCardRepositories({ working: { ...inPrimary, repositoryPath: null }, sessionFolders: [], members: [], taskFolder: { ...record, primaryIsWorktree: false } })
+    expect(rows.map((row) => row.name)).toEqual(['solus-cloud'])
+  })
+
+  // A draft has no task folder yet: its card lists what the session will get.
+  test('a draft ignores a task folder record', () => {
+    const rows = gitCardRepositories({ working, sessionFolders: null, members: [], taskFolder: record })
+    expect(rows.map((row) => row.name)).toEqual(['web'])
   })
 })
 
@@ -221,13 +274,15 @@ describe('the repository that the Git rows work in', () => {
 describe('what a repository row shows', () => {
   const [, api] = gitRepositoryRows({ working, folders: [folder('/code/shop/api')] })
 
-  test('the branch and the line counts of its own checkout', () => {
+  // The Git rows below the divider name the branch of the chosen repository: a row keeps its branch in the tooltip.
+  test('the line counts of its own checkout, and its branch only in the tooltip', () => {
     const reading = gitRepositoryReading(api!, gitState('fix-login', { insertions: 12, deletions: 3, fileCount: 2 }))
-    expect(reading.badge).toBe('fix-login')
+    expect(reading.badge).toBeUndefined()
+    expect(reading.tooltip).toContain('Branch fix-login')
     expect(reading.diffStat).toMatchObject({ insertions: 12, deletions: 3 })
-    // Before the host answers, the row shows no branch that it does not know.
-    expect(gitRepositoryReading(api!, undefined).badge).toBeUndefined()
-    expect(gitRepositoryReading(api!, gitState(null)).badge).toBe('Detached HEAD')
+    // Before the host answers, the row names no branch that it does not know.
+    expect(gitRepositoryReading(api!, undefined).tooltip).not.toMatch(/Branch|Detached/)
+    expect(gitRepositoryReading(api!, gitState(null)).tooltip).toContain('Detached HEAD')
   })
 
   // The agent was not given an observed folder: Solus shows what a tool changed there, for review.
@@ -248,6 +303,26 @@ describe('what a repository row shows', () => {
   })
 })
 
+// WHY: the row showed in task folder sessions only, so it looked as if it came and went at random.
+// Each started session that the person may change has it; what it does depends on where the session works.
+describe('"Add repository" in every session', () => {
+  test('a task folder session makes a worktree', () => {
+    expect(addRepositoryPlace('/data/solus-task-folders/fix-login-1a2b3c4d/shop')).toBe('task-folder')
+    expect(addRepositoryTooltip('task-folder')).toContain('worktree')
+  })
+
+  test('a session in its project folder attaches a chosen repository', () => {
+    expect(addRepositoryPlace('/code/shop/web')).toBe('folder')
+    expect(addRepositoryTooltip('folder')).toContain('Choose a repository')
+  })
+
+  // One worktree inside its repository cannot hold a second repository: the row says why instead of hiding.
+  test('a single worktree says why it cannot hold a second repository', () => {
+    expect(addRepositoryPlace('/code/shop/web/.git/solus/worktrees/fix-login')).toBe('worktree')
+    expect(addRepositoryTooltip('worktree')).toBe(SINGLE_WORKTREE_NOTE)
+  })
+})
+
 describe('"Add repository" in a task folder session', () => {
   test('lists the candidates of the host by name', () => {
     expect(candidateRows([member('/code/shop/web', '/code/shop'), member('/code/shop/api', '/code/shop')])).toEqual([
@@ -259,11 +334,14 @@ describe('"Add repository" in a task folder session', () => {
 
 // The reads of the rows. A `.svelte.ts` module is not compiled in a unit test,
 // so the test supplies `$effect` and runs the effects itself.
-const runtime = globalThis as typeof globalThis & { $effect?: (effect: () => void | (() => void)) => void }
+const runtime = globalThis as typeof globalThis & { $effect?: (effect: () => void | (() => void)) => void; $state?: <T>(value: T) => T }
 const previousEffect = runtime.$effect
+const previousState = runtime.$state
 afterEach(() => {
   if (previousEffect) runtime.$effect = previousEffect
   else delete runtime.$effect
+  if (previousState) runtime.$state = previousState
+  else delete runtime.$state
 })
 
 test('each repository row holds the details of its own checkout, and a hidden card holds none', () => {
@@ -333,4 +411,46 @@ test('the card of a draft holds its codebase and the members of it, and a starte
   state.active = false
   update()
   expect(holding()).toEqual([])
+})
+
+test('the task folder record is read by the root of the task folder, again when the folders change, and never for a hidden card', async () => {
+  const effects: Array<() => void | (() => void)> = []
+  let cleanups: Array<void | (() => void)> = []
+  runtime.$effect = (effect) => { effects.push(effect) }
+  runtime.$state = <T>(value: T) => value
+  const update = async () => {
+    for (const cleanup of cleanups) cleanup?.()
+    cleanups = effects.map((effect) => effect())
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+  const root = '/data/solus-task-folders/unify-1a2b3c4d'
+  const record = { root, anchor: '/code', primaryPath: `${root}/solus`, primaryRepositoryPath: '/code/solus', primaryIsWorktree: true, branch: 'solus/unify', repositories: [] }
+  const reads: string[] = []
+  const state = { active: false, path: `${root}/solus-cloud` as string | null, foldersKey: '' }
+  const taskFolder = useTaskFolderRead({
+    get active() { return state.active },
+    get path() { return state.path },
+    get foldersKey() { return state.foldersKey },
+    read: async (path) => { reads.push(path); return record },
+  })
+  await update()
+  expect(reads).toEqual([])
+  expect(taskFolder.current).toBeNull()
+
+  // A run whose Git state names another worktree of the task folder still finds it.
+  state.active = true
+  await update()
+  expect(reads).toEqual([root])
+  expect(taskFolder.current).toBe(record)
+
+  state.foldersKey = `${root}/solus-cloud`
+  await update()
+  expect(reads).toEqual([root, root])
+
+  // A path outside a task folder has no record, and the last answer is not shown for it.
+  state.path = '/code/solus'
+  await update()
+  expect(reads).toEqual([root, root])
+  expect(taskFolder.current).toBeNull()
 })

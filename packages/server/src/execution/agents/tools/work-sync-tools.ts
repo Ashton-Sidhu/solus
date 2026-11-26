@@ -68,7 +68,7 @@ export const publishWorkAgentTool = workSyncTool(
   'publish_work',
   'Publish a Solus work upstream as a Confluence page or Google Doc, and keep it linked so later publishes update that same page instead of creating copies. On the first publish, pass `provider` and `scope`; after that neither is needed. If the upstream page changed since Solus last saw it, this reports a conflict instead of overwriting — tell the user and offer pull_work_upstream.',
   {
-    work_id: z.string().describe('The id of the work to publish (from find_works).'),
+    work_id: z.string().describe('The id of the work to publish (from list_works).'),
     provider: z.string().optional().describe(`${PROVIDER_ARG} Required only on the first publish.`),
     scope: z.string().optional().describe('Where to create it on the first publish: a Confluence space key, or a Drive folder id.'),
     overwrite: z.boolean().optional().describe('Publish over an upstream change the user has decided to discard. Ask them first.'),

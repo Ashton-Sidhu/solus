@@ -4,9 +4,11 @@
     getMarkdownImageContext,
     isMarkdownVideo,
     markdownAssetId,
+    markdownImageFileName,
     markdownImagePath,
     zoomScrollOffset,
   } from "./lib/markdown-image";
+  import { ImageOff as ImageOffIcon } from "@lucide/svelte";
   import { HostVideoPlayer, VideoPlayer } from "../ui/video-player";
   import { HostMediaUrl, type HostMediaRequest } from "../../lib/host-media-url.svelte";
 
@@ -95,6 +97,12 @@
   const image = new HostMediaUrl(() => (isVideo ? null : hostRequest));
   // Only authored Markdown can fall back to its original reference.
   const src = $derived(hostPath ? image.url : !hostRequest || image.hasFailed ? href : image.url);
+  // The source the browser could not load. Kept by source, so a new one tries again.
+  let brokenSrc = $state<string | null>(null);
+  // The host could not serve the file, or the browser could not load it: the
+  // file was deleted, moved, or never existed.
+  const isMissing = $derived((!!hostPath && image.hasFailed) || (src !== null && src === brokenSrc));
+  const fileName = $derived(markdownImageFileName(href, path, assetId));
 </script>
 
 {#if isVideo}
@@ -107,6 +115,22 @@
       <VideoPlayer src={href} label={text || title || ""} class="my-2 max-w-[40rem]" />
     {/if}
   {/key}
+{:else if isMissing}
+  <!-- Spans, not divs: Markdown puts an image inside a paragraph. An empty
+       frame where the picture was. It fits a thumbnail's fixed height, and
+       there only the icon shows. -->
+  <span
+    role="img"
+    aria-label={text ? `Image not found: ${text}` : "Image not found"}
+    title={path ?? href}
+    class="@container flex h-28 max-h-full w-full max-w-[22rem] flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border border-border/50 bg-muted/30 px-4 text-muted-foreground"
+  >
+    <ImageOffIcon class="mb-0.5 size-5 shrink-0 opacity-50" aria-hidden="true" />
+    <span class="text-sm @max-[10rem]:hidden">Image not found</span>
+    {#if text || fileName}
+      <span class="max-w-full truncate text-xs opacity-60 @max-[10rem]:hidden">{text || fileName}</span>
+    {/if}
+  </span>
 {:else if src && expandable}
   <button
     type="button"
@@ -119,6 +143,7 @@
       {title}
       alt={text}
       loading="lazy"
+      onerror={() => (brokenSrc = src)}
       class="block h-auto max-h-[30rem] max-w-[min(100%,30rem)] rounded-lg border border-border/40"
     />
   </button>
@@ -128,7 +153,7 @@
        on the backdrop closes it. -->
   <dialog
     bind:this={dialog}
-    class="scrollbar-on-hover m-auto max-h-[90dvh] max-w-[90vw] overflow-auto rounded-lg bg-transparent p-0 outline-none backdrop:modal-backdrop"
+    class="scrollbar-on-hover m-auto max-h-[90dvh] max-w-[90vw] overflow-auto rounded-lg bg-transparent p-0 outline-none backdrop:media-backdrop"
     aria-label={text || "Image"}
     onclick={closeOnBackdrop}
     onclose={() => {
@@ -161,5 +186,5 @@
     {/if}
   </dialog>
 {:else if src}
-  <img {src} {title} alt={text} loading="lazy" class="block h-auto max-w-full" />
+  <img {src} {title} alt={text} loading="lazy" onerror={() => (brokenSrc = src)} class="block h-auto max-w-full" />
 {/if}

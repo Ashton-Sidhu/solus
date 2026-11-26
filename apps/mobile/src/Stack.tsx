@@ -1,5 +1,6 @@
 import { ReviewSheet } from "./features/review/ReviewSheet";
 import { CheckoutBranches } from "./solus/CheckoutGit";
+import { fileRouteLinking } from "./features/files/filePath";
 import { ThreadFilesTreeScreen, ThreadFileScreen } from "./features/files/ThreadFilesRouteScreen";
 import { SourceControlSettings, GithubSettings, IssueTrackerSettings } from "./solus/SourceControlSettings";
 import { AutomationModelPicker } from "./solus/AutomationModelPicker";
@@ -11,6 +12,7 @@ import { Wip, routeBody } from "./solus/Wip";
 import { NotificationSettingsScreen } from "./solus/NotificationSettings";
 import { AgentProfileSettings } from "./solus/AgentProfileSettings";
 import { SolusAccount, SolusProviders, SolusVoice, SolusHostDetail } from "./solus/SettingsPages";
+import { SharingAccessSettings } from "./solus/SharingAccessSettings";
 import { SolusHosts, SolusSessionSettings } from "./solus/Settings";
 import { isDraftThreadRoute } from "./features/threads/thread-route-state";
 import { ComponentCatalogScreen } from "./features/development/ComponentCatalogScreen";
@@ -160,6 +162,7 @@ const ROUTE_TITLES: Readonly<Record<string, string>> = {
   SettingsEnvironmentMaintenance: msg("Maintenance"),
   SettingsAgentProfile: msg("Agent profile"),
   SettingsSolusAccount: msg("Solus account & sync"),
+  SettingsSharingAccess: msg("Sharing & access"),
   SettingsNotifications: msg("Notifications"),
   SettingsThreads: msg("Threads"),
   SettingsAbout: msg("About"),
@@ -276,6 +279,11 @@ const SETTINGS_SCREENS = {
   }),
   SettingsAgentProfile: createNativeStackScreen({ screen:AgentProfileSettings, linking:"settings/agent-profile", options:settingsPage() }),
   SettingsSolusAccount: createNativeStackScreen({screen:SolusAccount, linking:"settings/solus-account",options:settingsPage()}),
+  SettingsSharingAccess: createNativeStackScreen({
+    screen: SharingAccessSettings,
+    linking: "settings/sharing-access",
+    options: settingsPage(),
+  }),
   SettingsNotifications: createNativeStackScreen({
     screen: NotificationSettingsScreen,
     linking: "settings/notifications",
@@ -692,7 +700,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: pageRoute({ header: "solid" }),
     }),
     NewTaskFile: createNativeStackScreen({
-      linking: "new/draft/files/:path*",
+      linking: fileRouteLinking("new/draft/files"),
       screen: ThreadFileScreen,
       options: pageRoute({ header: "solid" }),
     }),
@@ -751,7 +759,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
     }),
     ThreadFile: createNativeStackScreen({
       screen: ThreadFileScreen,
-      linking: `${THREAD_LINKING_PREFIX}/files/:path*`,
+      linking: fileRouteLinking(`${THREAD_LINKING_PREFIX}/files`),
       options: pageRoute(),
     }),
     ThreadMcpApp: createNativeStackScreen({
@@ -848,7 +856,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: sheetRoute({ detent: 0.55, maxDetent: 0.7 }),
     }),
     NotFound: createNativeStackScreen({
-      screen: routeBody(NotFoundScreen, Wip),
+      screen: NotFoundScreen,
       linking: "*",
     }),
   },

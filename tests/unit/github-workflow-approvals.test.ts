@@ -18,16 +18,16 @@ const head: WorkflowApprovalHead = {
 interface Sent { route: string; params: { [name: string]: string | number } }
 
 function actionsGitHub(answers: {
-  runs?: object[]
-  openFromBranch?: object[]
+  runs?: () => WorkflowRun[]
+  openFromBranch?: () => OpenPullRequest[]
 }): { client: GitHubClient; sent: Sent[] } {
   const sent: Sent[] = []
   const client = {
     rest: {
       request: async (route: string, params: Sent['params']) => {
         sent.push({ route, params })
-        if (route === 'GET /repos/{owner}/{repo}/actions/runs') return { data: { workflow_runs: answers.runs ?? [] } }
-        if (route === 'GET /repos/{owner}/{repo}/pulls') return { data: answers.openFromBranch ?? [] }
+        if (route === 'GET /repos/{owner}/{repo}/actions/runs') return { data: { workflow_runs: answers.runs?.() ?? [] } }
+        if (route === 'GET /repos/{owner}/{repo}/pulls') return { data: answers.openFromBranch?.() ?? [] }
         if (route === 'POST /repos/{owner}/{repo}/actions/runs/{run_id}/approve') return { data: null }
         throw new Error(`unexpected request ${route}`)
       },
@@ -38,45 +38,106 @@ function actionsGitHub(answers: {
   return { client, sent }
 }
 
-const waiting = [
-  { id: 301, name: 'CI', html_url: 'https://github.com/acme/app/actions/runs/301', head_sha: 'fork-sha' },
-  { id: 302, name: ' ', html_url: null, head_sha: 'fork-sha' },
+interface WorkflowRun {
+  id: number
+  name?: string
+  html_url?: string | null
+  head_sha: string
+  head_branch?: string
+  head_repository?: { full_name: string }
+  pull_requests?: { number: number }[]
+}
+
+interface OpenPullRequest {
+  number: number
+  head: { sha: string; ref: string; repo: { full_name: string } }
+}
+
+const waiting: WorkflowRun[] = [
+  { id: 301, name: 'CI', html_url: 'https://github.com/acme/app/actions/runs/301', head_sha: head.headSha, pull_requests: [{ number: 12 }] },
+  { id: 302, name: ' ', html_url: null, head_sha: head.headSha, pull_requests: [{ number: 12 }] },
 ]
+const openPullRequest = (target: WorkflowApprovalHead): OpenPullRequest => ({
+  number: target.number,
+  head: { sha: target.headSha, ref: target.headRef, repo: { full_name: `${target.headRepo.owner}/${target.headRepo.repo}` } },
+})
 const approvals = (sent: Sent[]) => sent.filter((request) => request.route.startsWith('POST ')).map((request) => request.params.run_id)
+const sameRepositoryHead = { ...head, headRepo: { owner: repo.owner, repo: repo.repo, isFork: false } }
 
 describe('workflow runs that wait for a maintainer', () => {
-  test('lists the waiting runs of exactly this head commit and fork branch', async () => {
-    const { client, sent } = actionsGitHub({ runs: [...waiting, { id: 303, name: 'Old', head_sha: 'older-sha' }] })
+  test.each([head, sameRepositoryHead])('lists and approves the waiting runs associated with this pull request (%j)', async (target) => {
+    const { client, sent } = actionsGitHub({
+      runs: () => [
+        ...waiting,
+        { id: 303, name: 'Old', head_sha: 'older-sha' },
+        { id: 304, name: 'Unrelated PR', head_sha: target.headSha, pull_requests: [{ number: 13 }] },
+        { ...waiting[0], id: 305, head_repository: { full_name: 'other/app' } },
+        { ...waiting[0], id: 306, head_branch: 'other-branch' },
+      ],
+      openFromBranch: () => [openPullRequest(target)],
+    })
 
-    const runs = await listGithubPendingWorkflowRuns(client, repo, head)
-
-    expect(runs).toEqual([
+    expect(await listGithubPendingWorkflowRuns(client, repo, target)).toEqual([
       { id: 301, name: 'CI', url: 'https://github.com/acme/app/actions/runs/301' },
       { id: 302, name: 'Workflow run 302', url: null },
     ])
-    expect(sent[0].params).toMatchObject({ head_sha: 'fork-sha', branch: 'patch-1', event: 'pull_request', status: 'action_required' })
-  })
+    expect(sent[0].params).toMatchObject({ head_sha: target.headSha, branch: target.headRef, event: 'pull_request', status: 'action_required' })
 
-  test('approves each waiting run when this pull request alone has the head commit', async () => {
-    const { client, sent } = actionsGitHub({ runs: waiting, openFromBranch: [{ number: 12, head: { sha: 'fork-sha' } }] })
-
-    expect(await approveGithubWorkflowRuns(client, repo, head)).toBe(2)
+    expect(await approveGithubWorkflowRuns(client, repo, target)).toBe(2)
     expect(approvals(sent)).toEqual([301, 302])
-    expect(sent.find((request) => request.route === 'GET /repos/{owner}/{repo}/pulls')?.params.head).toBe('newcomer:patch-1')
+    expect(sent.find((request) => request.route === 'GET /repos/{owner}/{repo}/pulls')?.params.head).toBe(`${target.headRepo.owner}:patch-1`)
   })
 
-  test('approves nothing when another open pull request shares the head commit', async () => {
-    // WHY: GitHub links a fork's runs to no pull request. A second pull request
-    // from the same fork branch at the same commit has the same runs, so an
-    // approval here would also run untrusted code for that one.
+  test('keeps fork approval when GitHub provides no association and only this pull request has the head', async () => {
     const { client, sent } = actionsGitHub({
-      runs: waiting,
-      openFromBranch: [{ number: 12, head: { sha: 'fork-sha' } }, { number: 13, head: { sha: 'fork-sha' } }],
+      runs: () => [{ ...waiting[0], pull_requests: [] }],
+      openFromBranch: () => [openPullRequest(head)],
     })
 
-    await expect(approveGithubWorkflowRuns(client, repo, head)).rejects.toThrow(
-      'Another open pull request has the same head commit, so Solus cannot tell which workflow runs belong to this one. Approve them on GitHub.',
-    )
+    expect(await listGithubPendingWorkflowRuns(client, repo, head)).toHaveLength(1)
+    expect(await approveGithubWorkflowRuns(client, repo, head)).toBe(1)
+    expect(approvals(sent)).toEqual([301])
+  })
+
+  test('refuses the same-repository run when GitHub gives no pull request association', async () => {
+    const { client, sent } = actionsGitHub({
+      runs: () => [{ ...waiting[0], pull_requests: [] }],
+      openFromBranch: () => [openPullRequest(sameRepositoryHead)],
+    })
+
+    await expect(listGithubPendingWorkflowRuns(client, repo, sameRepositoryHead)).rejects.toThrow('GitHub omitted workflow run pull request associations.')
+    await expect(approveGithubWorkflowRuns(client, repo, sameRepositoryHead)).rejects.toThrow('GitHub omitted workflow run pull request associations.')
     expect(approvals(sent)).toEqual([])
+  })
+
+  test.each([head, sameRepositoryHead])('refuses approval when another open pull request shares the head (%j)', async (target) => {
+    const { client, sent } = actionsGitHub({
+      runs: () => waiting,
+      openFromBranch: () => [openPullRequest(target), { ...openPullRequest(target), number: 13 }],
+    })
+
+    await expect(approveGithubWorkflowRuns(client, repo, target)).rejects.toThrow('Another open pull request has the same head commit')
+    expect(approvals(sent)).toEqual([])
+  })
+
+  test('rechecks the current head before each approval', async () => {
+    const open = openPullRequest(sameRepositoryHead)
+    const { client, sent } = actionsGitHub({
+      runs: () => waiting,
+      openFromBranch: () => [approvals(sent).length ? { ...open, head: { ...open.head, sha: 'new-head' } } : open],
+    })
+
+    await expect(approveGithubWorkflowRuns(client, repo, sameRepositoryHead)).rejects.toThrow('This pull request changed.')
+    expect(approvals(sent)).toEqual([301])
+  })
+
+  test('rechecks run association before each approval', async () => {
+    const { client, sent } = actionsGitHub({
+      runs: () => approvals(sent).length ? [{ ...waiting[1], pull_requests: [{ number: 13 }] }] : waiting,
+      openFromBranch: () => [openPullRequest(sameRepositoryHead)],
+    })
+
+    expect(await approveGithubWorkflowRuns(client, repo, sameRepositoryHead)).toBe(1)
+    expect(approvals(sent)).toEqual([301])
   })
 })

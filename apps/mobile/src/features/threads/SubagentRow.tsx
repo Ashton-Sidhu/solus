@@ -1,3 +1,4 @@
+import { providerClients } from "@t3tools/client-runtime/provider-clients";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   normalizeProviderAccentColor,
@@ -19,7 +20,7 @@ import { SymbolView } from "../../components/ui/AppSymbol";
 import { ProviderIcon, ProviderInstanceIcon } from "../../components/ProviderIcon";
 import { cn } from "../../lib/cn";
 import { useEnvironmentServerConfig, useProject, useThreadShell } from "../../state/entities";
-import { SUBAGENT_TONE_TEXT_CLASS, SubagentStatusMark } from "./SubagentStatusMark";
+import { SUBAGENT_TONE_TEXT_CLASS, SubagentStatusDot } from "./SubagentStatusDot";
 import { resolveSubagentRowPresentation } from "./threadAgentsPresentation";
 
 type SubagentRowSubagent = Pick<
@@ -55,8 +56,8 @@ export function SubagentRow(props: {
   const detail = subagentCardDetail(presentation.detail);
   return (
     <View className="flex-row gap-3">
-      <View className="h-5 w-4 items-center justify-center">
-        <SubagentStatusMark environmentId={props.environmentId} status={props.subagent.status} />
+      <View className="h-5 justify-center">
+        <SubagentStatusDot tone={presentation.tone} placement="sheet" />
       </View>
       <View className="min-w-0 flex-1 gap-1">
         <View className="min-h-5 flex-row items-center gap-2">
@@ -164,6 +165,9 @@ function SubagentMetadata(props: {
   );
   const branchLabel = messages(msg("Branch", { $context: "field label" }));
   const effort = formatSubagentEffort({ modelSlug, modelSelection: selection, provider });
+  const providerLabel = provider ? resolveProviderInstanceDisplayName(provider) : driver && providerClients.get(driver)?.label;
+  const hasModel = subagent.model?.trim() || selection?.model.trim();
+  const metadata = [providerLabel, hasModel && modelLabel, effort].filter(Boolean).join(" · ");
   return (
     <View className="min-w-0 flex-row items-center gap-1.5">
       {showBadge ? (
@@ -180,11 +184,11 @@ function SubagentMetadata(props: {
       ) : (
         <ProviderIcon provider={driver} iconUrl={provider?.iconUrl} size={12} />
       )}
-      <Text className="min-w-0 shrink text-xs text-foreground-muted" numberOfLines={1}>
-        {provider ? `${resolveProviderInstanceDisplayName(provider)} · ` : ""}
-        {modelLabel}
-        {effort ? ` · ${effort}` : ""}
-      </Text>
+      {metadata ? (
+        <Text className="min-w-0 shrink text-xs text-foreground-muted" numberOfLines={1}>
+          {metadata}
+        </Text>
+      ) : null}
       {workspace.map(({ label, value }) => (
         // Preserve the label against flattening without making it a separate accessibility stop.
         <View

@@ -3,7 +3,7 @@
 // keyboard navigation for the property pickers.
 // Kept out of the .svelte file per the renderer guidelines so the component stays
 // markup + thin handlers.
-import type { TaskSource } from '@solus/contracts/task-sources'
+import type { IssueSource } from '@solus/contracts/task-sources'
 
 /** Which optional fields the composer shows for a source. */
 export interface TaskComposerFields {
@@ -19,7 +19,7 @@ export interface TaskComposerFields {
  * new GitHub issue is on no Project, so it has no priority or due date field;
  * a Jira issue takes all of them.
  */
-export function composerFieldsFor(kind: TaskSource['kind'] | undefined): TaskComposerFields {
+export function composerFieldsFor(kind: IssueSource['kind'] | undefined): TaskComposerFields {
   switch (kind) {
     case 'github-repo':
       return { labels: true, planning: false }
@@ -55,7 +55,7 @@ export function saveCreateAnother(on: boolean): void {
 const LAST_SOURCE_KEY = 'solus:task-composer-last-source'
 
 /** The source of the person's last new task on this device: the composer's
- *  hint when nothing on screen names a source (`inferTaskSourceKey`). */
+ *  hint when nothing on screen names a source (`inferIssueSourceKey`). */
 export function loadLastTaskSource(): string | null {
   try {
     return localStorage.getItem(LAST_SOURCE_KEY)

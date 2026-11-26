@@ -1,5 +1,5 @@
 import type { PrChecksSummary } from '@solus/contracts/checks-types'
-import type { PrLifecycleAction, PullRequest } from '@solus/contracts/providers'
+import type { PrLifecycleAction, PrPendingWorkflowRuns, PullRequest } from '@solus/contracts/providers'
 import type { MergeMethod } from '@solus/contracts/types'
 import { isFailing } from '../../prs/lib/checks'
 import { MERGE_METHOD_OPTIONS, defaultMergeMethod } from './merge-method'
@@ -12,8 +12,10 @@ import { MERGE_METHOD_OPTIONS, defaultMergeMethod } from './merge-method'
  * table, walked in one order.
  *
  * The order is the order of blockers a reader must clear: a conflict first,
- * because nothing else can be judged until the branch merges cleanly; then the
- * checks, then an out-of-date head; then the states that only ask for patience.
+ * because nothing else can be judged until the branch merges cleanly; then
+ * workflows that wait for approval, because their checks cannot run before it;
+ * then the checks, then an out-of-date head; then the states that only ask for
+ * patience.
  */
 export type MergeReadinessKey =
   | 'merged'
@@ -21,6 +23,7 @@ export type MergeReadinessKey =
   | 'draft'
   | 'ready'
   | 'checks'
+  | 'workflows'
   | 'conflicts'
   | 'behind'
   | 'open'
@@ -38,6 +41,9 @@ export type MergeAction =
   | { kind: 'resolve-conflicts'; label: string }
   | { kind: 'fix-checks'; label: string }
   | { kind: 'update-branch'; label: string }
+  /** The head the waiting runs belong to: the host refuses the approval if
+   *  the branch moved since. */
+  | { kind: 'approve-workflows'; label: string; headSha: string }
 
 export interface MergeReadiness {
   key: MergeReadinessKey
@@ -59,6 +65,10 @@ export interface MergeReadinessInput {
   unresolvedCount?: number
   approvedReviewCount?: number
   openedTime?: string | null
+  /** The workflow runs that wait for a maintainer, as last read. Undefined
+   *  when the surface does not read them. Runs read for an older head are
+   *  ignored. */
+  pendingWorkflowRuns?: PrPendingWorkflowRuns
 }
 
 interface Blocker {
@@ -223,6 +233,12 @@ function agentAction(
   return viewerMayUpdateHead(detail) ? action : null
 }
 
+/** The runs that wait for approval on the current head, or none. The status
+ *  and the rail's Checks rows read this one rule, so they never disagree. */
+export function waitingWorkflowRuns(detail: PullRequest, runs: PrPendingWorkflowRuns | undefined): PrPendingWorkflowRuns | null {
+  return detail.state === 'open' && runs && runs.runs.length > 0 && runs.headSha === detail.headSha ? runs : null
+}
+
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
@@ -231,10 +247,12 @@ function waiting(headline: string, note: string, awaitsRequirements = false): Bl
   return { key: 'open', headline, note, blocked: false, action: null, awaitsRequirements }
 }
 
-/** The branch's own state: a conflict, red checks, or a head behind its base. */
+/** The branch's own state: a conflict, workflows that wait for approval, red
+ *  checks, or a head behind its base. */
 function branchBlockers(
   detail: PullRequest,
   checksState: PrChecksSummary['state'] | undefined,
+  waitingRuns: PrPendingWorkflowRuns | null,
 ): Blocker[] {
   const base = detail.baseRef ?? 'main'
   const blockers: Blocker[] = []
@@ -245,6 +263,22 @@ function branchBlockers(
       note: `Rebase onto ${base} to continue`,
       blocked: true,
       action: agentAction(detail, { kind: 'resolve-conflicts', label: 'Resolve conflicts with agent' }),
+    })
+  }
+  if (waitingRuns) {
+    const count = waitingRuns.runs.length
+    const mayApprove = prActionAllowed(detail, 'approve-workflows')
+    blockers.push({
+      key: 'workflows',
+      headline: 'Workflows need approval',
+      note: mayApprove
+        ? `${plural(count, 'workflow')} ${count === 1 ? 'waits' : 'wait'} for your approval`
+        : `A maintainer must approve ${plural(count, 'workflow')}`,
+      // Not a fault on the branch: the next step is a maintainer's.
+      blocked: false,
+      action: mayApprove
+        ? { kind: 'approve-workflows', label: `Approve and run ${plural(count, 'workflow')}`, headSha: waitingRuns.headSha }
+        : null,
     })
   }
   if (checksState === 'failing') {
@@ -273,11 +307,14 @@ function branchBlockers(
 function waitingBlockers(
   { detail, checks, checksLoadFailed = false, unresolvedCount, approvedReviewCount = 0 }: MergeReadinessInput,
   checksCurrent: boolean,
+  workflowsWait: boolean,
 ): Blocker[] {
   const blockers: Blocker[] = []
   if (checksLoadFailed) {
     blockers.push(waiting('Checks unavailable', 'Refresh the checks to continue'))
-  } else if (checks && (!checksCurrent || checks.state === 'pending')) {
+  } else if (checks && !workflowsWait && (!checksCurrent || checks.state === 'pending')) {
+    // Checks held for approval do not finish by waiting, so "Wait for checks
+    // to finish" would contradict the approval above it.
     blockers.push(
       waiting('Checks in progress', checksCurrent ? 'Wait for checks to finish' : 'Checks are refreshing', true),
     )
@@ -300,9 +337,10 @@ function blockersOf(input: MergeReadinessInput): Blocker[] {
   // A result computed against a head the branch has since moved past is not
   // asserted either way — the same refusal the checks chip makes.
   const checksCurrent = !checks || checks.headSha === detail.headSha
+  const waitingRuns = waitingWorkflowRuns(detail, input.pendingWorkflowRuns)
   const blockers = [
-    ...branchBlockers(detail, checks && checksCurrent ? checks.state : undefined),
-    ...waitingBlockers(input, checksCurrent),
+    ...branchBlockers(detail, checks && checksCurrent ? checks.state : undefined, waitingRuns),
+    ...waitingBlockers(input, checksCurrent, waitingRuns !== null),
   ]
   // The host's own verdict is the catch-all: every blocker above already
   // explains a refusal, so this only speaks when none of them did.

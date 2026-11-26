@@ -1,5 +1,9 @@
+import { getProjectionArrayReplacementIndex } from "@t3tools/client-runtime/state/orchestration-v2-projection";
+import { v2ThreadShell } from "../../packages/client-runtime/src/state/orchestrationV2TestFixtures";
+import { UNMEASURED_REPLY_HEIGHT } from "@solus/contracts/session-history";
 import { EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
 import { messageImageGallery } from "../features/threads/messageImageGallery";
+import { rememberDraftImage, sentImageHandoff } from "../lib/sentImageHandoff";
 import { deriveThreadFeedPresentation } from "../lib/threadActivity";
 import { expect, it, vi } from "vite-plus/test";
 import {
@@ -20,10 +24,29 @@ function conversationFeed(
     render,
     async (path) => path,
     async (key) => key,
+    { provider: "claude-code", child: () => undefined },
   )(order);
 }
 
-it("keeps host cards in transcript order and collapses only older versions of the same work", () => {
+it("opens host turn items with the same text, call details and fork target as legacy history", () => {
+  const model = TranscriptModel.fromHistory("session", { before: null, messages: [
+    { role: "user", content: "", timestamp: 1, messageId: "u", turnItem: {
+      type: "user_message", text: "check it", createdBy: "user", creationSource: "provider", inputIntent: "turn_start",
+    } },
+    { role: "tool", content: "", timestamp: 2, messageId: "r", toolId: "call", toolName: "Read",
+      turnItem: { type: "dynamic_tool", toolName: "Read", input: { path: "file" } } },
+    { role: "assistant", content: "", timestamp: 3, messageId: "a", forkPointId: "fork-target",
+      turnItem: { type: "assistant_message", text: "finished", streaming: false } },
+  ] });
+  const feed = conversationFeed({ item: key => model.items.get(key), subscribeFeedItems: () => () => {} },
+    model.order, "session", () => null);
+  const projection = feed.projection({ ...v2ThreadShell, id: ThreadId.make("session") });
+  expect(projection.messages.map(message => message.text)).toEqual(["check it", "finished"]);
+  expect(projection.turnItems[1]).toMatchObject({ type: "dynamic_tool", input: { path: "file" } });
+  expect(feed.get().at(-1)).toMatchObject({ message: { hostForkPointId: "fork-target" } });
+});
+
+it("keeps host cards in transcript order and shows each saved artifact version as T3's render row", () => {
   const items: TranscriptItem[] = [
     {
       kind: "user",
@@ -33,7 +56,7 @@ it("keeps host cards in transcript order and collapses only older versions of th
       delivery: "sent",
       error: null,
     },
-    { kind: "artifact", id: "old", workId: "work", title: "Graph", html: "<p>one</p>" },
+    { kind: "artifact", id: "old", workId: "work", title: "Graph", contentVersion: 1 },
     {
       kind: "tool",
       id: "t",
@@ -46,7 +69,7 @@ it("keeps host cards in transcript order and collapses only older versions of th
       subagent: null,
       report: null,
     },
-    { kind: "artifact", id: "new", workId: "work", title: "Graph", html: "", contentVersion: 2 },
+    { kind: "artifact", id: "new", workId: "work", title: "Graph", contentVersion: 2, layout: { height: 480, heights: [[375, 480]] } },
     { kind: "assistant", id: "reply", sourceSessionId: "previous-provider-session", text: "done" },
     { kind: "image", id: "image", path: "/host/photo" },
   ];
@@ -58,53 +81,20 @@ it("keeps host cards in transcript order and collapses only older versions of th
     "session",
     render,
   );
-  expect(feed.get().map((row) => row.id)).toEqual(["p", "old", "t", "new", "reply", "image"]);
-  const answer = feed.get().find((row) => row.id === "reply");
-  expect(answer).toMatchObject({
+  const rows = feed.get();
+  expect(rows.map((row) => row.type === "html-render" ? "render" : row.id)).toEqual(["p", "render", "t", "render", "reply", "image"]);
+  expect(rows.find((row) => row.id === "reply")).toMatchObject({
     type: "message",
     message: { role: "assistant", sourceThreadId: "previous-provider-session" },
   });
-  for (const row of feed.get()) if (row.type === "conversation-card") row.render();
-  expect(render.mock.calls).toEqual([
-    ["old", true],
-    ["new", false],
-    ["image", false],
+  // WHY: T3's feed builder reads a finished `html_render` call, as it does
+  // upstream. Each version is its own row, sized by the host's measurement.
+  expect(rows.filter((row) => row.type === "html-render").map((row) => row.type === "html-render" && row.render)).toEqual([
+    { attachmentId: "artifact:work:1", title: "Graph", height: UNMEASURED_REPLY_HEIGHT },
+    { attachmentId: "artifact:work:2", title: "Graph", height: 480, heights: [[375, 480]] },
   ]);
-});
-it("shows the different works of one turn as one group card at the first and keeps the rows between in place", () => {
-  const items: TranscriptItem[] = [
-    { kind: "user", id: "p", text: "draw", attachments: [], delivery: "sent", error: null },
-    { kind: "artifact", id: "plan-1", workId: "plan", title: "Plan", html: "<p>1</p>" },
-    { kind: "assistant", id: "between", text: "Now the mock." },
-    { kind: "artifact", id: "mock", workId: "mock", title: "Mock", html: "<p>m</p>" },
-    { kind: "artifact", id: "plan-2", workId: "plan", title: "Plan", html: "<p>2</p>" },
-  ];
-  const byId = new Map(items.map((item) => [item.id, item]));
-  const render = vi.fn(() => null);
-  const feed = conversationFeed(
-    { item: (id) => byId.get(id), subscribeFeedItems: () => () => {} },
-    items.map((i) => i.id),
-    "session",
-    render,
-  );
-  expect(feed.get().map((row) => row.id)).toEqual(["p", "plan-1", "between"]);
-  for (const row of feed.get()) if (row.type === "conversation-card") row.render();
-  // No "earlier version" row: the group shows each work once, at the newest revision of the turn.
-  expect(render.mock.calls).toEqual([
-    [
-      "plan-1",
-      false,
-      false,
-      expect.objectContaining({
-        id: "plan-1",
-        defaultTab: 0,
-        tabs: [
-          expect.objectContaining({ workId: "plan", revisions: ["plan-1", "plan-2"], turnRevision: 1 }),
-          expect.objectContaining({ workId: "mock", revisions: ["mock"], turnRevision: 0 }),
-        ],
-      }),
-    ],
-  ]);
+  for (const row of rows) if (row.type === "conversation-card") row.render();
+  expect(render.mock.calls).toEqual([["image"]]);
 });
 it("updates streaming text without subscribing the entire feed to tool progress", () => {
   const item: TranscriptItem = { kind: "assistant", id: "a", text: "start" };
@@ -129,16 +119,70 @@ it("updates streaming text without subscribing the entire feed to tool progress"
   );
   const notify = vi.fn();
   const initial = feed.get();
+  const shell = { ...v2ThreadShell, id: ThreadId.make("session") };
+  const initialMessages = feed.projection(shell).messages;
   const off = feed.subscribe(notify);
   expect(feed.get()).toBe(initial);
-  items.set("a", { ...item, text: "finished" });
+  items.set("a", { ...item, text: "finished", streaming: true });
   items.set("b", { ...item, id: "b", text: "another reply" });
   for (const listener of listeners) listener(["a", "b"]);
   expect(notify).toHaveBeenCalledTimes(1);
   expect(feed.get()[0]).toMatchObject({ type: "message", message: { text: "finished" } });
   expect(feed.get()[1]).toMatchObject({ type: "message", message: { text: "another reply" } });
+  expect(feed.projection(shell).messages.map(message => message.text)).toEqual(["finished", "another reply"]);
+  expect(feed.projection(shell).messages.map(message => message.streaming)).toEqual([true, false]);
+  expect(initialMessages.map(message => message.text)).toEqual(["start", "start"]);
+  expect(feed.projection(shell).visibleTurnItems.map(row => row.item)).toEqual(feed.projection(shell).turnItems);
+  const beforeDelta = feed.projection(shell);
+  items.set("b", { ...item, id: "b", text: "another reply continues", streaming: true });
+  for (const listener of listeners) listener(["b"]);
+  const afterDelta = feed.projection(shell);
+  expect(afterDelta.messages[1]?.text).toBe("another reply continues");
+  expect(getProjectionArrayReplacementIndex(beforeDelta.turnItems, afterDelta.turnItems)).toBe(1);
   off();
   expect(listeners.size).toBe(0);
+});
+
+it("keeps the upstream sender presentation for live prompts and reopened history", () => {
+  const agent = { kind: "agent", sessionId: "source" } as const;
+  const automation = { kind: "automation", automationId: "daily" } as const;
+  const watch = "Update on pull request #12 (https://github.com/org/repo/pull/12), which Solus is watching for you:\n- Every check that gates the merge passed: tests.";
+  const live = new TranscriptModel("session");
+  live.apply({ type: "user_message", text: "continue", sender: agent });
+  live.apply({ type: "user_message", text: "audit", sender: automation, via: "automation" });
+  live.apply({ type: "user_message", text: watch, via: "pull-request-watch" });
+  live.apply({ type: "user_message", text: "hello" });
+  const saved = TranscriptModel.fromHistory("session", { before: null, messages: [
+    { role: "user", content: "", timestamp: 1, sender: agent, turnItem: {
+      type: "user_message", text: "continue", createdBy: "user", creationSource: "provider", inputIntent: "turn_start",
+    } },
+    { role: "user", content: "audit", timestamp: 2, sender: automation },
+    { role: "user", content: watch, timestamp: 3 },
+    { role: "user", content: "hello", timestamp: 4 },
+  ] });
+  for (const model of [live, saved]) {
+    const feed = conversationFeed({ item: key => model.items.get(key), subscribeFeedItems: () => () => {} },
+      model.order, "session", () => null);
+    const expected = [
+      { createdBy: "agent", creationSource: "provider", senderThreadId: "source" },
+      { createdBy: "agent", scheduledTaskId: "daily" },
+      { createdBy: "agent", creationSource: "server" },
+      { createdBy: "user", creationSource: "provider" },
+    ];
+    expect(feed.get().flatMap(row => row.type === "message" ? [row.message] : [])).toMatchObject([
+      expected[0], expected[1], expected[3],
+    ]);
+    expect(feed.get()).toContainEqual(expect.objectContaining({
+      type: "activity-group",
+      activities: expect.arrayContaining([expect.objectContaining({
+        icon: "eye",
+        projectedItem: expect.objectContaining({ item: expect.objectContaining({
+          type: "notification", source: { kind: "monitor" }, summary: "#12: 1 required check passed", outcome: "completed",
+        }) }),
+      })]),
+    }));
+    expect(feed.projection(v2ThreadShell).messages).toMatchObject(expected);
+  }
 });
 
 it("renders background command notices from live and saved turns with their command result", () => {
@@ -333,6 +377,7 @@ it("reuses existing T3 entries when a new message arrives or an older page opens
     () => null,
     async (path) => path,
     async (key) => key,
+    { provider: "claude-code", child: () => undefined },
   );
   const initial = project(["two"]).get()[0];
   expect(project(["two", "three"]).get()[0]).toBe(initial);
@@ -361,6 +406,7 @@ it("groups a saved run of shell calls and reads only the command the user opens"
     () => null,
     async (path) => path,
     read,
+    { provider: "claude-code", child: () => undefined },
   )(model.order).get();
   expect(feed.map((row) => row.type)).toEqual(["message", "activity-group"]);
   const group = feed[1];
@@ -399,6 +445,7 @@ it("restores an image-only message as one gallery and resolves the host photo on
     () => null,
     resolve,
     async (key) => key,
+    { provider: "claude-code", child: () => undefined },
   )(model.order).get();
   expect(rows).toHaveLength(1);
   const row = rows[0];
@@ -464,12 +511,53 @@ it("keeps streaming the first answer while a follow-up waits in the queue", () =
   expect(read()[2]).toMatchObject({ message: { text: "Edited follow-up" } });
 });
 
+it.each(["uploading", "uploaded"])("keeps the draft screenshot size when the first prompt is %s", async (uploadStatus) => {
+  const { uploadedMessageAttachments } = await import("@solus-mobile/features/conversation/lib/message-attachments");
+  const messageId = `first-prompt-${uploadStatus}`;
+  const screenshot = {
+    id: `screenshot-${uploadStatus}`, kind: "image" as const, name: "screenshot.png",
+    hostPath: "/uploads/screenshot.png", mimeType: "image/png", size: 1024, dataUrl: null,
+    localUri: "file:///screenshot.png",
+  };
+  const preview = { uri: screenshot.localUri, width: 900, height: 1950 };
+  rememberDraftImage(screenshot.id, preview);
+  const attachments: Extract<TranscriptItem, { kind: "user" }>["attachments"] = [
+    { kind: "file", key: "notes", name: "notes.txt", hostPath: "/uploads/notes.txt", video: false },
+    { kind: "local-video", key: "clip", name: "clip.mov", uri: "file:///clip.mov", mimeType: "video/quicktime" },
+    ...(uploadStatus === "uploaded"
+      ? uploadedMessageAttachments([screenshot])
+      : [{ kind: "local-image" as const, key: screenshot.id, name: screenshot.name, uri: screenshot.localUri, mimeType: screenshot.mimeType }]),
+  ];
+  const model = new TranscriptModel("new-session");
+  model.addOptimisticUser(messageId, "Look at this", "sending", attachments);
+  const feed = conversationFeed(
+    { item: (id) => model.items.get(id), subscribeFeedItems: () => () => {} },
+    model.order, "new-session", () => null,
+  );
+  expect(feed.get()[0]).toMatchObject({ id: messageId, message: { role: "user" } });
+  // The feed indexes media separately from documents, and needs the size before its image loads.
+  expect(sentImageHandoff(messageId, 1)).toEqual(preview);
+});
+
+it("reserves a screenshot frame when send beats the composer thumbnail load", () => {
+  const id = "quick-screenshot";
+  const model = new TranscriptModel("new-session");
+  model.addOptimisticUser(id, "Look", "sending", [{
+    kind: "local-image", key: id, name: "screen.png", uri: "file:///screen.png", mimeType: "image/png",
+  }]);
+  conversationFeed(
+    { item: (key) => model.items.get(key), subscribeFeedItems: () => () => {} },
+    model.order, "new-session", () => null,
+  ).get();
+  expect(sentImageHandoff(id, 0)).toEqual({ uri: "file:///screen.png", width: 480, height: 360 });
+});
+
 it("keeps a sent video in the T3 message player and signs its host URL only for preview or playback", async () => {
   const { isUploadVideo, messageAttachments, composerUploadMedia, queueChatAttachment } = await import("./upload-images");
   const { splitAttachedFiles } = await import("@solus-mobile/features/conversation/lib/message-attachments");
   const { files } = splitAttachedFiles("[Attached file: /host/clip.MOV]\n\nLook");
   const sign = vi.fn(async (_path: string, refresh?: boolean) => refresh ? "fresh-url" : "poster-url");
-  const projected = messageAttachments("session",files, sign)[0]!;
+  const projected = messageAttachments("session", "video", files, sign)[0]!;
   expect(isUploadVideo(projected)).toBe(true);
   expect(sign).not.toHaveBeenCalled();
   if (!isUploadVideo(projected) || !("resolveUrl" in projected.videoPreview)) throw new Error("missing host video");
@@ -584,4 +672,65 @@ it("carries the host's saved render dimensions into the message that the thread 
   });
   const feed = conversationFeed({ item: key => model.items.get(key), subscribeFeedItems: () => () => {} }, model.order, "saved", () => null);
   expect(feed.get()).toMatchObject([{ type: "message", message: { text, replyHtmlLayout: [frame] } }]);
+});
+
+it("groups adjacent saved Agent calls as T3 subagents with their own titles", () => {
+  const model = TranscriptModel.fromHistory("session", {
+    before: null,
+    messages: ["Read policy", "Check clients"].map((description, i) => ({
+      role: "tool", toolName: "Agent", toolId: "agent-" + i, content: "", timestamp: 1000 + i,
+      toolInput: JSON.stringify({ description, prompt: "Inspect the project" }),
+    })),
+  });
+  const feed = conversationFeed({ item: key => model.items.get(key), subscribeFeedItems: () => () => {} },
+    model.order, "session", () => null);
+  expect(feed.get()).toMatchObject([{ type: "activity-group", activities: [
+    { projectedItem: { item: { type: "subagent", title: "Read policy", childThreadId: null } } },
+    { projectedItem: { item: { type: "subagent", title: "Check clients", childThreadId: null } } },
+  ] }]);
+});
+
+it("updates the same agent row when its streamed title and final report arrive", () => {
+  const model = new TranscriptModel("parent");
+  model.apply({ type: "tool_call", toolName: "Agent", toolId: "call", index: 0, isSubagent: true });
+  const key = model.agentRows[0]!.id;
+  let refresh: (ids: readonly string[]) => void = () => {};
+  const feed = conversationFeed({
+    item: id => model.items.get(id),
+    subscribeFeedItems: listener => { refresh = listener; return () => {}; },
+  }, model.order, "parent", () => null);
+  const shell = { ...v2ThreadShell, id: ThreadId.make("parent") };
+  const stop = feed.subscribe(() => {});
+  expect(feed.projection(shell).subagents[0]).toMatchObject({ id: key, status: "running" });
+  model.apply({ type: "tool_call_complete", toolId: "call", index: 0,
+    toolInput: JSON.stringify({ description: "Check policy", prompt: "Read the policy" }) });
+  model.apply({ type: "subagent_report", toolUseId: "call", text: "Checked." });
+  refresh([key]);
+  const expected = { title: "Check policy", status: "completed", result: "Checked." };
+  expect(feed.projection(shell).subagents).toMatchObject([{ id: key, ...expected }]);
+  expect(feed.get()).toMatchObject([{ type: "activity-group", activities: [
+    { projectedItem: { item: { type: "subagent", subagentId: key, ...expected } } },
+  ] }]);
+  model.apply({ type: "subagent_running", toolUseId: "call" });
+  refresh([key]);
+  expect(feed.projection(shell).subagents).toMatchObject([{ id: key, status: "running", result: null }]);
+  model.apply({ type: "background_task_settled", taskId: "task", toolUseId: "call", status: "completed" });
+  refresh([key]);
+  expect(feed.projection(shell).subagents).toMatchObject([{ id: key, status: "completed" }]);
+  stop();
+});
+
+it.each(["SendMessage", "FollowUp"])("keeps %s in the work log when a reply arrives", async (toolName) => {
+  const model = TranscriptModel.fromHistory("session", { before: null, messages: [
+    { role: "tool", toolId: "call", toolName, content: "", timestamp: 1 },
+    { role: "assistant", parentToolUseId: "call", content: "Child reply", timestamp: 2 },
+  ] });
+  model.apply({ type: "subagent_report", toolUseId: "call", text: "Final report" });
+  const feed = conversationFeed({ item: key => model.items.get(key), subscribeFeedItems: () => () => {} },
+    model.order, "session", () => null);
+  const row = feed.get()[0];
+  expect(row?.type).toBe("activity-group");
+  if (row?.type !== "activity-group") throw new Error("Missing tool activity");
+  expect(row.activities[0]?.canExpand).toBe(true);
+  expect(await row.activities[0]?.loadHostDetail?.()).toMatchObject({ output: "Child reply\n\nFinal report" });
 });

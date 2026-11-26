@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { SolusApp } from "@solus-mobile/app/solus-app";
 import { memoryKeyValueStore, memorySecretStore } from "@solus-mobile/platform/ports";
-import type { PendingQuestion } from "@solus-mobile/features/conversation/lib/pending-requests";
+import { hasOwnCard, type PendingQuestion } from "@solus-mobile/features/conversation/lib/pending-requests";
 import { WsTransport } from "@solus/client-core/ws-transport";
 import { RequestPanels } from "./RequestCards";
 import {
@@ -15,9 +15,11 @@ import {
 import { PendingApprovalCard } from "../features/threads/PendingApprovalCard";
 import { TurnDiffReader } from "./turn-diff-context";
 import { AssistantReplyMarkdown } from "./AssistantReplyMarkdown";
+import { EnvironmentId } from "@t3tools/contracts";
+import { ThreadSubagentGroup } from "../features/threads/thread-subagent-group";
+import { conversationFeed } from "./conversation-feed";
+import { remoteAgentChild } from "./agent-child-host";
 import { ConversationCard } from "./ConversationCard";
-import { createArtifactGrouping } from "./artifact-groups";
-import type { TranscriptItem } from "@solus-mobile/features/conversation/lib/transcript-model";
 import { BackgroundCommandRow } from "../features/threads/BackgroundCommandRow";
 
 vi.mock("../features/pull-requests/PullRequestMarkdown", () => ({
@@ -31,6 +33,7 @@ vi.mock("../features/pull-requests/guide/ReviewGuideExcerpt", () => ({
 }));
 
 const host = vi.hoisted(() => ({
+  navigate: vi.fn(),
   inspect: vi.fn(() => false),
   dispatch: vi.fn(),
   remember: vi.fn(),
@@ -38,7 +41,7 @@ const host = vi.hoisted(() => ({
   recordOpen: vi.fn(),
 }));
 vi.mock("@react-navigation/native", () => ({
-  useNavigation: () => ({ dispatch: host.dispatch, getState: () => undefined }),
+  useNavigation: () => ({ dispatch: host.dispatch, navigate: host.navigate, getState: () => undefined }),
   useRoute: () => ({ name: "Thread", params: { environmentId: "host", threadId: "session" } }),
   StackActions: {
     push: (name: string, params: { environmentId: string; threadId: string }) => ({ name, params }),
@@ -50,8 +53,8 @@ vi.mock("react-native", () => ({
   Modal: ({ children }: { children: ReactNode }) => <section>{children}</section>,
   View: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   ScrollView: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
-  Pressable: ({ onPress, children, accessibilityLabel }: { onPress: () => void; children: ReactNode; accessibilityLabel?: string }) => (
-    <button aria-label={accessibilityLabel} onClick={onPress}>{children}</button>
+  Pressable: ({ onPress, children, accessibilityLabel, disabled }: { disabled?: boolean; onPress: () => void; children: ReactNode; accessibilityLabel?: string }) => (
+    <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>
   ),
   Alert: { alert: vi.fn() },
   useWindowDimensions: () => ({ height: 800, width: 360 }),
@@ -71,7 +74,7 @@ vi.mock("./runtime", () => ({
   solus: {
     cloudSessions: {headFor: () => null},
     account: {organizationId: null},
-    threads: { thread: () => null, managedHostIds: () => new Set(), rememberSearchResult: host.remember },
+    threads: { thread: () => null, cloudHostIds: () => new Set(), rememberSearchResult: host.remember },
     connections: { state: () => undefined, connection: () => ({ api: { sessionRecordGet: host.read } }) },
     registry: { host: () => ({ label: "Host" }) },
     history: { record: host.recordOpen },
@@ -81,6 +84,8 @@ vi.mock("./runtime", () => ({
 }));
 // The dots read app state and screen focus; these tests are about what a card opens.
 vi.mock("../components/ProviderIcon", () => ({ ProviderIcon: () => null }));
+vi.mock("../components/ui/AppSymbol", () => ({ SymbolView: () => null }));
+vi.mock("../features/threads/use-visible-second-clock", () => ({ useVisibleSecondClock: () => 0 }));
 vi.mock("../components/ui/DotMatrix", () => ({ DotMatrix: () => null }));
 vi.mock("../features/threads/LinkRequestCard", () => ({
   LinkRequestCard: ({
@@ -96,6 +101,20 @@ vi.mock("../features/threads/LinkRequestCard", () => ({
       Add machine on {sessionHostId}
     </button>
   ),
+}));
+vi.mock("../features/threads/CloudMachineCard", () => ({
+  CloudMachineCard: ({ ask, onAnswer }: { ask: { mode: string }; onAnswer: (answers: Record<string, string>) => void }) => (
+    <button onClick={() => onAnswer({ status: "chosen", organizationId: "acme" })}>Cloud machine {ask.mode}</button>
+  ),
+}));
+vi.mock("../state/server", () => ({ serverEnvironment: { configValueAtom: () => null } }));
+vi.mock("../state/threads", () => ({ environmentThreadDetails: { threadAtom: () => null } }));
+vi.mock("@effect/atom-react", async (original) => ({
+  ...await original<typeof import("@effect/atom-react")>(), useAtomValue: () => null,
+}));
+vi.mock("../state/entities", () => ({ useServerConfigs: () => new Map(), useThreadShell: () => null, useEnvironmentServerConfig: () => null, useProject: () => null }));
+vi.mock("../state/linkedThread", () => ({
+  useLinkedThreadReach: () => ({ ownConnection: () => undefined, isLinked: () => true }),
 }));
 vi.mock("../features/threads/ThreadFeed", () => ({
   useMarkdownStyles: () => ({ assistant: { nativeTextStyle: {} } }),
@@ -167,6 +186,7 @@ vi.mock("gt-react-native", async (importOriginal) => {
   const { gtFallback } = await importOriginal<typeof import("gt-react-native")>();
   return {
     msg: (value: string) => value,
+    Var: ({children}: {children: ReactNode}) => <>{children}</>,
     T: ({children}: {children: ReactNode}) => <>{children}</>,
     useGT: () => gtFallback,
     useMessages: () => (value: string) => value,
@@ -310,6 +330,26 @@ it("answers the Add machine card with its outcome through the question answer", 
   expect(secret).not.toHaveBeenCalled();
   expect(send).not.toHaveBeenCalled();
 });
+// The machine card only collects choices: they go back as the question's answers, and the composer stays hidden.
+it("answers the cloud machine card through the question answer", async () => {
+  const { store, root, container } = await fixture();
+  const publicAnswer = vi.spyOn(store.controller, "answerQuestion").mockResolvedValue(true);
+  const send = vi.spyOn(store.controller, "send");
+  const question: PendingQuestion = {
+    kind: "cloud-machine",
+    questionId: "machine",
+    questions: [],
+    cloudMachine: { mode: "join", reason: "To share it.", organizations: [{ id: "acme", name: "Acme" }], address: "dev@box" },
+  };
+  expect(hasOwnCard(question)).toBe(true);
+  const meta = { ...store.metaSnapshotOf(), questions: [question] };
+  await act(async () => root.render(<RequestPanels store={store} meta={meta} />));
+  const [card] = container.querySelectorAll("button");
+  expect(card!.textContent).toBe("Cloud machine join");
+  await act(async () => card!.click());
+  expect(publicAnswer).toHaveBeenCalledWith("machine", { status: "chosen", organizationId: "acme" });
+  expect(send).not.toHaveBeenCalled();
+});
 it("expands the actual tool row to show host input, the error and returned images", async () => {
   const { store, root, container } = await fixture();
   store.controller.model.items.set("t", {
@@ -354,7 +394,7 @@ it("shows the exit code immediately and keeps terminal output behind the disclos
   expect(container.textContent).not.toContain("# 1 failed");
 });
 
-it.each(["screen", "inspector", "linked host"] as const)("opens a child with one tap (%s)", async (destination) => {
+it.each(["screen", "inspector", "linked host"] as const)("opens an upstream child row with one tap (%s)", async (destination) => {
   vi.clearAllMocks();
   host.inspect.mockReturnValue(destination === "inspector");
   const { store, root, container } = await fixture();
@@ -368,43 +408,65 @@ it.each(["screen", "inspector", "linked host"] as const)("opens a child with one
       reasoningEffort: "high", prompt: "Review it", dispatchedAt: 1,
     },
   });
-  model.apply({
-    type: "agent_conversation_update",
-    update: {
-      phase: "settled", sessionId: "child", messageId: "exchange", status: "completed",
-      replyText: "Reviewed", settledAt: 2,
-    },
-  });
-  await act(async () => root.render(<ConversationCard store={store} id={model.agentRows[0]!.id} />));
-  expect(container.textContent).toContain("Claude Code · Fable 5.2 · High");
-  await act(async () => container.querySelector("button")!.click());
+  const reader = conversationFeed(store, "session", () => null, async path => path, async key => key,
+    { provider: "claude-code", child: remoteAgentChild("host") })(model.order);
+  const group = reader.get()[0];
+  if (group?.type !== "activity-group") throw new Error("Expected an upstream agent group");
+  await act(async () => root.render(<ThreadSubagentGroup activities={group.activities}
+    environmentId={EnvironmentId.make("host")} anchorKey={group.id} expandedRows={{}}
+    iconSubtleColor="gray" onToggleRow={() => { throw new Error("Single child expanded"); }} />));
+  const row = container.querySelector("button")!;
+  expect(row.textContent).toContain("Review");
+  await act(async () => row.click());
   if (destination === "linked host") {
     expect(host.dispatch).toHaveBeenCalledWith({
       name: "LinkedThread",
-      params: {
-        environmentId: "remote", threadId: "child", viaEnvironmentId: "host",
-        parentSessionId: "session", label: "Host", title: "Review",
-      },
+      params: { environmentId: "remote", threadId: "child", viaEnvironmentId: "host",
+        parentSessionId: "session", label: "Host", title: "Review" },
     });
-    expect(host.read).not.toHaveBeenCalled();
-    return;
-  }
-  expect(host.inspect).toHaveBeenCalledWith(
-    { environmentId: "host", threadId: "session" },
-    { type: "thread", environmentId: "host", threadId: "child" },
-  );
-  expect(host.read).toHaveBeenCalledWith("child");
-  expect(host.remember).toHaveBeenCalledWith(
-    expect.objectContaining({ hostId: "host", record: { sessionId: "child" } }),
-  );
-  if (destination === "inspector") {
+  } else if (destination === "inspector") {
+    expect(host.inspect).toHaveBeenCalledWith(
+      { environmentId: "host", threadId: "session" },
+      { type: "thread", environmentId: "host", threadId: "child" },
+    );
     expect(host.dispatch).not.toHaveBeenCalled();
-    return;
+  } else {
+    expect(host.dispatch).toHaveBeenCalledWith({
+      name: "Thread", params: { environmentId: "host", threadId: "child" },
+    });
   }
-  expect(host.dispatch).toHaveBeenCalledWith({
-    name: "Thread",
-    params: { environmentId: "host", threadId: "child" },
+});
+it("expands an upstream group to one row per provider agent and collapses it again", async () => {
+  const { store, root, container } = await fixture();
+  const { model } = store.controller;
+  for (const [index, description] of ["Read policy", "Check clients"].entries()) {
+    const toolId = "call-" + index;
+    model.apply({ type: "tool_call", toolName: "Agent", toolId, index, isSubagent: true });
+    model.apply({ type: "tool_call_complete", toolId, index, toolInput: JSON.stringify({ description }) });
+  }
+  const reader = conversationFeed(store, "session", () => null, async path => path, async key => key,
+    { provider: "claude-code", child: remoteAgentChild("host") })(model.order);
+  const group = reader.get()[0];
+  if (group?.type !== "activity-group") throw new Error("Expected a subagent group");
+  const renderGroup = (expanded: boolean) => root.render(<ThreadSubagentGroup
+    activities={group.activities} environmentId={EnvironmentId.make("host")}
+    anchorKey={group.id} expandedRows={{ [group.id]: expanded }}
+    iconSubtleColor="gray" onToggleRow={() => renderGroup(!expanded)} />);
+  await act(async () => renderGroup(false));
+  const header = container.querySelector("button")!;
+  expect(container.textContent).not.toContain("Read policy");
+  await act(async () => header.click());
+  expect(container.textContent).toContain("Read policy");
+  expect(container.textContent).toContain("Check clients");
+  const agent = Array.from(container.querySelectorAll("button")).find(row => row.textContent?.includes("Check clients"))!;
+  await act(async () => agent.click());
+  expect(host.navigate).toHaveBeenCalledWith("ProviderAgentTranscript", {
+    environmentId: "host", threadId: "session", toolId: "call-1", title: "Check clients",
   });
+  expect(agent.textContent).toContain("Claude");
+  expect(agent.textContent).not.toContain("Not reported");
+  await act(async () => header.click());
+  expect(container.textContent).not.toContain("Check clients");
 });
 it("routes a child plan approval to the child instead of accepting the parent plan", async () => {
   const { store, container, root } = await fixture();
@@ -485,99 +547,6 @@ it("opens a closed assistant HTML fence in T3's themed WebView and keeps Markdow
   expect(container.querySelector("[data-page]")).toBeNull();
   await show(complete, false);
   expect(container.querySelector("[data-page]")).toBeNull();
-});
-
-it("opens an earlier saved artifact in the same T3 renderer on demand", async () => {
-  const { store, root, container } = await fixture();
-  store.controller.model.items.set("page", {
-    kind: "artifact",
-    id: "page",
-    title: "Snapshot",
-    html: "<p>Version one</p>",
-    workId: "work",
-  });
-  await act(async () => root.render(<ConversationCard store={store} id="page" superseded />));
-  expect(container.querySelector("[data-page]")).toBeNull();
-  await act(async () => container.querySelector("button")!.click());
-  const html = container.querySelector("[data-page]")?.getAttribute("data-page");
-  expect(html).toContain('<style id="t3-theme">');
-  expect(html).toContain("<p>Version one</p>");
-});
-
-it("puts a saved artifact the person opens full screen into their history", async () => {
-  const { store, root, container } = await fixture();
-  store.controller.model.items.set("page", {
-    kind: "artifact",
-    id: "page",
-    title: "Snapshot",
-    html: "<p>Version one</p>",
-    workId: "work",
-  });
-  await act(async () => root.render(<ConversationCard store={store} id="page" />));
-  // Shown in the conversation is not opened.
-  expect(host.recordOpen).not.toHaveBeenCalled();
-  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Snapshot"]')!.click());
-  expect(host.recordOpen).toHaveBeenCalledWith("work:work");
-});
-
-it("shows the works of one turn as tabs over one render, and keeps the chosen tab, version, and fold when the row mounts again", async () => {
-  const { store, root, container } = await fixture();
-  const items: TranscriptItem[] = [
-    { kind: "user", id: "p", text: "draw", attachments: [], delivery: "sent", error: null },
-    { kind: "artifact", id: "plan-1", workId: "plan", title: "Plan", html: "<p>Plan one</p>" },
-    { kind: "artifact", id: "mock", workId: "mock", title: "Mock", html: "<p>Mock one</p>" },
-    { kind: "artifact", id: "plan-2", workId: "plan", title: "Plan", html: "<p>Plan two</p>" },
-  ];
-  for (const item of items) store.controller.model.items.set(item.id, item);
-  const group = createArtifactGrouping()(items.map((item) => item.id), (key) => store.controller.model.items.get(key)).get("plan-1")!;
-  const show = () => act(async () => root.render(<ConversationCard key="plan-1" store={store} id="plan-1" artifactGroup={group} />));
-  const press = (label: string) => act(async () => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!.click());
-  const page = () => container.querySelector("[data-page]")?.getAttribute("data-page") ?? null;
-  await show();
-  // The agent wrote "Plan" last, so its newest revision of the turn shows.
-  expect(page()).toContain("<p>Plan two</p>");
-  expect(container.textContent).toContain("v2 of 2");
-  expect(container.textContent).not.toContain("earlier version");
-  await press("Mock, v1");
-  expect(page()).toContain("<p>Mock one</p>");
-  // One version: no arrows.
-  expect(container.querySelector('button[aria-label="Previous version"]')).toBeNull();
-  await press("Plan, v2");
-  await press("Previous version");
-  expect(page()).toContain("<p>Plan one</p>");
-  expect(container.textContent).toContain("v1 of 2");
-  // The row scrolls out and back.
-  await act(async () => root.render(null));
-  await show();
-  expect(page()).toContain("<p>Plan one</p>");
-  await press("Fold artifacts");
-  expect(page()).toBeNull();
-  expect(container.textContent).toContain("2 artifacts");
-  expect(container.textContent).toContain("2 new");
-  await act(async () => root.render(null));
-  await show();
-  expect(page()).toBeNull();
-  await press("2 artifacts, 2 new");
-  expect(page()).toContain("<p>Plan one</p>");
-});
-
-it("reads the saved version of a group member that has no HTML yet, and offers a retry when the read fails", async () => {
-  const { store, root, container } = await fixture();
-  const ensure = vi.spyOn(store.controller, "ensureArtifact").mockResolvedValue(undefined);
-  const items: TranscriptItem[] = [
-    { kind: "artifact", id: "plan", workId: "plan", title: "Plan", html: "<p>Plan</p>" },
-    { kind: "artifact", id: "mock", workId: "mock", title: "Mock", html: "", contentVersion: 3 },
-  ];
-  for (const item of items) store.controller.model.items.set(item.id, item);
-  const group = createArtifactGrouping()(["plan", "mock"], (key) => store.controller.model.items.get(key)).get("plan")!;
-  await act(async () => root.render(<ConversationCard store={store} id="plan" artifactGroup={group} />));
-  expect(ensure).toHaveBeenCalledWith("mock");
-  expect(container.textContent).toContain("v3 of 3");
-  store.controller.model.items.set("mock", { ...items[1]!, error: "The host is offline." } as TranscriptItem);
-  await act(async () => root.render(<ConversationCard key="again" store={store} id="plan" artifactGroup={group} />));
-  expect(container.textContent).toContain("The host is offline.");
-  await act(async () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Try again")!.click());
-  expect(ensure).toHaveBeenCalledTimes(2);
 });
 
 it("opens a session guide stop inline with the host patch for its numbered turn", async () => {

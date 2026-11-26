@@ -5,6 +5,7 @@ import type { SessionRecordUpsert } from '@solus/contracts/types'
 import { activitySchema } from '@solus/contracts/activity'
 import { sessionPlaceSchema, sessionStarterSchema } from '@solus/contracts/session-starter'
 import { sessionAttachedFolderSchema } from '@solus/contracts/codebases'
+import { agentIdSchema } from '@solus/contracts/types'
 
 /**
  * What a host sends its organization's Solus API, and what comes back
@@ -33,7 +34,7 @@ const seqSchema = z.number().int().positive()
 /** The facts of one session record, as a `session` item carries them. */
 export const sessionRecordUpsertWireSchema: z.ZodType<SessionRecordUpsert> = z.object({
   sessionId: z.string().min(1),
-  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
+  provider: agentIdSchema,
   projectPath: z.string(),
   lastActivityAt: z.number(),
   projectRemote: z.string().nullable().optional(),

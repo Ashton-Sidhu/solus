@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { HostIntroduction, IntroducedHostsSummary } from '@solus/contracts/host-api'
-import { introduceHosts, type IntroducerHost } from '@solus/client-core/host-introducer'
+import { introduceHosts, introducePair, type ChosenIntroducerHost, type IntroducerHost } from '@solus/client-core/host-introducer'
 
 // WHY: docs/plans/host-reach.md §4 — a device connected to two of a person's hosts
 // introduces them, so the hosts reach each other with no pairing step. Each side gets
@@ -56,10 +56,65 @@ describe('introducing a person\'s hosts', () => {
     expect([mac.accepted, omarchy.accepted]).toEqual([[], []])
   })
 
+  test('a failed acceptance on one side still hands the other side its token', async () => {
+    const mac = fakeHost('mac', undefined, { cannotReach: true })
+    const omarchy = fakeHost('omarchy')
+    await introduceHosts([mac, omarchy])
+    expect(omarchy.accepted.map((entry) => entry.introduction.installationId)).toEqual(['mac'])
+  })
+
   test('every pair of three hosts is introduced, and one failure does not stop the others', async () => {
     const hosts = [fakeHost('a', undefined, { cannotReach: true }), fakeHost('b'), fakeHost('c')]
     await introduceHosts(hosts)
     expect(hosts[1]!.accepted.map((entry) => entry.introduction.installationId).sort()).toEqual(['a', 'c'])
     expect(hosts[2]!.accepted.map((entry) => entry.introduction.installationId).sort()).toEqual(['a', 'b'])
+  })
+})
+
+// WHY: on the host map the person drags one of their hosts onto another to
+// introduce them. That is the person's own choice, so it also undoes an earlier
+// Forget on either side, which the automatic run must never do. And because the
+// person waits on it, a failure must reach them instead of being swallowed.
+describe('introducing two hosts the person chose', () => {
+  function chosenHost(installationId: string, known: IntroducedHostsSummary = { hosts: [], refused: [] }, options: { cannotReach?: boolean } = {}) {
+    const host = fakeHost(installationId, known, options)
+    const allowed: string[] = []
+    const chosen: ChosenIntroducerHost & { allowed: string[]; accepted: FakeHost['accepted'] } = {
+      ...host,
+      allowed,
+      api: {
+        ...host.api,
+        hostIntroductionAllow: async ({ installationId: other }) => {
+          allowed.push(other)
+          known.refused = known.refused.filter((entry) => entry.installationId !== other)
+          return { allowed: true }
+        },
+      },
+    }
+    return chosen
+  }
+
+  test('a host the person forgot is allowed again on that side, then the two are introduced', async () => {
+    const mac = chosenHost('mac', { hosts: [], refused: [{ installationId: 'omarchy', label: 'Omarchy' }] })
+    const omarchy = chosenHost('omarchy')
+    await introducePair(mac, omarchy)
+    expect(mac.allowed).toEqual(['omarchy'])
+    expect(omarchy.allowed).toEqual([])
+    expect([mac.accepted.length, omarchy.accepted.length]).toEqual([1, 1])
+  })
+
+  test('two hosts that already know each other are left as they are', async () => {
+    const mac = chosenHost('mac', knows('omarchy'))
+    const omarchy = chosenHost('omarchy', knows('mac'))
+    await introducePair(mac, omarchy)
+    expect([mac.accepted, omarchy.accepted]).toEqual([[], []])
+  })
+
+  test('a failure is the answer, so the map can say it', async () => {
+    await expect(introducePair(chosenHost('mac', undefined, { cannotReach: true }), chosenHost('omarchy'))).rejects.toThrow('cannot reach')
+  })
+
+  test('a host is never introduced to itself', async () => {
+    await expect(introducePair(chosenHost('mac'), chosenHost('mac'))).rejects.toThrow('itself')
   })
 })

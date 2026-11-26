@@ -1,6 +1,7 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import {
+  agentIdSchema,
   type SessionRecord,
   type SessionRecordDelegation,
   type SessionRecordStatus,
@@ -41,7 +42,6 @@ import { sessionTranscripts, sessionTurnDiffs } from './transcript-schema'
  * organization.
  */
 
-const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 const statusSchema = z.enum(['idle', 'running', 'interrupted'])
 const publicationSchema = z.enum(['local', 'published'])
 const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
@@ -109,7 +109,7 @@ const STARTED = sql.raw('session_records.started_at IS NOT NULL')
 const recordWithStateRowSchema = recordRowSchema.extend({
   settled_at: z.number().nullable(),
   auto_settle_disabled_at: z.number().nullable(),
-  settled_by: z.enum(['person', 'pull-request', 'task', 'idle']).nullable(),
+  settled_by: z.enum(['person', 'pull-request', 'issue', 'idle']).nullable(),
   active_order_key: z.string().nullable(),
   pin_order_key: z.string().nullable(),
   view_settled_at: z.number().nullable(),
@@ -274,6 +274,14 @@ export async function sessionIsOrganizationWork(sessionId: string): Promise<bool
 }
 
 /** The records of many sessions in one read, by session id; a session with no record is absent. */
+/** The ids of the sessions whose last activity is in [from, to), on every scope. The session shell records them when they pass the idle limit; each caller then reads them with their own scope. */
+export async function sessionIdsLastActiveBetween(from: number, to: number): Promise<string[]> {
+  const rows = z.object({ session_id: z.string() }).array().parse(await getDatabase().all(sql`
+    SELECT session_id FROM ${session} WHERE last_activity_at >= ${from} AND last_activity_at < ${to}
+  `))
+  return rows.map(row => row.session_id)
+}
+
 export async function getSessionRecords(scope: RecordScope, sessionIds: readonly string[]): Promise<Map<string, SessionRecord>> {
   const unique = [...new Set(sessionIds)]
   if (!unique.length) return new Map()
@@ -631,9 +639,10 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
 /**
  * The one-time assignment of an unassigned row (organization-scope §3, R10):
  * `local` becomes `organizationId`, once, started or not; with `published` and
- * `admittedAt`, the row also takes the admission the Solus API accepted, as an
- * attached machine decides for a session a watch claimed Local first. The owner
- * never changes. Answers the session's home as it now stands, whether this call
+ * `admittedAt`, the row also takes the admission the Solus API accepted, as a
+ * cloud machine decides for a session whose row something made first: a watch
+ * that claimed it Local, or a member's client that made it in the organization
+ * and not published. The owner never changes. Answers the session's home as it now stands, whether this call
  * assigned it or it already belonged to that organization; null when the row is
  * another organization's or does not exist.
  */
@@ -647,7 +656,10 @@ export function assignSessionOrganization(sessionId: string, organizationId: str
         UPDATE ${session} SET organization_id = ${organizationId},
           publication = ${options.published ? 'published' : sql`publication`},
           admitted_at = COALESCE(admitted_at, ${options.admittedAt ?? null})
-        WHERE session_id = ${sessionId} AND organization_id = ${LOCAL_ORGANIZATION_ID}
+        WHERE session_id = ${sessionId} AND (
+          organization_id = ${LOCAL_ORGANIZATION_ID}
+          OR (${options.published ? 1 : 0} = 1 AND organization_id = ${organizationId} AND publication <> 'published')
+        )
       `)
       if (updated.changes > 0) await db.run(sql`
         UPDATE ${sessionExecutions} SET organization_id = ${organizationId}
@@ -820,6 +832,11 @@ export async function markOwnRunningSessionRecordsInterrupted(): Promise<string[
     RETURNING session_id
   `))
   return rows.map((row) => row.session_id)
+}
+
+/** Whether this host holds any session record: one it started, or one its index found on its disk. */
+export async function hasSessionRecords(): Promise<boolean> {
+  return (await getDatabase().all(sql`SELECT 1 FROM ${session} LIMIT 1`)).length > 0
 }
 
 /** This host's own published organization sessions: what it sends its Solus API once at boot. */

@@ -30,10 +30,21 @@ function isCodexImageGenerationTool(name: string | undefined): boolean {
   return name === 'ImageGeneration'
 }
 
-/** Matches create_automation/update_automation for both Claude (mcp__solus__*)
- *  and Codex (bare name). */
-function isAutomationSaveTool(name: string | undefined): boolean {
-  return !!name && (name.endsWith('create_automation') || name.endsWith('update_automation'))
+const automationActionSchema = z.object({ action: z.string().optional() })
+
+/** Matches a call that saved an automation, for both Claude (mcp__solus__*) and
+ *  Codex (bare name): manage_automations create or update, or the create_automation
+ *  and update_automation tools of an older transcript. */
+function isAutomationSaveTool(name: string | undefined, toolInput: string | undefined): boolean {
+  if (!name) return false
+  if (name.endsWith('create_automation') || name.endsWith('update_automation')) return true
+  if (!name.endsWith('manage_automations')) return false
+  try {
+    const { action } = automationActionSchema.parse(JSON.parse(toolInput || '{}'))
+    return action === 'create' || action === 'update'
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -141,28 +152,44 @@ export async function loadSessionTranscript(ctx: SurfaceContext, args: SessionTr
   const loaded = await (args.history ?? (args.turnLimit
     ? requestSessionHistoryPage(api, {
         sessionId: args.sessionId, projectPath: args.loadPath, provider: args.provider,
-        turnLimit: args.turnLimit, before: args.before, deferArtifactHtml: true,
+        turnLimit: args.turnLimit, before: args.before, deferArtifactHtml: true, replyLayout: true,
       })
     : api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, undefined,
         { deferToolInputs: true })))
   measureOpenStep('historyWait', requestStartedAt, detail)
   const dependenciesStartedAt = performance.now()
   const history = (Array.isArray(loaded) ? loaded : loaded.messages).concat(args.pendingMessages ?? [])
-  // Both reads decide which cards the rows hold, so the rows wait for them.
-  // They do not wait for each other. An automation and an artifact are saved
-  // on the host the session ran on, so the rows wait for that host only: a
-  // slow host elsewhere does not hold the open.
-  const sessionServerId = args.serverId ?? serverConnections.serverIdForApi(api)
-  const automationsLoaded = (history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName)) && !ctx.automationsStore.hasLoadedHost(sessionServerId)
-    ? ctx.automationsStore.loadAll(sessionServerId)
-    : Promise.resolve()
-  ).then(() => measureOpenStep('automationHydration', dependenciesStartedAt, detail))
-  const artifactFileBodies = loadArtifactFileBodies(worksArtifactHtmlSources(ctx.worksStore), history, sessionServerId).then((bodies) => {
-    measureOpenStep('artifactHydration', dependenciesStartedAt, detail)
-    return bodies
-  })
-  const [, bodies] = await Promise.all([automationsLoaded, artifactFileBodies])
+  const dependencies = readTranscriptDependencies(ctx, history, args.serverId ?? serverConnections.serverIdForApi(api))
+  const [, bodies] = await Promise.all([
+    dependencies.automations.then(() => measureOpenStep('automationHydration', dependenciesStartedAt, detail)),
+    dependencies.artifactFileBodies.then((read) => {
+      measureOpenStep('artifactHydration', dependenciesStartedAt, detail)
+      return read
+    }),
+  ])
   return materializeSessionTranscript(ctx, args, loaded, bodies)
+}
+
+/**
+ * The reads a page's rows wait for: the automations its saves name, and the
+ * HTML its `html_path` artifact calls wrote. Both decide which cards the rows
+ * hold. They do not wait for each other. An automation and an artifact are
+ * saved on the host the session ran on, so the rows wait for that host only.
+ * Both stores keep what they read and share a read in flight, so a read
+ * started before the click (a rest on the row) serves the open.
+ */
+export function readTranscriptDependencies(
+  ctx: Pick<SurfaceContext, 'automationsStore' | 'worksStore'>,
+  history: WireSessionLoadMessage[],
+  sessionServerId: string,
+) {
+  const namesAutomation = history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName, message.toolInput))
+  return {
+    automations: namesAutomation && !ctx.automationsStore.hasLoadedHost(sessionServerId)
+      ? ctx.automationsStore.loadAll(sessionServerId)
+      : Promise.resolve(),
+    artifactFileBodies: loadArtifactFileBodies(worksArtifactHtmlSources(ctx.worksStore), history, sessionServerId),
+  }
 }
 
 /** Purely synchronous conversion of an already-read page. The first mounted
@@ -332,6 +359,9 @@ export function materializeSessionTranscript(
       }
     }
     if (m.role === 'user' && m.sender) msg.sender = m.sender
+    if (m.role === 'user' && m.author) msg.author = m.author
+    // The reply's content is kept as read, so the frame offsets stay valid.
+    if (m.role === 'assistant' && m.replyHtmlLayout) msg.replyHtmlLayout = m.replyHtmlLayout
     if (m.role === 'user' && m.imageAttachmentRefs?.length) {
       msg.attachments = [...(msg.attachments ?? []), ...(imageRefAttachments(m.imageAttachmentRefs) ?? [])]
     }
@@ -412,8 +442,8 @@ export function materializeSessionTranscript(
         timestamp: m.timestamp ?? Date.now(),
       })
       continue
-    } else if (m.role === 'tool' && isAutomationSaveTool(m.toolName)) {
-      // A create/update_automation call replays as a tool row (debug visibility)
+    } else if (m.role === 'tool' && isAutomationSaveTool(m.toolName, m.toolInput)) {
+      // An automation create or update call replays as a tool row (debug visibility)
       // followed by its automation card. The id lived in the dropped tool result,
       // so resolve against the store by id (update) or name (create).
       messages.push(msg)

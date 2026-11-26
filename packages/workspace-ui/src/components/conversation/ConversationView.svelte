@@ -36,6 +36,7 @@
   import QuestionCard from "./QuestionCard.svelte";
   import SecretRequestCard from "./SecretRequestCard.svelte";
   import AddMachineCard from "./AddMachineCard.svelte";
+  import CloudMachineCard from "./CloudMachineCard.svelte";
   import RateLimitCard from "./RateLimitCard.svelte";
   import ConnectCard from "../connections/ConnectCard.svelte";
   import SeatConnectCard from "../seats/SeatConnectCard.svelte";
@@ -58,7 +59,7 @@
     CONVERSATION_BREADCRUMB_OFFSET,
     conversationFindTopInset,
   } from "./lib/find";
-  import { createEndFollow, scrollConversationTo } from "./lib/response-scroll";
+  import { createEndFollow, newTurnMinHeight, scrollConversationTo } from "./lib/response-scroll";
   import { TurnAnnouncer, turnPhaseFor } from "@solus/client-core/turn-announcement";
   import { questionAnchorScrollTop } from "./lib/question-scroll";
   import { ConversationFind } from "./lib/conversation-find.svelte";
@@ -104,6 +105,7 @@
     keepTranscriptVisible = false,
     onReady,
     viewState = new ConversationViewState(),
+    paneId,
   }: {
     tabId: string;
     forceVisible?: boolean;
@@ -115,6 +117,9 @@
     /** The pool hands back what the reader left open and where they were.
      *  A split-pane view keeps its own. */
     viewState?: ConversationViewState;
+    /** The pane this view fills, when it fills one of its own; unset in the
+     *  workspace's own column. The Run on shortcut names it. */
+    paneId?: string;
   } = $props();
   // Read once: a view is mounted for one tab and keeps that tab's state.
   const { disclosure, turnExpansion, virtualizer } = untrack(() => viewState);
@@ -189,8 +194,8 @@
   // belongs to — the one-click target. Resolved once here, not per card.
   const conversationTaskId = $derived(
     sess
-      ? (session.tasksStore.taskForSession(sess.id)?.id ??
-        session.tasksStore.taskForSession(sess.agentSessionId)?.id ??
+      ? (session.issuesStore.taskForSession(sess.id)?.id ??
+        session.issuesStore.taskForSession(sess.agentSessionId)?.id ??
         null)
       : null,
   );
@@ -247,10 +252,12 @@
     endFollow = follower;
     return () => { follower.destroy(); endFollow = undefined; };
   });
-  // Content grew. Paragraph streaming glides to each new paragraph.
+  // Content grew. While a turn is live, every change glides to the end, as in
+  // T3 Code: the sent prompt, the activity row, tool rows, and each paragraph.
+  // An instant write for each of them reads as a series of jumps.
   function followEnd() {
     if (!isVisible || waitingForHistory || arrival.pending) return;
-    endFollow?.follow(settings.responseStreamingMode === "paragraph" && !!sess?.isStreamingText);
+    endFollow?.follow(isTurnLive);
   }
   let hovered = $state(false);
   let findBarRef: FindBar | null = $state(null);
@@ -657,15 +664,28 @@
     },
   );
 
+  // The first message of a session, sent from this view, keeps a view of room
+  // while its turn is the last one, so the end shows it at the top and its
+  // reply fills down.
+  let firstMessageId = $state<string | null>(null);
+  let scrollerHeight = $state(0);
+  const reservedTurn = $derived.by(() => {
+    const turnId = firstMessageId ? messageTurns.get(firstMessageId) : undefined;
+    if (!turnId || turnId !== turns.at(-1)?.id) return undefined;
+    return { key: turnId, minHeight: newTurnMinHeight(scrollerHeight, reservesBandRoom ? CRUMB_OFFSET : 0) };
+  });
   $effect(() => {
     const handler = (e: Event) => {
       if (!(e instanceof CustomEvent)) return;
-      const detail: { tabId?: string } = e.detail;
+      const detail: { tabId?: string; sent?: { firstMessageId?: string } } = e.detail;
       if (detail?.tabId && detail.tabId !== tabId) return;
       if (!isVisible) return;
+      if (detail.sent?.firstMessageId) firstMessageId = detail.sent.firstMessageId;
       // Rows that settle after this frame grow the reading column, and its
-      // ResizeObserver follows them to the true end.
-      requestAnimationFrame(() => endFollow?.jump());
+      // ResizeObserver follows them to the true end. A sent prompt paints
+      // first and then glides up into view.
+      if (detail.sent) endFollow?.glideAfterPaint();
+      else requestAnimationFrame(() => endFollow?.jump());
     };
     window.addEventListener("solus:scroll-conversation-bottom", handler);
     return () =>
@@ -763,11 +783,12 @@
       <div
         bind:this={scrollEl}
         bind:clientWidth={transcriptWidth}
+        bind:clientHeight={scrollerHeight}
         data-slot="transcript"
         data-conversation-tab-id={tabId}
         class:outer-scroll-source={!!outerScrollbar}
         class="conversation-selectable h-full overflow-y-auto overflow-x-hidden px-4 pt-1 pb-[var(--solus-composer-inset,0px)] transition-opacity duration-300 motion-reduce:transition-none"
-        style="overscroll-behavior-y:contain"
+        style="overscroll-behavior-y:contain;overflow-anchor:none"
         onscroll={handleScroll}
       >
         <!-- Centered reading column: the message stream and the status strip
@@ -822,6 +843,7 @@
           <VirtualTranscript {tabId}
             {turns}
             {virtualizer}
+            {reservedTurn}
             scrollElement={scrollEl}
             paintReady={!waitingForHistory && !arrival.pending}
             active={isVisible}
@@ -885,6 +907,12 @@
                    Keyed so the next card starts with empty fields. -->
               {#key sess.questionQueue[0].questionId}
                 <AddMachineCard tabId={tab.id} request={sess.questionQueue[0]} />
+              {/key}
+            {:else if sess.questionQueue[0].kind === "cloud-machine" && sess.questionQueue[0].cloudMachine}
+              <!-- A cloud machine tool's card: it collects the choice and answers with respondQuestion.
+                   Keyed so the next card starts with its own fields. -->
+              {#key sess.questionQueue[0].questionId}
+                <CloudMachineCard tabId={tab.id} request={sess.questionQueue[0]} ask={sess.questionQueue[0].cloudMachine} />
               {/key}
             {:else}
               <QuestionCard
@@ -952,6 +980,7 @@
       {#if showSessionActions}
         <SessionActionRow
           {tabId}
+          {paneId}
           isAwayFromEnd={arrival.isAwayFromEnd}
           onJumpToEnd={jumpToEnd}
           leftReservedWidth={showActivityStrip ? activityReservedWidth : 0}

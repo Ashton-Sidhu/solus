@@ -22,8 +22,6 @@ import { accountDocumentCall, type AccountDocumentCall } from '@solus/client-cor
  * browser, so nothing here relies on one.
  */
 
-export const DEFAULT_CLOUD_ORIGIN = 'https://app.solus.sh'
-
 /** The account plane refused the access token: the grant may have ended. */
 export class AccountUnauthorizedError extends Error {
   constructor() {
@@ -41,7 +39,8 @@ export class AccountUnavailableError extends Error {
 
 export class CloudAccountClient {
   constructor(
-    readonly origin: string,
+    /** The Solus Cloud address every call goes to. The account session changes it while signed out. */
+    public origin: string,
     private readonly fetchImpl: typeof fetch,
   ) {}
 

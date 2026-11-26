@@ -3,8 +3,7 @@ import { hostKindSchema, organizationRoleSchema, type AccessTokenClaims, type Ho
 import { shareResourceSchema, shareRoleSchema, type ShareResource, type ShareRole } from '@solus/contracts/sharing'
 import { sessionActionLeafSchema, type SessionActionLeaf } from '@solus/contracts/permissions'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
-import { LOCAL_ORGANIZATION_ID, provisionedOrganizationId } from '../host/host-category'
-import { isOrganizationAttached } from '../host/organization-attachment'
+import { LOCAL_ORGANIZATION_ID, cloudOrganizationId, machineKind } from '../host/machine-kind'
 
 /**
  * Who a request comes from (docs/plans/personal-uplink.md P1; docs/plans/multiplayer-sharing.md §3.3).
@@ -206,7 +205,7 @@ export function isHostAdmin(principal: Principal): boolean {
  * deletes. A member admitted to a person's own machine holds only what its rows give.
  */
 export function isOrganizationSpace(principal: Principal): principal is Extract<Principal, { kind: 'org-member' }> {
-  return principal.kind === 'org-member' && (principal.hostKind === 'managed' || principal.hostKind === 'cloud')
+  return principal.kind === 'org-member' && (principal.hostKind === 'cloud' || principal.hostKind === 'api')
 }
 
 export { LOCAL_ORGANIZATION_ID }
@@ -242,7 +241,7 @@ export function isAnyOrganization(scope: RecordScope): scope is AnyOrganization 
 export function recordScopeOf(principal: Principal): RecordScope {
   switch (principal.kind) {
     case 'owner':
-      return principal.via === 'local' && isOrganizationAttached() ? LOCAL_ORGANIZATION_ID : ANY_ORGANIZATION
+      return principal.via === 'local' && machineKind() === 'cloud' ? LOCAL_ORGANIZATION_ID : ANY_ORGANIZATION
     case 'system':
       return ANY_ORGANIZATION
     case 'org-member':
@@ -267,7 +266,7 @@ export function organizationForNew(principal: Principal): string {
   switch (principal.kind) {
     case 'owner':
     case 'system':
-      return provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID
+      return cloudOrganizationId() ?? LOCAL_ORGANIZATION_ID
     case 'org-member':
       return principal.organizationId
     case 'guest':

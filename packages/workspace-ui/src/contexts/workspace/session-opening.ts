@@ -8,17 +8,17 @@ import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
 import { chooseRunOnHost, type RunOnChoice, type RunOnHost } from '../projects/run-on-rule'
-import { hostIsManaged } from '../../components/servers/lib/managed-host'
+import { hostHasManagedCompute, hostIsCloud } from '../../components/servers/lib/managed-host'
 import { isRepositoryKey } from '@solus/contracts/repository-key'
 import { isSolusApiId } from '@solus/contracts/uplink'
-import { type Task } from '@solus/contracts/task-types'
+import { type Issue } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
 import { makeSession, makeTab } from './session.factories'
 import { worktreeProjectRoot, gitCheckoutFromState, isSolusWorktreePath, sessionProjectRoot } from '@solus/contracts/types'
 import { isTaskFolderPath } from '@solus/contracts/codebases'
-import { INITIAL_HISTORY_TURNS, prefetchSessionHistoryPage } from '@solus/client-core/session-history-page'
+import { INITIAL_HISTORY_TURNS, prefetchSessionHistoryPage, requestSessionHistoryPage } from '@solus/client-core/session-history-page'
 import type { SessionHistoryPageRequest } from '@solus/contracts/session-history'
-import { loadSessionTranscript } from './session-transcript'
+import { loadSessionTranscript, readTranscriptDependencies } from './session-transcript'
 import { measureOpenStep } from '../../lib/mount-timing'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
@@ -79,7 +79,7 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'chatSurfaceTabId'
   | 'tabOrder'
   | 'tabs'
-  | 'tasksStore'
+  | 'issuesStore'
   | 'ui'
 > & SurfaceContext & SessionEnvironmentWorkspace
 
@@ -111,6 +111,23 @@ function machineOf(listed: ListedSession): string | null {
  *  same facts a sidebar row already holds. */
 type FirstPageFacts = Pick<SessionMeta, 'sessionId' | 'serverId' | 'provider' | 'projectPath' | 'cwd'>
 
+/** How long reads made before an open may serve it, and whether they still show the session as it is. */
+export interface OpeningPrefetchLife {
+  maxAgeMs: number
+  isCurrent?: () => boolean
+}
+
+/** A press opens at once; its reads serve that open for this long. */
+const PRESSED_OPENING_LIFE_MS = 30_000
+
+interface PrefetchedDescription {
+  serverId: string
+  sessionId: string
+  expiresAt: number
+  isCurrent?: () => boolean
+  result: Promise<SessionDescription>
+}
+
 /** Which thread a resume reads and the facts it opens with. */
 interface Opening {
   meta: SessionMeta
@@ -141,22 +158,31 @@ function describedOpening(meta: SessionMeta, { lineage: handoff, meta: described
   return { handoff, activeProviderSessionId: meta.sessionId, meta: { ...meta, ...describedMeta, serverId: meta.serverId } }
 }
 
-/** Whether a tab opened on the guess reads the thread the description names. */
-function sameOpening(guessed: Opening, described: Opening): boolean {
-  return guessed.activeProviderSessionId === described.activeProviderSessionId
-    && guessed.meta.provider === described.meta.provider
-    && (guessed.meta.cwd || '') === (described.meta.cwd || '')
-    && guessed.meta.projectPath === described.meta.projectPath
-}
-
 function sessionTitleOf(meta: SessionMeta): string {
   if (meta.customTitle) return meta.customTitle
   if (meta.firstMessage) return meta.firstMessage.length > 80 ? meta.firstMessage.substring(0, 80) : meta.firstMessage
   return meta.slug || 'Resumed'
 }
 
-/** What the description adds to a tab opened on the guess. */
-function applyDescribedFacts(session: Session, meta: SessionMeta, run: Partial<RunConfig>): void {
+/** The folders a session opens in: the one its transcript and Git read, and
+ *  its project's folder (the record names it for a session in a task folder). */
+function openingFolders(meta: SessionMeta) {
+  const defaultDir = meta.cwd || hosts.get(meta.serverId)?.machineInfo?.homePath || '~'
+  return { defaultDir, workingDirectory: sessionProjectRoot({ cwd: defaultDir, projectRoot: meta.projectRoot }) }
+}
+
+/** The description changes a tab opened on the guess in place: the thread it
+ *  names (a provider thread id, or a handoff), and the folder that thread
+ *  works in. The rows do not change: the host reads every thread of the
+ *  lineage from the session id. */
+function applyDescribedOpening(session: Session, described: Opening, workingDirectory: string, run: Partial<RunConfig>): void {
+  const meta = described.meta
+  session.threadProvider = run.provider ?? session.threadProvider
+  session.agentSessionId = described.activeProviderSessionId
+  session.handoffPending = !!described.handoff && !described.activeProviderSessionId
+  if (workingPlace(session.run).path !== workingDirectory) {
+    session.run.location = folderLocation({ serverId: runHost(session.run), path: workingDirectory })
+  }
   session.title = sessionTitleOf(meta)
   session.titleCustom = !!meta.customTitle
   session.startedBy = meta.startedBy
@@ -176,6 +202,9 @@ export class SessionOpening {
   /** Counts task opens. A slow open checks it after each wait, so a task the
    *  reader clicked past cannot take the screen back when its reads land. */
   private taskOpenCount = 0
+  /** The description a rest or a press on a row asked for. The open of that
+   *  session takes it, so the transcript does not wait a round trip for it. */
+  private prefetchedDescription: PrefetchedDescription | null = null
 
   constructor(private readonly workspace: SessionOpeningWorkspace) {}
 
@@ -224,9 +253,9 @@ export class SessionOpening {
       : sourceSession.messages.slice(0, inFlightFrom)
     const copiedMessages: Message[] = settledMessages.map((m) => ({ ...m, id: uuid() }))
 
-    const taskId = ownedTaskId(this.workspace.tasksStore, sourceSession)
+    const taskId = ownedTaskId(this.workspace.issuesStore, sourceSession)
     const forkTask: Session['task'] = taskId
-      ? { kind: 'existing', taskId }
+      ? { kind: 'existing', issueId: taskId }
       : { ...sourceSession.task }
     const forkedSession = makeSession(this.workspace.settings, {
       agentSessionId: sourceSession.agentSessionId,
@@ -276,10 +305,10 @@ export class SessionOpening {
     if (this.workspace.chatSurfaceTabId === sourceTabId) this.workspace.moveChatSurfaceToMain()
     else if (sourceTabId !== this.workspace.activeTabId) this.workspace.selectTab(sourceTabId)
 
-    const taskId = ownedTaskId(this.workspace.tasksStore, sourceSession)
+    const taskId = ownedTaskId(this.workspace.issuesStore, sourceSession)
     const forkTabId = await this.forkTab(sourceTabId, {
       activate: false,
-      task: taskId ? { kind: 'existing', taskId } : { ...sourceSession.task },
+      task: taskId ? { kind: 'existing', issueId: taskId } : { ...sourceSession.task },
     })
     if (!forkTabId) return
     const forked = this.workspace.sessionFor(forkTabId)!
@@ -382,18 +411,47 @@ export class SessionOpening {
       provider: meta.provider ?? this.workspace.settings.activeAgent,
       turnLimit: INITIAL_HISTORY_TURNS,
       deferArtifactHtml: true,
+      replyLayout: true,
     }
   }
 
-  /** Ask the host for a session's first history page before its tab exists.
-   *  The read `resumeSession` makes for the same metadata takes this one, so
-   *  the page travels while the tab is created and mounted. */
-  prefetchFirstPage(meta: FirstPageFacts, maxAgeMs?: number): void {
-    if (!meta.serverId || !hosts.hasExecution(meta.serverId)) return
+  /** Ask the host for what opening a session waits for, before its tab exists:
+   *  the first history page, the session's description, and the saved
+   *  automations and artifact HTML the page's rows name. `resumeSession` for
+   *  the same session takes these reads, so they travel while the tab is
+   *  created, or while the pointer rests on the row. `life` bounds how long
+   *  the reads may serve an open; without it they serve the press's open. */
+  prefetchOpening(meta: FirstPageFacts, life: OpeningPrefetchLife = { maxAgeMs: PRESSED_OPENING_LIFE_MS }): void {
+    const { serverId } = meta
+    if (!serverId || !hosts.hasExecution(serverId)) return
     const request = this.firstPageRequest(meta)
     if (findOpenTabForSession(meta.sessionId, this.workspace.tabs, this.workspace.sessions.byId,
-      this.workspace.tabOrder, request.provider, meta.serverId)) return
-    void prefetchSessionHistoryPage(serverConnections.apiFor(meta.serverId), request, maxAgeMs).catch(() => null)
+      this.workspace.tabOrder, request.provider, serverId)) return
+    const api = serverConnections.apiFor(serverId)
+    void prefetchSessionHistoryPage(api, request, life.maxAgeMs, undefined, undefined, life.isCurrent)
+      .then((page) => {
+        const dependencies = readTranscriptDependencies(this.workspace, page.messages, serverId)
+        void dependencies.automations.catch(() => null)
+        void dependencies.artifactFileBodies.catch(() => null)
+      })
+      .catch(() => null)
+    if (this.servesDescription(serverId, meta.sessionId)) return
+    const result = api.describeSession(meta.sessionId)
+    result.catch(() => {})
+    this.prefetchedDescription = { serverId, sessionId: meta.sessionId, expiresAt: Date.now() + life.maxAgeMs, isCurrent: life.isCurrent, result }
+  }
+
+  private servesDescription(serverId: string, sessionId: string): boolean {
+    const held = this.prefetchedDescription
+    return !!held && held.serverId === serverId && held.sessionId === sessionId
+      && held.expiresAt > Date.now() && (held.isCurrent?.() ?? true)
+  }
+
+  /** The prefetched description of this session, once; else a new read. */
+  private describe(serverId: string, sessionId: string): Promise<SessionDescription> {
+    const held = this.servesDescription(serverId, sessionId) ? this.prefetchedDescription!.result : null
+    this.prefetchedDescription = null
+    return held ?? serverConnections.apiFor(serverId).describeSession(sessionId)
   }
 
   async resumeSession(
@@ -403,8 +461,6 @@ export class SessionOpening {
       intoTabId?: string
       /** False once the reader has moved on; the resume then stops before it opens a tab. */
       stillWanted?: () => boolean
-      /** The session's description, already read: the tab opens on it. */
-      description?: SessionDescription
     },
   ): Promise<string> {
     const openedAt = performance.now()
@@ -414,24 +470,22 @@ export class SessionOpening {
     sessionListStore.markOpened({ serverId: meta.serverId, sessionId: meta.sessionId, organizationId: meta.organizationId, publication: meta.publication })
     if (!hosts.hasExecution(meta.serverId)) return this.openFromRecordHome(meta.sessionId, meta.serverId)
     const selectedServerId = meta.serverId
-    const selectedApi = serverConnections.apiFor(selectedServerId)
-    if (!opts?.intoTabId) this.prefetchFirstPage(meta)
+    if (!opts?.intoTabId) this.prefetchOpening(meta)
     // `meta.sessionId` is the session id; its lineage names the thread to read
     // (docs/plans/session-identity.md).
     const resumedSessionId = meta.sessionId
     const descriptionStartedAt = performance.now()
-    const describing = opts?.description
-      ? Promise.resolve(opts.description)
-      : selectedApi.describeSession(resumedSessionId).then((description) => {
-        measureOpenStep('describeSession', descriptionStartedAt, { sessionId: resumedSessionId })
-        return description
-      })
+    const describing = this.describe(selectedServerId, resumedSessionId).then((description) => {
+      measureOpenStep('describeSession', descriptionStartedAt, { sessionId: resumedSessionId })
+      return description
+    })
     // A resume that stops early never reads the description.
     describing.catch(() => {})
     // A new tab opens on the facts the caller holds, and the description
     // answers beside the history page: waiting for it first cost a round trip
-    // before the tab existed. A tab taken over changes in place, so it waits.
-    const isGuessed = !opts?.intoTabId && !opts?.description
+    // before the tab existed. The tab then takes the description in place. A
+    // tab taken over already shows something, so it waits for the description.
+    const isGuessed = !opts?.intoTabId
     const guessedFrom = meta
     const opening = isGuessed ? guessedOpening(meta) : describedOpening(meta, await describing)
     meta = opening.meta
@@ -461,11 +515,9 @@ export class SessionOpening {
         return openTabId
       }
     }
-    const defaultDir = meta.cwd || hosts.get(meta.serverId)?.machineInfo?.homePath || '~'
+    let { defaultDir, workingDirectory } = openingFolders(meta)
     // The same request the click's prefetch made, so the read below takes it.
     const firstPage = this.firstPageRequest({ ...meta, provider })
-    // The folder of the session's project: the record names it for a session in a task folder.
-    const workingDirectory = sessionProjectRoot({ cwd: defaultDir, projectRoot: meta.projectRoot })
     const title = sessionTitleOf(meta)
 
     const hadActiveTab = !!this.workspace.activeTab
@@ -593,29 +645,18 @@ export class SessionOpening {
 
     try {
       const api = this.workspace.apiFor(tabId)
-      const identityPending = api.gitIdentity
-        ? api.gitIdentity(defaultDir).catch(() => null)
-        : Promise.resolve(null)
-      // The working directory of a task folder is a worktree only when its working member is a repository.
-      const taskFolderPending = isTaskFolderPath(defaultDir) ? api.taskFolderOf(defaultDir).catch(() => null) : Promise.resolve(null)
-      void this.workspace.tasksStore.ensureSessionBinding(resumedSessionId, projectHome(this.workspace.runFor(tabId))?.serverId).catch(() => null)
+      // The page travels while the description answers. It takes the click's prefetch.
+      const history = requestSessionHistoryPage(api, firstPage)
+      history.catch(() => {})
+      void this.workspace.issuesStore.ensureSessionBinding(resumedSessionId, projectHome(this.workspace.runFor(tabId))?.serverId).catch(() => null)
       // The host sends the folders of a session when the list changes, at a
       // turn start. A session that is opened between turns reads them.
       void api.sessionFolders(resumedSessionId).then((folders) => {
         const opened = currentResumeTarget()
         if (opened) opened.sessionFolders = folders
       }).catch(() => null)
-      const transcriptLoad = loadSessionTranscript(this.workspace, {
-        sessionId: resumedSessionId,
-        loadPath: firstPage.projectPath,
-        displayCwd: workingDirectory,
-        provider,
-        ctx: this.workspace.ctxFor(tabId),
-        turnLimit: INITIAL_HISTORY_TURNS,
-      })
+      let threadProvider = provider
       if (isGuessed) {
-        // The rows wait for the description: they show only the thread it names.
-        transcriptLoad.catch(() => {})
         let described: Opening
         try {
           described = describedOpening(guessedFrom, await describing)
@@ -623,15 +664,31 @@ export class SessionOpening {
           if (currentResumeTarget()) this.workspace.closeTab(tabId)
           throw error
         }
-        if (!sameOpening(opening, described)) {
-          // Another thread is active now (a provider handoff): open it instead.
-          if (currentResumeTarget()) this.workspace.closeTab(tabId)
-          return this.resumeSession(guessedFrom, { ...opts, description: await describing })
-        }
+        ;({ defaultDir, workingDirectory } = openingFolders(described.meta))
+        threadProvider = described.meta.provider ?? provider
         const describedSession = currentResumeTarget()
-        if (describedSession) applyDescribedFacts(describedSession, described.meta, this.workspace.config.threadRunFor({ provider, model: described.meta.model, reasoningEffort: described.meta.reasoningEffort }, describedSession.run))
+        if (describedSession) {
+          const thread = { provider: threadProvider, model: described.meta.model, reasoningEffort: described.meta.reasoningEffort }
+          applyDescribedOpening(describedSession, described, workingDirectory, this.workspace.config.threadRunFor(thread, describedSession.run))
+          if (!background && this.workspace.settings.activeAgent !== threadProvider) {
+            this.workspace.config.followActiveSessionAgent(threadProvider)
+          }
+        }
       }
-      const transcript = await transcriptLoad
+      const identityPending = api.gitIdentity
+        ? api.gitIdentity(defaultDir).catch(() => null)
+        : Promise.resolve(null)
+      // The working directory of a task folder is a worktree only when its working member is a repository.
+      const taskFolderPending = isTaskFolderPath(defaultDir) ? api.taskFolderOf(defaultDir).catch(() => null) : Promise.resolve(null)
+      const transcript = await loadSessionTranscript(this.workspace, {
+        sessionId: resumedSessionId,
+        loadPath: firstPage.projectPath,
+        displayCwd: workingDirectory,
+        provider: threadProvider,
+        ctx: this.workspace.ctxFor(tabId),
+        turnLimit: INITIAL_HISTORY_TURNS,
+        history,
+      })
 
       const session = currentResumeTarget()
       if (session) {
@@ -800,9 +857,9 @@ export class SessionOpening {
    * the project on the draft before Send. With no guess, the draft opens with
    * no folder.
    */
-  async openTaskSession(task: Task): Promise<void> {
+  async openTaskSession(task: Issue): Promise<void> {
     this.taskOpenCount++
-    const model = this.workspace.tasksStore.get(task.id)
+    const model = this.workspace.issuesStore.get(task.id)
     const taskServerId = model.serverId ?? undefined
     const inputBar = this.workspace.activeCheckout
     const inputBarProjectKey = inputBar ? projectsStore.projectKeyFor(inputBar.serverId, inputBar.projectRoot) : null
@@ -827,12 +884,13 @@ export class SessionOpening {
     return serversStore.executionServers.map((host) => ({
       serverId: host.id,
       online: host.readiness === 'ready',
-      managed: hostIsManaged(host),
+      cloud: hostIsCloud(host),
+      hasManagedCompute: hostHasManagedCompute(host),
     }))
   }
 
   /** Point a new run at another online checkout of its project, when the
-   *  run-on rule finds one. A managed host with no checkout is left to the run
+   *  run-on rule finds one. A cloud host with no checkout is left to the run
    *  picker: moving there is a dispatch the person confirms on Send. */
   moveToRunOnHost(run: RunConfig): void {
     const place = checkoutPlace(run)
@@ -857,7 +915,7 @@ export class SessionOpening {
   /**
    * Where work in a repository runs (docs/plans/project-model.md §6): its most
    * recently used checkout on a host that is up, else the organization's
-   * managed host, which has no checkout yet (`path: null`). A
+   * cloud host, which has no checkout yet (`path: null`). A
    * `preferredServerId` — the machine cloud onboarding chose — is asked first.
    */
   repositoryRunOn(repositoryKey: string, preferredServerId?: string): RunOnChoice | null {
@@ -899,17 +957,17 @@ export class SessionOpening {
   /** Jump back to the work happening on a task: the most-recently-linked
    *  session — focused if it's open, else resumed from history. The back-link
    *  counterpart to openTaskSession; a task nothing has run on gets a draft. */
-  async openTaskLinkedSession(task: Task): Promise<void> {
+  async openTaskLinkedSession(task: Issue): Promise<void> {
     const opening = ++this.taskOpenCount
     const stillWanted = () => opening === this.taskOpenCount
-    const links = this.workspace.tasksStore.get(task.id).sessions
+    const links = this.workspace.issuesStore.get(task.id).sessions
     const link = links?.[links.length - 1]
     if (!link?.sessionId) {
       await this.openTaskSession(task)
       return
     }
 
-    const ownerServerId = await this.workspace.tasksStore.get(task.id).ownerHost()
+    const ownerServerId = await this.workspace.issuesStore.get(task.id).ownerHost()
     if (!ownerServerId || !stillWanted()) return
     const sessionServerId = serverConnections.resolveId(link.executionServerId ?? ownerServerId)
     const openTab = findOpenTabForSession(

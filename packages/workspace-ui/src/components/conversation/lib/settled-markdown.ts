@@ -1,6 +1,7 @@
 import { Marked, Renderer, type MarkedExtension, type RendererObject, type Token } from 'marked'
 import { FOOTNOTE_REF_TOKEN, FOOTNOTE_SECTION_TOKEN } from './markdown-extensions'
 import { RAW_HTML_TOKEN } from './raw-html'
+import { isBareCodeSpan } from '../../ui/lib/code-span-path'
 
 /** Extension tokens that need the whole reply, so the reply is not split. */
 const WHOLE_REPLY_TOKENS = new Set([RAW_HTML_TOKEN, FOOTNOTE_REF_TOKEN, FOOTNOTE_SECTION_TOKEN])
@@ -19,8 +20,11 @@ function childrenOf(token: Token): Token[] {
 
 /** A plain block is all plain tags down to its text. A task item draws a
  *  checkbox, and a loose list puts its items in paragraphs only in marked, so
- *  both stay with the component. */
+ *  both stay with the component. Inline code is plain unless `CodeSpan` draws
+ *  more than a `<code>` for it: most replies have inline code in most
+ *  paragraphs, and it sent each such paragraph to one component per token. */
 function isPlain(token: Token): boolean {
+  if (token.type === 'codespan') return isBareCodeSpan(token.text)
   if (!PLAIN_TYPES.has(token.type)) return false
   if (token.type === 'list' && token.loose) return false
   if (token.type === 'list_item' && token.task) return false

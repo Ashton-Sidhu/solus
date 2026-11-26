@@ -1,7 +1,8 @@
 import { expect, it } from "vite-plus/test";
 import { resolveQuickAction } from "@t3tools/client-runtime/state/vcs";
 import type { GitRepositoryStatus, GitState } from "@solus/contracts/git-types";
-import { checkoutActions, checkoutBranch, checkoutStatus } from "./checkout-git";
+import { checkoutStatus } from "@solus/contracts/git-types";
+import { checkoutActions, checkoutBranch } from "./checkout-git";
 
 const repo: GitRepositoryStatus = {
   isRepository: true,
@@ -42,7 +43,8 @@ it("uses the checkout's branch and open pull request to choose the Git menu acti
 });
 
 it("keeps the current branch visible before the first commit", () => {
-  const status = checkoutStatus({ ...repo, hasCommits: false, branch: "main" }, null);
+  const unborn: GitRepositoryStatus = { ...repo, hasCommits: false, branch: "main" };
+  const status = checkoutStatus(unborn, null);
   expect(status.isRepo).toBe(true);
   expect(status.refName).toBe("main");
 });

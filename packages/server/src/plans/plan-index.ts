@@ -4,17 +4,18 @@ import type { AgentId, PlanDescriptor, PlanRevisionSummary } from '@solus/contra
 import { projectRootOfPath } from '../git/task-folder-store'
 import { getDatabase, type Db } from '../db/database'
 import type { RecordScope } from '../admission/principal'
-import { LOCAL_ORGANIZATION_ID, provisionedOrganizationId } from '../host/host-category'
+import { LOCAL_ORGANIZATION_ID, cloudOrganizationId } from '../host/machine-kind'
 import { scopeClause } from '../data/scope'
 import { organizationOfSession, organizationsOfSessions } from '../data/sessions/session-records'
 import { extractPlanTitle } from '../execution/agents/plan-text'
 import { sessionIdOfThread } from '../data/sessions/session-lineage'
 import { indexedPlans, planAnnotations, planIndexProviders } from './schema'
 import { commentThreads } from '../data/comments/schema'
+import { agentIdSchema } from '@solus/contracts/types'
 
 const planStatusSchema = z.enum(['pending', 'accepted', 'rejected'])
 const indexedPlanRowSchema = z.object({
-  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
+  provider: agentIdSchema,
   session_id: z.string(),
   plan_tool_use_id: z.string(),
   project_path: z.string(),
@@ -130,10 +131,10 @@ export async function replaceIndexedPlansForProvider(
       DELETE FROM ${indexedPlans}
       WHERE provider = ${provider} AND session_available = 1
     `)
-    for (const plan of plans) await insertPlan(db, organizations.get(plan.sessionId) ?? provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID, plan)
+    for (const plan of plans) await insertPlan(db, organizations.get(plan.sessionId) ?? cloudOrganizationId() ?? LOCAL_ORGANIZATION_ID, plan)
     await db.run(sql`
       INSERT INTO ${planIndexProviders}(provider, completed_at, organization_id)
-      VALUES (${provider}, ${Date.now()}, ${provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID})
+      VALUES (${provider}, ${Date.now()}, ${cloudOrganizationId() ?? LOCAL_ORGANIZATION_ID})
       ON CONFLICT(provider) DO UPDATE SET
         completed_at = excluded.completed_at,
         organization_id = excluded.organization_id

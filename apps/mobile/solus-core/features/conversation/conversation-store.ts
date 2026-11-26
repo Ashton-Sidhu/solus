@@ -21,6 +21,7 @@ import type { PendingPermission, PendingQuestion, QueuedPrompt, TranscriptItem }
  */
 
 export interface ConversationMeta {
+  isCompacting: boolean
   phase: ConversationPhase
   status: SessionStatus
   pendingText: ConversationController['pendingText']
@@ -36,6 +37,8 @@ export interface ConversationMeta {
   queue: SessionQueueSnapshot
   /** Prompts this device holds that the host has not taken yet: the run host stays as it is. */
   hasUnsentPrompts: boolean
+  canFillOpeningHistory: boolean
+  hasOpeningPage: boolean
   history: ThreadHistoryMeta
   /** The agent session on another host that started this one. */
   startedBy: SessionStarterFromHost | null
@@ -121,7 +124,7 @@ export class ConversationStore {
         } else {
           for (const id of changes.items) {
             const item = this.item(id)
-            if (this.itemListeners.has(id) || (this.feedListeners.size && (item?.kind === 'assistant' || item?.kind === 'user' || item?.kind === 'tool'))) this.pendingItemIds.add(id)
+            if (this.itemListeners.has(id) || (this.feedListeners.size && (item?.kind === 'assistant' || item?.kind === 'user' || item?.kind === 'tool' || item?.kind === 'agent'))) this.pendingItemIds.add(id)
             if (item?.kind !== 'tool' || !item.children) continue
             for (const childId of item.children.takeChanges().items) {
               const childKey = `${id}\0${childId}`
@@ -232,12 +235,15 @@ export class ConversationStore {
       latestSettledTurnId: model.latestSettledTurnId,
       canStopTurn: this.controller.canStopTurn,
       backgroundWorkRunning: model.backgroundWorkRunning,
+      isCompacting: model.isCompacting,
       permissions: model.permissions,
       questions: model.questions,
       rateLimit: model.rateLimit,
       queued: model.queued,
       queue: this.controller.queue,
       hasUnsentPrompts: this.controller.hasUnsentPrompts,
+      canFillOpeningHistory: this.controller.canFillOpeningHistory,
+      hasOpeningPage: this.controller.hasOpeningPage,
       history: model.history,
       startedBy: this.controller.startedBy,
       pendingPlan: model.pendingPlan(),

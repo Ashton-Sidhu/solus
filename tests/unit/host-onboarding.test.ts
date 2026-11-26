@@ -9,6 +9,7 @@ import {
   onboardingHeading,
   onboardingRailModel,
   providerSetupActions,
+  seatProviderFor,
 } from '@solus/workspace-ui/components/servers/lib/host-onboarding'
 
 function readiness(overrides: Partial<HostReadiness> = {}): HostReadiness {
@@ -336,7 +337,7 @@ describe('provider choice rows', () => {
     // not disable an unrelated install or sign-in.
     const rows = codingProviderRows({
       readiness: readiness(),
-      stages: { claude: 'install', codex: null },
+      stages: { claude: 'install', codex: null, agy: null },
       add: noop,
     })
     const claude = rows.find((row) => row.id === 'claude')!
@@ -352,11 +353,12 @@ describe('provider choice rows', () => {
     // install CLIs that already exist on the connected host.
     const rows = codingProviderRows({
       readiness: null,
-      stages: { claude: null, codex: null },
+      stages: { claude: null, codex: null, agy: null },
       add: noop,
     })
 
     expect(rows.map((row) => row.detail)).toEqual([
+      'Checking the host…',
       'Checking the host…',
       'Checking the host…',
     ])
@@ -366,6 +368,11 @@ describe('provider choice rows', () => {
 })
 
 describe('host setup sessions', () => {
+  test("each agent's row signs in to that agent's own seat", () => {
+    // WHY: the Antigravity row once named the Codex seat, so its Sign in started a Codex sign-in.
+    expect([seatProviderFor('claude'), seatProviderFor('codex'), seatProviderFor('agy')]).toEqual(['claude-code', 'codex', 'antigravity'])
+  })
+
   test('every surface asking about a host gets the same session and the same readiness', async () => {
     // WHY: the onboarding rail and the host page in settings both run setup on
     // a host. Two copies of this state would let one of them offer "Connect
@@ -480,7 +487,7 @@ describe('provider setup action', () => {
           codex: { installed: false, signedIn: false },
         },
       }),
-      stages: { claude: null, codex: null },
+      stages: { claude: null, codex: null, agy: null },
       add: (agent, opts) => calls.push([agent, opts]),
     })
     const claude = rows.find((row) => row.id === 'claude')!

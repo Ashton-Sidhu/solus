@@ -25,9 +25,9 @@
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
-    completedTasksWithinRetention,
+    completedRowsWithinRetention,
     SIDEBAR_COMPLETED_RETENTION_CHECK_MS,
-  } from "../../lib/completed-task-retention";
+  } from "../../lib/completed-row-retention";
   import SidePanel from "../layout/SidePanel.svelte";
   import HistoryNavButtons from "../layout/HistoryNavButtons.svelte";
   import {
@@ -35,8 +35,8 @@
     SIDEBAR_MIN_WIDTH,
   } from "../layout/lib/workspace-body";
   import SessionContextMenu from "./SessionContextMenu.svelte";
-  import TaskActionBar from "./TaskActionBar.svelte";
-  import TaskRow from "./TaskRow.svelte";
+  import SidebarActionBar from "./SidebarActionBar.svelte";
+  import SidebarRow from "./SidebarRow.svelte";
   import PinnedSessionRow from "./PinnedSessionRow.svelte";
   import SessionStatusView from "./SessionStatusView.svelte";
   import SessionProjectView from "./SessionProjectView.svelte";
@@ -46,12 +46,10 @@
   import SidebarSky from "./SidebarSky.svelte";
   import { SKY_HEADER_DROP_REM } from "./lib/sidebar-sky";
   import SnoozeTaskMenu from "./SnoozeTaskMenu.svelte";
-  import {
-    taskSnoozeToastLabel,
-    type TaskSnoozeAnchor,
-  } from "./lib/task-snooze";
+  import type { SnoozeAnchor } from "./lib/snooze";
+  import { applySessionSnooze, completeSidebarSession, tabSessionLifecycleActions } from "./lib/session-actions";
   import type { DraftRow as DraftRowModel } from "./lib/draft-list";
-  import { taskPrNavigation } from "./lib/pr-navigation";
+  import { prNavigation } from "./lib/pr-navigation";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import { nextTaskAfterLeaving } from "../../contexts/workspace/session-sidebar-selection";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
@@ -68,11 +66,11 @@
   import { noticeUnopenableSession } from "../../contexts/sharing/unopenable-session";
   import { memberByKey } from "../users/lib/organization-people";
   import {
-    filterSidebarTasks,
+    filterSidebarSessions,
     prChipForChoices,
-    type TaskPrChoice,
-    type SidebarTask,
-  } from "./lib/task-list";
+    type PrChoice,
+    type SidebarSession,
+  } from "./lib/sidebar-rows";
   import {
     filterPinnedEntries,
     type SidebarListInput,
@@ -106,7 +104,7 @@
   $effect(() => {
     const hostIds = new Set<string>();
     if (open && !isGuest) {
-      for (const row of sidebarStore.catalogTasks) {
+      for (const row of sidebarStore.catalogRows) {
         if (row.automationId && row.serverId) hostIds.add(row.serverId);
       }
       for (const pin of sidebarStore.pinnedSessions) {
@@ -157,7 +155,7 @@
         kind: "listed";
         sessionId: string;
         serverId: string | null;
-        row: SidebarTask | null;
+        row: SidebarSession | null;
         x: number;
         y: number;
       }
@@ -223,18 +221,18 @@
   }
   let snoozeTargets = $state<SnoozeTarget[]>([]);
   let snoozeCustomTime = $state(false);
-  let snoozeAnchor = $state<TaskSnoozeAnchor | null>(null);
+  let snoozeAnchor = $state<SnoozeAnchor | null>(null);
   let taskQuery = $state("");
   let sidebarNow = $state(Date.now());
   let taskSearchEl = $state<HTMLInputElement | null>(null);
   const searchedSessionRows = $derived(
-    filterSidebarTasks(sidebarStore.sessionRows, taskQuery),
+    filterSidebarSessions(sidebarStore.sessionRows, taskQuery),
   );
   const searchedSharedRows = $derived(
-    filterSidebarTasks(sidebarStore.sharedRows, taskQuery),
+    filterSidebarSessions(sidebarStore.sharedRows, taskQuery),
   );
   const searchedWorkingRows = $derived(
-    filterSidebarTasks(sidebarStore.workingRows, taskQuery),
+    filterSidebarSessions(sidebarStore.workingRows, taskQuery),
   );
   const searchedPinnedEntries = $derived(
     filterPinnedEntries(sidebarStore.pinnedEntries, taskQuery),
@@ -250,12 +248,12 @@
   ]);
   const isSearching = $derived(taskQuery.trim().length > 0);
   const searchedSnoozedTasks = $derived(
-    filterSidebarTasks(sidebarStore.snoozedTasks, taskQuery),
+    filterSidebarSessions(sidebarStore.snoozedRows, taskQuery),
   );
   const searchedCompletedTasks = $derived(
-    filterSidebarTasks(
-      completedTasksWithinRetention(
-        sidebarStore.completedTasks,
+    filterSidebarSessions(
+      completedRowsWithinRetention(
+        sidebarStore.completedRows,
         theme.sidebarCompletedRetentionDays,
         sidebarNow,
       ),
@@ -282,12 +280,12 @@
     isWorkingOpen: workingSectionOpen || isSearching,
     isSnoozedOpen: snoozedShelfOpen,
     isCompletedOpen: isCompletedShelfExpanded,
-    shelfRevealTaskId: sidebarStore.shelfRevealTaskId,
+    shelfRevealRowId: sidebarStore.shelfRevealRowId,
   });
   const listShared: SidebarListShared = $derived({
     scrollEl,
     motionMs: theme.sidebarMotionMs,
-    isLoading: !session.tasksStore.loaded,
+    isLoading: !session.issuesStore.loaded,
     taskRow,
     pinnedRow,
     onOpenDraft: openDraft,
@@ -392,19 +390,19 @@
     onSessionSelect?.();
   }
 
-  function openTaskPr(choice: TaskPrChoice, tab?: PrReviewTab): void {
-    const { route, sourceUrl } = taskPrNavigation(choice);
+  function openTaskPr(choice: PrChoice, tab?: PrReviewTab): void {
+    const { route, sourceUrl } = prNavigation(choice);
     session.openRoute(route, { sourceUrl, tab, via: "click" });
   }
 
-  function warmTaskPr(choice: TaskPrChoice): void {
-    const { route, sourceUrl } = taskPrNavigation(choice);
+  function warmTaskPr(choice: PrChoice): void {
+    const { route, sourceUrl } = prNavigation(choice);
     session.warmRoute(route, { sourceUrl });
   }
 
   /** Remove a pull request from the row that shows it, or null when the row
    *  only reads it from its checkout and holds no link to remove. */
-  function unlinkRowPr(row: SidebarTask, choice: TaskPrChoice): (() => void) | null {
+  function unlinkRowPr(row: SidebarSession, choice: PrChoice): (() => void) | null {
     const unlink = sidebarStore.pullRequestUnlink(row.serverId, sidebarStore.sessionIdOfRow(row), choice);
     if (!unlink) return null;
     return () =>
@@ -417,7 +415,7 @@
 
   /** Link a pull request to the row's session by its URL, or nothing when the
    *  viewer may not change that session or it has not reached its agent yet. */
-  function linkRowPr(row: SidebarTask): ((url: string) => Promise<void>) | undefined {
+  function linkRowPr(row: SidebarSession): ((url: string) => Promise<void>) | undefined {
     const sessionId = sidebarStore.sessionIdOfRow(row);
     const serverId = row.serverId;
     const tabSession = row.tabIds[0] ? session.sessionFor(row.tabIds[0]) : null;
@@ -504,7 +502,7 @@
   // of Settings. Row tooltips stay shut while Settings is open.
   const isRowTooltipQuiet = $derived(tooltipQuietAt !== null || session.router.at("settings"));
 
-  function activateTask(task: SidebarTask, event?: MouseEvent) {
+  function activateTask(task: SidebarSession, event?: MouseEvent) {
     sidebarStore.acknowledgeRow(task);
     // The reads start now; only the switch waits for the two frames below.
     sidebarStore.prepareOpen(task);
@@ -527,7 +525,7 @@
     });
   }
 
-  function selectOrActivateTask(task: SidebarTask, event?: MouseEvent) {
+  function selectOrActivateTask(task: SidebarSession, event?: MouseEvent) {
     if (event?.metaKey || event?.ctrlKey) {
       if (!selectedTaskIds.delete(task.id)) selectedTaskIds.add(task.id);
       selectionAnchorId = task.id;
@@ -556,7 +554,7 @@
     sidebarStore.setNestedOpen(task, true);
   }
 
-  function selectedTasks(): SidebarTask[] {
+  function selectedTasks(): SidebarSession[] {
     return openRows.filter((task) => selectedTaskIds.has(task.id));
   }
 
@@ -580,7 +578,7 @@
     writeSessionDrag(event.dataTransfer, references);
   }
 
-  function dragRow(event: DragEvent, task: SidebarTask) {
+  function dragRow(event: DragEvent, task: SidebarSession) {
     dragSessions(event, selectedTaskIds.has(task.id) ? selectedTasks() : [task]);
   }
 
@@ -630,7 +628,7 @@
   }
 
   function renameSidebarItem(
-    task: SidebarTask,
+    task: SidebarSession,
     child: SidebarSessionChild | null,
     next: string,
   ) {
@@ -651,32 +649,17 @@
     requestInputFocus();
   }
 
-  /** Completion settles the session on its host. The store's command also
-   *  clears the mounted conversation, the same way the row's close control
-   *  does. */
-  async function completeTask(task: SidebarTask) {
-    try {
-      await sidebarStore.completeTask(task);
-      requestInputFocus();
-    } catch (error) {
-      toasts.error("Couldn't complete session", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-      requestInputFocus();
-    }
-  }
-
   /** A delegated session listed under a row keeps a row of its own in the
    *  store, so its X does what that row's X does. */
   function removeChild(child: SidebarSessionChild) {
-    const ownRow = child.tabId ? sidebarStore.taskForTab(child.tabId) : null;
+    const ownRow = child.tabId ? sidebarStore.rowForTab(child.tabId) : null;
     if (ownRow) sidebarStore.removeRow(ownRow);
     requestInputFocus();
   }
 
   /** Removing a session's row archives the session on every device
    *  (docs/plans/session-archive.md). */
-  function removeTask(task: SidebarTask) {
+  function removeTask(task: SidebarSession) {
     sidebarStore.removeRow(task);
     requestInputFocus();
   }
@@ -685,7 +668,7 @@
    *  running or waiting on the user has to settle first. Snooze is deliberately
    *  not in this set: deferring a row makes no claim about the work. */
   function completionBlocked(
-    attention: SidebarTask["attention"] | SidebarSessionChild["attention"],
+    attention: SidebarSession["attention"] | SidebarSessionChild["attention"],
   ): boolean {
     return (
       attention === "running" ||
@@ -695,24 +678,15 @@
     );
   }
 
-  /** Whether a turn is in flight for this row, so the confirmation can say
-   *  that snoozing it did not stop the agent. */
-  function isRunningRow(rowKey: string): boolean {
-    return sidebarStore.allTasks.some(
-      (row) => row.key === rowKey && row.attention === "running",
-    );
-  }
-
-  function openSnooze(target: SnoozeTarget, anchor: TaskSnoozeAnchor, customTime = false) {
+  function openSnooze(target: SnoozeTarget, anchor: SnoozeAnchor, customTime = false) {
     snoozeCustomTime = customTime;
     snoozeAnchor = anchor;
     snoozeTargets = [target];
   }
 
-  function navigateAfterLifecycleMove(next: SidebarTask | null) {
+  function navigateAfterLifecycleMove(next: SidebarSession | null) {
     if (next) void sidebarStore.selectTask(next);
     else newSession();
-    requestInputFocus();
     onSessionSelect?.();
   }
 
@@ -731,45 +705,19 @@
   /** Shared by the snooze popover and the context menu's preset submenu, which
    *  skips the popover entirely and therefore carries no reminder note. */
   function applySnooze(targets: SnoozeTarget[], until: number, note: string) {
-    if (!targets.length) return;
-    const row =
-      openRows.find((candidate) => candidate.key === targets[0].rowKey) ?? null;
-    const leavingTaskIds = new Set(
-      openRows
-        .filter((task) => targets.some((target) => target.rowKey === task.key))
-        .map((task) => task.id),
-    );
-    const next = row
-      ? nextTaskAfterLeaving(openRows, row.id, leavingTaskIds)
-      : null;
-    const wasSelected = !!row?.tabIds.includes(session.onScreenTabId);
-    for (const target of targets)
-      sidebarStore.snoozeRow(target.rowKey, until, note);
-    toasts.undo(
-      taskSnoozeToastLabel({
-        count: targets.length,
-        hasNote: !!note,
-        keepsRunning: targets.some((target) => isRunningRow(target.rowKey)),
-      }),
-      () => {
-        for (const target of targets)
-          sidebarStore.snoozeRow(target.rowKey, null);
-      },
-    );
-    if (wasSelected) navigateAfterLifecycleMove(next);
-    requestInputFocus();
+    applySessionSnooze(session, sidebarStore, openRows, targets.map((target) => target.rowKey), until, note, navigateAfterLifecycleMove);
   }
 
   /** ⌫ on a row is the row's X: it never stops the run. It archives the
    *  session; a session listed under a row only closes its tab. */
   /** → and ← on a row that started sessions unfold and fold them. */
-  function setNestedOpenByKey(taskKey: string, isOpen: boolean) {
-    const task = openRows.find((item) => item.key === taskKey);
+  function setNestedOpenByKey(rowKey: string, isOpen: boolean) {
+    const task = openRows.find((item) => item.key === rowKey);
     if (task) sidebarStore.setNestedOpen(task, isOpen);
   }
 
-  function closeRowByKey(target: { taskKey?: string; tabId?: string }) {
-    const task = target.taskKey ? openRows.find((item) => item.key === target.taskKey) : undefined;
+  function closeRowByKey(target: { rowKey?: string; tabId?: string }) {
+    const task = target.rowKey ? openRows.find((item) => item.key === target.rowKey) : undefined;
     if (task) removeTask(task);
     else if (target.tabId) closeSession(target.tabId);
   }
@@ -798,31 +746,24 @@
   // read a null menu and throw.
 
   /** The row actions of an open tab's menu. */
-  function tabRowActions(menuTabId: string | null, menuPoint: TaskSnoozeAnchor) {
-    const sessionRow = menuTabId ? sidebarStore.taskForTab(menuTabId) : null;
+  function tabRowActions(menuTabId: string | null, menuPoint: SnoozeAnchor) {
+    const actions = menuTabId ? tabSessionLifecycleActions(session, sidebarStore, menuTabId) : null;
+    const snoozeRow = actions?.snoozeRow;
     return {
+      ...actions,
       onStop:
         menuTabId && sidebarStore.childForTab(menuTabId).attention === "running"
           ? () => session.controls.interruptTabSession(menuTabId)
           : undefined,
-      done: sessionRow?.status === "done",
-      onToggleDone: sessionRow ? () => void completeTask(sessionRow) : undefined,
-      onSnooze:
-        sessionRow && sessionRow.lifecycle !== "snoozed" && sidebarStore.canShelve(sessionRow)
-          ? (until?: number) => {
-              const target = { rowKey: sessionRow.key, title: sessionRow.title };
-              if (until !== undefined) applySnooze([target], until, "");
-              else openSnooze(target, menuPoint, true);
-            }
-          : undefined,
-      onArchive:
-        sessionRow && sidebarStore.canArchive(sessionRow)
-          ? () => removeTask(sessionRow)
-          : undefined,
+      onSnooze: snoozeRow ? (until?: number) => {
+        const target = { rowKey: snoozeRow.key, title: snoozeRow.title };
+        if (until !== undefined) applySnooze([target], until, "");
+        else openSnooze(target, menuPoint, true);
+      } : undefined,
     };
   }
 
-  function listedRowActions(row: SidebarTask) {
+  function listedRowActions(row: SidebarSession) {
     return {
       onArchive: sidebarStore.canArchive(row) ? () => removeTask(row) : undefined,
       onPin: row.serverId && sidebarStore.canPinSession(row.sessionId)
@@ -841,7 +782,7 @@
 
   function openRowContextMenu(
     event: MouseEvent | PointerEvent,
-    task: SidebarTask,
+    task: SidebarSession,
   ) {
     if (task.tabIds[0]) {
       openSessionContextMenu(event, { kind: "tab", tabId: task.tabIds[0] });
@@ -856,7 +797,7 @@
     event: MouseEvent | PointerEvent,
     sessionId: string,
     serverId: string | null,
-    row: SidebarTask | null,
+    row: SidebarSession | null,
   ) {
     event.preventDefault();
     event.stopPropagation();
@@ -899,8 +840,8 @@
 
 {#snippet pinnedRow(pin: PinnedSession)}
   {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
-  {@const automationId = openTabId ? sidebarStore.taskForTab(openTabId)?.automationId : sessionListStore.listed(pin.sessionId)?.automationId}
-  {@const codebaseId = openTabId ? sidebarStore.taskForTab(openTabId)?.codebaseId : sessionListStore.listed(pin.sessionId)?.codebaseId}
+  {@const automationId = openTabId ? sidebarStore.rowForTab(openTabId)?.automationId : sessionListStore.listed(pin.sessionId)?.automationId}
+  {@const codebaseId = openTabId ? sidebarStore.rowForTab(openTabId)?.codebaseId : sessionListStore.listed(pin.sessionId)?.codebaseId}
   <PinnedSessionRow
     {isGuest}
     isTooltipQuiet={isRowTooltipQuiet}
@@ -921,10 +862,10 @@
   />
 {/snippet}
 
-{#snippet taskRow(task: SidebarTask, inFolder: boolean)}
+{#snippet taskRow(task: SidebarSession, inFolder: boolean)}
   {@const prChoices = sidebarStore.prChoicesFor(task)}
   {@const sessionId = sidebarStore.sessionIdOfRow(task)}
-  <TaskRow
+  <SidebarRow
     {task}
     isPinned={sidebarStore.isPinned(sessionId, task.serverId)}
     onTogglePin={task.serverId && sidebarStore.canPinSession(sessionId) ? () => {
@@ -958,7 +899,7 @@
     onSnooze={(anchor) =>
       openSnooze({ rowKey: task.key, title: task.title }, anchor)}
     onWake={() => wakeRow(task.key)}
-    onComplete={() => completeTask(task)}
+    onComplete={() => void completeSidebarSession(sidebarStore, task)}
     onClose={() => removeTask(task)}
     onOpenPr={openTaskPr}
     onWarmPr={warmTaskPr}
@@ -1028,8 +969,8 @@
           bind:value={taskQuery}
           type="search"
           placeholder="Search"
-          aria-label="Search sidebar tasks and sessions"
-          title={`Search sidebar tasks and sessions (${comboHint("global.focus-sidebar-task-search")})`}
+          aria-label="Search sidebar sessions"
+          title={`Search sidebar sessions (${comboHint("global.focus-sidebar-task-search")})`}
           class="w-full h-7 rounded-lg border-0 bg-transparent pr-8 pl-[1.5625rem] text-workspace-chrome tracking-[-0.006em] text-foreground outline-none placeholder:text-[color-mix(in_oklch,var(--foreground)_45%,transparent)] [&::-webkit-search-cancel-button]:hidden"
           onkeydown={(event) => {
             if (event.key !== "Escape") return;
@@ -1042,7 +983,7 @@
           <button
             type="button"
             class="absolute top-1/2 right-1 flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_8%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.96]"
-            aria-label="Clear task search"
+            aria-label="Clear session search"
             onclick={() => {
               taskQuery = "";
               taskSearchEl?.focus();
@@ -1073,7 +1014,7 @@
       </button>
       {/if}
     {/snippet}
-    <TaskActionBar
+    <SidebarActionBar
       scopedProject={sidebarStore.scopedProject}
       projectChoices={sidebarStore.projectFilterChoices}
       onFilter={filterToProject}
@@ -1203,7 +1144,7 @@
       ? snoozeTargets[0].title
       : `${snoozeTargets.length} selected sessions`}
     limitResetsAt={snoozeTargets.length === 1
-      ? sidebarStore.allTasks.find((row) => row.key === snoozeTargets[0].rowKey)?.limitResetsAt
+      ? sidebarStore.allRows.find((row) => row.key === snoozeTargets[0].rowKey)?.limitResetsAt
       : undefined}
     onConfirm={(until, note) => void confirmSnooze(until, note)}
     onClose={() => {

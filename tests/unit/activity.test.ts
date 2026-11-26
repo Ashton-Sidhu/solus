@@ -67,6 +67,9 @@ describe('the activity record', () => {
     await appendActivity('local', newActivity({ kind: 'session', id: 's2' }, { kind: 'user', user: BOB }, { kind: 'stopped' }, 30))
 
     expect((await activityFor('local', session)).map((entry) => [entry.kind, entry.at])).toEqual([['stopped', 10], ['renamed', 20]])
+    // Opening a history page needs sender records without decoding unrelated activity.
+    expect(await activityFor('local', session, { kind: 'prompt_sent' })).toEqual([])
+    expect((await activityFor('local', session, { kind: 'stopped' })).map(entry => entry.at)).toEqual([10])
     // The task feed's cap keeps the newest rows, still oldest first.
     expect((await activityFor('local', session, { limit: 1 })).map((entry) => entry.kind)).toEqual(['renamed'])
     expect((await activityFor('local', { userId: BOB.id, since: 15 })).map((entry) => [entry.subject.id, entry.kind])).toEqual([['s1', 'renamed'], ['s2', 'stopped']])

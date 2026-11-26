@@ -75,6 +75,25 @@ describe.serial('the stored host config heals one key at a time', () => {
     expect(savedHostConfig()).toHaveProperty('solusTools', { read_work: false })
   })
 
+  // A person who turned find_works off meant the tool, not its old name.
+  test('a switch saved under a renamed tool applies to its new name', async () => {
+    const settings = await loadSettings('renamed-find-works', {
+      hostConfig: { solusTools: { find_works: false, read_work: false } },
+    })
+    expect(settings.getHostConfig().config.solusTools).toEqual({ list_works: false, read_work: false })
+    settings.setHostConfig({ analyticsEnabled: false })
+    expect(savedHostConfig()).toHaveProperty('solusTools', { list_works: false, read_work: false })
+  })
+
+  // WHY: a tool that was turned off must stay off when it becomes one action
+  // of a grouped tool. Turning the whole group off is the safe reading.
+  test('a switch on a tool that was grouped moves to its new tool, and off wins', async () => {
+    const settings = await loadSettings('grouped-tools', {
+      hostConfig: { solusTools: { delete_webhook: false, create_webhook: true, list_automations: true, read_work: false } },
+    })
+    expect(settings.getHostConfig().config.solusTools).toEqual({ manage_webhooks: false, read_automations: true, read_work: false })
+  })
+
   // The file is local to the host. A key this host does not know (a person's
   // key an older build stored) or a value that no longer validates must cost
   // only that key: the operator's other choices stay.

@@ -1,168 +1,325 @@
 import { describe, expect, test } from 'bun:test'
+import type { AgentHistoryProject } from '@solus/contracts/agent-history'
 import {
-  nextStage,
-  previousStage,
-  stagesFor,
-  surfaceFor,
-  type OnboardingSurface,
+  ageLabel,
+  defaultCheckedProjects,
+  footerFor,
+  isAlreadyDone,
+  nextOpenStep,
+  progressLine,
+  reachRows,
+  shownProjectRows,
+  RECENT_PROJECT_MS,
+  skipEffect,
+  stepsFor,
+  timeline,
+  type AlreadyDoneFacts,
+  type FooterFacts,
+  type OnboardingStep,
 } from '@solus/workspace-ui/components/onboarding/lib/onboarding-model'
+import { stepCopy, type StepCopyFacts } from '@solus/workspace-ui/components/onboarding/lib/step-copy'
+import { agentRow, providerMarkFor } from '@solus/workspace-ui/components/onboarding/lib/agent-rows'
+import { phonePairLink } from '@solus/workspace-ui/components/onboarding/lib/phone-pairing'
+import { radioArrowKey } from '@solus/workspace-ui/components/onboarding/lib/radio-keys'
+import type { ProviderRow } from '@solus/workspace-ui/components/servers/lib/host-onboarding'
 
-const SURFACES: OnboardingSurface[] = ['pointer', 'touch']
+// The one-page onboarding (docs/plans/one-page-onboarding.md).
 
+const NONE = new Set<OnboardingStep>()
 
-describe('first-run onboarding stages', () => {
-  test('naming a new project and choosing existing code are steps inside the flow, never stages the order walks into', () => {
-    // WHY: "Start something new" asks for a name, and "Open existing code" for
-    // a folder, before the flow ends. Continue on the last listed stage must
-    // still end the flow, and no Continue may land on either step without the
-    // start choice that opens it.
-    for (const surface of SURFACES) {
-      for (const flow of ['host', 'cloud'] as const) {
-        expect(stagesFor(surface, flow)).not.toContain('name-project')
-        expect(stagesFor(surface, flow)).not.toContain('open-project')
-        expect(stagesFor(surface, flow)).not.toContain('project')
-      }
-    }
+const FACTS: FooterFacts = {
+  choice: 'account',
+  signingIn: false,
+  signedIn: false,
+  readyAgents: 0,
+  pendingAgent: null,
+  checkedProjects: 0,
+  landingProject: null,
+  machineTarget: 'cloud',
+  machineOffered: true,
+  hasCloudHost: false,
+  hasLinkCommand: false,
+  githubConnected: false,
+  repositoryName: null,
+  isBusy: false,
+}
+
+describe('the steps of each flow', () => {
+  test('the desktop asks where the setup lives first, and the last step follows that answer (decisions 3 and 4)', () => {
+    // WHY: where the setup lives decides where logins and settings are kept,
+    // so it comes before anything is set up. An account offers reach from
+    // anywhere; a machine that keeps everything to itself offers its phone.
+    expect(stepsFor('desktop', 'account')).toEqual(['setup', 'agents', 'projects', 'reach'])
+    expect(stepsFor('desktop', 'local')).toEqual(['setup', 'agents', 'projects', 'phone'])
   })
 
-  test('the greeting leads into the first question and is never returned to', () => {
-    expect(nextStage('intro', 'pointer')).toBe('agents')
-    expect(previousStage('agents', 'pointer')).toBeNull()
-    // 'intro' is not an asking stage, so it has no position to step back from.
-    expect(previousStage('intro', 'pointer')).toBeNull()
+  test('a browser paired to a host has no account to choose, so it gets the local steps without step 1', () => {
+    expect(stepsFor('host', 'account')).toEqual(['agents', 'projects', 'phone'])
   })
 
-  test('every stage runs forward into the next one', () => {
-    expect(nextStage('agents', 'pointer')).toBe('start')
-    expect(nextStage('intro', 'touch')).toBe('getting-around')
-    expect(nextStage('getting-around', 'touch')).toBe('host')
-    expect(nextStage('host', 'touch')).toBe('start')
+  test('the web flow is where agents run, the agents, and the code (decision 5)', () => {
+    expect(stepsFor('cloud', 'account')).toEqual(['machine', 'agents', 'code'])
+    expect(stepsFor('cloud', 'local')).toEqual(['machine', 'agents', 'code'])
   })
 
-  test('the last stage reports the end of the flow rather than another stage', () => {
-    // The surface finishes on null. Returning a stage here would loop the user
-    // back into onboarding after they had already chosen where to land.
-    for (const surface of SURFACES) {
-      for (const offersCloudConnect of [true, false]) {
-        expect(stagesFor(surface).at(-1)).toBe('start')
-        expect(nextStage('start', surface, 'host', { offersCloudConnect })).toBeNull()
-      }
-    }
+  test('Skip on step 1 keeps everything on this machine; elsewhere it only moves on (decision 3)', () => {
+    expect(skipEffect('setup')).toBe('choose-local')
+    for (const step of ['agents', 'projects', 'phone', 'reach', 'machine', 'code'] as const) expect(skipEffect(step)).toBe('next')
   })
 
-  test('where the shell holds an account, the Solus Cloud offer comes just before the choice of where to start', () => {
-    // WHY: the flow must end on "How do you want to start?", because that
-    // answer opens the workspace. An account step after it would hold the user
-    // on onboarding after they had chosen where to work.
-    const withCloud = { offersCloudConnect: true }
-    expect(nextStage('agents', 'pointer', 'host', withCloud)).toBe('cloud-connect')
-    expect(nextStage('cloud-connect', 'pointer', 'host', withCloud)).toBe('start')
-    expect(previousStage('start', 'pointer', 'host', withCloud)).toBe('cloud-connect')
-    expect(nextStage('host', 'touch', 'host', withCloud)).toBe('cloud-connect')
-  })
-
-  test('without an account to connect, the Solus Cloud offer is never shown', () => {
-    // The web and mobile shells hold no account: the offer would be a dead end.
-    for (const surface of SURFACES) {
-      const beforeStart = surface === 'touch' ? 'host' : 'agents'
-      expect(nextStage(beforeStart, surface)).toBe('start')
-      expect(previousStage('start', surface)).toBe(beforeStart)
-    }
-  })
-
-  test('no stage connects an account: GitHub, Google, and Atlassian are in Settings', () => {
-    // WHY: the maintainers removed the connections step from onboarding. A
-    // connection is made in Settings, or when an agent asks for one.
-    for (const surface of SURFACES) {
-      for (const flow of ['host', 'cloud'] as const) {
-        expect(stagesFor(surface, flow) as string[]).not.toContain('providers')
-      }
-    }
-  })
-
-  test('back and forward are inverses across every asking stage', () => {
-    for (const surface of SURFACES) {
-      for (const offersCloudConnect of [true, false]) {
-        const conditions = { offersCloudConnect }
-        const shown = stagesFor(surface).filter((stage) => offersCloudConnect || stage !== 'cloud-connect')
-        for (const stage of shown) {
-          const next = nextStage(stage, surface, 'host', conditions)
-          if (!next) continue
-          expect(previousStage(next, surface, 'host', conditions)).toBe(stage)
-        }
-        // The greeting is not a place to return to, on either flow.
-        expect(previousStage(shown[0], surface, 'host', conditions)).toBeNull()
-      }
-    }
+  test('the next open step is the first one not done, so an edited step returns to where the person was', () => {
+    const steps = stepsFor('desktop', 'local')
+    expect(nextOpenStep(steps, new Set(['setup']))).toBe('agents')
+    expect(nextOpenStep(steps, new Set(['setup', 'agents', 'projects']))).toBe('phone')
+    expect(nextOpenStep(steps, new Set(steps))).toBeNull()
   })
 })
 
-describe('cloud onboarding stages', () => {
-  test('a cloud account asks for a machine, its agents, GitHub, then where to start', () => {
-    expect(nextStage('intro', 'pointer', 'cloud')).toBe('compute')
-    expect(nextStage('compute', 'pointer', 'cloud')).toBe('agents')
-    expect(nextStage('agents', 'pointer', 'cloud')).toBe('github')
-    expect(nextStage('github', 'pointer', 'cloud')).toBe('start')
-    expect(nextStage('start', 'pointer', 'cloud')).toBeNull()
-    expect(nextStage('intro', 'touch', 'cloud')).toBe('getting-around')
-    expect(nextStage('getting-around', 'touch', 'cloud')).toBe('compute')
+describe('the timeline', () => {
+  test('one step is open, done steps fold with a check, and the rest are next', () => {
+    const entries = timeline({ steps: stepsFor('desktop', 'local'), open: 'projects', done: new Set(['setup', 'agents']), working: NONE, signingIn: false })
+    expect(entries.map((entry) => [entry.step, entry.status, entry.marker])).toEqual([
+      ['setup', 'done', 'check'],
+      ['agents', 'done', 'check'],
+      ['projects', 'open', 'number'],
+      ['phone', 'next', 'number'],
+    ])
+    expect(entries.filter((entry) => entry.status === 'open')).toHaveLength(1)
   })
 
-  test('continuing or skipping GitHub still asks where to start on every surface', () => {
-    // GitHub is optional: skipping setup must preserve the choice of a folder,
-    // a new project, or chat instead of closing the account's onboarding.
-    for (const surface of SURFACES) {
-      for (const skipsAgents of [true, false]) {
-        expect(nextStage('github', surface, 'cloud', { skipsAgents })).toBe('start')
-        expect(previousStage('start', surface, 'cloud', { skipsAgents })).toBe('github')
-        expect(stagesFor(surface, 'cloud').at(-1)).toBe('start')
-      }
-    }
+  test('while the browser sign-in runs, step 1 spins and every other step waits on it (decision 3)', () => {
+    // WHY: the account decides where logins go; an agent signed in before the
+    // sign-in ends would be kept in the wrong place.
+    const entries = timeline({ steps: stepsFor('desktop', 'account'), open: 'setup', done: NONE, working: NONE, signingIn: true })
+    expect(entries[0]).toMatchObject({ step: 'setup', status: 'open', marker: 'spinner' })
+    expect(entries.slice(1).map((entry) => entry.status)).toEqual(['waiting', 'waiting', 'waiting'])
+    expect(stepCopy('agents', 'waiting', COPY).detail).toBe('Opens after you sign in')
   })
 
-  test('back from existing code returns to the start choice, and a repository returns to existing code', () => {
-    for (const surface of SURFACES) {
-      for (const flow of ['host', 'cloud'] as const) {
-        expect(previousStage('open-project', surface, flow)).toBe('start')
-        expect(nextStage('open-project', surface, flow)).toBeNull()
-      }
-      expect(previousStage('project', surface, 'cloud')).toBe('open-project')
-      expect(nextStage('project', surface, 'cloud')).toBeNull()
-    }
+  test('a done step whose work goes on in the background keeps a spinner marker', () => {
+    const entries = timeline({ steps: stepsFor('cloud', 'account'), open: 'agents', done: new Set(['machine']), working: new Set(['machine']), signingIn: false })
+    expect(entries[0]).toMatchObject({ step: 'machine', status: 'done', marker: 'spinner' })
   })
 
-  test('with no machine chosen there are no agents to ask about, in either direction', () => {
-    // The workspace service runs no agents; asking it is what failed before.
-    for (const surface of SURFACES) {
-      expect(nextStage('compute', surface, 'cloud', { skipsAgents: true })).toBe('github')
-      expect(previousStage('github', surface, 'cloud', { skipsAgents: true })).toBe('compute')
-    }
-  })
-
-  test('the host flow never shows a cloud stage', () => {
-    for (const surface of SURFACES) {
-      for (const stage of ['compute', 'github', 'project'] as const) {
-        expect(stagesFor(surface, 'host')).not.toContain(stage)
-      }
-    }
-  })
-
-  test('the cloud flow never offers to connect to Solus Cloud', () => {
-    // It is already signed in to Solus Cloud.
-    for (const surface of SURFACES) {
-      expect(stagesFor(surface, 'cloud')).not.toContain('cloud-connect')
-    }
+  test('the header counts steps, and names an optional last step as optional', () => {
+    const steps = stepsFor('desktop', 'local')
+    expect(progressLine(steps, 'agents')).toBe('Step 2 of 4.')
+    expect(progressLine(steps, 'phone')).toBe('Last step, and it’s optional.')
+    expect(progressLine(stepsFor('cloud', 'account'), 'code')).toBe('Step 3 of 3.')
+    expect(progressLine(stepsFor('cloud', 'account'), null)).toBe('is ready.')
   })
 })
 
-describe('choosing a surface', () => {
-  test('only a device with no precise pointer gets the touch flow', () => {
-    // Not desktop-versus-web. A browser on a laptop has the same keyboard and
-    // the same room as the desktop app, so it gets the pointer flow; an iPad
-    // with a Magic Keyboard reports a fine pointer and gets it too. What the
-    // flow branches on is whether there is anything to press.
-    expect(surfaceFor({ isTouchDevice: true, hasKeyboardPointer: false })).toBe('touch')
-    expect(surfaceFor({ isTouchDevice: true, hasKeyboardPointer: true })).toBe('pointer')
-    expect(surfaceFor({ isTouchDevice: false, hasKeyboardPointer: true })).toBe('pointer')
+describe('the footer', () => {
+  test('step 1 signs in with the account preselected, and waits on the browser while it runs', () => {
+    expect(footerFor('setup', FACTS).primaryLabel).toBe('Sign in to Solus Cloud')
+    expect(footerFor('setup', { ...FACTS, choice: 'local' }).primaryLabel).toBe('Continue')
+    const waiting = footerFor('setup', { ...FACTS, signingIn: true })
+    expect(waiting).toMatchObject({ primaryLabel: 'Continue', primaryEnabled: false, hint: 'Waiting for your browser…' })
+  })
+
+  test('one ready agent is enough to continue; none still lets the person skip', () => {
+    expect(footerFor('agents', FACTS)).toMatchObject({ primaryEnabled: false, secondary: 'skip' })
+    expect(footerFor('agents', { ...FACTS, readyAgents: 1 }).primaryEnabled).toBe(true)
+    expect(footerFor('agents', { ...FACTS, pendingAgent: 'Codex' }).hint).toBe('Codex can finish later.')
+  })
+
+  test('the last desktop step starts in the first chosen project', () => {
+    expect(footerFor('projects', { ...FACTS, checkedProjects: 3 }).primaryLabel).toBe('Add 3 projects')
+    expect(footerFor('phone', { ...FACTS, landingProject: 'solus' }).primaryLabel).toBe('Start in solus')
+    expect(footerFor('reach', FACTS).primaryLabel).toBe('Start')
+  })
+
+  test('the cloud ready state starts in the repository and offers to invite the team instead of Skip', () => {
+    expect(footerFor(null, { ...FACTS, repositoryName: 'landing-page' })).toMatchObject({ primaryLabel: 'Start in landing-page', secondary: 'invite' })
+  })
+
+  test('the code step needs GitHub, then a repository, before it can clone', () => {
+    expect(footerFor('code', FACTS).primaryLabel).toBe('Connect GitHub')
+    expect(footerFor('code', { ...FACTS, githubConnected: true }).primaryEnabled).toBe(false)
+    expect(footerFor('code', { ...FACTS, githubConnected: true, repositoryName: 'api' })).toMatchObject({ primaryLabel: 'Clone and start', primaryEnabled: true })
+  })
+
+  test('a running action disables the primary, so Enter cannot start it twice', () => {
+    expect(footerFor('projects', { ...FACTS, isBusy: true }).primaryEnabled).toBe(false)
+  })
+})
+
+describe('reach it from anywhere (decision 4)', () => {
+  test('Link this Mac is off by default: an unknown link state reads as off', () => {
+    expect(reachRows({ linked: undefined, busy: false, signedIn: true }).link.checked).toBe(false)
+    expect(reachRows({ linked: false, busy: false, signedIn: true }).link.checked).toBe(false)
+    expect(reachRows({ linked: true, busy: false, signedIn: true }).link.checked).toBe(true)
+  })
+
+  test('sharing with the organization is disabled until the link is on', () => {
+    const off = reachRows({ linked: false, busy: false, signedIn: true })
+    expect(off.share).toEqual({ disabled: true, detail: 'Link this Mac first.' })
+    expect(reachRows({ linked: true, busy: false, signedIn: true }).share.disabled).toBe(false)
+  })
+
+  test('nothing can be linked without the account, or while a link change runs', () => {
+    expect(reachRows({ linked: false, busy: false, signedIn: false }).link.disabled).toBe(true)
+    expect(reachRows({ linked: true, busy: true, signedIn: true }).share.disabled).toBe(true)
+  })
+})
+
+describe('projects from agent history (decision 6)', () => {
+  const now = Date.UTC(2026, 10, 26)
+  const project = (name: string, daysAgo: number, extra: Partial<AgentHistoryProject> = {}): AgentHistoryProject => ({
+    path: `/Users/a/${name}`,
+    name,
+    sources: ['claude-code'],
+    threadCount: 1,
+    lastUsedAt: now - daysAgo * 86_400_000,
+    exists: true,
+    isProject: false,
+    ...extra,
+  })
+
+  test('every folder the button counts has its check on screen', () => {
+    // WHY: five recent folders are checked but four rows show; a hidden check
+    // made "Add 5 projects" disagree with the four checks in view.
+    const rows = ['a', 'b', 'c', 'd', 'e', 'f'].map((name) => ({ path: `/Users/a/${name}` }))
+    const checked = new Set(['/Users/a/a', '/Users/a/e'])
+    expect(shownProjectRows(rows, checked, false).map((row) => row.path)).toEqual(['/Users/a/a', '/Users/a/b', '/Users/a/c', '/Users/a/d', '/Users/a/e'])
+    expect(shownProjectRows(rows, checked, true)).toHaveLength(6)
+  })
+
+  test('the recent folders are checked; old, missing, and already added folders are not', () => {
+    const checked = defaultCheckedProjects([
+      project('old', RECENT_PROJECT_MS / 86_400_000 + 1),
+      project('solus', 0),
+      project('gone', 1, { exists: false }),
+      project('added', 1, { isProject: true }),
+      project('t3code', 3),
+    ], now)
+    expect(checked).toEqual(['/Users/a/solus', '/Users/a/t3code'])
+  })
+
+  test('at most five are checked, newest first', () => {
+    const many = Array.from({ length: 8 }, (_, index) => project(`p${index}`, index))
+    expect(defaultCheckedProjects(many, now)).toEqual(['p0', 'p1', 'p2', 'p3', 'p4'].map((name) => `/Users/a/${name}`))
+  })
+
+  test('the age fits the row’s trailing lane', () => {
+    expect([0, 3, 14, 90].map((days) => ageLabel(now - days * 86_400_000, now))).toEqual(['today', '3d', '2w', '3mo'])
+  })
+})
+
+const COPY: StepCopyFacts = {
+  flow: 'desktop',
+  choice: 'local',
+  email: null,
+  machineNoun: 'Mac',
+  readyAgentNames: ['Claude Code'],
+  laterAgentNames: ['Codex'],
+  projectNames: ['solus', 'solus-cloud', 't3code'],
+  machine: { target: 'cloud', isWorking: true, summary: 'Starting in the background · about a minute' },
+  repository: null,
+  folded: new Set(),
+}
+
+describe('a step with nothing left to do folds as done (decision 10)', () => {
+  const now = Date.UTC(2026, 10, 26)
+  const NOTHING: AlreadyDoneFacts = {
+    flow: 'desktop', isSignedIn: false, hasEveryHostAgent: false, history: null, now,
+    isLinked: false, hasMachine: false, hasAccountAgent: false, hasCloudProject: false,
+  }
+  const folder = (isProject: boolean, daysAgo = 0): AgentHistoryProject => ({
+    path: `/Users/a/${isProject ? 'added' : 'new'}-${daysAgo}`, name: 'x', sources: ['codex'], threadCount: 1,
+    lastUsedAt: now - daysAgo * 86_400_000, exists: true, isProject,
+  })
+
+  test('nothing folds on facts that are false or not known yet', () => {
+    const steps: OnboardingStep[] = ['setup', 'agents', 'projects', 'reach', 'phone', 'machine', 'code']
+    expect(steps.filter((step) => isAlreadyDone(step, NOTHING))).toEqual([])
+  })
+
+  test('on a second device the account and this Mac answer the desktop steps', () => {
+    const facts = { ...NOTHING, isSignedIn: true, hasEveryHostAgent: true, isLinked: true, history: [folder(true)] }
+    expect((['setup', 'agents', 'projects', 'reach'] as const).every((step) => isAlreadyDone(step, facts))).toBe(true)
+  })
+
+  test('one agent signed in is not enough to fold the desktop Agents step', () => {
+    // WHY: the step is where the second agent signs in on this Mac; the account cannot do it.
+    expect(isAlreadyDone('agents', { ...NOTHING, hasAccountAgent: true })).toBe(false)
+  })
+
+  test('Projects folds only when every recent folder is a project already, never for a first-time person', () => {
+    expect(isAlreadyDone('projects', { ...NOTHING, history: [] })).toBe(false)
+    expect(isAlreadyDone('projects', { ...NOTHING, history: [folder(true), folder(false, 1)] })).toBe(false)
+    expect(isAlreadyDone('projects', { ...NOTHING, history: [folder(true), folder(false, 60)] })).toBe(true)
+  })
+
+  test('the cloud steps fold on what the account already has', () => {
+    const cloud = { ...NOTHING, flow: 'cloud' as const, hasMachine: true, hasAccountAgent: true, hasCloudProject: true }
+    expect((['machine', 'agents', 'code'] as const).every((step) => isAlreadyDone(step, cloud))).toBe(true)
+    expect(isAlreadyDone('setup', { ...cloud, isSignedIn: true })).toBe(false)
+  })
+
+  test('the phone step never folds', () => {
+    expect(isAlreadyDone('phone', { ...NOTHING, isSignedIn: true, isLinked: true })).toBe(false)
+  })
+})
+
+describe('the words of a folded step', () => {
+  test('a done step says what was decided, in one line', () => {
+    expect(stepCopy('setup', 'done', COPY)).toMatchObject({ title: 'This Mac only', editLabel: 'Change' })
+    expect(stepCopy('agents', 'done', COPY).detail).toBe('Claude Code ready · Codex later')
+    expect(stepCopy('projects', 'done', COPY).detail).toBe('solus, solus-cloud, t3code')
+  })
+
+  test('a step that opened folded says what was already true, not what was skipped', () => {
+    const folded = { ...COPY, projectNames: [], folded: new Set<OnboardingStep>(['projects', 'reach', 'code']) }
+    expect(stepCopy('projects', 'done', folded).detail).toBe('Your recent folders are projects already')
+    expect(stepCopy('reach', 'done', folded).detail).toBe('This Mac is linked to your account')
+    expect(stepCopy('code', 'done', { ...folded, flow: 'cloud' }).detail).toBe('Your projects are in Solus Cloud already')
+  })
+
+  test('a cloud host that still starts offers Change, not Edit', () => {
+    expect(stepCopy('machine', 'done', { ...COPY, flow: 'cloud' }).editLabel).toBe('Change')
+  })
+})
+
+describe('an agent row in the Agents step (§3.1)', () => {
+  test("each row shows its agent's own logo", () => {
+    // WHY: the Antigravity row passed its setup id `agy` as the mark, which no mark knows, so it drew no logo.
+    expect([providerMarkFor('claude'), providerMarkFor('codex'), providerMarkFor('agy')]).toEqual(['claude', 'codex', 'antigravity'])
+  })
+
+  const row = (state: ProviderRow['state']): ProviderRow => ({ id: 'codex', label: 'Codex', detail: 'Installed · not signed in', state, actionLabel: 'Sign in' })
+
+  test('a host that is not signed in offers its own sign-in', () => {
+    expect(agentRow({ row: row('available'), verification: undefined, machineNoun: 'Mac' }).trailing)
+      .toEqual({ kind: 'action', text: 'Sign in' })
+  })
+
+  test('a signed-in host is ready, and its login stays on the host in either setup', () => {
+    // WHY (decision 7): cloud hosts sign in on their own, so the row never speaks of the account.
+    expect(agentRow({ row: row('done'), verification: undefined, machineNoun: 'Mac' }))
+      .toEqual({ detail: 'Signed in on this Mac', trailing: { kind: 'ready', text: 'Ready' } })
+  })
+
+  test('a relayed login waits on the browser', () => {
+    const verification = { verificationUrl: 'https://auth.openai.com/device', userCode: 'ABCD-1234', requiresCodeInput: false }
+    expect(agentRow({ row: row('busy'), verification, machineNoun: 'Mac' }).trailing.text).toBe('Finish in your browser')
+  })
+})
+
+describe('small interaction rules', () => {
+  test('the phone pairs over the local network, never through a loopback address', () => {
+    const loopback = { kind: 'loopback' as const, host: '127.0.0.1', port: 4100 }
+    const lan = { kind: 'lan' as const, host: '192.168.1.4', port: 4100 }
+    expect(phonePairLink([loopback], 'token')).toBeNull()
+    expect(phonePairLink([loopback, lan], 'token')).toContain('192.168.1.4')
+    expect(phonePairLink([lan], null)).toBeNull()
+  })
+
+  test('arrow keys move through a radio group and wrap', () => {
+    expect(radioArrowKey('ArrowDown', ['account', 'local'], 'account')).toBe('local')
+    expect(radioArrowKey('ArrowDown', ['account', 'local'], 'local')).toBe('account')
+    expect(radioArrowKey('ArrowUp', ['account', 'local'], 'account')).toBe('local')
+    expect(radioArrowKey('Enter', ['account', 'local'], 'account')).toBeNull()
   })
 })

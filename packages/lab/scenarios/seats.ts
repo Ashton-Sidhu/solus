@@ -17,8 +17,9 @@ const caraUserId = PERSONAS.cara.kind === 'org-member' ? PERSONAS.cara.userId : 
 
 /**
  * The renderer's prompt context for a conversation in the Lab's working directory; a
- * provider thread id resumes it. The window has the Lab organization selected: on a
- * machine attached for organization work, a new root needs one (plans/009-organization-vms.md §1).
+ * provider thread id resumes it. The window has the Lab organization selected: a cloud
+ * machine starts the session in it on the Solus API, and a personal host assigns the
+ * session to it (plans/034-one-cloud-machine-kind.md §2).
  */
 function promptContext(ctx: ScenarioContext, sessionId: string, agentSessionId: string | null = null): IpcContext {
   const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, gitContext: null, worktreeBaseBranch: null, contextWindow: null, permissionMode: 'full-access', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null, organizationId: ORGANIZATION_ID }
@@ -71,9 +72,9 @@ async function connectStep(ctx: ScenarioContext, dan: LabClient, bob: LabClient)
 }
 
 async function hostLoginStep(ctx: ScenarioContext, alice: LabClient): Promise<void> {
-  ctx.step('the host\'s own work runs on the host login; on a managed host nobody is the host')
+  ctx.step('the host\'s own work runs on the host login; on a cloud machine nobody is the host')
   if (ctx.hostKind !== 'personal') {
-    await expectRefused(ctx, 'alice, an organization owner without a seat, is refused like any member', prompt(alice, ctx, 'alice-managed', 'alice on managed'), 'SEAT_REQUIRED')
+    await expectRefused(ctx, 'alice, an organization owner without a seat, is refused like any member', prompt(alice, ctx, 'alice-cloud-machine', 'alice on a cloud machine'), 'SEAT_REQUIRED')
     return
   }
   const ownerSeats = await expectOk(ctx, 'alice, the owner, lists her seats: the host login', alice.rpc('seatList'))

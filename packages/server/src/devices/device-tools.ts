@@ -8,6 +8,7 @@ import { deviceErrorDetail } from './device-errors'
 import { resolveNodeRuntime, runDeviceCommand } from './device-process'
 import { isAbsolute, resolve } from 'node:path'
 import { deviceBuildFits } from '@solus/contracts/device-types'
+import { AGENT_LABELS } from '@solus/contracts/types'
 import { resolveHomePath } from '../platform/paths'
 
 /**
@@ -160,7 +161,7 @@ export const deviceOpenAgentTool = deviceTool({
     const command = await ensureAgentDeviceShim({ dir: domain.agentConfigDir, nodePath: node.nodePath, entryPath: cli.entryPath })
     const preview = await manager.open({ sessionId, deviceHostId: target.deviceHostId, deviceId: target.deviceId, platform: target.platform }, 'agent')
     const device = manager.findDevice(preview.deviceHostId, preview.deviceId) ?? target
-    const label = `${context.provider === 'codex' ? 'Codex' : 'Claude'} agent`
+    const label = `${AGENT_LABELS[context.provider]} agent`
     const agentSession = agentSessionName(sessionId, device.deviceHostId, device.deviceId)
     const bridgeUrl = await domain.bridge.start()
     const token = domain.bridge.bind({ sessionId, deviceHostId: device.deviceHostId, deviceId: device.deviceId, platform: device.platform, agentSession, label })
@@ -226,7 +227,7 @@ export const deviceCloseAgentTool = deviceTool({
         && closing.some((item) => item.deviceHostId === preview.deviceHostId && item.deviceId === preview.deviceId))
       if (others.length > 0) return { ok: false, text: 'Another session is using this device, so it was not powered off. Close it here without shutdown.' }
     }
-    const holder = { kind: 'agent' as const, sessionId, label: `${context.provider === 'codex' ? 'Codex' : 'Claude'} agent` }
+    const holder = { kind: 'agent' as const, sessionId, label: `${AGENT_LABELS[context.provider]} agent` }
     const snapshot = manager.state()
     for (const preview of closing) {
       const kind = snapshot.hosts.find((host) => host.deviceHostId === preview.deviceHostId)?.kind
@@ -268,7 +269,7 @@ export const deviceInstallAgentTool = deviceTool({
       return { ok: true, text: [recorded, fits.length ? `Devices that can run it: ${fits.map((device) => `${device.name} (${device.deviceId}${device.physical || device.booted ? '' : ', stopped'})`).join(', ')}. Pass one as deviceId to install and show it.` : 'No device on this host can run it.'].join('\n') }
     }
     let target = { deviceHostId: input.deviceHostId ?? LOCAL_DEVICE_HOST_ID, deviceId: input.deviceId }
-    const holder = { kind: 'agent' as const, sessionId, label: `${context.provider === 'codex' ? 'Codex' : 'Claude'} agent` }
+    const holder = { kind: 'agent' as const, sessionId, label: `${AGENT_LABELS[context.provider]} agent` }
     // A simulator or emulator opens beside the conversation (booting if it
     // is stopped), so the person sees the app the moment it launches.
     const chosen = (await manager.resolveDevice(target.deviceHostId, target.deviceId)).device

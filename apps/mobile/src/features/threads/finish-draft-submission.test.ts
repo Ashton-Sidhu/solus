@@ -3,6 +3,9 @@ import { expect, it, vi } from "vite-plus/test";
 import type { submittedThreadParams } from "./thread-route-state";
 
 const state = vi.hoisted(() => ({ text: "First prompt", clear: vi.fn(), cleanup: vi.fn() }));
+const keyboard = vi.hoisted(() => ({ isVisible: vi.fn(() => false), dismiss: vi.fn<() => Promise<void>>() }));
+vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
+vi.mock("react-native-keyboard-controller", () => ({ KeyboardController: keyboard }));
 vi.mock("@react-navigation/native", () => ({
   CommonActions: {
     setParams: (params: ReturnType<typeof submittedThreadParams>) => ({
@@ -54,4 +57,18 @@ it("does not navigate or clear after the account changes or the local save fails
     async () => { throw new Error("disk full"); })).rejects.toThrow("disk full");
   expect(dispatch).not.toHaveBeenCalled();
   expect(state.clear).not.toHaveBeenCalled();
+});
+
+it("starts closing the iOS keyboard at enqueue and opens the saved prompt without waiting for dismissal", async () => {
+  const closed = Promise.withResolvers<void>();
+  const saved = Promise.withResolvers<void>();
+  keyboard.isVisible.mockReturnValueOnce(true);
+  keyboard.dismiss.mockReturnValueOnce(closed.promise);
+  const dispatch = vi.fn();
+  const sent = submitNewTaskDraft({ dispatch }, "draft", message.text, message, () => saved.promise);
+  expect(keyboard.dismiss).toHaveBeenCalledWith({ animated: false });
+  saved.resolve();
+  expect(await sent).toBe(message.messageId);
+  expect(dispatch).toHaveBeenCalledOnce();
+  closed.resolve();
 });

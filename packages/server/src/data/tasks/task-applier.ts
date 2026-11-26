@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { OutboxOp } from '@solus/contracts/outbox-types'
 import { attributionSchema } from '@solus/contracts/user'
-import { parseTaskKey } from '@solus/contracts/task-sources'
+import { parseIssueKey } from '@solus/contracts/task-sources'
 import { PermanentApplyError, registerOutboxApplier } from '../../sync/outbox/outbox-store'
 import { commentOnTask, moveTaskToStatus } from './task'
 
@@ -18,7 +18,7 @@ const taskStatusPayloadSchema = z.object({ status: z.string() })
  */
 export function registerTaskOutboxApplier(): void {
   registerOutboxApplier('tasks', async (op: OutboxOp, { organizationId }) => {
-    if (!parseTaskKey(op.resourceId)) throw new PermanentApplyError(`"${op.resourceId}" is not a task of GitHub or Jira.`)
+    if (!parseIssueKey(op.resourceId)) throw new PermanentApplyError(`"${op.resourceId}" is not a task of GitHub or Jira.`)
     if (op.name === 'comment') {
       const payload = taskCommentPayloadSchema.parse(op.payload)
       await commentOnTask(organizationId, op.resourceId, {

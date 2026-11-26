@@ -9,6 +9,7 @@ export type SessionAction = {
   icon: Component<{ size?: number }>;
   /** Formatted default shortcut, or "" when the action has none. */
   shortcut: string;
+  count?: number;
   isDisabled?: boolean;
   run: () => void;
 };

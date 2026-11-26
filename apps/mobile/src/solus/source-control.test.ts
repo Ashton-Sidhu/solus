@@ -6,6 +6,7 @@ import { EnvironmentId, ProjectId, IssueTrackerKind } from "@t3tools/contracts";
 import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { issueIdentity, issueTarget } from "../features/issues/issueParams";
+import { canPerformPullRequestAction } from "../features/pull-requests/pullRequestActions";
 import {
   prDiffContents, solusIssueActivity, solusIssueDetail, solusIssueList, solusPrDetail, solusPrList, solusPrStack,
 } from "./source-control";
@@ -25,24 +26,26 @@ const host = vi.hoisted(() => ({
   prEnableStackAutoMerge: vi.fn(),
   prDisableStackAutoMerge: vi.fn(),
   prChecks: vi.fn(),
+  prPendingWorkflowRuns: vi.fn(),
+  prApproveWorkflowRuns: vi.fn(),
   prViewedFiles: vi.fn(),
   prSetFilesViewed: vi.fn(),
   prSetLabels: vi.fn(),
   prSubmitReview: vi.fn(),
   prOpenReview: vi.fn(),
   prGetDiffFileContents: vi.fn(),
-  tasksUpdate: vi.fn(),
-  tasksMove: vi.fn(),
+  issuesUpdate: vi.fn(),
+  issuesMove: vi.fn(),
   generation: 1,
   accountScope: "account",
   readiness: "ready",
   allowed: true,
   changes: new Set<() => void>(),
   providerViewer: vi.fn(async () => ({ login: "reader" })),
-  tasksGet: vi.fn(),
-  tasksResolve: vi.fn(),
-  tasksSearch: vi.fn(),
-  tasksSidebarSnapshot: vi.fn(),
+  issuesGet: vi.fn(),
+  issuesResolve: vi.fn(),
+  issuesSearch: vi.fn(),
+  issuesList: vi.fn(),
 }));
 vi.mock("./runtime", async () => {
   const { PullRequestCache, memoryPullRequestCacheDatabase } =
@@ -65,7 +68,7 @@ vi.mock("./runtime", async () => {
         connection: () => ({ state: { readiness: host.readiness }, api: host }),
       },
       personal: {
-        current: () => ({ taskSources: [{ kind: "github-repo", owner: "team", repo: "app" }] }),
+        current: () => ({ issueSources: [{ kind: "github-repo", owner: "team", repo: "app" }] }),
       },
       pullRequests: {
         context: (projectRoot: string) => ({ projectRoot }),
@@ -222,8 +225,8 @@ it("opens a provider search result by its Solus task id even if it is outside th
     updatedAt: 1700000000000,
     labels: ["bug"],
   };
-  host.tasksSearch.mockResolvedValueOnce([task]);
-  host.tasksGet.mockResolvedValueOnce({ task, comments: [] });
+  host.issuesSearch.mockResolvedValueOnce([task]);
+  host.issuesGet.mockResolvedValueOnce({ task, comments: [] });
   const registry = AtomRegistry.make();
   try {
     const list = await executeAtomQuery(
@@ -235,7 +238,7 @@ it("opens a provider search result by its Solus task id even if it is outside th
     );
     if (list._tag !== "Success") throw new Error("Task search failed");
     expect(list.value.entries[0]).toMatchObject({ key: "42", solusTaskId: task.id });
-    expect(host.tasksSearch.mock.lastCall?.slice(1)).toEqual(["Crash", "assigned"]);
+    expect(host.issuesSearch.mock.lastCall?.slice(1)).toEqual(["Crash", "assigned"]);
     const detail = await executeAtomQuery(
       registry,
       solusIssueDetail({
@@ -254,7 +257,7 @@ it("opens a provider search result by its Solus task id even if it is outside th
       _tag: "Success",
       value: { title: "Crash", body: "Steps to reproduce" },
     });
-    expect(host.tasksSidebarSnapshot).not.toHaveBeenCalled();
+    expect(host.issuesList).not.toHaveBeenCalled();
   } finally {
     registry.dispose();
   }
@@ -289,10 +292,10 @@ it("shows named GitHub statuses and sends the picked status ID through the selec
     },
   };
   const detail = { task, comments: [], statusOptions: { columns, canSetStatus: true } };
-  host.tasksGet.mockResolvedValueOnce(detail).mockResolvedValueOnce(detail)
+  host.issuesGet.mockResolvedValueOnce(detail).mockResolvedValueOnce(detail)
     .mockResolvedValue({ ...detail, statusOptions: { columns, canSetStatus: false } });
-  host.tasksSearch.mockResolvedValueOnce([task]);
-  host.tasksMove.mockClear();
+  host.issuesSearch.mockResolvedValueOnce([task]);
+  host.issuesMove.mockClear();
   const registry = AtomRegistry.make();
   try {
     expect(await executeAtomQuery(registry, solusIssueList({
@@ -304,11 +307,11 @@ it("shows named GitHub statuses and sends the picked status ID through the selec
     });
     const move = { ...target, input: { ...target.input, state: "In review" } };
     expect(await runAtomCommand(registry, moveIssue, move, quiet)).toMatchObject({ _tag: "Success" });
-    expect(host.tasksMove).toHaveBeenCalledWith(task.id, { statusId: "PS_review" });
+    expect(host.issuesMove).toHaveBeenCalledWith(task.id, { statusId: "PS_review" });
     expect(await runAtomCommand(registry, moveIssue, move, quiet)).toMatchObject({ _tag: "Failure" });
-    expect(host.tasksMove).toHaveBeenCalledTimes(1);
+    expect(host.issuesMove).toHaveBeenCalledTimes(1);
   } finally {
-    host.tasksGet.mockReset();
+    host.issuesGet.mockReset();
     registry.dispose();
   }
 });
@@ -355,6 +358,58 @@ it("loads the PR summary with reviewers and leaves commits to Activity", async (
     expect(host.prChecks).toHaveBeenCalledWith(hostPr.repo, [7]);
   } finally {
     registry.dispose();
+  }
+});
+
+it.each([
+  ["reviewed", 1],
+  ["older", undefined],
+])("shows the workflow approval count only for the PR head (%s)", async (headSha, count) => {
+  const registry = AtomRegistry.make();
+  host.prGetOverview.mockResolvedValueOnce({
+    pullRequest: {
+      ...pr, number: 7, title: "Waiting for CI", url: "https://github.com/team/app/pull/7",
+      state: "open", headRepo: { owner: "team", repo: "app", isFork: false },
+      capabilities: { actions: ["approve-workflows"], mergeMethods: [] },
+      viewerPermissions: { actions: ["approve-workflows"] },
+    },
+    reviewers: [],
+  });
+  host.prChecks.mockResolvedValueOnce({ checks: [] });
+  host.prPendingWorkflowRuns.mockResolvedValueOnce({ headSha, runs: [{ id: 1, name: "CI", url: null }] });
+  try {
+    const result = await executeAtomQuery(registry, solusPrDetail({ environmentId, input: pullRequest }));
+    expect(result).toMatchObject({
+      _tag: "Success",
+      value: {
+        capabilities: { actions: ["approve-workflows"] },
+        viewerPermissions: { actions: ["approve-workflows"] },
+      },
+    });
+    if (result._tag !== "Success") throw new Error("PR detail failed");
+    expect(result.value.workflowApprovalsRequired).toBe(count);
+    expect(canPerformPullRequestAction(result.value, "approve-workflows")).toBe(count === 1);
+    expect(host.prPendingWorkflowRuns).toHaveBeenLastCalledWith(hostPr);
+  } finally {
+    registry.dispose();
+    host.prPendingWorkflowRuns.mockReset();
+  }
+});
+
+it("passes the head shown in the workflow approval prompt to the host", async () => {
+  const registry = AtomRegistry.make();
+  const target = { environmentId, input: { ...pullRequest, action: "approve-workflows" as const } };
+  host.prApproveWorkflowRuns.mockClear().mockResolvedValueOnce({ approved: 1 });
+  host.prGetDetail.mockResolvedValueOnce(pr).mockResolvedValueOnce(pr);
+  try {
+    expect(await runAtomCommand(registry, runPrAction, target, quiet)).toMatchObject({ _tag: "Failure" });
+    expect(host.prApproveWorkflowRuns).not.toHaveBeenCalled();
+    const shown = { ...target, input: { ...target.input, expectedHeadSha: "shown-head" } };
+    expect(await runAtomCommand(registry, runPrAction, shown, quiet)).toMatchObject({ _tag: "Success" });
+    expect(host.prApproveWorkflowRuns).toHaveBeenCalledExactlyOnceWith(hostPr, "shown-head");
+  } finally {
+    registry.dispose();
+    host.prApproveWorkflowRuns.mockReset();
   }
 });
 
@@ -521,8 +576,8 @@ it("opens a pasted issue URL before provider activity loads and keeps the issue 
   const registry = AtomRegistry.make();
   const issueUrl = "https://github.com/team/other/issues/42";
   const taskId = "github:outside42";
-  const previousReads = host.tasksGet.mock.calls.length;
-  host.tasksResolve.mockResolvedValueOnce({
+  const previousReads = host.issuesGet.mock.calls.length;
+  host.issuesResolve.mockResolvedValueOnce({
     details: {
       task: {
         id: taskId,
@@ -544,7 +599,7 @@ it("opens a pasted issue URL before provider activity loads and keeps the issue 
     },
     readOnly: true,
   });
-  host.tasksGet.mockResolvedValueOnce({
+  host.issuesGet.mockResolvedValueOnce({
     comments: [{ id: "old", providerCommentId: "GH_old", taskId, body: "An earlier comment", createdAt: 1690000000000 }],
     events: [{
       id: "2", actor: "reader", text: "added a commit that references this issue", at: 1700000000000,
@@ -571,8 +626,8 @@ it("opens a pasted issue URL before provider activity loads and keeps the issue 
         issueUrl,
       })),
     );
-    expect(host.tasksResolve).toHaveBeenCalledWith(issueUrl, { detailsOnly: true });
-    expect(host.tasksGet.mock.calls).toHaveLength(previousReads);
+    expect(host.issuesResolve).toHaveBeenCalledWith(issueUrl, { detailsOnly: true });
+    expect(host.issuesGet.mock.calls).toHaveLength(previousReads);
     expect(result).toMatchObject({
       _tag: "Success",
       value: {
@@ -592,7 +647,7 @@ it("opens a pasted issue URL before provider activity loads and keeps the issue 
       registry,
       solusIssueActivity({ environmentId, input: { taskId } }),
     );
-    expect(host.tasksGet.mock.lastCall).toEqual([taskId, { section: "provider" }]);
+    expect(host.issuesGet.mock.lastCall).toEqual([taskId, { section: "provider" }]);
     expect(activity).toMatchObject({
       _tag: "Success",
       value: {
@@ -632,18 +687,18 @@ it("preserves the task identity in edit sheets and updates only the selected fie
     };
     const target = issueTarget(issueIdentity(params));
     expect(target.input.taskId).toBe(task.id);
-    host.tasksGet
+    host.issuesGet
       .mockResolvedValueOnce({ task })
       .mockResolvedValueOnce({ task: { ...task, url: "https://github.com/team/other/issues/42" } });
     const input = { ...target.input, body: "" };
     expect(
       (await runAtomCommand(registry, updateIssue, { environmentId, input }, quiet))._tag,
     ).toBe("Success");
-    expect(host.tasksUpdate).toHaveBeenCalledWith(task.id, { body: "" });
+    expect(host.issuesUpdate).toHaveBeenCalledWith(task.id, { body: "" });
     expect(
       (await runAtomCommand(registry, updateIssue, { environmentId, input }, quiet))._tag,
     ).toBe("Failure");
-    expect(host.tasksUpdate).toHaveBeenCalledTimes(1);
+    expect(host.issuesUpdate).toHaveBeenCalledTimes(1);
   } finally {
     registry.dispose();
   }
@@ -689,7 +744,7 @@ it("continues an issue scope from the same host task snapshot", async () => {
     state: { name: "Open", category: "open" },
     updatedAt: 1700000000000, labels: [],
   });
-  host.tasksSearch.mockClear().mockResolvedValueOnce([task(2), task(1), task(3)]);
+  host.issuesSearch.mockClear().mockResolvedValueOnce([task(2), task(1), task(3)]);
   const registry = AtomRegistry.make();
   const target = { environmentId, input: { state: "open" as const, query: "Crash", limit: 2 } };
   try {
@@ -701,7 +756,7 @@ it("continues an issue scope from the same host task snapshot", async () => {
       ...target, input: { ...target.input, cursors: first.value.nextCursors },
     }));
     expect(next).toMatchObject({ value: { entries: [{ key: "1" }], nextCursors: {} } });
-    expect(host.tasksSearch).toHaveBeenCalledTimes(1);
+    expect(host.issuesSearch).toHaveBeenCalledTimes(1);
   } finally {
     registry.dispose();
   }

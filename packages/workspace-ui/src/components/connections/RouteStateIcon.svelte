@@ -3,7 +3,7 @@
   import type { RouteState } from "@solus/client-core/host-route-control";
   import * as Tooltip from "../ui/tooltip";
 
-  /** A route's state as one icon: the word is in its tooltip and accessible name (docs/plans/host-fleet.md D3). */
+  /** A route's state as one icon: the word is in its tooltip and accessible name. */
   interface Props {
     state: RouteState;
     /** The words of the state, as `routeStateText` gives them. */

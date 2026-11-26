@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { ACCOUNT_AUDIENCE, hostAudience, type DirectoryHost, type DirectoryResponse } from '@solus/contracts/uplink'
 import { SOLUS_CLIENT_IDS } from '@solus/contracts/auth/clients'
-import { AccountSession } from '../../apps/mobile/solus-core/features/account/account-session'
+import { AccountSession, CLOUD_ADDRESS_KEY } from '../../apps/mobile/solus-core/features/account/account-session'
 import {
   authSessionAuthorizer,
   callbackOf,
@@ -24,7 +24,6 @@ const host = (installationId: string, organizationIds: string[] = []): Directory
   label: installationId,
   routes: [{ kind: 'tunnel', url: `https://${installationId}.tunnel` }],
   kind: 'personal',
-  category: 'personal',
   organizationIds,
 })
 
@@ -41,14 +40,14 @@ interface CloudScript {
 
 function world(script: CloudScript = { hosts: [] }, shared?: { secrets: SecretStore & { values: Map<string, string> }; storage: ReturnType<typeof memoryKeyValueStore>; plane: ReturnType<typeof fakeAccountPlane>; hostList?: { revision: number | null; hosts: Record<string, HostListing> } }) {
   const plane = shared?.plane ?? fakeAccountPlane({ clientId: SOLUS_CLIENT_IDS.mobile, identity: { sub: 'user-1', email: 'ada@example.test', email_verified: true, name: 'Ada', picture: 'https://example.test/ada.png' }, startupAccount: { userId: 'user-1', onboardingCompletedAt: null, activeOrganizationId: null, organizations: [ORGANIZATION] }, startupDirectory: script.startupDirectory })
-  const apiCalls: Array<{ path: string; authorization: string | null }> = []
+  const apiCalls: Array<{ origin: string; path: string; authorization: string | null }> = []
   const json = (status: number, body: object) => new Response(JSON.stringify(body), { status })
   // The account's host list (plans/031 D7), kept as the website keeps it, for every device of the account.
   const hostList = shared?.hostList ?? { revision: null as number | null, hosts: {} as Record<string, HostListing> }
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
     if (!url.pathname.startsWith('/v1/')) return plane.fetch(String(input), init)
-    apiCalls.push({ path: url.pathname, authorization: new Headers(init?.headers).get('authorization') })
+    apiCalls.push({ origin: url.origin, path: url.pathname, authorization: new Headers(init?.headers).get('authorization') })
     if (url.pathname === HOST_LIST_PATH) {
       if (init?.method === 'PATCH') {
         const patch = JSON.parse(String(init.body)) as { set: Record<string, HostListing>; reset: string[] }
@@ -305,5 +304,90 @@ describe('native Solus account', () => {
     expect(session.view).toEqual({ kind: 'signed-out' })
     expect(secrets.values.has(ACCOUNT_GRANT_KEY)).toBe(false)
     expect(await session.hostAccessToken(host('inst-1') as never)).toBeNull()
+  })
+})
+
+// docs/solus-cloud-address.md. WHY: a person whose organization hosts its own Solus
+// Cloud signs in there. The address is this phone's choice, it changes only while
+// signed out, and a sign-in kept for one address is never sent to another.
+describe('the Solus Cloud address of this phone', () => {
+  const SELF_HOSTED = 'https://solus.acme.example'
+  const selfHostedPlane = () => fakeAccountPlane({ issuer: SELF_HOSTED, clientId: SOLUS_CLIENT_IDS.mobile, identity: { sub: 'user-1', email: 'ada@example.test', email_verified: true, name: 'Ada' } })
+
+  test('the hosted Solus Cloud is the address until the person chooses another one', async () => {
+    const w = world()
+    await w.session.load()
+    expect(w.session.cloudAddress).toEqual({ origin: ISSUER, source: 'default' })
+    expect(w.storage.getItem(CLOUD_ADDRESS_KEY)).toBeNull()
+  })
+
+  test('sign-in and the account calls go to the chosen address, and the choice survives a restart', async () => {
+    const shared = { secrets: memorySecretStore(), storage: memoryKeyValueStore(), plane: selfHostedPlane() }
+    const w = world({ hosts: [host('inst-1')] }, shared)
+    await w.registry.load()
+    await w.session.load()
+    expect(w.session.setCloudAddress('solus.acme.example')).toEqual({ ok: true, address: { origin: SELF_HOSTED, source: 'setting' } })
+    await w.session.startSignIn()
+    await w.session.written()
+    expect(w.browser.opened[0]!.origin).toBe(SELF_HOSTED)
+    expect(w.session.view).toMatchObject({ kind: 'signed-in', origin: SELF_HOSTED })
+    expect(w.session.syncAccount).toEqual({ origin: SELF_HOSTED, userId: 'user-1' })
+    expect(w.apiCalls.length).toBeGreaterThan(0)
+    expect(w.apiCalls.every((call) => call.origin === SELF_HOSTED)).toBe(true)
+    expect(w.registry.hosts().map((entry) => entry.uplink?.directoryUrl)).toEqual([SELF_HOSTED])
+
+    const restarted = world({ hosts: [host('inst-1')] }, shared)
+    expect(restarted.session.cloudAddress).toEqual({ origin: SELF_HOSTED, source: 'setting' })
+    await restarted.session.load()
+    expect(restarted.session.view).toMatchObject({ kind: 'signed-in', origin: SELF_HOSTED })
+  })
+
+  test('the address does not change while signed in; after sign-out the default comes back on request', async () => {
+    const w = await signedIn()
+    // WHY: the kept refresh token belongs to the address that issued it.
+    expect(w.session.setCloudAddress(SELF_HOSTED)).toEqual({ ok: false, refusal: 'signed-in' })
+    expect(w.session.cloudAddress).toEqual({ origin: ISSUER, source: 'default' })
+    expect(w.storage.getItem(CLOUD_ADDRESS_KEY)).toBeNull()
+    await w.session.signOut()
+    expect(w.session.setCloudAddress(SELF_HOSTED).ok).toBe(true)
+    expect(w.storage.getItem(CLOUD_ADDRESS_KEY)).toBe(SELF_HOSTED)
+    expect(w.session.setCloudAddress(null)).toEqual({ ok: true, address: { origin: ISSUER, source: 'default' } })
+    expect(w.storage.getItem(CLOUD_ADDRESS_KEY)).toBeNull()
+  })
+
+  test('an address that is refused changes nothing and says why', async () => {
+    const w = world()
+    await w.session.load()
+    expect(w.session.setCloudAddress('http://solus.acme.example')).toEqual({ ok: false, refusal: 'not-https' })
+    expect(w.session.setCloudAddress('https://solus.acme.example/console')).toEqual({ ok: false, refusal: 'has-path' })
+    expect(w.session.cloudAddress.origin).toBe(ISSUER)
+    expect(w.storage.getItem(CLOUD_ADDRESS_KEY)).toBeNull()
+  })
+
+  test('a sign-in kept for one address is not used at another address', async () => {
+    const first = await signedIn()
+    const kept = first.secrets.values.get(ACCOUNT_GRANT_KEY)
+    // The phone starts with another address in its storage.
+    first.storage.setItem(CLOUD_ADDRESS_KEY, SELF_HOSTED)
+    const restarted = world({ hosts: [] }, { secrets: first.secrets, storage: first.storage, plane: selfHostedPlane() })
+    await restarted.registry.load()
+    await restarted.session.load()
+    expect(restarted.session.view).toEqual({ kind: 'signed-out' })
+    expect(await restarted.session.solusApiAccessToken()).toBeNull()
+    expect(restarted.plane.calls).toEqual([])
+    expect(restarted.apiCalls).toEqual([])
+    expect(first.secrets.values.get(ACCOUNT_GRANT_KEY)).toBe(kept)
+  })
+
+  test('a sign-in at an address that is not a Solus Cloud ends with an error that names the address', async () => {
+    const w = world()
+    await w.session.load()
+    // The plane answers as another origin, as a wrong server would.
+    w.session.setCloudAddress('https://wrong.example')
+    await w.session.startSignIn()
+    expect(w.session.view).toEqual({ kind: 'signed-out', message: 'Could not reach Solus Cloud at wrong.example. Check the address and your connection, then try again.' })
+    // A corrected address clears the error.
+    w.session.setCloudAddress(null)
+    expect(w.session.view).toEqual({ kind: 'signed-out' })
   })
 })

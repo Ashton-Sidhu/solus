@@ -11,10 +11,13 @@ const log = createLogger('main', 'account-session')
 export const VERIFY_INTERVAL_MS = 10 * 60_000
 
 export interface AccountSessionDeps {
+  /** The Solus Cloud address at start (`cloud-address.ts`); `useCloudOrigin` changes it while signed out. */
   cloudOrigin: string
   store: AccountStore
   /** The loopback browser step (`loopback-authorizer.ts`). */
   authorizer: BrowserAuthorizer
+  /** This Mac's name, shown on the sign-in page. */
+  machineName: string
   fetch: typeof fetch
   now: () => number
   onStateChange: (state: AccountState) => void
@@ -41,6 +44,7 @@ export class AccountSession {
       clientId: SOLUS_CLIENT_IDS.desktop,
       store: deps.store,
       authorizer: deps.authorizer,
+      machineName: deps.machineName,
       fetch: deps.fetch,
       now: deps.now,
       log: { info: (event, data) => log.info(event, data ?? {}), warn: (event, data) => log.warn(event, data ?? {}) },
@@ -84,7 +88,15 @@ export class AccountSession {
   }
 
   get cloudOrigin(): string {
-    return this.deps.cloudOrigin
+    return this.oauth.cloudOrigin
+  }
+
+  /**
+   * Signs in to another Solus Cloud from now on (`OAuthSession.useCloudOrigin`). False
+   * while a sign-in is held or runs: the person signs out first.
+   */
+  useCloudOrigin(origin: string): boolean {
+    return this.oauth.useCloudOrigin(origin)
   }
 
   /** Whether a sign-in is held. A null `cloudRequest` then means the website did not answer. */
@@ -132,7 +144,7 @@ export class AccountSession {
       return null
     }
     try {
-      return await this.deps.fetch(`${this.deps.cloudOrigin}${path}`, {
+      return await this.deps.fetch(`${this.oauth.cloudOrigin}${path}`, {
         ...init,
         headers: { authorization: `Bearer ${token}`, accept: 'application/json', ...init.headers },
       })

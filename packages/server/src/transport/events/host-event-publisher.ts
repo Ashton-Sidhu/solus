@@ -13,7 +13,20 @@ const log = createLogger('server', 'host-event-publisher.ts')
  * returned count settles once every recipient's audience check has run.
  */
 export class HostEventPublisher {
+  private readonly observers = new Set<(event: HostEvent) => void>()
+
   constructor(private readonly clients: ClientEventRegistry) {}
+
+  /**
+   * Hear each event that `publish`, `broadcast`, and `publishToRoom` hand
+   * over, once per call and whether or not a client receives it: how a
+   * host-side follower (the session shell) learns of a change without a call
+   * at each publish site. An observer must not throw and must return quickly.
+   */
+  observe(observer: (event: HostEvent) => void): () => void {
+    this.observers.add(observer)
+    return () => this.observers.delete(observer)
+  }
 
   publish<K extends HostEventName>(
     recipientClientId: ClientId,
@@ -83,6 +96,13 @@ export class HostEventPublisher {
     const uniqueRecipientClientIds = new Set(recipientClientIds)
     // SAFETY: `type` and `payload` arrive as one pair `HostEventMap[K]`; the distributive `HostEvent<K>` is the same shape.
     const event = { type, payload, occurredAt: Date.now() } as HostEvent<K>
+    for (const observer of this.observers) {
+      try {
+        observer(event)
+      } catch (error) {
+        log.warn('host_event_observer_failed', { eventType: type, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
     const outcomes = await Promise.all([...uniqueRecipientClientIds].map((clientId) => this.clients.deliver(clientId, event, admission)))
     const publishedClientCount = outcomes.filter(Boolean).length
 

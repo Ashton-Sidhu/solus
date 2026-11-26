@@ -10,6 +10,7 @@ import { Work } from '@solus/server/data/works/work'
 import { executeAgentTool } from '@solus/server/execution/agents/tools/agent-tool'
 import { workPreview } from '@solus/contracts/work-preview'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
+import type { AgentRunSessionState } from '@solus/server/execution/agents/agent-runner'
 import type {
   AgentId,
   AgentMetadata,
@@ -192,7 +193,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     }
   }
 
-  startRun(request: AgentRunRequest): RunHandle {
+  startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     recordRun(request)
     let _resolveRun!: () => void
     let _rejectRun!: (err: Error) => void
@@ -201,6 +202,8 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     const handle: RunHandle & { request?: AgentRunRequest } = {
       request,
       agentSessionId: null,
+      // The Solus session id, as the real adapters keep it: a tool reads it to find its session's home.
+      sessionId: sessionState?.sessionId,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,

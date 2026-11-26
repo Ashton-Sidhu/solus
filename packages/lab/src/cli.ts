@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
-import type { HostKind } from '@solus/contracts/uplink'
+import type { MachineKind } from '@solus/contracts/uplink'
 import { buildLabHost } from './build'
 import { runCloudScenario, type CloudScenarioDefinition, type CloudScenarioRun } from './cloud-mode'
 import { LAB_CLOUD_DIR, readStack, startLocalCloud, stopLocalCloud, STACK_FILE } from './local-cloud'
@@ -12,7 +12,7 @@ import { bootLabSolusApi } from './solus-api'
 import { runScenario, type ScenarioDefinition, type ScenarioRun } from './scenario'
 
 /**
- * `bun lab run <scenario|all> [--host personal|managed|both]` (plan §8.3). Boots the
+ * `bun lab run <scenario|all> [--host personal|cloud|both]` (plan §8.3). Boots the
  * issuer and one host per flavor, runs the named scenarios against each, and exits
  * non-zero on any failed check. `bun lab build` makes the host the Lab boots.
  * `bun lab up --cloud` starts the local cloud and a host and leaves them running;
@@ -25,14 +25,14 @@ const SCENARIOS_DIR = resolve(import.meta.dirname, '../scenarios')
 /** A scenario file's default export, checked at the import boundary. */
 const scenarioModuleSchema: z.ZodType<ScenarioDefinition> = z.object({
   name: z.string().min(1),
-  only: z.enum(['personal', 'managed']).optional(),
+  only: z.enum(['personal', 'cloud']).optional(),
   run: z.custom<ScenarioDefinition['run']>((value) => value instanceof Function),
 })
 
 function usage(): never {
   console.error([
     'usage: bun lab build',
-    '       bun lab run <scenario-name|all> [--host personal|managed|both] [--keep]',
+    '       bun lab run <scenario-name|all> [--host personal|cloud|both] [--keep]',
     '       bun lab up --cloud | bun lab down',
     '       bun lab run <scenario-name|all> --cloud',
   ].join('\n'))
@@ -113,32 +113,33 @@ export async function main(argv: string[]): Promise<number> {
     if (rest.length !== 1) usage()
     return runCloud(selector)
   }
-  let hostFlag: 'personal' | 'managed' | 'both' = 'both'
+  let hostFlag: 'personal' | 'cloud' | 'both' = 'both'
   let keep = false
   for (let index = 0; index < rest.length; index++) {
     if (rest[index] === '--host') {
       const value = rest[++index]
-      if (value !== 'personal' && value !== 'managed' && value !== 'both') usage()
+      if (value !== 'personal' && value !== 'cloud' && value !== 'both') usage()
       hostFlag = value
     } else if (rest[index] === '--keep') keep = true
     else usage()
   }
-  const flavors: HostKind[] = hostFlag === 'both' ? ['personal', 'managed'] : [hostFlag]
+  const flavors: MachineKind[] = hostFlag === 'both' ? ['personal', 'cloud'] : [hostFlag]
   const scenarios = await loadScenarios(selector)
   const issuer = new LabIssuer()
   await issuer.start()
-  // Organization work needs the Solus API to admit a new session before the provider
-  // starts (plans/009-organization-vms.md §4, §9): every link the issuer issues names
+  // On a cloud machine the Solus API admits a new session before the provider starts
+  // (plans/009-organization-vms.md §4, §9): every registration the issuer issues names
   // this one. A scenario that boots its own Solus API puts this route back after it.
   const solusApi = await bootLabSolusApi({ issuer, engine: 'sqlite' })
   issuer.setWorkspaceRoute(solusApi.url)
   const runs: ScenarioRun[] = []
   try {
     for (const flavor of flavors) {
-      // A personal host that members reach is shared with the organization and holds
-      // its key, so it can act for them (ADR 0001 stage 4); a managed host registers
-      // its key from the environment link.
-      const host = await bootLabHost({ flavor, issuer, runnerOf: flavor === 'personal' ? ORGANIZATION_ID : undefined })
+      // The personal host is alice's own, shared with the organization: members reach it,
+      // and it holds its key, so it can act for them (ADR 0001 stage 4). The cloud
+      // machine is nobody's: it enrolls at boot with the link code in its environment,
+      // whose ticket is the organization's.
+      const host = await bootLabHost({ flavor, issuer, sharedWith: flavor === 'personal' ? ORGANIZATION_ID : undefined })
       console.log(`\n== ${flavor} host ${host.hostId} · data ${host.dataDir} · tunnel ${host.tunnelUrl} · local ${host.localUrl}`)
       try {
         for (const definition of scenarios) {

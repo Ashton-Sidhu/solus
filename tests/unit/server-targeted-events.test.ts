@@ -59,7 +59,7 @@ describe('HostEventPublisher', () => {
     const clientA = captureClient(registry, 'ws:a')
     const clientB = captureClient(registry, 'ws:b')
 
-    expect(await publisher.publish(['ws:a', 'ws:b', 'ws:a'], 'tasks.invalidated', {})).toBe(2)
+    expect(await publisher.publish(['ws:a', 'ws:b', 'ws:a'], 'issues.invalidated', {})).toBe(2)
 
     expect(clientA.events).toHaveLength(1)
     expect(clientB.events).toHaveLength(1)
@@ -71,8 +71,8 @@ describe('HostEventPublisher', () => {
     const clientA = captureClient(registry, 'ws:a')
     const clientB = captureClient(registry, 'ws:b')
 
-    expect(await publisher.publish(['ws:a', 'ws:missing'], 'tasks.invalidated', {})).toBe(1)
-    expect(await publisher.broadcast('tasks.invalidated', {})).toBe(2)
+    expect(await publisher.publish(['ws:a', 'ws:missing'], 'issues.invalidated', {})).toBe(1)
+    expect(await publisher.broadcast('issues.invalidated', {})).toBe(2)
 
     expect(clientA.events.map((event) => event.payload)).toEqual([
       {},
@@ -83,7 +83,7 @@ describe('HostEventPublisher', () => {
 
   test('treats an empty recipient list as a successful no-op', async () => {
     const publisher = new HostEventPublisher(new ClientEventRegistry())
-    expect(await publisher.publish([], 'tasks.invalidated', {})).toBe(0)
+    expect(await publisher.publish([], 'issues.invalidated', {})).toBe(0)
   })
 
   test('continues after one client delivery endpoint throws', async () => {
@@ -92,7 +92,7 @@ describe('HostEventPublisher', () => {
     registry.register('ws:broken', () => { throw new Error('broken endpoint') })
     const healthy = captureClient(registry, 'ws:healthy')
 
-    expect(await publisher.publish(['ws:broken', 'ws:healthy'], 'tasks.invalidated', {})).toBe(1)
+    expect(await publisher.publish(['ws:broken', 'ws:healthy'], 'issues.invalidated', {})).toBe(1)
     expect(healthy.events).toHaveLength(1)
   })
 
@@ -102,9 +102,9 @@ describe('HostEventPublisher', () => {
     const older = captureClient(registry, 'ws:a')
     const replacement = captureClient(registry, 'ws:a')
 
-    await publisher.publish('ws:a', 'tasks.invalidated', {})
+    await publisher.publish('ws:a', 'issues.invalidated', {})
     replacement.unsubscribe()
-    expect(await publisher.publish('ws:a', 'tasks.invalidated', {})).toBe(0)
+    expect(await publisher.publish('ws:a', 'issues.invalidated', {})).toBe(0)
     older.unsubscribe()
 
     expect(replacement.events.map((event) => event.payload)).toEqual([{}])

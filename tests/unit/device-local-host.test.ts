@@ -140,6 +140,38 @@ describe('local device host', () => {
     expect(host.current()).toBeNull()
   })
 
+  test('an upgrade leaves the old daemon record for agent-device to retire', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'solus-local-host-'))
+    const stateDir = join(dir, 'state')
+    const daemonFile = join(stateDir, 'agent-device', 'daemon.json')
+    const oldDaemon = { httpPort: 45000, token: 'old-token', version: '0.21.31' }
+    mkdirSync(join(stateDir, 'agent-device'), { recursive: true })
+    writeFileSync(daemonFile, JSON.stringify(oldDaemon))
+    const child = fakeProcess(9)
+    const run: DeviceCommandRunner = async (command, args) => {
+      if (args[1] !== 'devices') return nodeRun(command, args)
+      expect(JSON.parse(readFileSync(daemonFile, 'utf8'))).toEqual(oldDaemon)
+      writeFileSync(daemonFile, JSON.stringify({ httpPort: 45001, token: 'new-token', version: AGENT_DEVICE_VERSION }))
+      return { code: 0, stdout: '', stderr: '' }
+    }
+    const host = new LocalDeviceHost({
+      stateDir,
+      toolchain: installedToolchain(dir),
+      run,
+      spawn: () => child,
+      env: { PATH: '' },
+      resolveNode: async () => ({ nodePath: '/fake/node' }),
+      fetch: async () => new Response('ok'),
+      reservePort: async () => 45123,
+    })
+    try {
+      const ready = await host.ensureAgentReady(() => {})
+      expect(ready.agentDevice).toEqual({ baseUrl: 'http://127.0.0.1:45001', token: 'new-token' })
+    } finally {
+      await host.stop()
+    }
+  })
+
   test('an old Node is refused with a clear message', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'solus-local-host-'))
     const run: DeviceCommandRunner = async () => ({ code: 0, stdout: 'v20.1.0', stderr: '' })

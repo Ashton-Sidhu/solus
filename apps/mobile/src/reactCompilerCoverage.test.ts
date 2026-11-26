@@ -116,7 +116,11 @@ function walkAst(
 
 // For each call to `callee`, whether it runs only on the cache-miss branch of
 // an `if ($[n] !== dep)` block rather than on every render.
-function compilerCachedCalls(file: string, callee: string): boolean[] {
+function compilerCachedCalls(
+  file: string,
+  callee: string,
+  acceptsCacheTest: (test: AstNode) => boolean = () => true,
+): boolean[] {
   const result = compileLikeMetro(file, [], { ast: true });
   const cached: boolean[] = [];
   if (typeof result !== "object" || result === null || !("ast" in result)) return cached;
@@ -128,7 +132,9 @@ function compilerCachedCalls(file: string, callee: string): boolean[] {
         (ancestor, index) =>
           ancestor.type === "IfStatement" &&
           ancestors[index + 1] === ancestor.consequent &&
-          JSON.stringify(ancestor.test).includes('"name":"$"'),
+          isAstNode(ancestor.test) &&
+          JSON.stringify(ancestor.test).includes('"name":"$"') &&
+          acceptsCacheTest(ancestor.test),
       ),
     );
   });
@@ -180,6 +186,33 @@ describe("React Compiler coverage", () => {
     expect(
       compilerCachedCalls("src/features/threads/ThreadFeed.tsx", "deriveThreadFeedPresentation"),
     ).toEqual([true]);
+  });
+
+  it("keeps the list data when an unrelated thread screen input changes", () => {
+    const file = "src/features/threads/ThreadFeed.tsx";
+    expect(compilerCachedCalls(file, "appendGuestPendingMessages")).toEqual([true]);
+    expect(compilerCachedCalls(file, "groupFeed")).toEqual([true]);
+  });
+
+  it("keeps the feed's quote action when the native composer replaces its handle", () => {
+    const cached = compilerCachedCalls(
+      "src/features/threads/ThreadDetailScreen.tsx",
+      "insertComposerDraftText",
+      (test) => {
+        let readsHandle = false;
+        walkAst(test, (node) => {
+          if (
+            node.type === "MemberExpression" &&
+            isAstNode(node.property) &&
+            node.property.name === "current"
+          ) {
+            readsHandle = true;
+          }
+        });
+        return !readsHandle;
+      },
+    );
+    expect(cached).toEqual([true]);
   });
 
   // The compiler once silently dropped these caches, so the new-task context

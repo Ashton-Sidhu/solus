@@ -81,7 +81,7 @@
       <button
         type="button"
         class="min-w-0 truncate border-0 bg-transparent p-0 text-left text-insights-summary decoration-muted-foreground/50 underline-offset-4 transition-colors enabled:cursor-pointer enabled:hover:underline focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)]"
-        title={onOpenTask ? "Open task in the trailing pane" : undefined}
+        title={onOpenTask ? "Open issue in the trailing pane" : undefined}
         disabled={!onOpenTask}
         onclick={onOpenTask}
       >{taskTitle ?? sessionName ?? shortId(session.sessionId)}</button

@@ -66,7 +66,8 @@ function sessionPullRequestLinks(links: readonly SessionPullRequestLink[]): Thre
 }
 
 export function createSessionListProjection(
-  codebaseOf: (codebaseId: string) => Codebase | undefined = () => undefined,
+  codebaseOf: (codebaseId: string, hostId: string) => Codebase | undefined = () => undefined,
+  openingAutomation?: (hostId: string, automationId: string) => string | undefined,
 ) {
   const cache = new WeakMap<
     SessionRow,
@@ -124,7 +125,7 @@ export function createSessionListProjection(
       const starter = record.startedBy;
       const automationName =
         starter?.kind === "automation"
-          ? (automationNames?.get(hostId)?.get(starter.automationId) ?? null)
+          ? ((automationNames?.has(hostId) ? automationNames.get(hostId)?.get(starter.automationId) : openingAutomation?.(hostId, starter.automationId)) ?? null)
           : undefined;
       const root = threadProjectPath(record);
       const hostProjects = projectsByHost?.get(hostId);
@@ -154,7 +155,7 @@ export function createSessionListProjection(
       const readEvent = facts.viewedAt?.get(key);
       const viewedAt = readEvent === undefined ? (view?.viewedAt ?? null) : readEvent;
       const hostLinks = facts.pullRequests?.get(key) ?? record.pullRequests;
-      const codebase = record.codebaseId ? (codebaseOf(record.codebaseId) ?? null) : undefined;
+      const codebase = record.codebaseId ? (codebaseOf(record.codebaseId, hostId) ?? null) : undefined;
       const held = cache.get(record);
       if (
         held &&

@@ -231,7 +231,7 @@ describe('the finished sound on a client', () => {
       sessions: { byId: { [SESSION]: session } },
       registry: { tabs: {}, sessionFor: () => session, tabIdsBySession: new Map() },
       settings: { rateLimitBehavior: 'ask' },
-      tasksStore: {},
+      issuesStore: {},
       workStreamTracker: { sweep: () => {}, beginWorkStream: () => {} },
       onTurnSettled: () => {},
       refreshTurnSnapshots: () => {},

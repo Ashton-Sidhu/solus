@@ -23,7 +23,7 @@ const memberCtx: HandlerCtx = {
     organizationId: 'org-1',
     organizationRole: 'owner',
     teamIds: [],
-    hostKind: 'managed',
+    hostKind: 'cloud',
     displayName: 'Member',
     deviceId: 'device-1',
     expiresAt: Date.now() + 60_000,

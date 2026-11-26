@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { hostReadinessCopy, type HostReadinessState } from '@solus/client-core/host-readiness'
 import { attentionRows, fleetMachine, routeHops, routeInUseLabel, type FleetMachineInput } from '@solus/workspace-ui/components/fleet/lib/fleet-model'
 
-// WHY: docs/plans/host-fleet.md. A host that does not answer says why in the words
+// WHY: A host that does not answer says why in the words
 // every client uses, with its one fix, and its line names the route in use.
 
 const base: FleetMachineInput = {
@@ -10,7 +10,8 @@ const base: FleetMachineInput = {
   installationId: 'mac',
   label: 'Mac',
   isThisDevice: false,
-  isManaged: false,
+  isCloud: false,
+  hasManagedCompute: false,
   principal: 'local-owner',
   readiness: 'ready',
   routeKind: 'lan',
@@ -31,7 +32,7 @@ describe('a host that does not answer', () => {
 
   test('a host that answers, or a stopped cloud machine, has no problem words', () => {
     expect(fleetMachine({ ...base, readinessCopy: hostReadinessCopy({ ...refused, readiness: 'ready' }, 'Mac') }).problem).toBeNull()
-    expect(fleetMachine({ ...base, isManaged: true, managedState: 'stopped', readiness: 'unreachable', readinessCopy: hostReadinessCopy(refused, 'Mac') }).problem).toBeNull()
+    expect(fleetMachine({ ...base, isCloud: true, hasManagedCompute: true, managedState: 'stopped', readiness: 'unreachable', readinessCopy: hostReadinessCopy(refused, 'Mac') }).problem).toBeNull()
   })
 })
 

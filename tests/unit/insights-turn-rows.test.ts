@@ -103,7 +103,7 @@ describe('toTurnRows', () => {
   // the id only when no turn recorded one. The registry column is `task`.
   test("the task title is read from the registry's `task` column", () => {
     const rows = toTurnRows(
-      result(['trace_id', 'started_at', 'task'], [['tr_a', 5, 'Fix the tests'], ['tr_b', 6, null]]),
+      result(['trace_id', 'started_at', 'issue'], [['tr_a', 5, 'Fix the tests'], ['tr_b', 6, null]]),
     )
     expect(rows.map((row) => row.taskTitle)).toEqual(['Fix the tests', null])
   })
@@ -227,15 +227,18 @@ describe('histogram bucketing', () => {
       turnPoints([
         turnRow({ startedAt: 100, provider: 'claude-code' }),
         turnRow({ startedAt: 200, provider: 'codex' }),
+        turnRow({ startedAt: 250, provider: 'antigravity' }),
         turnRow({ startedAt: 300, provider: null }),
       ]),
       from,
       to,
     )
+    // An Antigravity turn is its own band, not unknown history.
     expect(buckets[0]).toMatchObject({
-      total: 3,
+      total: 4,
       claudeCode: 1,
       codex: 1,
+      antigravity: 1,
       unknownProvider: 1,
     })
   })

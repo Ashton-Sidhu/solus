@@ -184,10 +184,9 @@ export class UnifiedAutocompleteController {
         ].map((p) => p.name),
       ),
   );
-  #claudeCodeCommands = $derived.by((): SlashCommand[] =>
-    this.deps.provider() !== "claude-code"
-      ? []
-      : (this.deps.pluginCommands().builtin ?? [])
+  /** The agent's own commands, as its host reports them: Claude Code's and Antigravity's. */
+  #agentCommands = $derived.by((): SlashCommand[] =>
+    (this.deps.pluginCommands().builtin ?? [])
           .filter((c) => !this.#pluginCommandNames.has(c.name))
           .map((c) => ({
             command: `/${c.name}`,
@@ -206,7 +205,7 @@ export class UnifiedAutocompleteController {
         this.deps.provider(),
         this.deps.includeSolusCommands(),
       ),
-      claudeCode: this.#claudeCodeCommands,
+      agent: this.#agentCommands,
       global: this.deps.pluginCommands().global.map((p) => ({
         command: `/${p.name}`,
         description: p.argumentHint
@@ -228,7 +227,7 @@ export class UnifiedAutocompleteController {
     [
       ...this.commands.solus,
       ...this.commands.codex,
-      ...this.commands.claudeCode,
+      ...this.commands.agent,
       ...this.commands.global,
       ...this.commands.project,
     ].map((command) => ({

@@ -9,6 +9,8 @@ import type { PinnedSession, SessionStatus } from "@solus/contracts/types";
 
 import { Listeners } from "../../lib/listeners";
 import type { KeyValueStore } from "../../platform/ports";
+import type { SessionShellRow } from "@solus/contracts/session-shell";
+import { shellPins } from "./session-shell";
 import { threadKey, type SolusThreadShell } from "./thread-directory";
 import { resolveThreadListV2Status, type ThreadListV2Facts } from "./threadListV2";
 
@@ -121,16 +123,52 @@ export class ThreadListState {
   /** Follows one host's announcements: the records read before them stay
    *  current. Its pins come with the thread directory's whole read of the
    *  host, which reads them here (`loadPins`). */
-  follow(hostId: string): void {
+  follow(hostId: string, opening?: Promise<readonly AttentionEntry[] | undefined>): void {
     const connection = this.connectionFor(hostId);
     if (!connection) return;
     this.watch(hostId, connection);
     const read = Symbol();
     this.attentionReads.set(hostId, read);
-    void connection.api.listAttention().then(entries => {
+    const attention = opening ? opening.then(entries => entries ?? connection.api.listAttention()) : connection.api.listAttention();
+    void attention.then(entries => {
       if (this.attentionReads.get(hostId) === read && this.connectionFor(hostId) === connection)
         this.receiveAttention(hostId, entries);
     }, () => {});
+  }
+
+  /**
+   * The host's session shell changed (docs/plans/mobile-session-shell.md §6):
+   * its rows carry the pins, the attention, and the agent activity. The
+   * host's events still follow the views, states, and executions, so a row
+   * action keeps its quick local change. The activity of a saved shell is old,
+   * so only a live shell gives it.
+   */
+  receiveShell(hostId: string, rows: readonly SessionShellRow[], live: boolean): void {
+    const connection = this.connectionFor(hostId);
+    if (connection) this.watch(hostId, connection);
+    const pins = shellPins(hostId, rows);
+    const prefix = threadKey(hostId, "");
+    const heldPins = [...this.pins].filter(([key]) => key.startsWith(prefix));
+    if (heldPins.length !== pins.length ||
+        pins.some((pin) => this.pins.get(threadKey(hostId, pin.sessionId))?.pinnedAt !== pin.pinnedAt)) {
+      this.pinRequests.set(hostId, (this.pinRequests.get(hostId) ?? 0) + 1);
+      this.restorePins(hostId, pins);
+    }
+    this.receiveAttention(hostId, rows.flatMap((row) => (row.attention ? [row.attention] : [])));
+    if (!live) return;
+    const keys: string[] = [];
+    for (const { record, agentActivity } of rows) {
+      const key = threadKey(hostId, record.sessionId);
+      const held = this.agentActivity.get(key);
+      if (agentActivity === null ? held === undefined : held !== undefined && JSON.stringify(held) === JSON.stringify(agentActivity)) continue;
+      if (agentActivity === null) this.agentActivity.delete(key);
+      else this.agentActivity.set(key, agentActivity);
+      keys.push(key);
+    }
+    if (!keys.length) return;
+    this.lastRowChange = { previous: this.snapshot, keys };
+    this.snapshot = { ...this.snapshot, agentActivity: new Map(this.agentActivity) };
+    this.changes.notify();
   }
 
   private receiveAttention(hostId: string, entries: readonly AttentionEntry[]): void {
@@ -156,16 +194,21 @@ export class ThreadListState {
 
   /** Read the host's pins after connect, refresh, or a toggle, and answer
    *  them. A failed read keeps prior pins. */
-  async loadPins(hostId: string): Promise<readonly PinnedSession[]> {
+  async loadPins(hostId: string, opening?: Promise<readonly PinnedSession[] | undefined>): Promise<readonly PinnedSession[]> {
     const connection = this.requireConnection(hostId);
     const request = (this.pinRequests.get(hostId) ?? 0) + 1;
     this.pinRequests.set(hostId, request);
-    const pins = await connection.api.pinnedSessionsList();
+    const pins = opening ? await opening : await connection.api.pinnedSessionsList();
+    if (!pins) return [];
     if (this.connectionFor(hostId) !== connection || this.pinRequests.get(hostId) !== request) return pins;
+    this.restorePins(hostId, pins);
+    return pins;
+  }
+
+  restorePins(hostId: string, pins: readonly PinnedSession[]): void {
     this.dropHostEntries(this.pins, hostId);
     for (const pin of pins) this.pins.set(threadKey(hostId, pin.sessionId), { ...pin, serverId: hostId });
     this.publish();
-    return pins;
   }
 
   async togglePin(thread: SolusThreadShell): Promise<void> {
@@ -201,12 +244,14 @@ export class ThreadListState {
     };
     try {
       const { state, view } = await connection.api.sessionUpdate(sessionId, { settled });
+      if (this.connectionFor(hostId) !== connection) return;
       // Only an editor's unsettle ends the shared settle; the answer says when it did.
       if (state) this.write(this.states, hostId, connection, sessionId, state);
       else if (!settled) restoreState();
       if (view) this.write(this.views, hostId, connection, sessionId, view);
       this.publish();
     } catch (error) {
+      if (this.connectionFor(hostId) !== connection) throw error;
       restoreState();
       if (previousView) this.views.set(key, previousView);
       else this.views.delete(key);

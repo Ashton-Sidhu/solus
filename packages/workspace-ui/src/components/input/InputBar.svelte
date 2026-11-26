@@ -16,6 +16,7 @@
     hosts,
     presenceStore,
     runtime,
+    serversStore,
   } from "../../contexts";
   import {
     cycledModelId,
@@ -36,9 +37,13 @@
   import { isSteerableStatus } from "@solus/contracts/types";
   import { isChat } from "@solus/contracts/chat";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
+  import { isEditableTarget } from "../../lib/keybindings/dispatcher.svelte";
   import { isMac } from "../../lib/keybindings/match";
   import { comboHint } from "../../lib/keybindings/manifest";
   import AttachmentChips from "./AttachmentChips.svelte";
+  import ComposerStash from "./ComposerStash.svelte";
+  import { attachmentUploads } from "./lib/attachment-uploads.svelte";
+  import { currentPromptStashKey, usePromptStash } from "./lib/prompt-stash.store.svelte";
   import { browserStore } from "../../contexts/browser/browser.store.svelte";
   import {
     parseAnnotationAttachmentId,
@@ -347,7 +352,8 @@
     isBusy: () => isBusy,
     text: () => inputText,
     editor: () => composerEl,
-    sendPrompt: commands.sendPrompt,
+    sendPrompt: (text, options) =>
+      !prompt.attachments.some((attachment) => attachment.needsReattach) && commands.sendPrompt(text, options),
   });
   const ownsVoice = $derived(composerVoice.ownsVoice);
   const voiceState = $derived(composerVoice.state);
@@ -598,6 +604,27 @@
   useKeybinding("global.cycle-agent", cycleAgent, {
     enabled: () => ownsComposerShortcuts,
   });
+  const ownsStashShortcuts = $derived(ownsComposerShortcuts && !hosts.get(attachmentHost.serverId).me.isGuest);
+  const stash = usePromptStash({
+    tabId: () => targetTabId,
+    target: () => {
+      if (!active || isReadOnly || voiceState !== "idle" || hosts.get(attachmentHost.serverId).me.isGuest) return null;
+      const key = currentPromptStashKey(sess?.organizationId ?? serversStore.activeOrganizationId);
+      return key ? { ...attachmentHost, prompt, key } : null;
+    },
+    ownsShortcuts: () => ownsStashShortcuts,
+    canStash: () => !pendingQuestion,
+    updateEditor: (text) => {
+      if (text) composerEl?.setValueAndCursor(text, false);
+      else composerEl?.clearEditor();
+      editorHasText = !!text.trim();
+      refocusComposer();
+    },
+  });
+  useKeybinding("global.prompt-stash", stash.shortcut, {
+    enabled: () => ownsStashShortcuts &&
+      (!isEditableTarget(document.activeElement) || !!composerRootEl?.contains(document.activeElement)),
+  });
   // The run picker lives beside this bar but owns its own open state, so the
   // shortcut names the composer that fired it and lets that pane's picker
   // answer. `null` is the workspace dock, which has no pane of its own.
@@ -616,7 +643,9 @@
         }),
       );
     },
-    { enabled: () => ownsComposerShortcuts && !!draftId },
+    // A draft's picker sits in its destination strip; a started session's sits
+    // in the session action row above the bar.
+    { enabled: () => ownsComposerShortcuts && (!!draftId || !!targetTabId) },
   );
   // ─── Reference composer wiring ───
 
@@ -728,6 +757,9 @@
         onRemoveMark={removeAnnotationMark}
       />
     </div>
+  {/if}
+  {#if stash.open && composerRootEl}
+    <ComposerStash {stash} anchor={composerRootEl} refocus={refocusComposer} />
   {/if}
 
   {#if leadingActions}
@@ -876,7 +908,7 @@
         onMcpPrompt={commands.mcpPrompts?.choose}
         onResource={attachResource}
         onKeyDown={handleKeyDown}
-        onPaste={handlePaste}
+        onPaste={(event) => attachmentUploads.prepare(attachmentHost.serverId, attachmentHost.ctx, () => handlePaste(event))}
         {placeholder}
         ariaLabel={composerLabel}
         readOnly={isReadOnly}

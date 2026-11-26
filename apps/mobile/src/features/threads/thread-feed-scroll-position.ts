@@ -4,24 +4,21 @@ export interface ThreadWorkGroupScrollPosition {
   readonly scrollOffset: number;
 }
 
+export function threadOpeningBottomInset(
+  composerInset: number,
+  composerKeyboardTranslation: number,
+): number {
+  "worklet";
+  // Match KeyboardAwareLegendList's visible inset during the handoff.
+  return composerInset + Math.max(0, -composerKeyboardTranslation);
+}
+
 export function resolveThreadWorkGroupInitialScroll(
   rows: ReadonlyArray<{ readonly id: string }>,
   position: ThreadWorkGroupScrollPosition | undefined,
 ) {
   const index = position ? rows.findIndex((row) => row.id === position.rowId) : -1;
   return index >= 0 && position ? { index, viewOffset: -position.offsetWithinRow } : undefined;
-}
-
-export async function finishThreadFeedSubmission(input: {
-  readonly scope: AbortSignal;
-  readonly keyboardVisible: boolean;
-  readonly blurEditor: () => void;
-  readonly dismissKeyboard: () => Promise<void>;
-  readonly scrollToEnd: (() => Promise<void> | undefined) | null;
-}) {
-  if (input.keyboardVisible) await input.dismissKeyboard();
-  else input.blurEditor();
-  if (!input.scope.aborted) await input.scrollToEnd?.();
 }
 
 export function resolveThreadFeedSubmissionAnchor<AnchorId>(input: {

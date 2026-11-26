@@ -141,3 +141,52 @@ export async function waitForFrameHeightsIn(scroll: Element, isCancelled: () => 
   }
   return true;
 }
+
+/** Heights a host stored for one render, by frame width, and where to send a
+ *  height this frame measured. */
+export interface StoredFrameSizes {
+  heights: readonly (readonly [width: number, height: number])[];
+  report?: (width: number, height: number) => void;
+}
+
+/** Two frame widths this close lay a render out the same way (the host keeps
+ *  one height for them too). */
+const SAME_FRAME_WIDTH_PX = 4;
+
+/** The stored height of a render at this frame width. A height measured at
+ *  another width belongs to another layout, so it is not used. */
+export function storedHeightAt(heights: StoredFrameSizes["heights"] | undefined, width: number): number | undefined {
+  if (!heights || width <= 0) return undefined;
+  let best: readonly [number, number] | undefined;
+  for (const entry of heights) {
+    const distance = Math.abs(entry[0] - width);
+    if (distance <= SAME_FRAME_WIDTH_PX && (!best || distance < Math.abs(best[0] - width))) best = entry;
+  }
+  return best?.[1];
+}
+
+/** A render reports several heights while it lays out; the one it rests on is sent. */
+const FRAME_HEIGHT_SETTLE_MS = 1000;
+
+/**
+ * Sends the height a frame rests on, at a width whose stored height differs,
+ * once per width. Every later open, on any client, then sizes the frame before
+ * it loads. A failed send is dropped: the frame still corrects itself.
+ */
+export function frameHeightReporter(
+  stored: StoredFrameSizes["heights"],
+  send: (width: number, height: number) => Promise<void>,
+): (width: number, height: number) => void {
+  const sent = new Map<number, number>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return (width, height) => {
+    const measured = { width: Math.round(width), height: Math.round(height) };
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const known = sent.get(measured.width) ?? storedHeightAt(stored, measured.width);
+      if (known !== undefined && Math.abs(known - measured.height) <= 1) return;
+      sent.set(measured.width, measured.height);
+      void send(measured.width, measured.height).catch(() => {});
+    }, FRAME_HEIGHT_SETTLE_MS);
+  };
+}

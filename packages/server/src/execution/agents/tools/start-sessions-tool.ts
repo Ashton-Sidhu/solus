@@ -1,16 +1,24 @@
+import { resolve } from 'node:path'
 import { z } from 'zod'
 import type { AgentTool } from './agent-tool'
 import {
   ATTACHMENTS_FIELD, HOST_FIELD, REASONING_VALUES, REQUEST_ID_FIELD, WAIT_FIELD,
-  attachTo, getSessionController, getSessionOrchestration, listAgentTargets, outcomeNote, refusalOf, remoteAgentTargets, remoteTarget, sessionLink, waitedBlock,
+  attachTo, clientReadNote, getSessionController, getSessionOrchestration, listAgentTargets, outcomeNote, reachCallerOf, refusalOf, remoteAgentTargets, remoteTarget, sessionLink, waitedBlock,
   type SessionToolDeps, type SessionToolResult,
 } from './session-tools'
 import { sessionSettings } from '../../sessions/session-settings'
 import type { PersonalSettings } from '@solus/contracts/settings'
-import { childPermissionMode } from '../../sessions/child-permissions'
+import { childPermissionMode, rootPermissionMode } from '../../sessions/child-permissions'
+import { hostPolicies } from '../../../host/policy/host-policy-store'
+import { LOCAL_ORGANIZATION_ID, organizationForNew } from '../../../admission/principal'
+import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
 import { resolveHomePath } from '../../../platform/paths'
 import { resolveRepoRoot } from '../../../git/git-helpers'
 import { getHeadCommit } from '../../../git/worktree-manager'
+import { runAsync } from '../../../git/exec'
+import { isContainer } from '../../../files/codebase-members'
+import { realPathOf } from '../../../paths'
+import { holdsTooMuch } from '../../sessions/session-codebase-formation'
 import { createLogger } from '../../../logger'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { PERMISSION_MODES } from '@solus/contracts/types'
@@ -72,13 +80,13 @@ const sessionFields = {
   isolation: z
     .enum(['shared', 'worktree'])
     .default('shared')
-    .describe('shared (default): work in cwd. worktree: its own checkout, for separate edits or a pull request.'),
+    .describe('shared (default): work in cwd. worktree: its own checkout, or a task folder for a container with multiple repositories.'),
   worktree_base_branch: z
     .string()
     .trim()
     .min(1)
     .optional()
-    .describe('With worktree: the base branch or commit. Defaults to the commit in cwd.'),
+    .describe('With worktree: the base branch or commit. Defaults to the commit in a Git checkout or to each repository’s default branch in a plain container.'),
   report: z
     .boolean()
     .optional()
@@ -125,12 +133,14 @@ export async function startSessions(input: StartSessionsInput, deps: SessionTool
   if ('error' in launches) return { ok: false, text: launches.error }
 
   const callerSessionId = deps.ctx?.sessionId
+  // An outside app sends with its requester key, so it can read each exchange later.
+  const sender = callerSessionId ?? deps.ctx?.requesterKey
   const waitMs = input.wait_seconds * 1000
   // Each spawn opens its exchange and card before it awaits anything, so the
   // sessions start together and a wait covers all of them at once.
   const outcomes = await Promise.all(launches.map(async (launch, item): Promise<Checked<SpawnedSession>> => {
     try {
-      return await orchestration.spawn(callerSessionId, launch.order, launch.report, waitMs, input.request_id && `${input.request_id}#${item}`, launch.target)
+      return await orchestration.spawn(sender, launch.order, launch.report, waitMs, input.request_id && `${input.request_id}#${item}`, launch.target)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       log.warn('session_start_failed', { sessionId: callerSessionId, item, error: message })
@@ -139,7 +149,7 @@ export async function startSessions(input: StartSessionsInput, deps: SessionTool
   }))
   return {
     ok: outcomes.some((outcome) => !('error' in outcome)),
-    text: formatReceipt(launches, outcomes, waitMs),
+    text: formatReceipt(launches, outcomes, waitMs, !callerSessionId),
   }
 }
 
@@ -153,7 +163,7 @@ interface Caller {
   permissionMode: PermissionMode | undefined
   workerModel: PersonalSettings['workerModel']
   fallbackModel: PersonalSettings['fallbackModel']
-  /** The codebase of the calling session: each session it starts gets it. */
+  /** The codebase of the calling session, used unless the child names a different container. */
   codebaseId: string | null
 }
 
@@ -188,7 +198,7 @@ async function checkedLaunches(sessions: readonly SessionInput[], deps: SessionT
   const places = new Map<string, Promise<Checked<Place>>>()
   const placeOf = (host: string | undefined) => {
     const key = host ?? ''
-    if (!places.has(key)) places.set(key, host ? remotePlace(host, caller.sessionId) : listAgentTargets().then((targets) => ({ targets })))
+    if (!places.has(key)) places.set(key, host ? remotePlace(host, deps) : listAgentTargets().then((targets) => ({ targets })))
     return places.get(key)!
   }
   const launches = await Promise.all(sessions.map(async (session): Promise<Checked<Launch>> => {
@@ -252,11 +262,17 @@ async function launchFor(session: SessionInput, caller: Caller, place: Place, de
   const choice = runnerFor(session, caller, place)
   if ('error' in choice) return choice
   const { runner } = choice
-  const permissionMode = caller.permissionMode ? childPermissionMode(caller.permissionMode, session.permission_mode) : session.permission_mode
+  // A child keeps within its caller's policy; an outside app's work on another host, within what it gets here.
+  const permission = caller.sessionId || !place.target
+    ? { mode: caller.permissionMode ? childPermissionMode(caller.permissionMode, session.permission_mode) : session.permission_mode }
+    : appModeThere(session.permission_mode)
+  if ('error' in permission) return permission
+  const permissionMode = permission.mode
   if (place.target && !permissionMode) return { error: 'The caller’s permission policy is unavailable. Remote work was not started.' }
   const workspace = place.target ? remoteWorkspace(session) : await localWorkspace(session, deps.ctx?.cwd)
   if ('error' in workspace) return workspace
   const order: SpawnOrder = {
+    codebaseId: caller.codebaseId,
     ...workspace,
     prompt: session.prompt,
     independent: session.independent,
@@ -266,18 +282,34 @@ async function launchFor(session: SessionInput, caller: Caller, place: Place, de
     modelId: runner.modelId,
     reasoningEffort: runner.reasoningEffort,
     contextWindow: runner.contextWindow,
-    codebaseId: caller.codebaseId,
   }
   const attachError = await attachTo(order, session.attachments, deps)
   if (attachError) return { error: attachError }
-  return { ...choice, order, target: place.target, report: session.report ?? !session.independent }
+  // An outside app has no session to report to: it reads each result itself.
+  const report = caller.sessionId ? session.report ?? !session.independent : false
+  return { ...choice, order, target: place.target, report }
 }
 
-/** Another of the owner's hosts, as if the owner started the sessions there
- *  (docs/plans/cross-host-sessions.md). */
-async function remotePlace(hostRef: string, callerSessionId: string | undefined): Promise<Checked<Place>> {
-  if (!callerSessionId) return { error: 'start_sessions on another host is unavailable before the calling session is initialized.' }
-  const target = await remoteTarget(hostRef, callerSessionId)
+/**
+ * The mode an outside app's session starts in on another host: the mode it would
+ * start in here, by the same rule and this host's policy, so it is never broader
+ * there than here. The other host checks it against its own policy too, and
+ * refuses a mode above that (plans/035 §0.6).
+ */
+function appModeThere(requested: PermissionMode | undefined): Checked<{ mode: PermissionMode }> {
+  const principal = workspaceToolAuthority()
+  const policy = hostPolicies().forWork(principal ? organizationForNew(principal) : LOCAL_ORGANIZATION_ID)
+  const mode = rootPermissionMode(policy, requested, undefined)
+  const refused = policy.modeDenial(mode)
+  return refused ? { error: `${refused.message} Remote work was not started.` } : { mode }
+}
+
+/** Another of the person's hosts, as if they started the sessions there
+ *  (docs/plans/cross-host-sessions.md). The caller is a session, or an outside app with its person. */
+async function remotePlace(hostRef: string, deps: SessionToolDeps): Promise<Checked<Place>> {
+  const caller = reachCallerOf(deps.ctx)
+  if (!caller) return { error: 'start_sessions on another host is unavailable before the calling session is initialized.' }
+  const target = await remoteTarget(hostRef, caller)
   if ('error' in target) return target
   const targets = await remoteAgentTargets(target.host)
   return 'error' in targets ? targets : { targets, target }
@@ -286,18 +318,39 @@ async function remotePlace(hostRef: string, callerSessionId: string | undefined)
 interface Workspace {
   cwd: string
   worktreeBaseBranch: string | null
+  worktreeSiblingBaseBranch?: string | null
+  codebaseId?: null
 }
 
-/** Bind a session to its checkout before launch; a worktree starts from the
- *  commit checked out in cwd unless the session names a base. */
+/** Bind a session to its Git checkout or let the launcher plan a task folder for a container. */
 async function localWorkspace(session: SessionInput, callerCwd: string | undefined): Promise<Checked<Workspace>> {
   const cwd = resolveHomePath(session.cwd || callerCwd || '~')
   if (session.isolation === 'shared') {
     return session.worktree_base_branch ? { error: 'worktree_base_branch requires isolation=worktree.' } : { cwd, worktreeBaseBranch: null }
   }
   const [root, commit] = await Promise.all([resolveRepoRoot(cwd), getHeadCommit(cwd)])
-  if (!root || !commit) return { error: 'An isolated session needs a Git repository with a commit.' }
-  return { cwd: resolveHomePath(root), worktreeBaseBranch: session.worktree_base_branch ?? commit }
+  if (root && commit) {
+    const workspace: Workspace = { cwd: resolveHomePath(root), worktreeBaseBranch: session.worktree_base_branch ?? commit }
+    if (session.worktree_base_branch) return workspace
+    workspace.worktreeSiblingBaseBranch = null
+    const ref = await runAsync('git', ['symbolic-ref', '--quiet', 'HEAD'], cwd).catch(() => null)
+    if (!ref?.startsWith('refs/heads/')) return workspace
+    const branchCommit = await runAsync('git', ['rev-parse', '--verify', ref], resolveHomePath(root)).catch(() => null)
+    if (branchCommit === commit) workspace.worktreeSiblingBaseBranch = ref.slice('refs/heads/'.length)
+    return workspace
+  }
+  const folder = resolve(cwd)
+  if (root || await holdsTooMuch(folder) || !await isContainer(folder)) {
+    return { error: 'An isolated session needs a Git repository with a commit or a folder that contains multiple repositories.' }
+  }
+  const workspace: Workspace = {
+    cwd: resolveHomePath(folder),
+    // HEAD requests worktree setup. A plain member's worktrees use their own defaults.
+    worktreeBaseBranch: session.worktree_base_branch ?? 'HEAD',
+  }
+  // A different container settles its own codebase in the launcher.
+  if (session.cwd && callerCwd && await realPathOf(folder) !== await realPathOf(resolveHomePath(callerCwd))) workspace.codebaseId = null
+  return workspace
 }
 
 /** A path on the other host: it is resolved there, never here. */
@@ -318,7 +371,7 @@ function fallbackNote(runner: Runner, { provider, spent }: NonNullable<Choice['f
 
 /** One line for each session, in list order, each with its exchange tag, then
  *  what arrived while the call waited: a report's reply runs to the end. */
-function formatReceipt(launches: readonly Launch[], outcomes: readonly Checked<SpawnedSession>[], waitMs: number): string {
+function formatReceipt(launches: readonly Launch[], outcomes: readonly Checked<SpawnedSession>[], waitMs: number, readsItself: boolean): string {
   const head = `Started ${outcomes.filter((outcome) => !('error' in outcome)).length} of ${outcomes.length} sessions.`
   const lines = outcomes.map((outcome, item) => {
     const { order, runner, report, fallbackFrom } = launches[item]!
@@ -334,7 +387,7 @@ function formatReceipt(launches: readonly Launch[], outcomes: readonly Checked<S
     const startup = !outcome.starting ? ''
       : `${outcome.waited?.type === 'report' ? ' Provider startup ended.' : ' Startup continues in the background.'} read_session_exchange with exchange_id=${outcome.exchangeId} reads the startup state.`
     const tag = formatExchangeTag({ messageId: outcome.exchangeId, sessionId: outcome.sessionId, provider, serverId: host?.installationId, item })
-    return `${item + 1}. Session ${session}${name}. ${runs}${startup}${outcomeNote(report, waitMs, outcome.waited)}\n${tag}`
+    return `${item + 1}. Session ${session}${name}. ${runs}${startup}${outcomeNote(report, waitMs, outcome.waited)}${clientReadNote(readsItself, outcome.exchangeId, outcome.waited)}\n${tag}`
   })
   const waited = outcomes.map((outcome) => ('error' in outcome ? '' : waitedBlock(outcome.waited))).join('')
   return `${head}\n${lines.join('\n')}${waited}`
@@ -342,7 +395,7 @@ function formatReceipt(launches: readonly Launch[], outcomes: readonly Checked<S
 
 export const startSessionsAgentTool: AgentTool = {
   name: 'start_sessions',
-  description: `Start 1 to ${MAX_SESSIONS} Solus sessions at once, on this or another provider or host. Each session is a full conversation with its own card. It gets only its prompt, not your history. Each session has its own settings: provider, model, host, workspace, permission mode, and reports. By default each is your child: its report wakes you, and your turn stays open until it reports. independent=true starts a separate conversation instead. isolation=worktree gives a session its own checkout. Keep the session and exchange IDs. Reports wake you; do not poll. Follow up with send_session, read with read_session_exchange, stop with stop_session. User questions and permissions stay on each session’s card.`,
+  description: `Start 1 to ${MAX_SESSIONS} Solus sessions at once, on this or another provider or host. Each session is a full conversation with its own card. It gets only its prompt, not your history. Each session has its own settings: provider, model, host, workspace, permission mode, and reports. By default each is your child: its report wakes you, and your turn stays open until it reports. independent=true starts a separate conversation instead. isolation=worktree gives a session its own checkout or task folder. Keep the session and exchange IDs. Reports wake you; do not poll. Follow up with send_session, read with read_session_exchange, stop with stop_session. User questions and permissions stay on each session’s card.`,
   inputFields: startSessionsFields,
   strictInput: true,
   requiresApproval: false,
@@ -350,7 +403,7 @@ export const startSessionsAgentTool: AgentTool = {
   execute: async (input, context) => {
     try {
       return await startSessions(startSessionsSchema.parse(input), {
-        ctx: { agentProvider: context.provider, cwd: resolveHomePath(context.cwd), sessionId: context.sessionId() },
+        ctx: { agentProvider: context.provider, cwd: resolveHomePath(context.cwd), sessionId: context.sessionId(), requesterKey: context.requesterKey?.() },
       })
     } catch (error) {
       return { ok: false, text: `start_sessions failed: ${error instanceof Error ? error.message : String(error)}` }

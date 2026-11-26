@@ -51,7 +51,7 @@ export const KINDS: readonly KindSpec[] = [
   { key: "doc", slug: "docs", label: "Docs", icon: GLYPH.file },
   { key: "pr", slug: "prs", label: "Pull requests", icon: GLYPH.pr },
   { key: "session", slug: "sessions", label: "Sessions", icon: GLYPH.session },
-  { key: "task", slug: "tasks", label: "Tasks", icon: GLYPH.task },
+  { key: "task", slug: "tasks", label: "Issues", icon: GLYPH.task },
   {
     key: "automation",
     slug: "automations",
@@ -67,7 +67,7 @@ export const KIND_NOUN = {
   doc: "Doc",
   pr: "Pull request",
   session: "Session",
-  task: "Task",
+  task: "Issue",
   automation: "Automation",
   host: "Host",
 } satisfies Record<RefKind, string>;

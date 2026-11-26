@@ -10,7 +10,7 @@
   import { presenceStore } from "../../../contexts/presence/presence.store.svelte";
   import { serversStore } from "../../../contexts/connections/servers.store.svelte";
   import HostOperatingSystemIcon from "../../servers/HostOperatingSystemIcon.svelte";
-  import { hostIsManaged } from "../../servers/lib/managed-host";
+  import { hostIsCloud } from "../../servers/lib/managed-host";
   import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
   import { groupKeyFor } from "../../../contexts";
   import { peopleOnSessions, pickerRowSessions } from "./lib/picker-presence";
@@ -122,7 +122,7 @@
     <span class="flex min-w-0 items-center gap-1" title={remoteHost.label} data-testid="picker-session-host">
       <HostOperatingSystemIcon
         os={"os" in remoteHost ? remoteHost.os : undefined}
-        managed={hostIsManaged(remoteHost)}
+        cloud={hostIsCloud(remoteHost)}
         size={11}
         class="shrink-0"
       />

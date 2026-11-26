@@ -30,6 +30,7 @@ class UplinkStore {
   readonly statusByServer = new SvelteMap<string, UplinkStatus>()
   private readonly controlByServer = new SvelteMap<string, UplinkControl>()
   private readonly selfTestByServer = new SvelteMap<string, SelfTestState>()
+  private readonly statusErrorByServer = new SvelteMap<string, string>()
   busyServerId = $state<string | null>(null)
   private stopListening: (() => void) | null = null
 
@@ -49,6 +50,26 @@ class UplinkStore {
 
   statusFor(serverId: string): UplinkStatus | undefined {
     return this.statusByServer.get(serverId)
+  }
+
+  /** Why the last `readStatus` failed; null after a read that worked. */
+  statusErrorFor(serverId: string): string | null {
+    return this.statusErrorByServer.get(serverId) ?? null
+  }
+
+  /**
+   * Reads the host's registration and link for any person who uses the host
+   * (`uplinkStatus` needs only `host.use`), and keeps why a read failed.
+   * "Use Solus in other apps" reads it this way: `refresh` reads only for an
+   * owner, and it registers the host too.
+   */
+  async readStatus(serverId: string): Promise<void> {
+    try {
+      this.statusByServer.set(serverId, await serverConnections.apiFor(serverId).uplinkStatus())
+      this.statusErrorByServer.delete(serverId)
+    } catch (err) {
+      this.statusErrorByServer.set(serverId, err instanceof Error ? err.message : String(err))
+    }
   }
 
   selfTestFor(serverId: string): SelfTestState | undefined {

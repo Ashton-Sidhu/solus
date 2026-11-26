@@ -39,9 +39,9 @@ describe('who may change a host’s Solus Cloud link', () => {
     expect(uplinkControl({ principal: 'org-member', hostKind: 'personal' })).toBe('none')
   })
 
-  test('a managed host and the workspace service never offer one: Solus Cloud owns how they are reached', () => {
-    expect(uplinkControl({ principal: 'local-owner', hostKind: 'managed' })).toBe('none')
+  test('a cloud machine and the workspace service never offer one: the control plane owns how they are reached', () => {
     expect(uplinkControl({ principal: 'local-owner', hostKind: 'cloud' })).toBe('none')
+    expect(uplinkControl({ principal: 'local-owner', hostKind: 'api' })).toBe('none')
   })
 })
 
@@ -129,6 +129,26 @@ describe('a phone paired with a host registers it, and links it', () => {
     expect(api.callsOf('uplinkUnlink')).toEqual([])
     const state = cloud.stateOf('inst-a')
     expect(state.kind === 'loaded' && state.control).toBe('view')
+  })
+
+  test('a member of the host\'s organization reads the tunnel to connect an outside app, and never changes it', async () => {
+    const api = new FakeApi()
+      .on('connectionsGetServerInfo', () => ({ principal: 'org-member', hostKind: 'personal' }))
+      .on('uplinkStatus', () => REGISTERED)
+    const { cloud } = await phoneWith(api, TICKET, true)
+    const state = cloud.stateOf('inst-a')
+    expect(state.kind === 'loaded' && state.control).toBe('none')
+    expect(state.kind === 'loaded' && state.status).toEqual(REGISTERED)
+    await cloud.link('inst-a')
+    expect(api.callsOf('uplinkLink')).toEqual([])
+  })
+
+  test('a guest does not read the tunnel', async () => {
+    const api = new FakeApi().on('connectionsGetServerInfo', () => ({ principal: 'guest', hostKind: 'personal' }))
+    const { cloud } = await phoneWith(api)
+    const state = cloud.stateOf('inst-a')
+    expect(state.kind === 'loaded' && state.status).toBeNull()
+    expect(api.callsOf('uplinkStatus')).toEqual([])
   })
 
   test('the tunnel coming online after the link shows without a reload', async () => {

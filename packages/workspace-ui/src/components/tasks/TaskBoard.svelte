@@ -1,8 +1,8 @@
 <script lang="ts">
   import { Plus as PlusIcon } from "@lucide/svelte";
   import { SvelteMap } from "svelte/reactivity";
-  import type { TaskMoveTarget } from "@solus/contracts/task-types";
-  import type { Task } from "../../contexts/tasks/task.svelte";
+  import type { IssueMoveTarget } from "@solus/contracts/task-types";
+  import type { Issue } from "../../contexts/tasks/task.svelte";
   import { boardViewId, buildBoard, moveTargetFor, type BoardView } from "./lib/tasks-api";
   import { taskBoardCard } from "./lib/tasks-list-view";
   import { orderColumn } from "./lib/board-order";
@@ -26,7 +26,7 @@
    */
   interface Props {
     /** The page's visible tasks — already searched, filtered and ordered. */
-    tasks: Task[];
+    tasks: Issue[];
     /** What the board plots: one source's columns, or every source by status category. */
     view: BoardView;
     /**
@@ -36,16 +36,16 @@
      */
     canReorder: boolean;
     selectedKey: string | null;
-    onOpen: (task: Task) => void;
+    onOpen: (task: Issue) => void;
     /** Move a task to another column of the view. The page sends it to the provider. */
-    onMoveTask: (task: Task, target: TaskMoveTarget) => void;
+    onMoveTask: (task: Issue, target: IssueMoveTarget) => void;
     /** Sessions whose agent works on the task now, not every linked one. */
     runningSessionsFor: (taskId: string) => number;
     /** "Solus Cloud" for a task whose home is the workspace service; null for this machine's. */
     homeFor?: (taskId: string) => string | null;
     /** Ticking clock, so card times age instead of freezing. */
     now: number;
-    onContextMenu?: (event: MouseEvent, task: Task) => void;
+    onContextMenu?: (event: MouseEvent, task: Issue) => void;
     /** Open the composer for a new task in a column (undefined hides the +). */
     onAddInColumn?: (columnId: string) => void;
   }
@@ -213,8 +213,8 @@
             type="button"
             class="flex size-5 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground opacity-50 transition-[background-color,opacity] duration-150 hover:bg-[var(--wash-2)] hover:opacity-100 focus-visible:bg-[var(--wash-2)] focus-visible:opacity-100 focus-visible:outline-none"
             onclick={() => onAddInColumn?.(col.id)}
-            aria-label={`New task in ${col.label}`}
-            title={`New task in ${col.label}`}
+            aria-label={`New issue in ${col.label}`}
+            title={`New issue in ${col.label}`}
           >
             <PlusIcon size={11} weight="bold" />
           </button>

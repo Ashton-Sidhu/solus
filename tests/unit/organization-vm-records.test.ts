@@ -11,21 +11,22 @@ import { FakeTaskProviders, REPO, repoRead } from './helpers/task-fixtures'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
-// plans/009-organization-vms.md §1, §3, §4: on a machine attached for organization
-// work, a new root session starts in an organization on the Solus API or not at all;
-// the API accepts it before its provider starts, and its record is born published,
-// owned by the verified person. Existing personal sessions continue where they live.
+// plans/034-one-cloud-machine-kind.md §2, plans/009-organization-vms.md §1, §3, §4: on
+// a cloud machine every session is its organization's work. A member starts a new
+// root session in their organization on the Solus API or not at all; the API accepts
+// it before its provider starts, and its record is born published, owned by the
+// verified person. Nobody else starts work there: not a pairing connection, not an
+// owner's account, not a guest, not a window in another organization.
 // Its agent's work tools read and write where the session's records live; its
-// task tools write to GitHub or Jira, because no Solus API holds a task. A pairing
-// connection keeps only Local records. The API takes a session's owner from the
-// admission, never from the host's report.
+// task tools write to GitHub or Jira, because no Solus API holds a task. A
+// credential-free connection reads no organization record. The API takes a session's
+// owner from the admission, never from the host's report.
 
 let turnOrganization: typeof import('@solus/server/execution/sessions/turn-organization')
 let identity: typeof import('@solus/server/data/sessions/session-identity')
 let actorFor: typeof import('@solus/server/admission/actor')['actorFor']
 let organizations: typeof import('@solus/server/host/organizations')
-let hostCategory: typeof import('@solus/server/host/host-category')
-let attachment: typeof import('@solus/server/host/organization-attachment')
+let machine: typeof import('@solus/server/host/machine-kind')
 let insightMirror: typeof import('@solus/server/sync/mirror/insight-mirror')
 let records: typeof import('@solus/server/data/sessions/session-records')
 let principalModule: typeof import('@solus/server/admission/principal')
@@ -49,15 +50,17 @@ let dataDir: string
 let hostOrganizations: InstanceType<typeof organizations.HostOrganizations>
 let shares: import('@solus/server/sharing/share-manager').ShareManager
 
-const LINK: HostRegistration = { hostId: 'VM', issuer: 'https://cloud.invalid', jwksUrl: 'https://cloud.invalid/jwks', directoryUrl: 'https://cloud.invalid', generation: 1, apiUrl: 'https://api.invalid' }
+const LINK: HostRegistration = { hostId: 'VM', issuer: 'https://cloud.invalid', jwksUrl: 'https://cloud.invalid/jwks', directoryUrl: 'https://cloud.invalid', generation: 1, organizationId: 'A', apiUrl: 'https://api.invalid' }
 const STANDING: HostOrganizationsResponse = {
   hostId: 'VM',
-  category: 'self-hosted',
-  owner: { userId: 'alice', email: 'alice@example.test', name: 'Alice' },
+  kind: 'cloud',
+  // A cloud machine is nobody's machine.
+  owner: null,
   organizations: [
-    { organizationId: 'A', name: 'Acme', shared: true, policy: { allowsCloudHosts: true, allowsPersonalHosts: false, syncAllInsights: true } },
-    { organizationId: 'B', name: 'Bolt', shared: true, policy: { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: false } },
+    { organizationId: 'A', name: 'Acme', shared: true, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: false }, policy: { schemaVersion: 1, organization: { name: 'Acme' } }, hostPolicy: null },
+    { organizationId: 'B', name: 'Bolt', shared: true, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true }, policy: { schemaVersion: 1, organization: { name: 'Bolt' } }, hostPolicy: null },
   ],
+  hostOwnerOrganizationId: null,
 }
 
 /** What the host's delegations were asked, and how they answer: the Solus API and account plane stand behind them (sync/delegations.ts). */
@@ -79,8 +82,7 @@ beforeAll(async () => {
   identity = await import('@solus/server/data/sessions/session-identity')
   ;({ actorFor } = await import('@solus/server/admission/actor'))
   organizations = await import('@solus/server/host/organizations')
-  hostCategory = await import('@solus/server/host/host-category')
-  attachment = await import('@solus/server/host/organization-attachment')
+  machine = await import('@solus/server/host/machine-kind')
   insightMirror = await import('@solus/server/sync/mirror/insight-mirror')
   records = await import('@solus/server/data/sessions/session-records')
   principalModule = await import('@solus/server/admission/principal')
@@ -107,15 +109,13 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
-  // A customer's own VM, attached for organization work.
-  hostCategory.resetHostCategoryForTests()
-  hostCategory.applyHostCategory('self-hosted')
-  attachment.useOrganizationAttachment(() => 1_000)
+  // A cloud machine of organization A: its registration names the organization.
+  machine.resetMachineKindForTests()
+  machine.adoptRegistration(LINK)
 })
 
 afterAll(async () => {
-  hostCategory.resetHostCategoryForTests()
-  attachment.useOrganizationAttachment(() => null)
+  machine.resetMachineKindForTests()
   await resetTestDatabase()
   dbModule.closeDb()
   rmSync(dataDir, { recursive: true, force: true })
@@ -124,96 +124,135 @@ afterAll(async () => {
 })
 
 const PAIRED: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: 'phone', deviceLabel: 'Phone' }
+/** An owner's account, as a personal machine admits it. A cloud machine has no owner, so this account starts nothing there. */
 const ALICE: Principal = { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'account-session', expiresAt: Date.now() + 600_000, deviceLabel: 'Solus cloud' }
-const BOB_IN_A: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'A', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Bob', deviceId: 'd-bob', expiresAt: Date.now() + 600_000, deviceLabel: 'Solus cloud' }
+const BOB_IN_A: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'A', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Bob', deviceId: 'd-bob', expiresAt: Date.now() + 600_000, deviceLabel: 'Solus cloud' }
+
+const MAYA: Principal = { kind: 'guest', guestId: 'maya', displayName: 'Maya', deviceId: 'maya', share: { resource: { kind: 'session', id: 'parent-a' }, role: 'editor', sharedByUserId: 'bob', linkSecretHash: 'h' }, expiresAt: Date.now() + 600_000, deviceLabel: 'Guest link' }
 
 const ctx = (sessionId: string, organizationId?: string, extra: Partial<IpcContext['session']> = {}): IpcContext => ({ session: { sessionId, organizationId, ...extra } } as IpcContext)
 const localRecord = (sessionId: string) => records.upsertOwnSessionRecord({ sessionId, provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
 const recordOf = (sessionId: string) => records.getSessionRecord(principalModule.ANY_ORGANIZATION, sessionId)
 
-describe('the link transition', () => {
-  test('a new root on an attached machine needs an organization: a pairing connection and an owner\'s Local window are refused, and nothing is born', async () => {
+describe('work on a cloud machine', () => {
+  test('only a member of the organization starts a new root: a pairing connection, an owner\'s account, a guest, and a window in another organization are refused, and nothing is born', async () => {
     const authorities = new FakeDelegations()
     const deps = { hostOrganizations, delegations: authorities }
     await expect(turnOrganization.admitTurnOrganization(ctx('s-paired'), actorFor(PAIRED), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
-    await expect(turnOrganization.admitTurnOrganization(ctx('s-local-window', 'local'), actorFor(ALICE), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
+    await expect(turnOrganization.admitTurnOrganization(ctx('s-paired', 'A'), actorFor(PAIRED), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
+    // The owner of a personal machine started organization work through their account. A cloud machine has no owner.
+    await expect(turnOrganization.admitTurnOrganization(ctx('s-owner', 'A'), actorFor(ALICE), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
+    await expect(turnOrganization.admitTurnOrganization(ctx('s-guest', 'A'), actorFor(MAYA), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
+    // Bob is a member of A; his window selected B.
+    await expect(turnOrganization.admitTurnOrganization(ctx('s-other-window', 'B'), actorFor(BOB_IN_A), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
     expect(authorities.calls).toEqual([])
-    expect(await identity.sessionIdentityOf('s-paired')).toBeNull()
-    expect(await identity.sessionIdentityOf('s-local-window')).toBeNull()
+    for (const sessionId of ['s-paired', 's-owner', 's-guest', 's-other-window']) expect(await identity.sessionIdentityOf(sessionId)).toBeNull()
   })
 
-  test('the owner\'s window in A starts an API session: the API admits it first, and the row is born published, owned by the verified person, under that admission', async () => {
+  test('a cloud machine works for one organization: a member of another organization starts nothing on it, whatever their token admits', async () => {
     const authorities = new FakeDelegations()
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-new', 'A'), actorFor(ALICE), { hostOrganizations, delegations: authorities })).toBe('A')
-    expect(authorities.calls).toEqual([{ sessionId: 's-new', userId: 'alice', organizationId: 'A', admit: true }])
+    const deps = { hostOrganizations, delegations: authorities }
+    // The machine's registration names A. Bob's token is for B, which the control plane must never mint for this machine.
+    const BOB_IN_B: Principal = { ...BOB_IN_A, organizationId: 'B' }
+    await expect(turnOrganization.admitTurnOrganization(ctx('s-other-organization', 'B'), actorFor(BOB_IN_B), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
+    await expect(turnOrganization.admitTurnOrganization(ctx('s-other-organization'), actorFor(BOB_IN_B), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
+    expect(authorities.calls).toEqual([])
+    expect(await identity.sessionIdentityOf('s-other-organization')).toBeNull()
+  })
+
+  test('a member\'s window starts an API session: the API admits it first, and the row is born published, owned by the verified person, under that admission', async () => {
+    const authorities = new FakeDelegations()
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-new', 'A'), actorFor(BOB_IN_A), { hostOrganizations, delegations: authorities })).toBe('A')
+    expect(authorities.calls).toEqual([{ sessionId: 's-new', userId: 'bob', organizationId: 'A', admit: true }])
     // The row is the birth: it holds the home and the admission before the provider starts, and the start report keeps them.
-    expect(await identity.sessionIdentityOf('s-new')).toMatchObject({ organizationId: 'A', publication: 'published', ownerKey: 'alice', admittedAt: expect.any(Number), startedAt: null })
+    expect(await identity.sessionIdentityOf('s-new')).toMatchObject({ organizationId: 'A', publication: 'published', ownerKey: 'bob', admittedAt: expect.any(Number), startedAt: null })
     expect(await recordOf('s-new')).toBeNull()
-    expect(await localRecord('s-new')).toMatchObject({ organizationId: 'A', publication: 'published', ownerKey: 'alice' })
+    expect(await localRecord('s-new')).toMatchObject({ organizationId: 'A', publication: 'published', ownerKey: 'bob' })
     expect((await identity.sessionIdentityOf('s-new'))?.startedAt).toEqual(expect.any(Number))
+    expect(await records.sessionIsOrganizationWork('s-new')).toBe(true)
+  })
+
+  test('a session whose row was made in the organization before its first turn is admitted the same: published, with its admission', async () => {
+    // WHY (found by a Lab run): a member's client can make the row before the first prompt, in the
+    // member's organization and not published. The admission must still mark it, or the agent's
+    // tools treat the session as work of this machine and save its works here, not on the Solus API.
+    const authorities = new FakeDelegations()
+    await identity.claimSessionOwner('s-early-row', { ownerKey: 'bob', organizationId: 'A' })
+    expect(await identity.sessionIdentityOf('s-early-row')).toMatchObject({ organizationId: 'A', publication: 'local', admittedAt: null })
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-early-row', 'A'), actorFor(BOB_IN_A), { hostOrganizations, delegations: authorities })).toBe('A')
+    expect(authorities.calls).toEqual([{ sessionId: 's-early-row', userId: 'bob', organizationId: 'A', admit: true }])
+    expect(await identity.sessionIdentityOf('s-early-row')).toMatchObject({ organizationId: 'A', publication: 'published', ownerKey: 'bob', admittedAt: expect.any(Number) })
+    expect(await records.sessionIsOrganizationWork('s-early-row')).toBe(true)
+  })
+
+  test('a window that names no organization starts in the member\'s own', async () => {
+    const authorities = new FakeDelegations()
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-unnamed'), actorFor(BOB_IN_A), { hostOrganizations, delegations: authorities })).toBe('A')
+    expect(authorities.calls).toEqual([{ sessionId: 's-unnamed', userId: 'bob', organizationId: 'A', admit: true }])
   })
 
   test('an API refusal or outage prevents the start; nothing waits to be born, and the next attempt asks again', async () => {
     const authorities = new FakeDelegations()
     authorities.refusal = { code: 'ORGANIZATION_API_UNAVAILABLE', message: 'The Solus API is not reachable.' }
-    await expect(turnOrganization.admitTurnOrganization(ctx('s-outage', 'A'), actorFor(ALICE), { hostOrganizations, delegations: authorities })).rejects.toMatchObject({ code: 'ORGANIZATION_API_UNAVAILABLE' })
+    await expect(turnOrganization.admitTurnOrganization(ctx('s-outage', 'A'), actorFor(BOB_IN_A), { hostOrganizations, delegations: authorities })).rejects.toMatchObject({ code: 'ORGANIZATION_API_UNAVAILABLE' })
     expect(await identity.sessionIdentityOf('s-outage')).toBeNull()
     authorities.refusal = null
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-outage', 'A'), actorFor(ALICE), { hostOrganizations, delegations: authorities })).toBe('A')
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-outage', 'A'), actorFor(BOB_IN_A), { hostOrganizations, delegations: authorities })).toBe('A')
     // The retry is the same admission (the API answers the same one); a later prompt before the record exists asks nothing more.
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-outage', 'A'), actorFor(ALICE), { hostOrganizations, delegations: authorities })).toBe('A')
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-outage', 'A'), actorFor(BOB_IN_A), { hostOrganizations, delegations: authorities })).toBe('A')
     expect(authorities.calls.map((call) => [call.sessionId, call.admit])).toEqual([['s-outage', true], ['s-outage', true]])
   })
 
-  test('a session admitted before the attachment continues Local, even from a pairing connection; a personal fork stays personal; an organization fork is a new admission', async () => {
+  test('a fork is a new admission in the organization of its source, whatever its window names', async () => {
     const authorities = new FakeDelegations()
-    const deps = { hostOrganizations, delegations: authorities }
-    attachment.useOrganizationAttachment(() => null)
-    await localRecord('s-before')
-    attachment.useOrganizationAttachment(() => 1_000)
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-before', 'A'), actorFor(PAIRED), deps)).toBe('local')
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-before', 'A'), actorFor(ALICE), deps)).toBe('local')
-    // Nothing assigned it, and nothing asked the API.
-    expect(await recordOf('s-before')).toMatchObject({ organizationId: 'local', publication: 'local' })
-    expect(authorities.calls).toEqual([])
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-fork-personal', 'A', { forked: true, agentSessionId: 's-before' }), actorFor(ALICE), deps)).toBe('local')
-    expect(authorities.calls).toEqual([])
     // `s-new` is a thread that is its own session, so the fork's source record is `s-new`.
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-fork-org', 'B', { forked: true, agentSessionId: 's-new' }), actorFor(ALICE), deps)).toBe('A')
-    expect(authorities.calls).toEqual([{ sessionId: 's-fork-org', userId: 'alice', organizationId: 'A', admit: true }])
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-fork-org', 'B', { forked: true, agentSessionId: 's-new' }), actorFor(BOB_IN_A), { hostOrganizations, delegations: authorities })).toBe('A')
+    expect(authorities.calls).toEqual([{ sessionId: 's-fork-org', userId: 'bob', organizationId: 'A', admit: true }])
   })
 
-  test('each turn of an API session needs the person again: a removed membership stops new turns and new answers, and another organization is unaffected', async () => {
+  test('each turn of an API session needs the person again: a removed membership stops new turns and new answers', async () => {
     const authorities = new FakeDelegations()
     const deps = { hostOrganizations, delegations: authorities }
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-new', 'A', { agentSessionId: 'thread-new' }), actorFor(ALICE), deps)).toBe('A')
-    expect(authorities.calls).toEqual([{ sessionId: 's-new', userId: 'alice', organizationId: 'A', admit: false }])
-    expect(await turnOrganization.mayAnswerFor(ALICE, 's-new', deps)).toBe(true)
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-new', 'A', { agentSessionId: 'thread-new' }), actorFor(BOB_IN_A), deps)).toBe('A')
+    expect(authorities.calls).toEqual([{ sessionId: 's-new', userId: 'bob', organizationId: 'A', admit: false }])
+    expect(await turnOrganization.mayAnswerFor(BOB_IN_A, 's-new', deps)).toBe(true)
     authorities.refusal = { code: 'ORGANIZATION_ACCESS_REFUSED', message: 'You are no longer a member of this organization.' }
-    await expect(turnOrganization.admitTurnOrganization(ctx('s-new', 'A', { agentSessionId: 'thread-new' }), actorFor(ALICE), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_ACCESS_REFUSED' })
-    expect(await turnOrganization.mayAnswerFor(ALICE, 's-new', deps)).toBe(false)
-    // A Local session needs no organization authority to answer.
-    expect(await turnOrganization.mayAnswerFor(ALICE, 's-before', deps)).toBe(true)
+    await expect(turnOrganization.admitTurnOrganization(ctx('s-new', 'A', { agentSessionId: 'thread-new' }), actorFor(BOB_IN_A), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_ACCESS_REFUSED' })
+    expect(await turnOrganization.mayAnswerFor(BOB_IN_A, 's-new', deps)).toBe(false)
   })
 
-  test('a member admitted for organization work records the attachment; a person\'s own computer is never attached', async () => {
-    let marked = 0
+  test('a pairing connection and an owner\'s account continue no organization session and answer none of its questions', async () => {
+    // WHY: the host acts for a member in every turn. A connection with no member behind it has no account to act as.
     const authorities = new FakeDelegations()
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-bob', 'A'), actorFor(BOB_IN_A), { hostOrganizations, delegations: authorities, markAttached: () => { marked++ } })).toBe('A')
-    expect(marked).toBe(1)
-    expect(authorities.calls.at(-1)).toEqual({ sessionId: 's-bob', userId: 'bob', organizationId: 'A', admit: true })
+    const deps = { hostOrganizations, delegations: authorities }
+    for (const principal of [PAIRED, ALICE]) {
+      await expect(turnOrganization.admitTurnOrganization(ctx('s-new', 'A', { agentSessionId: 'thread-new' }), actorFor(principal), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
+      expect(await turnOrganization.mayAnswerFor(principal, 's-new', deps)).toBe(false)
+    }
+    expect(authorities.calls).toEqual([])
+  })
 
-    // The desktop's own host, shared with an organization: its owner's scratch
-    // names their organization, and stays their own work on this machine.
-    hostCategory.applyHostCategory('personal')
-    expect(attachment.isOrganizationAttached()).toBe(false)
+  test('a personal machine that is shared with an organization keeps the personal rule, also after a member worked on it', async () => {
+    // WHY (plans/034 §2): only a registration that names an organization makes a cloud
+    // machine. A member's turn on a person's machine marks nothing: the owner's next
+    // session is still their own work.
+    machine.resetMachineKindForTests()
+    const authorities = new FakeDelegations()
+    const deps = { hostOrganizations, delegations: authorities }
+    const bobOnLaptop: Principal = { ...BOB_IN_A, hostKind: 'personal' }
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-bob-laptop', 'A'), actorFor(bobOnLaptop), deps)).toBe('A')
+    expect(machine.machineKind()).toBe('personal')
+    // The owner's scratch names their organization, and stays their own work on this machine.
     await localRecord('s-laptop')
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-laptop', 'B'), actorFor(PAIRED), { hostOrganizations, delegations: authorities })).toBe('B')
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-laptop', 'B'), actorFor(PAIRED), deps)).toBe('B')
     expect(records.isOrganizationWork(await recordOf('s-laptop'))).toBe(false)
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-laptop-own'), actorFor(PAIRED), deps)).toBe('local')
+    // Nothing asked the Solus API: no session of a personal machine is admitted there.
+    expect(authorities.calls).toEqual([])
     // WHY: a host restart continues this machine's own work and leaves the
     // organization's to its Solus API, before and after the record is written.
     expect(await records.sessionIsOrganizationWork('s-laptop')).toBe(false)
-    expect(await records.sessionIsOrganizationWork('s-bob')).toBe(true)
+    expect(await records.sessionIsOrganizationWork('s-bob-laptop')).toBe(false)
   })
 })
 
@@ -221,7 +260,7 @@ describe('every new session passes the turn admission', () => {
   // N1 (verify-multiplayer TRIAGE): `createHeadlessSession` — a cross-host child, a
   // client's background start — is a new root like a first prompt. A local child
   // (`start_sessions` on this machine) is new work too. Both are admitted inside
-  // `PromptDispatch.createSession`, so an attached machine never starts a Local root,
+  // `PromptDispatch.createSession`, so a cloud machine never starts a Local root,
   // and a person whose authority was removed starts no new child run (organization-vms §4).
   type Handler = (args: unknown[], handlerCtx: { principal: Principal; clientId?: string }) => Promise<unknown>
   async function harness() {
@@ -236,7 +275,7 @@ describe('every new session passes the turn admission', () => {
     const activeSessions = new Map<string, { runInput?: { workingDirectory: string } }>()
     const rt = {
       activeSessions,
-      sessionPermissionModes: new Map([['parent-a', 'full-access'], ['parent-local', 'full-access']]),
+      sessionPermissionModes: new Map([['parent-a', 'full-access']]),
       actorOfSession: (sessionId: string) => actors.get(sessionId),
       seatForTurn: async () => null,
       turnOrganization: async (sessionId: string) => {
@@ -258,7 +297,7 @@ describe('every new session passes the turn admission', () => {
     const handlers = new Map<string, Handler>()
     registerSessionHandlers(
       { register: (name: string, handler: Handler) => handlers.set(name, (args, handlerCtx) => handler(args, withActor(handlerCtx))) } as never,
-      { sessionRuntime: { activeSessions, dispatch } as never, orchestrator: { mayAnswer: () => true }, agentIdFromContext: () => 'claude-code', shares },
+      { sessionRuntime: { activeSessions, dispatch, sessionPermissionModes: rt.sessionPermissionModes } as never, orchestrator: { mayAnswer: () => true }, agentIdFromContext: () => 'claude-code', shares },
     )
     const start = (principal: Principal, organizationId?: string) => handlers.get('createHeadlessSession')!([{ prompt: 'Go.', provider: 'claude-code', modelId: null, reasoningEffort: 'medium', contextWindow: null, cwd: dataDir, organizationId }], { principal })
     const promptFromHost = (principal: Principal, sessionId: string) => handlers.get('promptHeadlessSession')!([{ sessionId, prompt: 'More.', delivery: 'queue', promptId: `p-${sessionId}` }], { principal })
@@ -274,22 +313,23 @@ describe('every new session passes the turn admission', () => {
     actors.set('parent-a', actorFor(BOB_IN_A))
   }
 
-  test('a headless start with no organization is refused before anything starts, as a prompt would be', async () => {
+  test('a headless start by anyone but a member of the organization is refused before anything starts, as a prompt would be', async () => {
     const { start, runs, authorities } = await harness()
     await expect(start(PAIRED)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
-    await expect(start(ALICE)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
+    await expect(start(ALICE, 'A')).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
+    await expect(start(BOB_IN_A, 'B')).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
     expect(runs).toEqual([])
     expect(authorities.calls).toEqual([])
   })
 
   test('a headless start with the requester\'s organization is admitted on the Solus API before its provider runs', async () => {
     const { start, runs, authorities } = await harness()
-    const started = await start(ALICE, 'A') as { sessionId: string }
+    const started = await start(BOB_IN_A, 'A') as { sessionId: string }
     // The API writes the session's record from the facts the admission carries.
-    expect(authorities.calls).toEqual([{ sessionId: started.sessionId, userId: 'alice', organizationId: 'A', admit: true, record: expect.objectContaining({ provider: 'claude-code', privateToOwner: false }) }])
+    expect(authorities.calls).toEqual([{ sessionId: started.sessionId, userId: 'bob', organizationId: 'A', admit: true, record: expect.objectContaining({ provider: 'claude-code', privateToOwner: false }) }])
     expect(runs.map((run) => run.sessionId)).toEqual([started.sessionId])
     expect((await identity.sessionIdentityOf(started.sessionId))?.organizationId).toBe('A')
-    expect((await shares.homeOf({ kind: 'session', id: started.sessionId }))?.ownerKey).toBe('alice')
+    expect((await shares.homeOf({ kind: 'session', id: started.sessionId }))?.ownerKey).toBe('bob')
   })
 
   test('a local child is admitted on the Solus API in its parent\'s organization, for its parent\'s person', async () => {
@@ -310,16 +350,6 @@ describe('every new session passes the turn admission', () => {
     expect(runs).toEqual([])
   })
 
-  test('a local child of a Local session stays Local, as a personal fork does (organization-vms §1: children inherit)', async () => {
-    const { startChild, runs, authorities, actors } = await harness()
-    await localRecord('parent-local')
-    actors.set('parent-local', actorFor(ALICE))
-    const child = await startChild('parent-local')
-    expect(authorities.calls).toEqual([])
-    expect(runs.map((run) => run.sessionId)).toEqual([child.sessionId])
-    expect((await identity.sessionIdentityOf(child.sessionId))?.organizationId).toBe('local')
-  })
-
   test('a prompt from another host on an organization session checks the person\'s authority, as a prompt does', async () => {
     const { promptFromHost, prompted, authorities, actors, activeSessions } = await harness()
     await bobsParent(actors)
@@ -335,37 +365,39 @@ describe('every new session passes the turn admission', () => {
     const { promptFromHost, prompted, authorities, actors, activeSessions } = await harness()
     await bobsParent(actors)
     activeSessions.set('parent-a', { runInput: { workingDirectory: dataDir } })
-    const maya: Principal = { kind: 'guest', guestId: 'maya', displayName: 'Maya', deviceId: 'maya', share: { resource: { kind: 'session', id: 'parent-a' }, role: 'editor', sharedByUserId: 'bob', linkSecretHash: 'h' }, expiresAt: Date.now() + 600_000, deviceLabel: 'Guest link' }
-    await promptFromHost(maya, 'parent-a')
+    await promptFromHost(MAYA, 'parent-a')
     expect(authorities.calls).toEqual([{ sessionId: 'parent-a', userId: 'bob', organizationId: 'A', admit: false }])
     authorities.refusal = { code: 'ORGANIZATION_AUTHORITY_MISSING', message: 'Bob no longer holds authority in Acme.' }
-    await expect(promptFromHost(maya, 'parent-a')).rejects.toMatchObject({ code: 'ORGANIZATION_AUTHORITY_MISSING' })
+    await expect(promptFromHost(MAYA, 'parent-a')).rejects.toMatchObject({ code: 'ORGANIZATION_AUTHORITY_MISSING' })
     expect(prompted).toEqual(['parent-a'])
   })
 })
 
 describe('shared compute, access on the record', () => {
-  test('the organization\'s other members may open and watch an organization session on the VM, as on its API; the machine stays its owner\'s to administer', async () => {
+  test('the organization\'s other members may open and watch an organization session on the machine, as on its API; an owner of the organization administers the machine', async () => {
     const scoped = new shareManager.ShareManager({ db: database.getDatabase() })
-    // A watch claimed the not-yet-admitted session first, for the machine's owner, as Local.
-    await scoped.claimSession('s-live', ALICE)
+    // A watch claimed the not-yet-admitted session first, for the member who starts it.
+    await scoped.claimSession('s-live', BOB_IN_A)
     const authorities = new FakeDelegations()
-    const admitted = await turnOrganization.admitTurnOrganization(ctx('s-live', 'A'), actorFor(ALICE), {
+    const admitted = await turnOrganization.admitTurnOrganization(ctx('s-live', 'A'), actorFor(BOB_IN_A), {
       hostOrganizations, delegations: authorities,
       adoptSession: (sessionId, organizationId, ownerKey, options) => scoped.adoptForOrganization({ kind: 'session', id: sessionId }, organizationId, ownerKey, options),
     })
     expect(admitted).toBe('A')
     // The verified person owns it, in the organization; a colleague in A may edit it; B's members see nothing.
-    expect((await scoped.homeOf({ kind: 'session', id: 's-live' }))?.ownerKey).toBe('alice')
+    expect((await scoped.homeOf({ kind: 'session', id: 's-live' }))?.ownerKey).toBe('bob')
     const carolInA: Principal = { ...BOB_IN_A, userId: 'carol', organizationRole: 'owner' }
     expect(await scoped.roleFor(carolInA, { kind: 'session', id: 's-live' })).toBe('editor')
     const danInB: Principal = { ...BOB_IN_A, userId: 'dan', organizationId: 'B' }
     expect(await scoped.roleFor(danInB, { kind: 'session', id: 's-live' })).toBe('none')
-    // Owning an organization is not administering a customer's machine.
-    expect(principalModule.isHostAdmin(carolInA)).toBe(false)
+    // A cloud machine is the organization's: its owners administer it, and its members do not.
+    expect(principalModule.isHostAdmin(carolInA)).toBe(true)
+    expect(principalModule.isHostAdmin(BOB_IN_A)).toBe(false)
+    // Owning an organization is not administering a person's machine that is shared with it.
+    expect(principalModule.isHostAdmin({ ...carolInA, hostKind: 'personal' })).toBe(false)
     // A resource of another organization is never taken over by a later admission.
     await scoped.adoptForOrganization({ kind: 'session', id: 's-live' }, 'B', 'mallory', { shareWithOrganization: true })
-    expect((await scoped.homeOf({ kind: 'session', id: 's-live' }))?.ownerKey).toBe('alice')
+    expect((await scoped.homeOf({ kind: 'session', id: 's-live' }))?.ownerKey).toBe('bob')
     expect(await scoped.roleFor({ ...danInB, organizationRole: 'owner' }, { kind: 'session', id: 's-live' })).toBe('none')
   })
 
@@ -394,20 +426,22 @@ describe('shared compute, access on the record', () => {
   })
 })
 
-describe('record scope on an attached machine', () => {
-  test('a pairing connection keeps only its Local records; the owner\'s account and the host itself read the whole disk', async () => {
+describe('record scope on a cloud machine', () => {
+  test('a credential-free connection reads no organization record; on a personal machine it is the owner and reads the whole disk', async () => {
+    // WHY: a cloud machine is nobody's machine. A connection with no credential is not its owner.
     expect(principalModule.recordScopeOf(PAIRED)).toBe('local')
-    expect(principalModule.recordScopeOf(ALICE)).toBe(principalModule.ANY_ORGANIZATION)
+    expect(principalModule.readsWholeDisk(PAIRED)).toBe(false)
     expect(principalModule.recordScopeOf(principalModule.INTERNAL_PRINCIPAL)).toBe(principalModule.ANY_ORGANIZATION)
     const scoped = new shareManager.ShareManager({ db: database.getDatabase() })
-    expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-before' })).toBe('owner')
     expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-new' })).toBe('none')
-    expect(await scoped.roleFor(ALICE, { kind: 'session', id: 's-new' })).toBe('owner')
-    // On an unattached machine a pairing connection reads every organization again. The
-    // machine is its owner's, and so is every record on it (plans/031 rule 1).
-    attachment.useOrganizationAttachment(() => null)
+    expect(await scoped.roleFor(BOB_IN_A, { kind: 'session', id: 's-new' })).toBe('owner')
+    // The host's own records start in the machine's organization, never in Local.
+    expect(principalModule.organizationForNew(principalModule.INTERNAL_PRINCIPAL)).toBe('A')
+    // A personal machine is its owner's, and so is every record on it (plans/031 rule 1).
+    machine.resetMachineKindForTests()
     expect(principalModule.recordScopeOf(PAIRED)).toBe(principalModule.ANY_ORGANIZATION)
     expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-new' })).toBe('owner')
+    expect(principalModule.organizationForNew(principalModule.INTERNAL_PRINCIPAL)).toBe('local')
   })
 })
 
@@ -451,8 +485,9 @@ describe('an agent\'s record tools follow its session\'s home', () => {
       // It is not in this machine's own store.
       expect(await works.listWorks(principalModule.ANY_ORGANIZATION)).toEqual([])
 
-      // A personal session on the same machine keeps writing here.
-      const personal = await workTools.createWorkAgentTool.execute({ title: 'Personal note', doc_type: 'doc', content: '# Mine' }, agentIn('s-before'))
+      // A person's own session on their own machine keeps writing there.
+      machine.resetMachineKindForTests()
+      const personal = await workTools.createWorkAgentTool.execute({ title: 'Personal note', doc_type: 'doc', content: '# Mine' }, agentIn('s-laptop-own'))
       expect(personal.ok).toBe(true)
       expect((await works.listWorks('local')).map((item) => item.title)).toEqual(['Personal note'])
       expect(api.calls.filter((call) => call.startsWith('createWork'))).toHaveLength(1)
@@ -472,7 +507,7 @@ describe('an agent\'s record tools follow its session\'s home', () => {
     // The task source is the person's own, from the preferences the run carries.
     const settings = await import('@solus/server/execution/sessions/session-settings')
     const recorded = settings.sessionSettings('s-new')
-    settings.recordSessionSettings('s-new', { organizationId: recorded?.organizationId ?? 'A', preferences: { ...recorded?.preferences, taskSources: [REPO] } })
+    settings.recordSessionSettings('s-new', { organizationId: recorded?.organizationId ?? 'A', preferences: { ...recorded?.preferences, issueSources: [REPO] } })
     const api = fakeOrganizationApi('A')
     const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', () => api.operations)
     try {
@@ -498,7 +533,9 @@ describe('an agent\'s record tools follow its session\'s home', () => {
     const emitting = (sessionId: string): AgentToolContext => ({ ...agentIn(sessionId), emit: (event) => { emitted.push(event) } })
     try {
       await workTools.createWorkAgentTool.execute({ title: 'VM notes', doc_type: 'doc', content: '# Notes' }, emitting('s-new'))
-      await workTools.createWorkAgentTool.execute({ title: 'Personal notes', doc_type: 'doc', content: '# Mine' }, emitting('s-before'))
+      // A person's own session on their own machine: its work is on that machine.
+      machine.resetMachineKindForTests()
+      await workTools.createWorkAgentTool.execute({ title: 'Personal notes', doc_type: 'doc', content: '# Mine' }, emitting('s-laptop-own'))
       expect(emitted.map((event) => event.type === 'work_created' ? [event.title, event.organizationId] : null)).toEqual([['VM notes', 'A'], ['Personal notes', null]])
     } finally {
       uninstall()
@@ -521,7 +558,7 @@ describe('an agent\'s record tools follow its session\'s home', () => {
     // WHY: a fast agent calls a tool before the indexer writes the new session's record
     // (the Lab's organization-work run). That write must still go to the Solus API, never
     // into this machine's store.
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-first', 'A'), actorFor(ALICE), { hostOrganizations, delegations: new FakeDelegations() })).toBe('A')
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-first', 'A'), actorFor(BOB_IN_A), { hostOrganizations, delegations: new FakeDelegations() })).toBe('A')
     expect(await recordOf('s-first')).toBeNull()
     const api = fakeOrganizationApi('A')
     const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', () => api.operations)

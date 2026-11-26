@@ -233,6 +233,10 @@ export const hostDevice = defineTable('host_device', {
   paired_at: bigint(),
   last_seen_at: bigint(),
   revoked_at: bigint(),
+  /** An outside app's grant (kind `app`, plans/035 §10): which app, its access, and who approved it. */
+  app_id: text(),
+  app_access: text(),
+  approved_by: text(),
 })
 
 export const projects = defineTable('projects', {

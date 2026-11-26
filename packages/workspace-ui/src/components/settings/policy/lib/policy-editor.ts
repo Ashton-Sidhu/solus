@@ -1,7 +1,5 @@
 import {
   organizationPolicyTemplate,
-  policySourceLabel,
-  type PolicySet,
   validatePolicyDocument,
   type PolicyDocument,
   type PolicyKind,
@@ -175,20 +173,4 @@ export function policyResultMessage(result: PolicyApiResult<unknown>): string | 
     case 'offline': return 'Solus could not reach your account. Nothing was saved. Try again when you are online.'
     case 'error': return result.message ?? `Solus Cloud did not accept the change (${result.code}).`
   }
-}
-
-/** The "This host" section's sentence: what the MDM policy is, or that there is none. */
-export function mdmDescription(set: PolicySet | undefined): string {
-  if (!set?.mdm) return 'This host has no MDM policy. Cloud policies apply to the work of their own organization.'
-  const label = policySourceLabel(set.mdm)
-  return `${label.charAt(0).toUpperCase()}${label.slice(1)} applies to all work on this host and comes before every cloud policy. Change it with your MDM tool.`
-}
-
-/** The organization that manages this host's settings, by name; null when none does. */
-export function hostOwnerName(set: PolicySet | undefined, organizations: readonly { organizationId: string; name: string }[]): string | null {
-  const ownerId = set?.hostOwnerOrganizationId
-  if (!ownerId || set.mdm) return null
-  const entry = set.organizations[ownerId]
-  if (entry?.state === 'ready') return entry.policy.document.organization.name
-  return organizations.find((organization) => organization.organizationId === ownerId)?.name ?? ownerId
 }

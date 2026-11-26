@@ -340,7 +340,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       const unsubUplink = uplinkStore.listen();
       // The saved routes of the machines this computer forwards to follow its forwards (host-routes D7).
       const deviceHostId = hosts.device?.id;
-      // A restart clears a forward's password: the host's Access tab asks for it again.
+      // A restart clears a forward's password: Sharing & access asks for it again.
       forwardedHostsStore.onNeedsAuth = (serverId, host) => {
         toasts.info(`${host.label} needs its SSH password`, {
           description: "Solus keeps it in memory only, so it asks again after a restart.",

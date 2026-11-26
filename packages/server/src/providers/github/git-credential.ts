@@ -130,7 +130,8 @@ export async function runGitCredentialHelper(
   // A separate process with no principal: the source names whose credential it serves.
   const token = source.kind === 'delegation' ? githubCredentials().delegated(source.deviceId)
     : source.kind === 'member-home' ? memberHomeToken()
-    : readHostCredential('github', githubStoredTokenSchema)?.accessToken ?? null
+    // The owner's account login while they are signed in (the server keeps the copy), else this host's own.
+    : githubCredentials().ownerAccountCopy() ?? readHostCredential('github', githubStoredTokenSchema)?.accessToken ?? null
   const credential = credentialFor(fields, token)
   if (credential) stdout.write(`username=${credential.username}\npassword=${credential.password}\n`)
 }

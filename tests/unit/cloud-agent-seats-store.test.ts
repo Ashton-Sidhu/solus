@@ -19,7 +19,7 @@ test('cloud connections stay correct with no host status, survive an outage, and
   configureCloudAccount(source)
   try {
     const stub = runes.module('host-deps', `
-      export const serverConnections = { connectionFor: (id) => ({ target: { uplink: { kind: id === 'cloud' ? 'managed' : 'personal' } } }) };
+      export const serverConnections = { connectionFor: (id) => ({ target: { uplink: { kind: id === 'cloud' ? 'cloud' : 'personal' } } }) };
       export const localApi = { openExternal: async () => {} };
     `)
     const path = runes.source('cloud-seats', 'packages/workspace-ui/src/contexts/seats/cloud-agent-seats.store.svelte.ts', {

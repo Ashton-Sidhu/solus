@@ -181,7 +181,7 @@ export interface ThreadComposerProps {
   readonly hostMedia?: readonly import("../../lib/composerImages").DraftComposerAttachment[];
   readonly onPickDraftMedia: () => Promise<void>;
   readonly onPickDraftFiles: () => Promise<void>;
-  readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<boolean>;
+  readonly onNativePasteImages: (uris: ReadonlyArray<string>, onPreviewReady: () => void) => Promise<boolean>;
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
   readonly onRetryHostAttachment?: (attachmentId: string) => void;
   readonly onRemoveDraftImage: (imageId: string) => void;
@@ -275,7 +275,6 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
   const [isFocused, setIsFocused] = useState(false);
   const pendingPastedTextAttachmentCountRef = useRef(0);
   const pendingNativeImagePasteCountRef = useRef(0);
-  const [pendingNativeImageCount, setPendingNativeImageCount] = useState(0);
   const [pendingPastedTextAttachmentCount, setPendingPastedTextAttachmentCount] = useState(0);
   const settingsRoutePresentedRef = useRef(false);
   const settingsSheetPresentation = useThreadSettingsSheetPresentation({
@@ -460,6 +459,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     label: props.selectedThread.title || gt("Untitled thread"),
     readDraftMessage: () => getComposerDraftSnapshot(composerDraftKey).text,
     selection: composerMenu.selection,
+    hidden: props.hidden,
     onChangeDraftMessage: (text) => setComposerDraftText(composerDraftKey, text),
     onChangeSelection: composerMenu.onSelectionChange,
   });
@@ -483,10 +483,6 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
   );
   const showsCompactDictation = isVoiceInputPresented;
   const isToolbarVisible = isVoiceInputPresented;
-  const hasEditingAttachments =
-    (queuedEdit !== null && queuedEdit.existingAttachments.length > 0) ||
-    stripAttachments.length > 0 ||
-    pendingNativeImageCount > 0;
   const attachmentBlockReason = composerAttachmentUploadBlockReason(
     {
       environmentId: props.environmentId,
@@ -606,6 +602,12 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     onPasteImages: props.onNativePasteImages,
     onSubmit: (followUp) => void handleSend(followUp),
   });
+
+  const pendingNativeImageCount = nativeImageSubmit.preparingImageCount;
+  const hasEditingAttachments =
+    (queuedEdit !== null && queuedEdit.existingAttachments.length > 0) ||
+    stripAttachments.length > 0 ||
+    pendingNativeImageCount > 0;
 
   const lockedProviderInstanceId = props.canSwitchProvider
     ? undefined
@@ -913,18 +915,17 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                     if (!isSubmissionLocked) props.onChangeDraftMessage(text);
                   }}
                   onSelectionChange={composerMenu.onSelectionChange}
-                  onPasteImages={(uris) => {
-                    if (isSubmissionLocked) return;
+                  onPasteImages={(uris, reservedCount = 0) => {
+                    if (isSubmissionLocked) {
+                      nativeImageSubmit.adjustImageReservations(-reservedCount);
+                      return;
+                    }
                     pendingNativeImagePasteCountRef.current += 1;
-                    setPendingNativeImageCount((count) => count + uris.length);
-                    void nativeImageSubmit.pasteImages(uris).finally(() => {
+                    void nativeImageSubmit.pasteImages(uris, reservedCount).finally(() => {
                       pendingNativeImagePasteCountRef.current -= 1;
-                      setPendingNativeImageCount((count) => count - uris.length);
                     });
                   }}
-                  onPasteImagesPending={(delta) =>
-                    setPendingNativeImageCount((count) => count + delta)
-                  }
+                  onPasteImagesPending={nativeImageSubmit.adjustImageReservations}
                   onPasteText={(paste) => {
                     if (isSubmissionLocked) return;
                     const insertPaste = () => {

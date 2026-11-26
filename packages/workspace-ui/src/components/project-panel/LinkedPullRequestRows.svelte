@@ -36,6 +36,7 @@
   import * as TooltipUI from "../ui/tooltip";
   import { PANEL_ROW_ICON_SIZE } from "./MenuRow.svelte";
   import PullRequestChecksButton from "./PullRequestChecksButton.svelte";
+  import AutoMergeIcon from "./AutoMergeIcon.svelte";
 
   // The session's pull request as one row of two lines (docs/project-panel.md):
   // the title, which opens it, with a menu beside it; then its number, its
@@ -115,9 +116,12 @@
         .loadMetadata(api, targetServerId, ctx, [{ number }])
         .catch(() => {});
       // Merge controls need the host-computed fields only a detail read
-      // carries; PR sync keeps the rest fresh while the row is shown.
+      // carries; PR sync keeps the rest fresh while the row is shown. The row
+      // shows the check runs, so it holds a review interest: a plain
+      // pull request interest carries no checks, and the row would keep the
+      // first answer it read ("2 running") after the runs finish.
       void pullRequests.projects.get(api, targetServerId, ctx).get(number).loadDetail().catch(() => {});
-      return pullRequests.projects.want(api, targetServerId, ctx, [{ kind: "pull-request", number }]);
+      return pullRequests.checks.wantReview(api, targetServerId, ctx, number);
     });
   });
 
@@ -409,6 +413,10 @@
       : [primary?.label, blockerNote].filter(Boolean).join(". ") || undefined,
   );
 
+  // Auto-merge is the one move drawn as a glyph: its word is the longest on
+  // the line, and the rail is narrow. Its tooltip names it.
+  const isAutoMergeMove = $derived(primary?.kind === "enable-auto-merge" && !merged);
+
   function runNextMove() {
     if (!primary || merging || merged) return;
     if (primary.kind === "merge") void merge(primary.method);
@@ -498,9 +506,11 @@
   </button>
 </div>
 
-<!-- Line two: the facts on the left, the controls on the right. -->
-<div class="flex h-6 min-w-0 items-center gap-0.5 pr-0.5 pl-8 text-chrome-dense text-(--solus-text-tertiary)">
-  <span class="mr-0.5 shrink-0 tabular-nums">#{pr.number}</span>
+<!-- Line two: the facts on the left, the controls on the right. A narrow rail
+     drops the number (the title's card names it) and the indent; the checks
+     button drops its word a rung earlier. -->
+<div class="flex h-6 min-w-0 items-center gap-0.5 pr-0.5 pl-8 text-chrome-dense text-(--solus-text-tertiary) @max-[15rem]/rail:pl-1">
+  <span class="mr-0.5 shrink-0 tabular-nums @max-[15rem]/rail:hidden">#{pr.number}</span>
   {#if checks && checks.state !== "none"}
     <PullRequestChecksButton {checks} summary={checksSummary} onOpenChecks={() => openPr("activity")} />
   {/if}
@@ -546,14 +556,35 @@
                 ? 'text-(--solus-status-error)'
                 : 'text-(--solus-status-complete)'}"
             disabled={!primary || merging || merged}
+            aria-label={isAutoMergeMove ? primary?.label : undefined}
             onclick={runNextMove}
           >
-            {moveLabel}
-            {#if primary && nextMoveOpensDraft(primary.kind) && !merging}<ArrowUpRightIcon size={12} />{/if}
+            {#if isAutoMergeMove}
+              {#if merging}<SpinnerIcon size={14} class="motion-safe:animate-spin" />{:else}<AutoMergeIcon size={14} />{/if}
+            {:else}
+              {moveLabel}
+              {#if primary && nextMoveOpensDraft(primary.kind) && !merging}<ArrowUpRightIcon size={12} />{/if}
+            {/if}
           </button>
         {/snippet}
       </TooltipUI.Trigger>
       <TooltipUI.Content value={moveTooltip} />
+    </TooltipUI.Root>
+  {:else if armedLabel}
+    <!-- Auto-merge is on: the same glyph, tinted, where the move would stand. -->
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <span
+            {...tooltipProps}
+            role="img"
+            aria-label={armedLabel}
+            class="inline-flex h-[1.375rem] shrink-0 items-center rounded-md bg-(--solus-status-complete-bg) px-1.5 text-(--solus-status-complete)"
+            ><AutoMergeIcon size={14} /></span
+          >
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={armedLabel} />
     </TooltipUI.Root>
   {/if}
 </div>

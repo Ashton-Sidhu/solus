@@ -37,6 +37,9 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'accountSignOut',
   'accountRetryVerify',
   'onAccountStateChange',
+  'cloudAddress',
+  'setCloudAddress',
+  'onCloudAddressChange',
   'uplinkListDirectory',
   'accountAccessToken',
   'uplinkIssueEnrollmentTicket',
@@ -59,12 +62,18 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'hostPolicyDelete',
   'hostPolicyAssign',
   'hostPolicyUnassign',
+  'organizationSettingsGet',
+  'organizationSettingsPatch',
   'updateStatus',
   'checkForUpdate',
   'downloadUpdate',
   'restartToUpdate',
   'setUpdateAutoDownload',
   'onUpdateStatusChange',
+  'appShortcuts',
+  'addAppShortcut',
+  'removeAppShortcut',
+  'openAppWindow',
 ] as const
 
 // Most RPC methods belong to the selected host. These describe or act on the

@@ -125,8 +125,8 @@ export function pairedPrincipalFor(sessionToken: string): Admission {
 
 export interface DoorOptions {
   place: AdmissionPlace
-  /** No pairing on a managed host or the Solus API: a session token is no credential there. */
-  pairingDisabled?: boolean
+  /** No pairing on a cloud machine or the Solus API: a session token is no credential there. Asked on each admission. */
+  pairingDisabled?: () => boolean
   /** Absent on a host that is not linked: access tokens are then no credential here. */
   verifyAccessToken?: (token: string) => Promise<TokenVerdict>
   resolveShareSecret?: (secret: string) => Promise<ResolvedLinkShare | null>
@@ -142,7 +142,7 @@ export interface Doors {
 }
 
 export function createDoors(options: DoorOptions): Doors {
-  const pairing = (token: string): Admission => options.pairingDisabled ? { ok: false, reason: 'not-accepted' } : pairedPrincipalFor(token)
+  const pairing = (token: string): Admission => options.pairingDisabled?.() ? { ok: false, reason: 'not-accepted' } : pairedPrincipalFor(token)
   const accessToken = async (token: string, organizationId: string | undefined, fromSocket: boolean): Promise<Admission> => {
     if (!options.verifyAccessToken) return { ok: false, reason: 'not-accepted' }
     const verdict = await options.verifyAccessToken(token)
@@ -166,7 +166,7 @@ export function createDoors(options: DoorOptions): Doors {
     admitBearer: async (bearer, organizationId) => {
       if (!bearer || bearer.length > 16_384) return { ok: false, reason: 'not-accepted' }
       // A pairing session token is one base64url secret with no dot (`auth.ts`); an access token is a JWT, so it has dots.
-      return !options.pairingDisabled && !bearer.includes('.') ? pairedPrincipalFor(bearer) : accessToken(bearer, organizationId, false)
+      return !options.pairingDisabled?.() && !bearer.includes('.') ? pairedPrincipalFor(bearer) : accessToken(bearer, organizationId, false)
     },
   }
 }

@@ -6,7 +6,7 @@ import { openTaskTestHost } from './helpers/task-test-host'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // WHY: Solus does not own a task; it owns what it attaches to one: session
-// links, links to works, plans, automations and pull requests, and snoozes.
+// links, and links to works, plans, automations and pull requests.
 // They key on the task key and need no copy of the task, because a host that
 // never reads a provider (the organization's Solus API) still holds them.
 
@@ -20,7 +20,6 @@ let host: Awaited<ReturnType<typeof openTaskTestHost>>
 let attachments: typeof import('@solus/server/data/tasks/task-attachments')
 let links: typeof import('@solus/server/data/tasks/task-links')
 let sessions: typeof import('@solus/server/data/tasks/task-sessions')
-let snoozes: typeof import('@solus/server/data/tasks/task-snoozes')
 let store: typeof import('@solus/server/data/tasks/task-store')
 let sources: typeof import('@solus/server/data/tasks/task-sources')
 
@@ -29,7 +28,6 @@ beforeAll(async () => {
   attachments = await import('@solus/server/data/tasks/task-attachments')
   links = await import('@solus/server/data/tasks/task-links')
   sessions = await import('@solus/server/data/tasks/task-sessions')
-  snoozes = await import('@solus/server/data/tasks/task-snoozes')
   store = await import('@solus/server/data/tasks/task-store')
   sources = await import('@solus/server/data/tasks/task-sources')
 })
@@ -40,7 +38,7 @@ describe('attachments of a task this host never read', () => {
   test('a link, its activity, and its unlink need no copy of the task and call no provider', async () => {
     await attachments.linkTask('local', UNREAD, { kind: 'automation', targetKey: 'auto-1', title: 'Nightly' }, BY)
     const linked = await attachments.taskAttachments('local', UNREAD)
-    expect(linked.links).toMatchObject([{ taskId: UNREAD, kind: 'automation', targetKey: 'auto-1', title: 'Nightly', createdBy: BY }])
+    expect(linked.links).toMatchObject([{ issueId: UNREAD, kind: 'automation', targetKey: 'auto-1', title: 'Nightly', createdBy: BY }])
     expect(linked.activity).toMatchObject([{ kind: 'task_changed', change: 'linked' }])
 
     await attachments.unlinkTask('local', UNREAD, 'automation', 'auto-1', '', BY)
@@ -56,7 +54,6 @@ describe('attachments of a task this host never read', () => {
     await expect(attachments.linkTask('local', '01HZX3K5V0ULIDOFANOLDTASK00', { kind: 'work', targetKey: 'work-1', title: 'A' }, BY))
       .rejects.toThrow('is not a task of GitHub or Jira')
     await expect(attachments.linkTaskSession('local', 'T-184', 'session-1')).rejects.toThrow('is not a task of GitHub or Jira')
-    await expect(snoozes.snoozeTaskFor('local', ALICE, 'T-184', Date.now() + 1_000)).rejects.toThrow('is not a task of GitHub or Jira')
   })
 
   test('an attachment is in the organization of who made it, and another organization does not read it', async () => {
@@ -92,16 +89,6 @@ describe('attachments of a task this host never read', () => {
     expect(other.find((link) => link.kind === 'work')?.pinned).toBe(true)
   })
 
-  test('a snooze is one person\'s own and needs no copy of the task', async () => {
-    const until = Date.now() + 3_600_000
-    expect(await snoozes.snoozeTaskFor('local', ALICE, UNREAD, until, '  after the release  '))
-      .toEqual({ taskId: UNREAD, snoozedUntil: until, snoozeNote: 'after the release' })
-    expect(await snoozes.readTaskSnoozes('local', ALICE)).toEqual([{ taskId: UNREAD, snoozedUntil: until, snoozeNote: 'after the release' }])
-    // Alice deferring a task must not take it out of Bob's list.
-    expect(await snoozes.readTaskSnoozes('local', BOB)).toEqual([])
-    expect(await snoozes.snoozeTaskFor('local', ALICE, UNREAD, null)).toBeNull()
-    expect(await snoozes.readTaskSnoozes('local', ALICE)).toEqual([])
-  })
 })
 
 describe('session links', () => {
@@ -131,13 +118,13 @@ describe('session links', () => {
 
   test('the task of a session is answered with its attempts only when the host has a copy of the task', async () => {
     await attachments.linkTaskSession('local', UNREAD, 'session-1')
-    expect(await sessions.tasksForSession('local', 'session-1')).toBeNull()
+    expect(await sessions.issuesForSession('local', 'session-1')).toBeNull()
 
     host.providers.answer(REPO, repoRead([githubIssue(1)]))
-    await sources.tasksSources([REPO], ALICE)
+    await sources.issuesSources([REPO], ALICE)
     await sources.taskSourceReadsEnd()
     await attachments.linkTaskSession('local', 'github:I_1', 'session-2')
-    const found = await sessions.tasksForSession('local', 'session-2')
+    const found = await sessions.issuesForSession('local', 'session-2')
     expect(found?.task).toMatchObject({ id: 'github:I_1', reference: 'acme/app#1' })
     expect(found?.attempts.map((link) => link.sessionId)).toEqual(['session-2'])
   })
@@ -175,22 +162,22 @@ describe('links', () => {
   test('the reverse read names each task on an edge: by its copy when the host has one, else by its key', async () => {
     // WHY: a conversation card says "Linked to acme/app#1 · Issue 1" from this read alone.
     host.providers.answer(REPO, repoRead([githubIssue(1, { state: { name: 'Closed', category: 'done' } })]))
-    await sources.tasksSources([REPO], ALICE)
+    await sources.issuesSources([REPO], ALICE)
     await sources.taskSourceReadsEnd()
     await attachments.linkTask('local', 'github:I_1', { kind: 'plan', targetScope: 'session-1', targetKey: 'plan-1', title: 'A plan' }, BY)
     await attachments.linkTask('local', UNREAD, { kind: 'plan', targetScope: 'session-1', targetKey: 'plan-1', title: 'A plan' }, BY)
 
     const target = { kind: 'plan' as const, targetScope: 'session-1', targetKey: 'plan-1' }
     const linked = await links.readTasksLinkingTargets(store.database(), 'local', [target, { kind: 'automation', targetScope: '', targetKey: 'nothing-links-this' }])
-    expect(linked.find((edge) => edge.taskId === 'github:I_1')).toMatchObject({ title: 'Issue 1', category: 'done', reference: 'acme/app#1' })
-    const unread = linked.find((edge) => edge.taskId === UNREAD)
+    expect(linked.find((edge) => edge.issueId === 'github:I_1')).toMatchObject({ title: 'Issue 1', category: 'done', reference: 'acme/app#1' })
+    const unread = linked.find((edge) => edge.issueId === UNREAD)
     expect(unread).toMatchObject({ title: UNREAD, category: 'open' })
     expect(unread?.reference).toBeUndefined()
     expect(linked).toHaveLength(2)
 
     // Unlink on the card is the reverse state: the next read must not still say "Linked".
     await attachments.unlinkTask('local', UNREAD, 'plan', 'plan-1', 'session-1', BY)
-    expect((await links.readTasksLinkingTargets(store.database(), 'local', [target])).map((edge) => edge.taskId)).toEqual(['github:I_1'])
+    expect((await links.readTasksLinkingTargets(store.database(), 'local', [target])).map((edge) => edge.issueId)).toEqual(['github:I_1'])
     expect(await links.readTasksLinkingTargets(store.database(), 'org-2', [target])).toEqual([])
   })
 

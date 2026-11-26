@@ -167,8 +167,8 @@ export default scenario('member users: a member waits for their user, then runs 
   const host = playHostObject()
   host.writeUsers([host.dan])
   // Its own host id: the scenario's host must not share the Lab host's delegations with the issuer.
-  const machine = await bootLabHost({ flavor: 'managed', issuer: ctx.issuer, hostId: 'labhostmemberusr', environment: { SOLUS_MEMBER_USERS_FILE: host.usersFile, SOLUS_INSTALL_DIR: REPOSITORY_ROOT } })
-  const client = (personaId: string) => new LabClient({ persona: personaForHost(personaId, 'managed'), hostUrl: machine.tunnelUrl, issuer: ctx.issuer, hostId: machine.hostId, hostKind: 'managed' })
+  const machine = await bootLabHost({ flavor: 'cloud', issuer: ctx.issuer, hostId: 'labhostmemberusr', environment: { SOLUS_MEMBER_USERS_FILE: host.usersFile, SOLUS_INSTALL_DIR: REPOSITORY_ROOT } })
+  const client = (personaId: string) => new LabClient({ persona: personaForHost(personaId, 'cloud'), hostUrl: machine.tunnelUrl, issuer: ctx.issuer, hostId: machine.hostId, hostKind: 'cloud' })
   const bobClient = client('bob')
   const danClient = client('dan')
   try {
@@ -186,4 +186,4 @@ export default scenario('member users: a member waits for their user, then runs 
     await machine.stop()
     rmSync(host.usersDir, { recursive: true, force: true })
   }
-}, { only: 'managed' })
+}, { only: 'cloud' })

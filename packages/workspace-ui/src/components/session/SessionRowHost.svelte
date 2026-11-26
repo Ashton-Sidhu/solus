@@ -2,7 +2,7 @@
   import { Laptop as LaptopIcon } from "@lucide/svelte";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
-  import { hostIsManaged } from "../servers/lib/managed-host";
+  import { hostIsCloud } from "../servers/lib/managed-host";
 
   let { serverId, lastRun = false }: { serverId?: string | null; lastRun?: boolean } = $props();
   const host = $derived(serversStore.hostFor(serverId));
@@ -11,7 +11,7 @@
 
 <span class="flex min-w-0 max-w-[45%] items-center gap-1 text-chrome-dense text-muted-foreground" title={lastRun ? `Last ran on ${label}` : label}>
   {#if host && !host.local}
-    <HostOperatingSystemIcon os={"os" in host ? host.os : undefined} managed={hostIsManaged(host)} size={12} class="size-3 shrink-0" />
+    <HostOperatingSystemIcon os={"os" in host ? host.os : undefined} cloud={hostIsCloud(host)} size={12} class="size-3 shrink-0" />
   {:else}
     <LaptopIcon size={12} class="size-3 shrink-0" />
   {/if}

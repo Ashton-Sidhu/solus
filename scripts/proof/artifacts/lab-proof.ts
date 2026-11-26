@@ -38,7 +38,7 @@ let error: string | null = null
 try {
  service = await bootLabSolusApi({ issuer, engine: 'sqlite' })
  keys.forEach((key,index) => old[index] === undefined ? delete process.env[key] : process.env[key] = old[index])
- const cloudClient = (id: string) => { const c = new LabClient({ persona: personaForHost(id, 'managed'), issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud', hostUrl: service!.url }); clients.push(c); return c }
+ const cloudClient = (id: string) => { const c = new LabClient({ persona: personaForHost(id, 'api'), issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'api', hostUrl: service!.url }); clients.push(c); return c }
  const alice = cloudClient('alice'), bob = cloudClient('bob'), carol = cloudClient('carol')
  for (const c of [alice,bob,carol]) check(`${c.persona.id} admitted`, (await c.connect()).ok)
  const db = new Database(join(service.dataDir, 'solus.db'), { readonly: true })

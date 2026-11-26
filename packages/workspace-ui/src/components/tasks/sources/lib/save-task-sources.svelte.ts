@@ -4,19 +4,19 @@
 import type { PersonalSettings } from '@solus/contracts/settings'
 import { toasts } from '../../../../lib/toasts'
 
-type TaskSourceConfig = Pick<PersonalSettings, 'taskSources'>
+type TaskSourceConfig = Pick<PersonalSettings, 'issueSources'>
 
 /** The part of the settings context that the write needs. */
-interface TaskSourceSettings {
-  setPersonal(key: 'taskSources', value: PersonalSettings['taskSources']): boolean
+interface IssueSourceSettings {
+  setPersonal(key: 'issueSources', value: PersonalSettings['issueSources']): boolean
 }
 
 /** Save a change of the sources. False when there is no change, or when the
  *  settings refuse it; a refusal is said in a toast. */
-export function saveTaskSources(settings: TaskSourceSettings, patch: TaskSourceConfig | null): boolean {
+export function saveTaskSources(settings: IssueSourceSettings, patch: TaskSourceConfig | null): boolean {
   if (!patch) return false
   // Plain values: the settings store clones what it keeps.
-  const isSaved = settings.setPersonal('taskSources', $state.snapshot(patch.taskSources))
-  if (!isSaved) toasts.error("Couldn't save the task sources", { description: 'Solus refused the change.' })
+  const isSaved = settings.setPersonal('issueSources', $state.snapshot(patch.issueSources))
+  if (!isSaved) toasts.error("Couldn't save the issue sources", { description: 'Solus refused the change.' })
   return isSaved
 }

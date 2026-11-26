@@ -8,19 +8,19 @@
   import { prStatusBadge, REQUIRED_CHECKS_FAILING_BADGE } from "../prs/lib/pr-utils";
   import PullRequestsMenu from "./PullRequestsMenu.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
-  import { taskStatusFor, type PrChip, type TaskPrChoice } from "./lib/task-list";
+  import { sidebarStatusFor, type PrChip, type PrChoice } from "./lib/sidebar-rows";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
 
   interface Props {
     chip: PrChip;
-    choices: TaskPrChoice[];
-    onOpen: (choice: TaskPrChoice) => void;
+    choices: PrChoice[];
+    onOpen: (choice: PrChoice) => void;
     /** Reads the pull request ahead while the pointer rests on the chip, so
      *  the click finds it loaded. */
-    onWarm?: (choice: TaskPrChoice) => void;
+    onWarm?: (choice: PrChoice) => void;
     /** Removes a link from the row. Absent for a pull request the row only
      *  reads from its checkout, which has no link to remove. */
-    onUnlink?: (choice: TaskPrChoice) => (() => void) | null;
+    onUnlink?: (choice: PrChoice) => (() => void) | null;
     /** Links another pull request to the row's session by its URL. */
     onLink?: (url: string) => Promise<void>;
     /** The sessions the row's session started. The chip lists them under its
@@ -79,7 +79,7 @@
       : `${label}. View pull request.`,
   );
 
-  function openChoiceExternal(choice: TaskPrChoice, event: MouseEvent): boolean {
+  function openChoiceExternal(choice: PrChoice, event: MouseEvent): boolean {
     const url = choice.url ?? choice.pullRequest?.url;
     if (!event.metaKey || !url) return false;
 
@@ -154,7 +154,7 @@
           onSelect={() => onOpenSession?.(session)}
         >
           <TaskStatusGlyph
-            status={taskStatusFor(session.attention)}
+            status={sidebarStatusFor(session.attention)}
             size={13}
             label={attentionLabel(session.attention, session.limitResetsAt)}
           />

@@ -7,7 +7,9 @@ import { isInside } from '../cli-env'
 
 export const softwareVersionSchema = z.string().regex(/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/)
 export const softwareDigestSchema = z.string().regex(/^[a-f0-9]{64}$/)
-export interface NativeRelease { version: string; downloadUrl: string; sha256: string; archive: boolean; binary: string }
+/** The digest a release publishes for its download. Google publishes SHA-512 for agy (docs/plans/antigravity-provider.md decision 8). */
+export interface ReleaseDigest { algorithm: 'sha256' | 'sha512'; hex: string }
+export interface NativeRelease { version: string; downloadUrl: string; digest: ReleaseDigest; archive: boolean; binary: string }
 export interface SoftwareSourceOptions {
   platform?: NodeJS.Platform
   arch?: string
@@ -18,7 +20,8 @@ export interface ExternalInstallation { method: ProviderInstallation['method']; 
 export interface AgentSoftwareAdapter {
   readonly agent: SetupAgent
   readonly label: string
-  readonly npmPackage: string
+  /** Null for an agent that is not published to npm. */
+  readonly npmPackage: string | null
   readonly source: 'mirror' | 'vendor'
   detectInstallation(path: string, realPath: string): ExternalInstallation
   release(): Promise<NativeRelease>
@@ -28,7 +31,7 @@ export interface AgentSoftwareAdapter {
 
 interface InstallationLocations {
   command: SetupAgent
-  npmPackage: string
+  npmPackage: string | null
   brewPackage: string
   wingetPackage: string
   nativeDirectory: string[]
@@ -39,7 +42,7 @@ interface InstallationLocations {
 export function detectExternalInstallation(path: string, realPath: string, locations: InstallationLocations): ExternalInstallation {
   const normalized = realPath.replaceAll('\\', '/')
   const shim = path.replaceAll('\\', '/').toLowerCase()
-  if (normalized.includes(`/node_modules/${locations.npmPackage}/`) || ['cmd', 'ps1'].some((extension) => shim.endsWith(`/npm/${locations.command}.${extension}`))) {
+  if (locations.npmPackage && (normalized.includes(`/node_modules/${locations.npmPackage}/`) || ['cmd', 'ps1'].some((extension) => shim.endsWith(`/npm/${locations.command}.${extension}`)))) {
     return { method: 'npm', remediation: `Run npm install -g ${locations.npmPackage} on this host.` }
   }
   if (/\/(?:Cellar|Caskroom)\//.test(normalized)) return { method: 'homebrew', remediation: `Run brew upgrade ${locations.brewPackage} on this host.` }

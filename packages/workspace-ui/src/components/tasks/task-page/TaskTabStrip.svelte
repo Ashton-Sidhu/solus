@@ -25,7 +25,7 @@
 <div
   class="no-drag flex h-11 shrink-0 items-stretch gap-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:h-0"
   role="tablist"
-  aria-label="Task sections"
+  aria-label="Issue sections"
 >
   {#each tabs as spec (spec.id)}
     {@const isActive = spec.id === tab}

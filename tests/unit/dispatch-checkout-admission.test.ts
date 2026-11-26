@@ -11,9 +11,9 @@ import type { HostOrganizationsResponse, HostRegistration } from '@solus/contrac
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // A Run on send names its repository; the folder the client sends is a path on
-// the client, or `~` (docs/run-on.md). On a machine attached for organization
-// work, the owner claim, the turn admission, and the first facts the Solus API
-// records all happen before the copy. They must name the folder the host copies
+// the client, or `~` (docs/run-on.md). On a cloud machine, the owner claim, the
+// turn admission, and the first facts the Solus API records all happen before
+// the copy. They must name the folder the host copies
 // to, never the client's path, and the copy must land in that same folder.
 
 type Principal = import('@solus/server/admission/principal').Principal
@@ -29,18 +29,21 @@ const ISOLATED = {
   GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
   GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
 }
-const LINK: HostRegistration = { hostId: 'VM', issuer: 'https://cloud.invalid', jwksUrl: 'https://cloud.invalid/jwks', directoryUrl: 'https://cloud.invalid', generation: 1, apiUrl: 'https://api.invalid' }
+const LINK: HostRegistration = { hostId: 'VM', issuer: 'https://cloud.invalid', jwksUrl: 'https://cloud.invalid/jwks', directoryUrl: 'https://cloud.invalid', generation: 1, organizationId: 'A', apiUrl: 'https://api.invalid' }
 const STANDING: HostOrganizationsResponse = {
   hostId: 'VM',
-  category: 'self-hosted',
-  owner: { userId: 'alice', email: 'alice@example.test', name: 'Alice' },
-  organizations: [{ organizationId: 'A', name: 'Acme', shared: true, policy: { allowsCloudHosts: true, allowsPersonalHosts: false, syncAllInsights: true } }],
+  kind: 'cloud',
+  owner: null,
+  organizations: [{ organizationId: 'A', name: 'Acme', shared: true, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: false }, policy: { schemaVersion: 1, organization: { name: 'Acme' } }, hostPolicy: null }],
+  hostOwnerOrganizationId: null,
 }
-const ALICE: Principal = { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'account-session', expiresAt: Date.now() + 600_000, deviceLabel: 'Solus cloud' }
+/** A member of the machine's organization: the only kind of person who starts work on a cloud machine. */
+/** A member's checkouts are in their own folder under the projects root. */
+const MEMBER_FOLDER = 'bob'
+const BOB: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'A', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Bob', deviceId: 'account-session', expiresAt: Date.now() + 600_000, deviceLabel: 'Solus cloud' }
 
 let remote = ''
-let hostCategory: typeof import('@solus/server/host/host-category')
-let attachment: typeof import('@solus/server/host/organization-attachment')
+let machine: typeof import('@solus/server/host/machine-kind')
 
 function fixtureGit(args: string[], cwd: string): void {
   execFileSync('git', args, { cwd, env: ISOLATED, stdio: 'ignore' })
@@ -50,6 +53,8 @@ beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = join(base, 'data')
   const { installTestIdentities } = await import('./helpers/acting-identities')
   installTestIdentities()
+  // A prompt reaches the host from a person's call, in that call's acting scope; here, the host's.
+  ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
   const source = join(base, 'source')
   fixtureGit(['init', '-q', '-b', 'main', source], base)
   writeFileSync(join(source, 'README.md'), 'hello\n')
@@ -57,19 +62,18 @@ beforeAll(async () => {
   fixtureGit(['commit', '-q', '-m', 'Initial'], source)
   remote = join(base, 'remote.git')
   fixtureGit(['clone', '-q', '--bare', source, remote], base)
-  hostCategory = await import('@solus/server/host/host-category')
-  attachment = await import('@solus/server/host/organization-attachment')
+  machine = await import('@solus/server/host/machine-kind')
   const insightMirror = await import('@solus/server/sync/mirror/insight-mirror')
   insightMirror.useInsightsPolicy({ syncAllInsights: () => null, optedIn: () => false, attached: () => false })
-  // A customer's own VM, attached for organization work.
-  hostCategory.resetHostCategoryForTests()
-  hostCategory.applyHostCategory('self-hosted')
-  attachment.useOrganizationAttachment(() => 1_000)
+  // A cloud machine of organization A: its registration names the organization.
+  machine.resetMachineKindForTests()
+  machine.adoptRegistration(LINK)
 })
 
 afterAll(async () => {
-  hostCategory.resetHostCategoryForTests()
-  attachment.useOrganizationAttachment(() => null)
+  machine.resetMachineKindForTests()
+  const { HostPolicyStore, useHostPolicyStore } = await import('@solus/server/host/policy/host-policy-store')
+  useHostPolicyStore(new HostPolicyStore({ mdm: null, standing: () => null }))
   const { closeDatabase } = await import('@solus/server/db/database')
   const { closeDb } = await import('@solus/server/db')
   await closeDatabase()
@@ -98,6 +102,9 @@ async function harness(projectsFolder = 'projects') {
     clearTimeoutFn: (() => {}) as typeof clearTimeout,
   })
   await hostOrganizations.refresh()
+  // The turn's policy check reads the organization's policy from the standing (plans/030 §6.3).
+  const { HostPolicyStore, useHostPolicyStore } = await import('@solus/server/host/policy/host-policy-store')
+  useHostPolicyStore(new HostPolicyStore({ mdm: null, standing: () => hostOrganizations.current() }))
 
   const setup = registerSetupHandlers(new SolusServer(), {
     projectsRoot: () => join(base, projectsFolder),
@@ -119,7 +126,7 @@ async function harness(projectsFolder = 'projects') {
     sessionOfThread: () => undefined,
     sessionIdForCtx: (ctx: IpcContext) => ctx.session.sessionId,
     launcher: { failedSetupPrompts: new Map() },
-    statuses: { refresh: () => {}, endTurn: () => {} },
+    statuses: { refresh: () => {}, endTurn: () => {}, clearTurn: () => {} },
     runTurn: async (request: SessionRunRequest) => {
       runs.push(request)
       return { disposition: 'started', agentSessionId: Promise.resolve({ agentSessionId: null }) }
@@ -146,7 +153,7 @@ async function harness(projectsFolder = 'projects') {
       shares,
     },
   )
-  /** A Run on send from a paired laptop, in the owner's window for organization A. */
+  /** A Run on send from a member's laptop, in their window for organization A. */
   const sendRunOn = (sessionId: string, clientFolder: string, method: 'prompt' | 'retry' = 'prompt', repository: DispatchRepository = { cloneUrl: CLONE_URL, newWorktree: true }) => {
     const ctx = {
       session: {
@@ -159,15 +166,15 @@ async function harness(projectsFolder = 'projects') {
       },
       statusBar: { activeAgent: 'codex', model: 'gpt-requested', reasoningEffort: 'medium', fastMode: false },
     } as unknown as IpcContext
-    return handlers.get(method)!([ctx, { prompt: 'Go.' }], { principal: ALICE, clientId: 'ws:laptop', deviceId: 'laptop-1' })
+    return handlers.get(method)!([ctx, { prompt: 'Go.' }], { principal: BOB, clientId: 'ws:laptop', deviceId: 'laptop-1' })
   }
   return { setup, shares, admissions, runs, sendRunOn, rt }
 }
 
-describe('a Run on send on a machine attached for organization work', () => {
+describe('a Run on send on a cloud machine', () => {
   test('is admitted and recorded in the host\'s dispatch checkout folder, and the copy lands in that folder', async () => {
     const { setup, shares, admissions, runs, sendRunOn } = await harness()
-    const checkoutPath = join(base, 'projects', 'repo')
+    const checkoutPath = join(base, 'projects', MEMBER_FOLDER, 'repo')
 
     await sendRunOn('s-run-on', '/Users/someone/solus')
 
@@ -177,7 +184,7 @@ describe('a Run on send on a machine attached for organization work', () => {
     expect(admissions[0].record).toMatchObject({ cwd: checkoutPath, privateToOwner: false })
     expect(JSON.stringify(admissions[0])).not.toContain('/Users/someone')
     // The claim read the same folder: a project, so the organization gets its grant.
-    expect((await shares.homeOf({ kind: 'session', id: 's-run-on' }))?.ownerKey).toBe('alice')
+    expect((await shares.homeOf({ kind: 'session', id: 's-run-on' }))?.ownerKey).toBe('bob')
     // The run starts from the host's folder too; the client's checkout view is dropped.
     expect(runs).toHaveLength(1)
     expect(runs[0].input.workingDirectory).toBe(checkoutPath)
@@ -188,15 +195,16 @@ describe('a Run on send on a machine attached for organization work', () => {
     expect(existsSync(checkoutPath)).toBe(false)
     const repositoryRun = runs[0].repository!
     const { withUserScope } = await import('@solus/server/vault/acting-scope')
-    const prepared = await withUserScope(null, () => setup.prepareDispatchCheckout(repositoryRun.repository, { principal: ALICE, deviceId: repositoryRun.deviceId }, { onOutput: () => {}, signal: new AbortController().signal }))
+    const prepared = await withUserScope(null, () => setup.prepareDispatchCheckout(repositoryRun.repository, { principal: BOB, deviceId: repositoryRun.deviceId }, { onOutput: () => {}, signal: new AbortController().signal }))
     expect(prepared).toBe(checkoutPath)
     expect(existsSync(join(checkoutPath, 'README.md'))).toBe(true)
   })
 
   test('a client that sends `~` gets the same host folder', async () => {
-    const { admissions, runs, sendRunOn } = await harness()
+    // Its own projects folder: the clone of the test above has a fixture origin, so its folder name is taken there.
+    const { admissions, runs, sendRunOn } = await harness('projects-home')
     await sendRunOn('s-run-on-home', '~')
-    const checkoutPath = join(base, 'projects', 'repo')
+    const checkoutPath = join(base, 'projects-home', MEMBER_FOLDER, 'repo')
     expect(admissions[0].record?.cwd).toBe(checkoutPath)
     expect(runs[0].input.workingDirectory).toBe(checkoutPath)
   })
@@ -204,10 +212,10 @@ describe('a Run on send on a machine attached for organization work', () => {
   test('a retry of a dead session still makes the copy', async () => {
     // WHY: a launch that died before its copy leaves no checkout. The retry
     // starts a new provider session, and it must carry the repository too.
-    const { rt, runs, sendRunOn } = await harness()
+    const { rt, runs, sendRunOn } = await harness('projects-dead')
     rt.activeSessions.set('s-run-on-dead', { status: 'dead', agentSessionId: 'old-thread' })
     await sendRunOn('s-run-on-dead', '~', 'retry')
-    const checkoutPath = join(base, 'projects', 'repo')
+    const checkoutPath = join(base, 'projects-dead', MEMBER_FOLDER, 'repo')
     expect(runs).toHaveLength(1)
     expect(runs[0].target).toEqual({ kind: 'new-session' })
     expect(runs[0].repository?.repository.cloneUrl).toBe(CLONE_URL)
@@ -217,7 +225,7 @@ describe('a Run on send on a machine attached for organization work', () => {
   test('in a checkout Solus did not make, the run always gets a new worktree', async () => {
     // WHY: a person's own checkout of the repository may have their work open
     // in it. A dispatch on the default branch must not run the agent there.
-    const own = join(base, 'projects-own', 'repo')
+    const own = join(base, 'projects-own', MEMBER_FOLDER, 'repo')
     fixtureGit(['clone', '-q', remote, own], base)
     fixtureGit(['remote', 'set-url', 'origin', CLONE_URL], own)
     const { runs, sendRunOn } = await harness('projects-own')
@@ -227,7 +235,7 @@ describe('a Run on send on a machine attached for organization work', () => {
   })
 
   test('in a clone Solus made, the run may work in the checkout itself', async () => {
-    const clone = join(base, 'projects-marked', 'repo')
+    const clone = join(base, 'projects-marked', MEMBER_FOLDER, 'repo')
     fixtureGit(['clone', '-q', remote, clone], base)
     fixtureGit(['remote', 'set-url', 'origin', CLONE_URL], clone)
     fixtureGit(['config', '--local', 'solus.dispatchClone', 'true'], clone)

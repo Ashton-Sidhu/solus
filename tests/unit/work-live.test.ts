@@ -279,7 +279,7 @@ describe('writes from outside the live doc', () => {
 
 describe('access changes', () => {
   const member = (userId: string): Principal => ({
-    kind: 'org-member', userId, organizationId: 'local', organizationRole: 'member', teamIds: [], hostKind: 'managed',
+    kind: 'org-member', userId, organizationId: 'local', organizationRole: 'member', teamIds: [], hostKind: 'cloud',
     displayName: userId, deviceId: `${userId}-device`, expiresAt: Date.now() + 300_000, deviceLabel: 'Browser',
   })
 

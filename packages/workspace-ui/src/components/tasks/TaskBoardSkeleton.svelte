@@ -17,7 +17,7 @@
 <div
   class="flex min-h-0 flex-1 items-stretch gap-2.5 overflow-hidden pt-1.5"
   aria-busy="true"
-  aria-label="Loading tasks"
+  aria-label="Loading issues"
 >
   {#each COLUMNS as col (col.id)}
     <div

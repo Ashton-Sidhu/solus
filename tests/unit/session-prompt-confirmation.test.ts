@@ -60,6 +60,20 @@ describe('prompt delivery confirmation', () => {
     }])
   })
 
+  test('a video another client sent plays in the bubble, as when this desktop sends it', () => {
+    // WHY: a composer sends only the typed text as the display text. The host
+    // names the files beside it, so a desktop that did not send the prompt
+    // shows the same video chip as the desktop that did.
+    const { session, reducer } = fixture()
+    const hostPath = '/data/attachments/s/7aa330d0eec5a77c36879c5c-ScreenRecording.mp4'
+    reducer.apply('session', { type: 'user_message', text: 'It still loads', clientPromptId: 'phone-1', attachedFilePaths: [hostPath] })
+    expect(session.messages).toMatchObject([{
+      role: 'user',
+      content: 'It still loads',
+      attachments: [{ type: 'file', name: 'ScreenRecording.mp4', hostPath, mimeType: 'video/mp4', hostServerId: 'host-1' }],
+    }])
+  })
+
   test('replayed steering confirmation does not reset activity or add a turn', () => {
     const { session, reducer } = fixture()
     const event = { type: 'user_message' as const, text: 'Hello', clientPromptId: 'prompt-1', delivery: 'steer' as const }

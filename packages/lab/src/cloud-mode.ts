@@ -38,7 +38,7 @@ export interface CloudScenarioContext {
   /** Headless authorization code + PKCE for the persona (`cloud-sign-in.ts`); signed out at the scenario's end. */
   signIn(personaId: CloudPersonaId, client?: LabSignInClient): Promise<SignedIn>
   /** A new host from the Lab build on a temporary data directory, registered to no account. */
-  bootHost(options?: { flavor?: 'personal' | 'managed'; environment?: NodeJS.ProcessEnv }): Promise<CloudHost>
+  bootHost(options?: { flavor?: 'personal' | 'cloud'; environment?: NodeJS.ProcessEnv }): Promise<CloudHost>
   /** Stops the host and starts it again on its data directory and ports, as a reboot does. */
   restartHost(host: CloudHost): Promise<CloudHost>
   /** Work for the scenario's end, run last first, whether it passed or not. */
@@ -90,7 +90,7 @@ export async function runCloudScenario(definition: CloudScenarioDefinition, file
   const deferred: Array<{ name: string; work: () => Promise<unknown> }> = []
   let checks = 0
   let hosts = 0
-  const restarts = new Map<string, { running: { current: LabHost }; flavor: 'personal' | 'managed'; environment?: NodeJS.ProcessEnv; port: number }>()
+  const restarts = new Map<string, { running: { current: LabHost }; flavor: 'personal' | 'cloud'; environment?: NodeJS.ProcessEnv; port: number }>()
   const ctx: CloudScenarioContext = {
     stack,
     async signIn(personaId, client) {
