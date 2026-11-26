@@ -278,6 +278,7 @@ import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { resolveThreadFeedFixedItemSize } from "./thread-feed-item-size";
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
 import { OpeningHistoryPreview } from "../../solus/OpeningHistoryPreview";
+import { openingHistoryStart } from "../../solus/opening-history-window";
 import { htmlRenderRowHeight, ThreadHtmlPreviewsReady, ThreadHtmlRender } from "./HtmlRenderWebView";
 import { ThreadMcpApp } from "./McpAppWebView";
 import { useAssetUrl, useRefreshAssetUrl } from "../../state/assets";
@@ -2279,7 +2280,6 @@ function renderFeedEntry(
     const presentation = resolveUserMessagePresentation(message);
     const renderedText = presentation.text;
     const styles = isUser ? markdownStyles.user : markdownStyles.assistant;
-    const timestampLabel = props.formatMessageTime(isUser ? message.createdAt : message.updatedAt);
     const attachments = message.attachments ?? [];
     const hasReviewCommentContext = presentation.text.includes("<review_comment");
     // Android does not reposition children after maxWidth clamps bubbles; definite width prevents wide-block overlap.
@@ -2330,7 +2330,7 @@ function renderFeedEntry(
           text={presentation.text}
           context={message.context}
           scheduledTaskId={presentation.scheduledTaskId}
-          timestampLabel={timestampLabel}
+          timestampLabel={props.formatMessageTime(message.createdAt)}
           expanded={props.expandedWorkRows[rowId] ?? false}
           onToggle={() => props.onToggleWorkRow(rowId, entry.id)}
           bubbleColor={userBubbleColor}
@@ -2633,7 +2633,7 @@ function renderFeedEntry(
                   ? entry.pendingMessage.hostQueue
                     ? m(msg("Queued"))
                     : m(msg("Pending", { $context: "message not yet sent" }))
-                  : timestampLabel}
+                  : props.formatMessageTime(message.createdAt)}
               </Text>
               {props.onEditPendingMessage !== null &&
               entry.pendingMessage &&
@@ -2739,7 +2739,7 @@ function renderFeedEntry(
               />
             ) : null}
             <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
-              {timestampLabel}
+              {props.formatMessageTime(message.updatedAt)}
             </Text>
           </View>
         ) : null}
@@ -4343,6 +4343,19 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     );
   }
 
+  const openingPreviewStart =
+    Platform.OS === "ios" &&
+    props.previewOpeningHistory === true &&
+    settling &&
+    props.contentPresentation.kind === "ready" &&
+    !props.anchorMessageId &&
+    !props.pendingHandoff &&
+    !props.statusLines?.length &&
+    !props.queuedMessages.length &&
+    props.activeWorkStartedAt === null &&
+    !props.runlessWorkActive
+      ? openingHistoryStart(groupedFeed)
+      : groupedFeed.length;
   const content = (
     <PresentationSource identifier={fileShareSourceIdentifier} style={{ flex: 1 }}>
       <View className="flex-1" onLayout={handleViewportLayout}>
@@ -4351,11 +4364,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             rows at their old offsets until their measurements came back. */}
         <OpeningHistoryPreview
           style={splitLayout && viewportWidth > 0 ? { width: viewportWidth } : undefined}
-          enabled={Platform.OS === "ios" && props.previewOpeningHistory === true &&
-            props.contentPresentation.kind === "ready" && !props.anchorMessageId &&
-            !props.pendingHandoff && !props.statusLines?.length && !props.queuedMessages.length &&
-            props.activeWorkStartedAt === null && !props.runlessWorkActive}
-          settling={settling}
+          firstIndex={openingPreviewStart}
           rows={groupedFeed}
           renderRow={renderItem}
           bottom={bottomContentInset}
@@ -4403,7 +4412,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
                 : `message:${entry.message.role}`;
             }}
             getFixedItemSize={getFixedItemSize}
-            drawDistance={500}
+            drawDistance={openingPreviewStart < groupedFeed.length ? 120 : 500}
             {...(retainedMediaRowId ? { alwaysRender: { keys: [retainedMediaRowId] } } : {})}
             keyboardShouldPersistTaps="always"
             keyboardDismissMode="none"

@@ -1558,6 +1558,21 @@ function ThreadDetailBody(
   };
 
   const showThreadFeed = showContent && !props.draftMode;
+  const deferComposer = Platform.OS === "ios" && props.previewOpeningHistory === true &&
+    showThreadFeed && contentPresentationKind === "ready" && selectedThreadFeed.length > 0 &&
+    jumpMessageId === null && !props.activeThreadBusy && !props.activePendingApproval &&
+    !props.activePendingUserInput && !props.requestPanels && !props.queuedMessages.length;
+  const [composerReady, setComposerReady] = useState(!deferComposer);
+  // Keep the collapsed inset while the first reply paints. Native editor setup can
+  // otherwise occupy the same frame as the first text layout after app launch.
+  const screenLaidOut = screenHeight !== null;
+  useEffect(() => {
+    if (composerReady || !screenLaidOut) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => setComposerReady(true));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [composerReady, screenLaidOut]);
 
   return (
     <View className="flex-1" onLayout={handleScreenLayout}>
@@ -1673,7 +1688,7 @@ function ThreadDetailBody(
         />
       ) : null}
 
-      {showContent ? (
+      {showContent && (composerReady || !deferComposer) ? (
         <KeyboardStickyView
           enabled={keyboardStickyEnabled}
           pointerEvents="box-none"

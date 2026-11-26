@@ -9,6 +9,7 @@ const host = vi.hoisted(() => ({
   account: "first",
   listeners: new Set<() => void>(),
   read: vi.fn(() => ({})),
+  retained: vi.fn<() => { sessionId: string } | null>(() => null),
   hasHistoryKey: vi.fn<() => boolean | undefined>(() => false),
   observe: vi.fn(() => () => {}),
 }));
@@ -24,18 +25,20 @@ vi.mock("./runtime", () => ({
     },
     sessionCache: { scope: () => host.account, forHost: () => ({ hasHistoryKey: host.hasHistoryKey }) },
     threads: { thread: () => ({ record: {} }) },
-    openConversation: () => null,
+    openConversation: host.retained,
     conversation: host.read,
     observeConversation: host.observe,
   },
 }));
 
 it.each([
-  [false, true],
-  [true, false],
-  [undefined, false],
-] as const)("previews the first mount only for a known history miss (%s)", async (cached, expected) => {
-  host.hasHistoryKey.mockReturnValueOnce(cached);
+  [false, false, true],
+  [true, false, true],
+  [undefined, false, true],
+  [true, true, false],
+] as const)("previews a new store once (saved page %s, retained store %s)", async (cached, retained, expected) => {
+  host.hasHistoryKey.mockReturnValue(cached);
+  if (retained) host.retained.mockReturnValueOnce({ sessionId: "thread" });
   const registry = AtomRegistry.make();
   const detail = sessionDetailAtom("host", "thread");
   const close = registry.mount(detail);
