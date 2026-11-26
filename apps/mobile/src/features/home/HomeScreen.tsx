@@ -166,8 +166,6 @@ const ESTIMATED_THREAD_LIST_V2_ROW_HEIGHT = 72;
 // swipe-row-activation), so render further ahead: a fast fling then reaches
 // rows that are already built instead of rows still being rebuilt.
 const THREAD_LIST_V2_DRAW_DISTANCE = 1_000;
-/** Until its first layout the list draws only the rows near the screen, so it measures fewer before the splash can hide. */
-const FIRST_LAYOUT_DRAW_DISTANCE = 120;
 
 function HomeTopContentSpacer() {
   return <View className="h-4" />;
@@ -460,7 +458,7 @@ export function HomeScreen(props: HomeScreenProps) {
     onSelectThread(thread);
   };
   useThreadJumpShortcuts(threadListV2Items, selectThread, props.onSelectPendingTask);
-  // The launch splash waits for the list's first layout: keep its rows still and few until then.
+  // The launch splash waits for the list's first layout: keep its rows still until then.
   const [firstLayoutDone, setFirstLayoutDone] = useState(false);
   const listItems = useFirstLayoutItems(threadListV2Items, firstLayoutDone);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- records each new list for the start trace (a no-op unless the trace build is on)
@@ -793,7 +791,7 @@ export function HomeScreen(props: HomeScreenProps) {
                 getItemType={(item) => item.type}
                 itemsAreEqual={threadListV2ListItemsAreEqual}
                 estimatedItemSize={ESTIMATED_THREAD_LIST_V2_ROW_HEIGHT}
-                drawDistance={firstLayoutDone ? THREAD_LIST_V2_DRAW_DISTANCE : FIRST_LAYOUT_DRAW_DISTANCE}
+                drawDistance={THREAD_LIST_V2_DRAW_DISTANCE}
                 recycleItems
                 extraData={v2ExtraData}
                 ListHeaderComponent={v2ListHeader}
