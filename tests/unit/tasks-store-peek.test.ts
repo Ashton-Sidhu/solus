@@ -16,7 +16,7 @@ afterAll(() => {
 const world = await createTasksWorld()
 const detailReads: string[] = []
 world.connections.registerPrimary('local', {
-  issuesSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
+  issuesList: async () => ({ tasks: [], sessionsByTask: {} }),
   issuesGet: async (id: string) => {
     detailReads.push(id)
     return { task: issueRecord(id, { title: 'Opened by its key' }), comments: [], links: [], activity: [] }

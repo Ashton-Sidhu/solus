@@ -172,7 +172,7 @@ const PERMISSION_OF_METHOD = {
   liveActivityRegister: 'host.sessions.read',
   liveActivityUnregister: 'host.sessions.read',
   pinnedSessionsList: 'host.sessions.read',
-  issuesSidebarSnapshot: 'host.sessions.read',
+  issuesList: 'host.sessions.read',
   createHeadlessSession: 'host.sessions.start',
   listProjects: 'host.projects.read',
   listRecentProjects: 'host.projects.read',
@@ -306,7 +306,7 @@ const PERMISSION_OF_METHOD = {
   // A task is GitHub's or Jira's, not a Solus resource: who may read or change
   // one is decided by the caller's own provider connection, so every task
   // method is the ordinary use of the host (docs/plans/provider-owned-tasks.md).
-  issuesLoadMore: HOST_USE, issuesSources: HOST_USE, issuesSourceOptions: HOST_USE, issuesSearch: HOST_USE, issuesGet: HOST_USE,
+  issuesSourceOptions: HOST_USE, issuesSearch: HOST_USE, issuesGet: HOST_USE,
   issuesReact: HOST_USE, issuesTemplates: HOST_USE, issuesResolve: HOST_USE,
   issuesAttachments: HOST_USE, issuesCreate: HOST_USE, issuesUpdate: HOST_USE, issuesMove: HOST_USE,
   issuesDelete: HOST_USE, issuesMarkRead: HOST_USE,

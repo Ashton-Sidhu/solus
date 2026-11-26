@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { IssueColumn, IssueEpic, IssueField, IssuePriority, IssueState } from '@solus/contracts/task-types'
 import { githubIssueCategory, githubProjectOptionCategory } from '../status-category'
-import { MAX_SOURCE_TASKS, type ProviderComment, type ProviderTask, type SourceItem } from './types'
+import { MAX_SOURCE_TASKS, type GitHubBoardItem, type ProviderComment, type ProviderTask, type SourceItem } from './types'
 import { ISSUE_PROVIDER_FIELDS, ISSUE_REACTION_FIELDS, type GitHubIssueMetadataSelection } from './github-issue-metadata'
 
 /**
@@ -10,7 +10,8 @@ import { ISSUE_PROVIDER_FIELDS, ISSUE_REACTION_FIELDS, type GitHubIssueMetadataS
  * because one read gives the parent issue and the Projects v2 fields.
  */
 
-const PAGE_SIZE = 50
+/** The most items GitHub gives in one page of a connection. */
+export const GITHUB_PAGE_SIZE = 100
 
 // ─── GraphQL documents ────────────────────────────────────────────────────────
 
@@ -51,14 +52,18 @@ const ISSUE_BASE_FIELDS = `
 `
 
 // `projectItems` gives the Projects v2 values of the issue (priority, due date)
-// and the field definitions of each Project, which decide `writableFields`.
+// and the field definitions of each Project, which decide `writableFields` and
+// give a priority or due date write its ids (`boardItems` of the home).
 // GitHub refuses the whole query when the connection lacks `read:project`.
 const ISSUE_FIELDS = `
   ${ISSUE_BASE_FIELDS}
   projectItems(first: 10) {
     nodes {
       id
-      project { id fields(first: 30) { nodes { ... on ProjectV2FieldCommon { name dataType } } } }
+      project { id fields(first: 30) { nodes {
+        ... on ProjectV2FieldCommon { id name dataType }
+        ... on ProjectV2SingleSelectField { options { id name } }
+      } } }
       ${FIELD_VALUES}
     }
   }
@@ -108,11 +113,11 @@ function issueQueries(issueFields: string, draftFields: string, withStatus = fal
 }
 
 const listIssuesQuery = (issueFields: string, repositoryFields: string) => `
-  query($owner: String!, $repo: String!, $states: [IssueState!], $cursor: String) {
+  query($owner: String!, $repo: String!, $states: [IssueState!], $cursor: String, $first: Int!) {
     repository(owner: $owner, name: $repo) {
       ${repositoryFields}
       issues(
-        first: ${PAGE_SIZE}
+        first: $first
         after: $cursor
         states: $states
         orderBy: { field: UPDATED_AT, direction: DESC }
@@ -208,7 +213,7 @@ export const DRAFT_ITEM_QUERY = `
 `
 
 const projectQuery = (issueFields: string) => `
-  query($owner: String!, $number: Int!, $cursor: String) {
+  query($owner: String!, $number: Int!, $cursor: String, $first: Int!) {
     repositoryOwner(login: $owner) {
       ... on ProjectV2Owner {
         projectV2(number: $number) {
@@ -221,7 +226,7 @@ const projectQuery = (issueFields: string) => `
               ... on ProjectV2SingleSelectField { options { id name } }
             }
           }
-          items(first: ${PAGE_SIZE}, after: $cursor) {
+          items(first: $first, after: $cursor) {
             totalCount
             pageInfo { hasNextPage endCursor }
             nodes {
@@ -243,23 +248,6 @@ const projectQuery = (issueFields: string) => `
 export const PROJECT_QUERY = projectQuery(ISSUE_FIELDS)
 export const PROJECT_STATUS_QUERY = projectQuery(`${ISSUE_FIELDS} ${PLANNING_STATUS_FIELDS}`)
 
-/** The field ids and option ids of one Project, which a field write needs. */
-export const PROJECT_FIELDS_QUERY = `
-  query($projectId: ID!) {
-    node(id: $projectId) {
-      ... on ProjectV2 {
-        fields(first: 50) {
-          nodes {
-            __typename
-            ... on ProjectV2FieldCommon { id name dataType }
-            ... on ProjectV2SingleSelectField { options { id name } }
-          }
-        }
-      }
-    }
-  }
-`
-
 export const USER_ID_QUERY = `
   query($login: String!) {
     user(login: $login) { id }
@@ -270,14 +258,6 @@ export const SET_PROJECT_FIELD_MUTATION = `
   mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
     updateProjectV2ItemFieldValue(
       input: { projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: $value }
-    ) { projectV2Item { id } }
-  }
-`
-
-export const CLEAR_PROJECT_FIELD_MUTATION = `
-  mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!) {
-    clearProjectV2ItemFieldValue(
-      input: { projectId: $projectId, itemId: $itemId, fieldId: $fieldId }
     ) { projectV2Item { id } }
   }
 `
@@ -465,10 +445,6 @@ export interface ProjectResponse {
   } | null
 }
 
-export interface ProjectFieldsResponse {
-  node: { fields?: { nodes: Array<ProjectFieldNode | null> } } | null
-}
-
 export interface UserIdResponse {
   user: { id: string } | null
 }
@@ -574,6 +550,25 @@ export function projectItemsOf(node: IssueNode): IssueProjectItemNode[] {
   return node.projectItems ? presentNodes(node.projectItems.nodes) : []
 }
 
+/** The ids of each board item that a priority or due date write needs. */
+export function boardItemsOf(items: IssueProjectItemNode[]): GitHubBoardItem[] {
+  return items.map((item) => {
+    const board: GitHubBoardItem = { projectId: item.project.id, itemId: item.id }
+    let namedDue: string | undefined
+    for (const field of presentNodes(item.project.fields.nodes)) {
+      if (!field.id || !field.name) continue
+      if (field.dataType === 'SINGLE_SELECT' && field.name.toLowerCase() === 'priority' && !board.priority) {
+        board.priority = { fieldId: field.id, options: field.options ?? [] }
+      } else if (field.dataType === 'DATE') {
+        board.dueFieldId ??= field.id
+        if (!namedDue && DUE_FIELD_RE.test(field.name)) namedDue = field.id
+      }
+    }
+    if (namedDue) board.dueFieldId = namedDue
+    return board
+  })
+}
+
 /** A GitHub issue takes a priority or a due date only when a Project it is on has that field. */
 function issueWritableFields(items: IssueProjectItemNode[]): IssueField[] {
   const fields = items.flatMap((item) => presentNodes(item.project.fields.nodes))
@@ -630,7 +625,11 @@ export function issueToTask(node: IssueNode): ProviderTask {
     dueDate: planning.dueDate,
     epic: node.parent ? issueEpic(node.parent) : undefined,
     writableFields: issueWritableFields(items),
-    home: { provider: 'github', kind: 'issue', owner, repo, number: node.number },
+    home: {
+      provider: 'github', kind: 'issue', owner, repo, number: node.number,
+      ...(node.projectItems && { boardItems: boardItemsOf(items) }),
+      ...(node.viewerCanSetStatus !== undefined && { canSetStatus: node.viewerCanSetStatus }),
+    },
     createdAt: Date.parse(node.createdAt) || undefined,
     updatedAt: Date.parse(node.updatedAt) || 0,
   }

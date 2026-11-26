@@ -196,7 +196,8 @@ export function loadMoreTaskSource(source: IssueSource, personKey: string): Prom
     if (!access?.checkedAt) throw new Error('Read this source before loading more tasks.')
     if (!stored?.nextCursor) return
     try {
-      const page = await taskAdapters().source(source.kind).read(source, stored.nextCursor)
+      const held = { label: stored.label, columns: stored.columns, writeState: stored.writeState }
+      const page = await taskAdapters().source(source.kind).read(source, stored.nextCursor, held)
       await storeSourceRead(source, page, Date.now(), true)
       await recordTaskSourceAccess(personKey, sourceKey, { checkedAt: Date.now() })
       emitChanged()

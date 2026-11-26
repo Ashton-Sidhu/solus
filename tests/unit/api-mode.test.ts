@@ -400,7 +400,7 @@ describe('organization isolation through HTTP operations and retained RPC', () =
   test('a runner reaches the system-only writes of its organization and nothing else; no person writes a record', async () => {
     const server = await bootServer()
     await expect(server.handle('sessionRecordUpsert', [{ sessionId: 's-x', provider: 'claude-code', projectPath: '-p', lastActivityAt: 1 }], ctx(alice))).rejects.toThrow(/only available to the host itself/)
-    await expect(server.handle('issuesSidebarSnapshot', [], ctx(runner1))).rejects.toThrow(/not available to a runner/)
+    await expect(server.handle('issuesList', [], ctx(runner1))).rejects.toThrow(/not available to a runner/)
     await expect(server.handle('connectionsGetServerInfo', [], ctx(runner1))).rejects.toThrow(/not available to a runner/)
     // The record a runner writes is stamped with the runner, whatever the body claimed.
     const record = await server.handle('sessionRecordUpsert', [{ sessionId: 's-stamped', provider: 'claude-code', projectPath: '-p', runnerHostId: 'someone-else', lastActivityAt: 1 }], ctx(runner1))

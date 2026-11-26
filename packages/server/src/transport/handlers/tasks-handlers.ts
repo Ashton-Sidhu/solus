@@ -2,9 +2,11 @@ import { taskReadOptionsSchema } from '@solus/contracts/task-read'
 import { inspectTask, reactToTask, taskTemplates, resolveTaskUrl } from '../../data/tasks/task-inspection'
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
-import type { PrepareSessionIssueResult } from '@solus/contracts/task-types'
+import type { IssueSourceState, PrepareSessionIssueResult } from '@solus/contracts/task-types'
 import { MAX_SIDEBAR_ISSUE_IDS } from '@solus/contracts/task-types'
-import { MAX_ISSUE_SOURCES, issueSourceSchema } from '@solus/contracts/task-sources'
+import { MAX_ISSUE_SOURCES, issueSourceKey, issueSourceSchema } from '@solus/contracts/task-sources'
+import { permissionsAllow } from '@solus/contracts/permissions'
+import { permissionsFor } from '../../admission/access-policy'
 import {
   commentOnTask,
   createTask,
@@ -52,12 +54,15 @@ const log = createLogger('main', 'tasks-handlers')
 const RECENT_PROJECTS_FOR_SOURCES = 8
 /** The most changed sessions a resume looks up; more, and it sends the whole list. */
 const MAX_RESUMED_SESSION_IDS = 1000
-const taskSidebarFilterSchema = z.object({
+/** The task sources a client sends from the person's settings: the host reads each one with a provider. */
+const taskSourcesSchema = z.array(issueSourceSchema).max(MAX_ISSUE_SOURCES)
+const issueListRequestSchema = z.object({
+  sources: taskSourcesSchema.optional(),
+  refresh: z.enum(['stale', 'force']).optional(),
+  loadMore: z.string().max(1024).optional(),
   issueIds: z.array(z.string()).max(MAX_SIDEBAR_ISSUE_IDS).optional(),
   since: z.string().max(200).optional(),
 }).nullish()
-/** The task sources a client sends from the person's settings: the host reads each one with a provider. */
-const taskSourcesSchema = z.array(issueSourceSchema).max(MAX_ISSUE_SOURCES)
 const taskMoveTargetSchema = z.union([
   z.strictObject({ sourceKey: z.string().min(1), columnId: z.string().min(1) }),
   z.strictObject({ category: z.enum(['open', 'active', 'done']) }),
@@ -101,12 +106,6 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
   if (deps.attachmentsOnly) return
   startTaskSourcePolling()
 
-  server.register('issuesSources', (args, ctx) => {
-    const [sources, opts] = args
-    return issuesSources(taskSourcesSchema.parse(sources), readerOf(ctx).personKey, { refresh: opts?.refresh })
-  })
-
-  server.register('issuesLoadMore', ([source], ctx) => loadMoreTaskSource(issueSourceSchema.parse(source), readerOf(ctx).personKey))
   // The caller's own projects lead the GitHub choices: a member sees only theirs.
   server.register('issuesSourceOptions', (_args, ctx) => taskSourceOptions({
     ...defaultTaskSourceOptionsDeps,
@@ -215,11 +214,26 @@ function registerAttachmentHandlers(server: SolusServer, attachmentsOnly: boolea
     return [...new Set([...changes.taskIds, ...linked])]
   }
 
-  server.register('issuesSidebarSnapshot', async (args, ctx) => {
-    const parsed = taskSidebarFilterSchema.safeParse(args[0])
-    if (!parsed.success) throw new Error(`A sidebar read names at most ${MAX_SIDEBAR_ISSUE_IDS} task ids and one revision.`)
+  // The issue list. With the person's sources it also reads and answers their
+  // state, which needs a person who may use the host (a link guest reads rows only).
+  server.register('issuesList', async (args, ctx) => {
+    const parsed = issueListRequestSchema.safeParse(args[0])
+    if (!parsed.success) throw new Error(`An issue list read names at most ${MAX_ISSUE_SOURCES} sources, ${MAX_SIDEBAR_ISSUE_IDS} issue ids and one revision.`)
     const filter = parsed.data
     const reader = readerOf(ctx)
+    let sources: IssueSourceState[] | undefined
+    if (filter?.sources) {
+      // The organization's Solus API holds attachments only: it reads no provider.
+      if (attachmentsOnly) throw new Error('This host reads no issue sources.')
+      if (!permissionsAllow(permissionsFor(ctx.principal), 'host.use')) throw new Error('Reading issue sources needs a person who may use this host.')
+      if (filter.loadMore) {
+        const source = filter.sources.find((candidate) => issueSourceKey(candidate) === filter.loadMore)
+        if (!source) throw new Error('loadMore names a source that the request does not list.')
+        await loadMoreTaskSource(source, reader.personKey)
+      }
+      sources = await issuesSources(filter.sources, reader.personKey, { refresh: filter.refresh })
+    }
+    if (filter?.issueIds?.length === 0) return { tasks: [], sessionsByTask: {}, ...(sources && { sources }) }
     // A narrowed read covers only its rows, so it gives no revision. The
     // revision is read before the rows: a change that commits during the read
     // is then in the next resume (docs/plans/task-snapshot-resume.md).
@@ -227,7 +241,7 @@ function registerAttachmentHandlers(server: SolusServer, attachmentsOnly: boolea
     const revision = filter?.issueIds ? undefined : taskListRevision(readerKey)
     const changed = !filter?.issueIds && filter?.since ? await changedTasksSince(ctx, filter.since, readerKey) : null
     const changedTaskIds = changed && changed.length <= MAX_SIDEBAR_ISSUE_IDS ? changed : undefined
-    if (changedTaskIds?.length === 0) return { tasks: [], sessionsByTask: {}, revision, changedTaskIds }
+    if (changedTaskIds?.length === 0) return { tasks: [], sessionsByTask: {}, revision, changedTaskIds, ...(sources && { sources }) }
     const taskIds = filter?.issueIds ?? changedTaskIds
     const startedAt = performance.now()
     const snapshot = await readTaskSidebarSnapshot(reader, taskIds)
@@ -246,6 +260,7 @@ function registerAttachmentHandlers(server: SolusServer, attachmentsOnly: boolea
     }
     if (revision) snapshot.revision = revision
     if (changedTaskIds) snapshot.changedTaskIds = changedTaskIds
+    if (sources) snapshot.sources = sources
     return snapshot
   })
 

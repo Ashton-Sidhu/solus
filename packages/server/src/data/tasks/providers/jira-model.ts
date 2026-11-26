@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { TaskProviderData, TaskProviderEvent } from '@solus/contracts/task-data'
 import type { IssueEpic, IssuePriority } from '@solus/contracts/task-types'
 import { adfBodySchema, adfToMarkdown, type markdownToAdf } from '../../../atlassian/adf'
 import { jiraStatusCategory } from '../status-category'
@@ -73,14 +74,49 @@ export const searchSchema = z.object({
   nextPageToken: z.string().nullish(),
   isLast: z.boolean().nullish(),
 })
-export const transitionsSchema = z.object({
-  transitions: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    to: statusSchema,
-  })),
+const transitionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  to: statusSchema,
 })
+export const transitionsSchema = z.object({ transitions: z.array(transitionSchema) })
 export type JiraTransitionTarget = z.infer<typeof statusSchema>
+
+/** One change of an issue: a `histories` entry of `expand=changelog`, or a
+ *  `values` entry of a `/changelog` page. Both carry the same id. */
+const changeSchema = z.object({
+  id: z.string(),
+  created: z.string(),
+  author: z.object({ displayName: z.string() }).nullish(),
+  items: z.array(z.object({ field: z.string(), fromString: z.string().nullish(), toString: z.string().nullish() })),
+})
+
+/** The issue of a detail read: its fields, its newest changes and its legal transitions, in one answer. */
+export const issueDetailSchema = issueSchema.extend({
+  changelog: z.object({ total: z.number(), histories: z.array(changeSchema) }).nullish(),
+  transitions: z.array(transitionSchema).nullish(),
+})
+export const ISSUE_DETAIL_EXPAND = 'changelog,transitions'
+
+/** A page of `/rest/api/3/issue/{id}/changelog`, oldest first. */
+export const changelogPageSchema = z.object({
+  startAt: z.number(),
+  total: z.number(),
+  values: z.array(changeSchema),
+})
+
+export const JIRA_PROVIDER_CAPABILITIES: TaskProviderData['capabilities'] = {
+  history: true, reactions: false, multipleAssignees: false, templates: false,
+}
+
+export function changeEvents(changes: Array<z.infer<typeof changeSchema>>): TaskProviderEvent[] {
+  return changes.flatMap((change) => change.items.map((item, index) => ({
+    id: `${change.id}:${index}`,
+    at: Date.parse(change.created),
+    actor: change.author?.displayName ?? null,
+    text: `changed ${item.field} from “${item.fromString ?? 'none'}” to “${item.toString ?? 'none'}”`,
+  })))
+}
 
 export const createdIssueSchema = z.object({ id: z.string(), key: z.string() })
 export const epicIssueSchema = z.object({

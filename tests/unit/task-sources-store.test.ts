@@ -19,6 +19,16 @@ afterEach(() => jest.useRealTimers())
 const repo = sourceState(REPO_SOURCE_KEY).source
 const board = sourceState(BOARD_SOURCE_KEY).source
 
+
+/** An `issuesList` that answers source state as a host does when a request names
+ *  the person's sources, and no rows otherwise. `read` gets the sources and the
+ *  refresh the request sent. */
+function answerSources(read: (sources: unknown, opts?: { refresh: string }) => unknown) {
+  return async (request?: { sources?: unknown; refresh?: string }) => request?.sources
+    ? { tasks: [], sessionsByTask: {}, sources: await read(request.sources, request.refresh ? { refresh: request.refresh } : undefined) }
+    : { tasks: [], sessionsByTask: {} }
+}
+
 describe('which host reads the sources', () => {
   test('this device reads them when it runs agents, not the primary connection', async () => {
     // WHY: the device is the person's own machine with their provider
@@ -27,8 +37,8 @@ describe('which host reads the sources', () => {
     const world = await createTasksWorld()
     world.setSources([repo])
     const asked: string[] = []
-    world.connections.registerPrimary('workshop', { issuesSources: async () => { asked.push('workshop'); return [] } })
-    world.connections.registerHost('local', { issuesSources: async () => { asked.push('local'); return [sourceState(REPO_SOURCE_KEY)] } })
+    world.connections.registerPrimary('workshop', { issuesList: answerSources(async () => { asked.push('workshop'); return [] }) })
+    world.connections.registerHost('local', { issuesList: answerSources(async () => { asked.push('local'); return [sourceState(REPO_SOURCE_KEY)] }) })
 
     await world.issueSourcesStore.load()
 
@@ -44,8 +54,8 @@ describe('which host reads the sources', () => {
     world.setSources([repo])
     world.attachmentOnlyHosts.add('local')
     const asked: string[] = []
-    world.connections.registerPrimary('workshop', { issuesSources: async () => { asked.push('workshop'); return [sourceState(REPO_SOURCE_KEY)] } })
-    world.connections.registerHost('local', { issuesSources: async () => { asked.push('local'); return [] } })
+    world.connections.registerPrimary('workshop', { issuesList: answerSources(async () => { asked.push('workshop'); return [sourceState(REPO_SOURCE_KEY)] }) })
+    world.connections.registerHost('local', { issuesList: answerSources(async () => { asked.push('local'); return [] }) })
 
     await world.issueSourcesStore.load()
 
@@ -60,7 +70,7 @@ describe('which host reads the sources', () => {
     world.setSources([repo])
     world.attachmentOnlyHosts.add('cloud')
     let asked = 0
-    world.connections.registerPrimary('cloud', { issuesSources: async () => { asked++; return [] } })
+    world.connections.registerPrimary('cloud', { issuesList: answerSources(async () => { asked++; return [] }) })
 
     await world.issueSourcesStore.load()
 
@@ -77,10 +87,10 @@ describe('reading the sources', () => {
     world.setSources([repo, board])
     const requests: Array<{ sources: unknown; opts: unknown }> = []
     world.connections.registerPrimary('local', {
-      issuesSources: async (sources: unknown, opts?: unknown) => {
+      issuesList: answerSources(async (sources: unknown, opts?: unknown) => {
         requests.push({ sources, opts })
         return [sourceState(REPO_SOURCE_KEY), sourceState(BOARD_SOURCE_KEY)]
-      },
+      }),
     })
 
     await world.issueSourcesStore.load()
@@ -100,10 +110,10 @@ describe('reading the sources', () => {
     const world = await createTasksWorld()
     const requests: unknown[] = []
     world.connections.registerPrimary('local', {
-      issuesSources: async (sources: unknown) => {
+      issuesList: answerSources(async (sources: unknown) => {
         requests.push(sources)
         return [sourceState(REPO_SOURCE_KEY)]
-      },
+      }),
     })
 
     world.setSources([repo])
@@ -119,7 +129,7 @@ describe('reading the sources', () => {
     const world = await createTasksWorld()
     world.setSources([repo])
     let asked = 0
-    world.connections.registerPrimary('local', { issuesSources: async () => { asked++; return [sourceState(REPO_SOURCE_KEY)] } })
+    world.connections.registerPrimary('local', { issuesList: answerSources(async () => { asked++; return [sourceState(REPO_SOURCE_KEY)] }) })
     await world.issueSourcesStore.load()
 
     world.setSources([])
@@ -136,10 +146,10 @@ describe('reading the sources', () => {
     world.setSources([repo])
     let fail = false
     world.connections.registerPrimary('local', {
-      issuesSources: async () => {
+      issuesList: answerSources(async () => {
         if (fail) throw new Error('The host did not answer.')
         return [sourceState(REPO_SOURCE_KEY)]
-      },
+      }),
     })
     await world.issueSourcesStore.load()
 
@@ -161,7 +171,7 @@ describe('reading the sources', () => {
     const slow = Promise.withResolvers<IssueSourceState[]>()
     let reads = 0
     world.connections.registerPrimary('local', {
-      issuesSources: () => reads++ === 0 ? slow.promise : Promise.resolve([sourceState(REPO_SOURCE_KEY), sourceState(BOARD_SOURCE_KEY)]),
+      issuesList: answerSources(() => reads++ === 0 ? slow.promise : Promise.resolve([sourceState(REPO_SOURCE_KEY), sourceState(BOARD_SOURCE_KEY)])),
     })
 
     const older = world.issueSourcesStore.load()
@@ -179,7 +189,7 @@ describe('reading the sources', () => {
     world.setSources([repo])
     const answer = Promise.withResolvers<IssueSourceState[]>()
     let next: Promise<IssueSourceState[]> = answer.promise
-    world.connections.registerPrimary('local', { issuesSources: () => next })
+    world.connections.registerPrimary('local', { issuesList: answerSources(() => next) })
 
     const load = world.issueSourcesStore.load()
     expect(world.issueSourcesStore.refreshing).toBe(true)
@@ -203,11 +213,10 @@ describe('when the task host says that its sources changed', () => {
     await settle()
     const reads: string[] = []
     const api = (name: string) => ({
-      issuesSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
-      issuesSources: async () => {
+      issuesList: answerSources(async () => {
         reads.push(name)
         return [sourceState(REPO_SOURCE_KEY)]
-      },
+      }),
     })
     world.connections.registerPrimary('local', api('local'))
     world.connections.registerHost('workshop', api('workshop'))
@@ -234,11 +243,10 @@ describe('when the task host says that its sources changed', () => {
     await settle()
     let reads = 0
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
-      issuesSources: async () => {
+      issuesList: answerSources(async () => {
         reads++
         return [sourceState(REPO_SOURCE_KEY)]
-      },
+      }),
     })
     const store = new world.IssuesStore()
     await store.ensureLoaded()

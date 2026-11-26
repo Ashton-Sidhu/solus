@@ -35,9 +35,24 @@ export const taskEpicSchema = z.object({
   body: z.string(),
 })
 export const taskHomeSchema: z.ZodType<TaskHome> = z.union([
-  z.object({ provider: z.literal('github'), kind: z.literal('issue'), owner: z.string(), repo: z.string(), number: z.number() }),
+  z.object({
+    provider: z.literal('github'), kind: z.literal('issue'), owner: z.string(), repo: z.string(), number: z.number(),
+    boardItems: z.array(z.object({
+      projectId: z.string(),
+      itemId: z.string(),
+      priority: z.object({ fieldId: z.string(), options: z.array(z.object({ id: z.string(), name: z.string() })) }).optional(),
+      dueFieldId: z.string().optional(),
+    })).optional(),
+    canSetStatus: z.boolean().optional(),
+  }),
   z.object({ provider: z.literal('github'), kind: z.literal('draft'), projectId: z.string(), itemId: z.string() }),
-  z.object({ provider: z.literal('jira'), cloudId: z.string(), key: z.string() }),
+  z.object({
+    provider: z.literal('jira'), cloudId: z.string(), key: z.string(),
+    transitions: z.array(z.object({
+      id: z.string(),
+      to: z.object({ id: z.string(), name: z.string(), statusCategory: z.object({ key: z.string() }) }),
+    })).optional(),
+  }),
   z.object({ provider: z.literal('linear'), workspaceId: z.string(), issueId: z.string(), teamId: z.string() }),
 ])
 export const taskColumnsSchema: z.ZodType<IssueColumn[]> = z.array(z.object({ id: z.string(), name: z.string(), category: categorySchema }))

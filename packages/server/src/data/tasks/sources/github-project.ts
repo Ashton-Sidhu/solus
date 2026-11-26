@@ -7,6 +7,7 @@ import { searchGithubIssues, withPlanningStatus } from '../providers/github-plan
 import {
   ADD_DRAFT_MUTATION,
   draftToTask,
+  GITHUB_PAGE_SIZE,
   issueToTask,
   PROJECT_QUERY,
   PROJECT_STATUS_QUERY,
@@ -19,6 +20,7 @@ import {
   type ProjectResponse,
 } from '../providers/github-model'
 import {
+  MAX_SOURCE_TASKS,
   TaskProviderError,
   type GithubRun,
   type ProviderTask,
@@ -77,8 +79,10 @@ export class GitHubProjectSource implements TaskSourceAdapter {
       let pages = 0
       for (;;) {
         pages++
-        const res: ProjectResponse = await withPlanningStatus((preview) =>
-          graphql<ProjectResponse>(preview ? PROJECT_STATUS_QUERY : PROJECT_QUERY, { owner, number, cursor }))
+        const res: ProjectResponse = await withPlanningStatus(graphql, (preview) =>
+          graphql<ProjectResponse>(preview ? PROJECT_STATUS_QUERY : PROJECT_QUERY, {
+            owner, number, cursor, first: Math.min(GITHUB_PAGE_SIZE, MAX_SOURCE_TASKS - items.length),
+          }))
         const project = res.repositoryOwner?.projectV2
         if (!project) {
           throw new TaskProviderError(

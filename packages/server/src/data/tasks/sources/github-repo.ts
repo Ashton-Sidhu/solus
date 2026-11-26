@@ -3,8 +3,9 @@ import type { TaskInvolvement } from '@solus/contracts/task-data'
 import type { IssueSource } from '@solus/contracts/task-sources'
 import type { IssueAssigneeCandidate, IssueColumn } from '@solus/contracts/task-types'
 import { createRepoIssue, GitHubTaskProvider, listRepoAssignees } from '../providers/github'
-import { readGithubIssues, searchGithubIssues } from '../providers/github-planning-status'
+import { readGithubIssues, rememberPlanningStatuses, searchGithubIssues } from '../providers/github-planning-status'
 import {
+  GITHUB_PAGE_SIZE,
   issueToTask,
   planningColumn,
   planningStatusesOf,
@@ -12,15 +13,16 @@ import {
   restIssueToTask,
   type ListIssuesResponse,
 } from '../providers/github-model'
-import type {
-  GithubRun,
-  ProviderTask,
-  SourceItem,
-  SourceMove,
-  SourceRead,
-  SourceWriteState,
-  TaskDraft,
-  TaskSourceAdapter,
+import {
+  MAX_SOURCE_TASKS,
+  type GithubRun,
+  type ProviderTask,
+  type SourceItem,
+  type SourceMove,
+  type SourceRead,
+  type SourceWriteState,
+  type TaskDraft,
+  type TaskSourceAdapter,
 } from '../providers/types'
 
 type RepoSource = Extract<IssueSource, { kind: 'github-repo' }>
@@ -57,9 +59,13 @@ export class GitHubRepoSource implements TaskSourceAdapter {
       let cursor = start.cursor
       let nextCursor: string | null = null
       // Four physical pages bound a click even if GitHub returns short pages.
-      for (let pageIndex = 0; pageIndex < 4; pageIndex++) {
-        const res: ListIssuesResponse = await readGithubIssues((queries) => graphql<ListIssuesResponse>(queries.listIssues, { owner, repo, states: [state], cursor }))
+      // Each page asks for no more than the cap leaves, so no read cuts a page
+      // and its cursor never skips an issue.
+      for (let pageIndex = 0; pageIndex < 4 && items.length < MAX_SOURCE_TASKS; pageIndex++) {
+        const first = Math.min(GITHUB_PAGE_SIZE, MAX_SOURCE_TASKS - items.length)
+        const res: ListIssuesResponse = await readGithubIssues(graphql, (queries) => graphql<ListIssuesResponse>(queries.listIssues, { owner, repo, states: [state], cursor, first }))
         const statuses = planningStatusesOf(res.repository)
+        if (pageIndex === 0 && res.repository.planningStatuses) rememberPlanningStatuses(graphql, { owner, repo }, statuses)
         if (pageIndex === 0 && statuses.length) columns = statuses.map(planningColumn)
         const page = res.repository.issues
         items.push(...page.nodes.map((node) => repoSourceItem(issueToTask(node), columns !== LEGACY_COLUMNS)))
@@ -112,9 +118,9 @@ export class GitHubRepoSource implements TaskSourceAdapter {
   async move(input: SourceMove): Promise<ProviderTask | null> {
     repoSource(input.source)
     if (input.columnId === 'open' || input.columnId === 'closed') {
-      return this.provider.setState(input.home, input.columnId === 'closed' ? 'done' : 'open')
+      return this.provider.setState(input.home, input.columnId === 'closed' ? 'done' : 'open', input.current)
     }
-    return this.provider.setNamedStatus(input.home, input.columnId)
+    return this.provider.setNamedStatus(input.home, input.columnId, input.current)
   }
 
   async assignees(source: IssueSource): Promise<IssueAssigneeCandidate[]> {

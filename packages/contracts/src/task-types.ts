@@ -416,12 +416,14 @@ export interface IssueSnapshot {
  *  which only the detail read carries (plans/029 §8). */
 export type IssueSummary = Omit<Issue, 'body' | 'epic'>
 
-/** One authoritative renderer snapshot of the tasks a host holds for the reader
- * and their session ownership, read together so the sidebar never has to
- * reconcile independently timed task and link responses. A host that holds
- * only attachments (the organization's Solus API) answers no tasks, and the
- * links of the task keys it knows. */
-export interface IssueSidebarSnapshot {
+/** `issuesList`: the issues a host holds for the reader and their session
+ * ownership, read together so the sidebar never has to reconcile independently
+ * timed issue and link responses. A host that holds only attachments (the
+ * organization's Solus API) answers no issues, and the links of the issue keys
+ * it knows. `sources` is there when the request named the person's sources. */
+export interface IssueList {
+  /** The host's last read of each source the request named. */
+  sources?: IssueSourceState[]
   tasks: IssueSummary[]
   sessionsByTask: Record<string, IssueSessionLink[]>
   /** Every durable PR edge, newest first. The first entry is the newest link. */
@@ -455,7 +457,17 @@ export interface IssueCommentHit {
 /** Narrows a sidebar snapshot to named tasks, so one changed task costs one
  *  row rather than the whole list. A named task absent from the answer was
  *  deleted or is no longer visible to the caller. */
-export interface IssueSidebarFilter {
+export interface IssueListRequest {
+  /** The person's sources, from their settings. The host reads each one that is
+   *  not fresh (every one with `refresh: 'force'`), `issues.sourcesChanged` says
+   *  when a read ends, and the answer carries their state. Only the task host
+   *  reads sources; it needs `host.use`. */
+  sources?: IssueSource[]
+  refresh?: 'stale' | 'force'
+  /** The key of one of `sources`: read its next pages from the provider before
+   *  answering. */
+  loadMore?: string
+  /** Only these rows. `[]` reads source state alone, with no rows. */
   issueIds?: string[]
   /** The `revision` of the last answer this client applied for the whole list.
    *  The host then names only the tasks changed after it, or sends the whole

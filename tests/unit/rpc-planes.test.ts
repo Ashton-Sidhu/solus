@@ -51,11 +51,11 @@ describe('SOLUS_ROLES', () => {
 
   test('a host refuses a method on a plane it does not serve with PLANE_DISABLED, and serves the rest', async () => {
     const server = new SolusServer()
-    server.register('issuesSidebarSnapshot', async () => ({ tasks: [], sessionsByTask: {} }))
+    server.register('issuesList', async () => ({ tasks: [], sessionsByTask: {} }))
     server.register('gitRefreshState', async () => undefined)
     server.useRoles(resolveRoles({ SOLUS_ROLES: 'collaboration' }))
 
-    await expect(server.handle('issuesSidebarSnapshot', [], TEST_HANDLER_CTX)).resolves.toEqual({ tasks: [], sessionsByTask: {} })
+    await expect(server.handle('issuesList', [], TEST_HANDLER_CTX)).resolves.toEqual({ tasks: [], sessionsByTask: {} })
     const refusal = server.handle('gitRefreshState', ['/repo'], TEST_HANDLER_CTX)
     await expect(refusal).rejects.toBeInstanceOf(PlaneDisabledError)
     await expect(refusal).rejects.toMatchObject({ code: 'PLANE_DISABLED', plane: 'execution' })

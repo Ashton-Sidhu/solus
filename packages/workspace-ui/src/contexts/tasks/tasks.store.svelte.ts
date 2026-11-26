@@ -14,7 +14,7 @@ import type {
   IssueLinkTarget,
   IssueLinkedIssue,
   IssueSessionLink,
-  IssueSidebarSnapshot,
+  IssueList,
   IssueSummary,
 } from '@solus/contracts/task-types'
 import { MAX_SIDEBAR_ISSUE_IDS } from '@solus/contracts/task-types'
@@ -297,10 +297,10 @@ export class IssuesStore {
     if (!hosts.hasCollaboration(serverId)) return
     const generation = this.wholeListGeneration
     const since = this.revisionByServerId.get(serverId)
-    let snapshot: IssueSidebarSnapshot
+    let snapshot: IssueList
     try {
       const api = serverConnections.apiFor(serverId)
-      snapshot = await (since ? api.issuesSidebarSnapshot({ since }) : api.issuesSidebarSnapshot())
+      snapshot = await (since ? api.issuesList({ since }) : api.issuesList())
     } catch (err) {
       console.error('tasks sidebar host read failed', serverId, err)
       return
@@ -321,9 +321,9 @@ export class IssuesStore {
     // answer lands on a complete list, not an empty one.
     await (this.loadPromise ?? this.ensureLoaded())
     const generation = this.wholeListGeneration
-    let snapshot: IssueSidebarSnapshot
+    let snapshot: IssueList
     try {
-      snapshot = await serverConnections.apiFor(serverId).issuesSidebarSnapshot({ issueIds: taskIds })
+      snapshot = await serverConnections.apiFor(serverId).issuesList({ issueIds: taskIds })
     } catch (err) {
       console.error('tasks sidebar narrowed read failed', serverId, err)
       void this.load()
@@ -335,7 +335,7 @@ export class IssuesStore {
 
   /** A whole answer covers every task the host listed or held attachments of
    *  before, so one it leaves out has gone from that host. */
-  private wholeAnswerTaskIds(serverId: string, snapshot: IssueSidebarSnapshot): string[] {
+  private wholeAnswerTaskIds(serverId: string, snapshot: IssueList): string[] {
     return [...new Set([
       ...snapshot.tasks.map((record) => record.id),
       ...Object.keys(snapshot.sessionsByTask),
@@ -356,7 +356,7 @@ export class IssuesStore {
    * A named task the answer leaves out is no longer listed by this host; it
    * leaves the list when no other host lists it.
    */
-  private applyTaskRows(serverId: string, taskIds: string[], snapshot: IssueSidebarSnapshot): void {
+  private applyTaskRows(serverId: string, taskIds: string[], snapshot: IssueList): void {
     const listed = this.taskIdsOn(this.listedTaskIdsByHost, serverId)
     const attached = this.taskIdsOn(this.attachedTaskIdsByHost, serverId)
     const answered = this.applyTaskRecords(serverId, snapshot.tasks)
@@ -668,7 +668,7 @@ export class IssuesStore {
           const snapshots = await Promise.all(
             serverIds.map(async (serverId) => {
               try {
-                const snapshot = await serverConnections.apiFor(serverId).issuesSidebarSnapshot()
+                const snapshot = await serverConnections.apiFor(serverId).issuesList()
                 this.applyHostSnapshot(serverId, snapshot)
                 this.loaded = true
                 this.refreshedAt = Date.now()
@@ -711,7 +711,7 @@ export class IssuesStore {
 
   /** Apply one whole host response, including its session and PR links.
    *  Other hosts keep their rows until they answer. */
-  private applyHostSnapshot(serverId: string, snapshot: IssueSidebarSnapshot): void {
+  private applyHostSnapshot(serverId: string, snapshot: IssueList): void {
     this.applyTaskRows(serverId, this.wholeAnswerTaskIds(serverId, snapshot), snapshot)
     if (snapshot.revision) this.revisionByServerId.set(serverId, snapshot.revision)
     else this.revisionByServerId.delete(serverId)

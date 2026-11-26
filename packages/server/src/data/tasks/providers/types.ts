@@ -24,11 +24,37 @@ import type { AssetReference } from '../task-assets'
  */
 
 /** What an adapter needs to write to one task. Stored as `issues.home`. */
+/**
+ * One Project item of a GitHub issue, with the ids that a write of its
+ * priority or due date needs, so that the write reads nothing first.
+ */
+export interface GitHubBoardItem {
+  projectId: string
+  itemId: string
+  priority?: { fieldId: string; options: Array<{ id: string; name: string }> }
+  dueFieldId?: string
+}
+
+/** A Jira workflow transition and the status it reaches. */
+export interface JiraTransition {
+  id: string
+  to: { id: string; name: string; statusCategory: { key: string } }
+}
+
 export type TaskHome =
-  | { provider: 'github'; kind: 'issue'; owner: string; repo: string; number: number }
+  /**
+   * `boardItems` is absent when the read could not see the Projects of the
+   * issue. `canSetStatus` is absent when GitHub did not say whether this
+   * connection may set the planning status.
+   */
+  | {
+    provider: 'github'; kind: 'issue'; owner: string; repo: string; number: number
+    boardItems?: GitHubBoardItem[]; canSetStatus?: boolean
+  }
   /** A draft item has no repository: it is addressed by its Project and its item. */
   | { provider: 'github'; kind: 'draft'; projectId: string; itemId: string }
-  | { provider: 'jira'; cloudId: string; key: string }
+  /** `transitions` are the legal moves from the status of the read that gave them. */
+  | { provider: 'jira'; cloudId: string; key: string; transitions?: JiraTransition[] }
   | { provider: 'linear'; workspaceId: string; issueId: string; teamId: string }
 
 /** One task as a provider read gives it. */
@@ -108,6 +134,9 @@ export interface SourceRead {
   nextCursor?: string | null
 }
 
+/** What the first page of a source read gave, which its next pages keep. */
+export type SourceReadHeld = Pick<SourceRead, 'label' | 'columns' | 'writeState'>
+
 /** A list read of one source holds at most this many tasks. */
 export const MAX_SOURCE_TASKS = 200
 
@@ -132,12 +161,19 @@ export interface SourceMove {
   itemId: string | null
   /** The `IssueColumn.id` to move to. */
   columnId: string
+  /** The host's copy of the task, which the move answers from instead of a read. */
+  current: ProviderTask
 }
 
 /** One adapter for each source kind. Each method refuses a source of another kind. */
 export interface TaskSourceAdapter {
   readonly kind: IssueSource['kind']
-  read(source: IssueSource, cursor?: string): Promise<SourceRead>
+  /**
+   * The first page, or with `cursor` the next one. `held` is what the first
+   * page gave: a next page uses it instead of reading the source's columns and
+   * write state again.
+   */
+  read(source: IssueSource, cursor?: string, held?: SourceReadHeld): Promise<SourceRead>
   /** Ask the provider for the tasks of the source that match `query`. */
   search(source: IssueSource, query: string, involvement?: TaskInvolvement): Promise<ProviderTask[]>
   /** Create a task in the source. A GitHub Project source creates a draft item. */
@@ -159,14 +195,16 @@ export interface TaskProviderAdapter {
   /** Read one task by its stable id, with its comments and its epic. */
   fetch(ref: IssueRef, options?: { providerMetadata?: boolean }): Promise<ProviderTaskDetails>
   /** Change fields. Answers the task as the provider has it after the write. */
-  update(home: TaskHome, patch: IssueUpdatePatch): Promise<ProviderTask>
+  /** `current` is the host's copy: an adapter answers it with the written
+   *  fields instead of reading the issue again. */
+  update(home: TaskHome, patch: IssueUpdatePatch, current: ProviderTask): Promise<ProviderTask>
   /**
    * Move the task's own state to a category. GitHub closes (`done`) or reopens
    * an issue. Jira makes a legal transition to a status of the category and
    * fails loudly when there is none. A GitHub draft has no state of its own.
    */
-  setState(home: TaskHome, category: IssueStatusCategory): Promise<ProviderTask>
-  setNamedStatus?(home: TaskHome, statusId: string): Promise<ProviderTask>
+  setState(home: TaskHome, category: IssueStatusCategory, current: ProviderTask): Promise<ProviderTask>
+  setNamedStatus?(home: TaskHome, statusId: string, current: ProviderTask): Promise<ProviderTask>
   comment(home: TaskHome, body: string): Promise<ProviderComment>
   assignees(home: TaskHome): Promise<IssueAssigneeCandidate[]>
   /** Upload the local assets that `body` references and answer the body to send. */
