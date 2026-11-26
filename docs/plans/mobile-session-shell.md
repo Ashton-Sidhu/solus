@@ -101,7 +101,7 @@ Solus features that must keep working:
 
 1. Contract (this commit).
 2. Host: rows for one caller, sequence, change log, `sessionShellOpen`, live changes, capability. Tests.
-3. Phone: driver, `client_cache` record, status, home list and tablet sidebar read the driver when the host has the capability. Tests.
+3. Phone: driver, `client_cache` record, status, home list and tablet sidebar read the driver when the host has the capability. Tests. Done: `SessionShells` (`apps/mobile/solus-core/features/threads/session-shell.ts`) gives its rows to `ThreadDirectory.receiveShell` and its facts to `ThreadListState.receiveShell`; the record is in `client_cache` through `apps/mobile/src/solus/session-shell-store.ts`.
 4. Remove the old list loading: the directory reads and row reads in `ThreadDirectory`, the fact overlay in `ThreadListState` where the rows carry the fact, and the `MobileSessionCache` directory. Keep what other features still use. Update `apps/mobile/UPSTREAM.md`.
 
 ## 8. Tests
