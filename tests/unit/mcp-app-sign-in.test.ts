@@ -147,8 +147,8 @@ describe('signing in an outside app', () => {
     const page = await oauth(`/oauth/mcp/authorize?${new URLSearchParams(authorizeParams(clientId))}`)
     expect(page.status).toBe(200)
     const html = await page.text()
-    expect(html).toContain('<h1>Connect Claude Desktop</h1>')
-    expect(html).toContain('Claude Desktop wants to use Solus on <strong>Studio Mac</strong>.')
+    expect(html).toContain('<h1>Connect Claude Desktop to Solus</h1>')
+    expect(html).toContain('Claude Desktop wants to use Studio Mac as you.')
     // The name is the app's own claim, and the page says so.
     expect(html).toContain('name set by the app')
     expect(html).toContain('Only approve a sign-in you just started.')
@@ -216,12 +216,12 @@ describe('signing in an outside app', () => {
 describe('the consent page', () => {
   test('says the access stays on this computer for a loopback redirect, and that anyone who runs a web app gets it otherwise', async () => {
     const local = await consentHtml(await register())
-    expect(local).toContain('<strong>127.0.0.1:33418</strong> <span class="muted">on the computer that opened this page</span>')
+    expect(local).toContain('<strong>127.0.0.1:33418</strong> <span class="muted">On the computer that opened this page</span>')
     expect(local).not.toContain('Whoever runs it gets this access.')
     const web = 'https://claude.ai/api/mcp/auth_callback'
     const remote = await consentHtml(await register(web), web)
-    expect(remote).toContain('<strong>claude.ai</strong> <span class="muted">· Whoever runs it gets this access.</span>')
-    expect(remote).not.toContain('on the computer that opened this page')
+    expect(remote).toContain('<strong>claude.ai</strong> <span class="muted">Whoever runs it gets this access.</span>')
+    expect(remote).not.toContain('On the computer that opened this page')
   })
 
   test('Deny sends the browser to the registered redirect address with access_denied and the state', async () => {
@@ -261,6 +261,22 @@ describe('the consent page', () => {
     await Bun.sleep(800)
     window.document.dispatchEvent(new window.Event('visibilitychange'))
     expect(approveButtons()).toEqual([true, true])
+    close()
+  })
+
+  test('the code from Solus is the main path, and "No code?" opens the other paths in place, in their order', async () => {
+    const { document, close } = consentInBrowser(await consentHtml(await register(), REDIRECT, { pairApprovals: new PairApprovals() }))
+    const other = document.getElementById('other')!
+    const toggle = document.getElementById('showOther')!
+    expect(document.querySelector('label[for=pairing]')?.textContent).toBe('Code from Solus')
+    expect(other.contains(document.getElementById('pairing'))).toBe(false)
+    expect(other.hidden).toBe(true)
+    toggle.click()
+    expect(other.hidden).toBe(false)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(Array.from(other.querySelectorAll('button'), (button) => button.id)).toEqual(['inSolus', 'ask'])
+    toggle.click()
+    expect(other.hidden).toBe(true)
     close()
   })
 
@@ -530,6 +546,10 @@ describe('approving as the person signed in to this host', () => {
     await Bun.sleep(800)
     expect(button(signedIn.window).hidden).toBe(false)
     expect(button(signedIn.window).textContent).toBe('Approve as the host owner')
+    // One click is the main path; the code moves behind "No code?", after approval in Solus.
+    const otherPaths = signedIn.document.getElementById('other')!
+    expect(Array.from(otherPaths.querySelectorAll('button'), (entry) => entry.id)).toEqual(['inSolus', 'usePairing'])
+    expect(otherPaths.contains(signedIn.document.getElementById('pairing'))).toBe(true)
     signedIn.document.querySelector<HTMLInputElement>('input[name=access][value=read]')!.checked = true
     button(signedIn.window).click()
     await Bun.sleep(50)

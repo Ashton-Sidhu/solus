@@ -374,24 +374,52 @@ function consentError(message: string): Response {
   return new Response(page('Solus', `<h1>Cannot connect</h1><p>${escapeHtml(message)}</p>`, ''), { status: 400, headers: PAGE_HEADERS })
 }
 
+/** The Solus mark (`resources/icon.iconset/icon_32x32@2x.png`), inline: the page loads nothing from another place. Its square fills 46 of its 64 pixels, so the page draws it at 56 px in a 40 px tile. */
+const SOLUS_MARK = 'data:image/png;base64,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'
+
 function page(title: string, main: string, script: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title>
 <style>
-:root{color-scheme:light dark;--bg:#fafaf9;--fg:#1c1917;--muted:#78716c;--card:#fff;--border:#e7e5e4;--accent:#c2410c;--accent-fg:#fff}
-@media (prefers-color-scheme:dark){:root{--bg:#0c0a09;--fg:#f5f5f4;--muted:#a8a29e;--card:#1c1917;--border:#292524;--accent:#fb923c;--accent-fg:#1c1917}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,sans-serif;display:grid;place-items:center;min-height:100vh;padding:16px}
-main{width:100%;max-width:440px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px}
-h1{font-size:18px;margin:0 0 8px}p{margin:0 0 16px;color:var(--muted)}p strong{color:var(--fg)}label{display:flex;gap:8px;align-items:flex-start;padding:8px 0;cursor:pointer}
-label span{display:block}label small{color:var(--muted)}fieldset{border:0;padding:0;margin:0 0 8px}legend,label.field{display:block;font-weight:600;padding:0;margin-bottom:4px;cursor:default}
-dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 16px;margin:0 0 8px;font-size:14px}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
-.muted{color:var(--muted);font-weight:400}.note{font-size:13px;margin:4px 0 16px}
-button{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--fg);font:inherit;cursor:pointer;margin-top:8px}
-button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}button:disabled{opacity:.6;cursor:default}
-input[type=text]{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg);font:inherit;letter-spacing:.1em;text-transform:uppercase}
-.code{font:600 22px/1 ui-monospace,monospace;letter-spacing:.15em;text-align:center;padding:12px;border:1px dashed var(--border);border-radius:8px;margin:8px 0 12px}
-.status{min-height:1.5em;margin-top:12px;color:var(--muted)}.or{text-align:center;color:var(--muted);margin:12px 0 4px;font-size:13px}
-.code.large{font-size:32px;padding:16px}.qr svg{display:block;width:200px;height:200px;margin:8px auto 4px;border-radius:8px}.caption{text-align:center;font-size:13px;margin:0 0 8px}
-a.button{display:block;text-align:center;padding:10px;border-radius:8px;border:1px solid var(--border);color:var(--fg);text-decoration:none;margin:8px 0}
+:root{color-scheme:light dark;--page:#f9f8f4;--card:#fffffd;--fg:#2a2618;--fg2:#484538;--fg3:#7d7a6e;--hairline:#e6e3da;--border:#d2cfc5;--wash:#f1efe9;--accent:#d97757;--on-accent:#fff;--shadow:0 0 0 1px var(--hairline),0 12px 32px #2a261814}
+@media (prefers-color-scheme:dark){:root{--page:#21201d;--card:#2a2926;--fg:#f0ede5;--fg2:#bdbab3;--fg3:#8d8a83;--hairline:#ffffff14;--border:#ffffff26;--wash:#ffffff0d;--accent:#e68e6b;--on-accent:#21201d;--shadow:0 0 0 1px var(--hairline),0 12px 32px #00000066}}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:48px 16px;background:var(--page);color:var(--fg);font:14px/21px Inter,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;overflow-wrap:anywhere}
+main{width:100%;max-width:440px;background:var(--card);border-radius:16px;box-shadow:var(--shadow);padding:clamp(24px,6vw,32px)}
+#consent{display:flex;flex-direction:column;gap:24px}
+h1{margin:0;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.015em}p{margin:0}h1+p{margin-top:6px;color:var(--fg2)}
+.marks{display:flex;align-items:center;gap:10px}.marks svg{flex-shrink:0}
+.tile{flex-shrink:0;display:grid;place-items:center;width:40px;height:40px;border-radius:10px}
+.mark{display:block;overflow:hidden;box-shadow:0 0 0 1px var(--hairline)}.mark img{display:block;margin:-8px}
+.initial{background:var(--wash);box-shadow:0 0 0 1px var(--hairline);color:var(--fg2);font-size:17px;font-weight:600}
+dl{margin:0;border-block:1px solid var(--hairline)}
+.fact{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;padding:10px 0;font-size:13px;line-height:16px}.fact+.fact{border-top:1px solid var(--hairline)}
+dt{color:var(--fg3)}dd{margin:0;text-align:right;font-weight:500}dd strong{font-weight:500}
+dd .muted{display:block;margin-top:2px;color:var(--fg3);font-weight:400;font-size:12px}
+.segments{display:inline-flex;gap:2px;padding:2px;border-radius:8px;background:var(--wash)}
+.segments label{position:relative;padding:4px 10px;border-radius:6px;color:var(--fg2);cursor:pointer}
+.segments input{position:absolute;inset:0;margin:0;opacity:0;cursor:pointer}
+.segments label:has(input:checked){background:var(--card);color:var(--fg);box-shadow:0 0 0 1px var(--hairline),0 1px 2px #2a26180f}
+.segments label:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:1px}
+dd.explain{flex-basis:100%;text-align:left;font-weight:400;font-size:12px;color:var(--fg3)}dd.explain span{display:none}
+dl:has([value=read]:checked) [data-access=read],dl:has([value=write]:checked) [data-access=write],dl:has([value=full]:checked) [data-access=full]{display:inline}
+.group,.field,#other,#inSolusWait,#check{display:flex;flex-direction:column;gap:10px}
+.field label{font-weight:600;line-height:18px}
+input[type=text]{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:8px;background:transparent;color:var(--fg);font-family:inherit;font-size:20px;line-height:24px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;outline:none}
+input[type=text]::placeholder{color:var(--fg3);opacity:.6;font-weight:500}
+input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
+.buttons{display:flex;gap:8px}
+button,a.button{display:block;padding:11px 18px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--fg2);font:inherit;font-weight:500;line-height:18px;text-align:center;text-decoration:none;cursor:pointer}
+button.primary{flex:1;background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+button:hover:not(:disabled),a.button:hover{background:var(--wash)}button.primary:hover:not(:disabled){background:color-mix(in oklab,var(--accent) 88%,#000)}
+button:disabled{opacity:.55;cursor:default}button:focus-visible,a.button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#other button,.field button{width:100%}
+.other-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:2px;font-size:13px;line-height:16px;color:var(--fg3)}
+button.link{width:auto;padding:0;border:0;background:none;color:var(--accent);font-weight:500;line-height:16px}button.link:hover:not(:disabled){background:none;text-decoration:underline}
+#other{gap:12px;padding-top:20px;border-top:1px solid var(--hairline)}#inSolusWait p,#check p{color:var(--fg2)}
+.code{padding:14px;border:1px dashed var(--border);border-radius:8px;text-align:center;font-size:22px;line-height:1;font-weight:600;letter-spacing:.12em}.code.large{font-size:30px;padding:18px}
+.qr svg{display:block;width:184px;height:184px;margin:4px auto 0;border-radius:8px}.caption{text-align:center}
+.note,.caption{font-size:13px;line-height:19px;color:var(--fg3)}
+.status{color:var(--fg2);font-size:13px;line-height:19px}.status:empty{display:none}
 </style></head><body><main>${main}</main>${script ? `<script>${script}</script>` : ''}</body></html>`
 }
 
@@ -403,7 +431,8 @@ a.button{display:block;text-align:center;padding:10px;border-radius:8px;border:1
  */
 function signedInScript(hostId: string): string {
   return `const signedIn=(()=>{try{const list=JSON.parse(localStorage.getItem(${scriptValue(HOST_CREDENTIALS_KEY)})||'[]');const entry=Array.isArray(list)?list.find((e)=>e&&e.hostId===${scriptValue(hostId)}):null;return entry&&typeof entry.token==='string'?entry.token:''}catch{return ''}})();
-if(signedIn)post('/oauth/mcp/approver',{},signedIn).then((r)=>{if(!r.ok)return;approveAs.textContent='Approve as '+r.body.name;approveAs.hidden=false;for(const button of [inSolus,ask,usePairing])if(button)button.classList.remove('primary')});
+if(signedIn)post('/oauth/mcp/approver',{},signedIn).then((r)=>{if(!r.ok)return;approveAs.textContent='Approve as '+r.body.name;approveAs.hidden=false;for(const button of [inSolus,ask,usePairing])if(button)button.classList.remove('primary');
+const code=$('codeEntry');code.append(usePairing);$('inSolusWait').after(code);$('otherLead').textContent='Not '+r.body.name+'?';showOther.textContent='Use a code or the Solus app'});
 approveAs.onclick=async()=>{if(!armed||busy.has(approveAs))return;busy.add(approveAs);sync();const r=await post('/oauth/mcp/approve',{...request,access:access()},signedIn);if(r.ok)return go(r.body.redirect);status.textContent=r.body.error;busy.delete(approveAs);sync()};`
 }
 
@@ -420,21 +449,31 @@ const ARM_DELAY_MS = 700
  */
 function consentPage(signIn: Omit<AuthorizationRequest, 'access'>, hostName: string, params: z.infer<typeof authorizeSchema>, canAskInApp: boolean, signedInHostId: string | null, webClientHostId: string | null): string {
   const app = escapeHtml(signIn.appName)
+  const initial = escapeHtml(Array.from(signIn.appName.trim())[0]?.toUpperCase() ?? '?')
   const place = redirectPlace(signIn.redirectUri)
+  // The main path is the code from Solus, or one click for a browser signed in to this host; the other paths open under "No code?".
   const main = `<div id="consent">
-<h1>Connect ${app}</h1>
-<p>${app} wants to use Solus on <strong>${escapeHtml(hostName)}</strong>.</p>
+<div class="marks"><div class="tile initial" role="img" aria-label="${app}, name set by the app" title="${app}: name set by the app">${initial}</div>
+<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="var(--border)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<div class="tile mark"><img src="${SOLUS_MARK}" width="56" height="56" alt="Solus"></div></div>
+<div><h1>Connect ${app} to Solus</h1>
+<p>${app} wants to use ${escapeHtml(hostName)} as you. Only approve a sign-in you just started.</p></div>
 <dl>
-<dt>App</dt><dd>${app} <span class="muted">· name set by the app</span></dd>
-<dt>Access goes to</dt><dd><strong>${escapeHtml(place.label)}</strong> <span class="muted">${place.onThisComputer ? 'on the computer that opened this page' : '· Whoever runs it gets this access.'}</span></dd>
+<div class="fact"><dt>Access goes to</dt><dd><strong>${escapeHtml(place.label)}</strong> <span class="muted">${place.onThisComputer ? 'On the computer that opened this page' : 'Whoever runs it gets this access.'}</span></dd></div>
+<div class="fact"><dt id="accessLabel">It can</dt><dd><div class="segments" role="radiogroup" aria-labelledby="accessLabel">
+<label><input type="radio" name="access" value="read">Read</label>
+<label><input type="radio" name="access" value="write" checked>Read and write</label>
+<label><input type="radio" name="access" value="full">Full</label></div></dd>
+<dd class="explain"><span data-access="read">See works, projects, tasks, automations, and sessions.</span><span data-access="write">Also start sessions and change records.</span><span data-access="full">Also run tools that ask for approval in Solus.</span></dd></div>
 </dl>
-<p class="note">Only approve a sign-in you just started.</p>
-<fieldset id="accessChoice"><legend>What it may do</legend>
-<label><input type="radio" name="access" value="read"><span>Read<small><br>See works, projects, tasks, automations, and sessions.</small></span></label>
-<label><input type="radio" name="access" value="write" checked><span>Read and write<small><br>Also start sessions and change records.</small></span></label>
-<label><input type="radio" name="access" value="full"><span>Full<small><br>Also run tools that ask for approval in Solus.</small></span></label>
-</fieldset>
-${signedInHostId ? '<button class="primary" id="approveAs" hidden disabled></button>' : ''}
+<div class="group">
+<div class="field" id="codeEntry"><label for="pairing">Code from Solus</label>
+<input type="text" id="pairing" placeholder="XXXX-XXXX" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="9" aria-describedby="pairingHelp" autofocus></div>
+<div class="buttons">${signedInHostId ? '<button class="primary" id="approveAs" hidden disabled></button>' : ''}<button class="primary" id="usePairing" disabled>Approve</button><button id="deny">Deny</button></div>
+<p class="status" id="status" role="status"></p>
+</div>
+<div class="other-row"><span id="otherLead">No code?</span><button type="button" class="link" id="showOther" aria-expanded="false" aria-controls="other">Approve from the Solus app</button></div>
+<div id="other" hidden>
 <button class="primary" id="inSolus" disabled>Approve in Solus</button>
 <div id="inSolusWait" hidden><p>Approve this sign-in in Solus. Check that Solus shows this code:</p><div class="code large" id="inSolusCode"></div>
 <div class="qr" id="inSolusQr"></div><p class="caption">Scan with the Solus app on your phone</p>
@@ -442,13 +481,8 @@ ${signedInHostId ? '<button class="primary" id="approveAs" hidden disabled></but
 ${webClientHostId ? '<a class="button" id="openWeb">Open Solus on the web</a>' : ''}
 <p class="note">Or in Solus, open Use Solus in other apps, choose Approve a sign-in, and enter this code.</p></div>
 ${canAskInApp ? `<button id="ask" disabled>Ask the host owner</button><div id="check" hidden><p>The host owner sees the request in Solus. Check that it shows this code:</p><div class="code" id="checkCode"></div></div>` : ''}
-<div class="or">or</div>
-<label class="field" for="pairing">Pairing code</label>
-<input type="text" id="pairing" placeholder="Pairing code" autocomplete="one-time-code" maxlength="9" aria-describedby="pairingHelp">
-<p class="note" id="pairingHelp">Get one from Use Solus in other apps in Solus: the host's Access tab, or the command palette. The code gives the access chosen when it was made, so the choice above does not apply to it.</p>
-<button id="usePairing" disabled>Use pairing code</button>
-<button id="deny">Deny</button>
-<p class="status" id="status" role="status"></p>
+<p class="note" id="pairingHelp">To make a code, open Use Solus in other apps in Solus: the host's Access tab, or the command palette. A code gives the access chosen when it was made, so the choice above does not apply to it.</p>
+</div>
 </div>
 <div id="framed" hidden><h1>Open this page in its own window</h1><p>Solus does not approve a sign-in inside another page.</p></div>`
   // The browser goes only to the redirect address this host checked (allowedRedirect): a redirect
@@ -465,12 +499,14 @@ const access=()=>document.querySelector('input[name=access]:checked').value;
 const post=(path,data,bearer)=>fetch(path,{method:'POST',headers:bearer?{'content-type':'application/json',authorization:'Bearer '+bearer}:{'content-type':'application/json'},body:JSON.stringify(data)}).then(async(r)=>({ok:r.ok,body:await r.json()})).catch(()=>({ok:false,body:{error:'Could not reach this host. Try again.'}}));
 const go=(redirect)=>{if(follow(redirect))status.textContent='Approved. Returning to the app…'};
 const ask=$('ask');const usePairing=$('usePairing');const approveAs=$('approveAs');const inSolus=$('inSolus');const busy=new Set();let armed=false;let timer=0;
+const showOther=$('showOther');showOther.onclick=()=>{const other=$('other');other.hidden=!other.hidden;showOther.setAttribute('aria-expanded',String(!other.hidden))};
 const sync=()=>{for(const button of [approveAs,inSolus,ask,usePairing])if(button)button.disabled=!armed||busy.has(button)};
 const arm=()=>{armed=false;sync();clearTimeout(timer);timer=setTimeout(()=>{armed=true;sync()},${ARM_DELAY_MS})};
 addEventListener('focus',arm);document.addEventListener('visibilitychange',arm);arm();
 ${signedInHostId ? signedInScript(signedInHostId) : ''}
+$('pairing').onkeydown=(e)=>{if(e.key==='Enter')usePairing.click()};
 $('deny').onclick=()=>{if(follow(denied))status.textContent='Denied. Returning to the app…'};
-usePairing.onclick=async()=>{if(!armed||busy.has(usePairing))return;const code=$('pairing').value;if(!code){status.textContent='Enter a pairing code from Use Solus in other apps.';return}
+usePairing.onclick=async()=>{if(!armed||busy.has(usePairing))return;const code=$('pairing').value;if(!code){status.textContent='Enter the code from Solus.';return}
 busy.add(usePairing);sync();const r=await post('/oauth/mcp/approve',{...request,pairing_code:code});busy.delete(usePairing);sync();if(r.ok)go(r.body.redirect);else status.textContent=r.body.error};
 inSolus.onclick=async()=>{if(!armed||busy.has(inSolus))return;busy.add(inSolus);sync();const r=await post('/oauth/mcp/approve',{...request,access:access(),in_solus:true});
 const stop=(message)=>{$('inSolusWait').hidden=true;status.textContent=message;busy.delete(inSolus);sync()};
