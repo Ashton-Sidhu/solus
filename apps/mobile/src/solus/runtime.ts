@@ -11,6 +11,7 @@ import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import type { PresumedHost, SessionRowChange } from "@solus-mobile/features/threads/thread-directory";
 import { readsSessionShell } from "@solus-mobile/features/threads/session-shell";
 import { SolusApp } from "@solus-mobile/app/solus-app";
+import { holdLaunchSplashForHomeRows } from "../features/home/home-launch-splash";
 import { expoPlatform, watchAppLifecycle } from "@solus-mobile/platform/expo";
 import type { WorkspaceEnvironment } from "../state/workspaceModel";
 import { solusWorkspaceState } from "./workspace-state";
@@ -77,6 +78,7 @@ export function startSolus() {
   let stopAgentAwareness: (() => void) | undefined;
   let scope = "";
   const hosts = new Map<string, () => void>();
+  let restoredRowsHeld = false;
   function restoreShellCache(hostId: string, presumed?: PresumedHost) {
     if (shellCacheRestores.has(hostId)) return;
     // `hasHistoryKey` then answers true or false when a session opens.
@@ -86,6 +88,12 @@ export function startSolus() {
     void pending.finally(() => {
       if (!active || shellCacheRestores.get(hostId) !== pending) return;
       shellCacheRestores.set(hostId, null);
+      // The saved rows keep the native splash until Home lays them out. This read can end
+      // before Home mounts, and Home holds the splash only from its own first rows.
+      if (!restoredRowsHeld && solus.threads.threads().length > 0) {
+        restoredRowsHeld = true;
+        holdLaunchSplashForHomeRows();
+      }
       shellCachesRead = [...shellCacheRestores.values()].every(read => read === null);
       changed();
     });

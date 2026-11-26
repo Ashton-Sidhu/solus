@@ -113,6 +113,8 @@ export interface LastRoute {
 const LAST_ROUTE_KEY = 'solus.mobile.lastRoute'
 /** The account scope and the hosts of the last start: the next start shows their saved lists before the account and the hosts are read. */
 const LAST_SESSION_LIST_KEY = 'solus.mobile.lastSessionList'
+/** How long a host's prefetch waits after its list loads (`warmHistory`). */
+export const WARM_DELAY_MS = 2_000
 const lastSessionListSchema = z.object({
   scope: z.string(),
   hosts: z.array(z.object({ id: z.string().min(1), installationId: z.string().min(1), identityKey: z.string().optional() })),
@@ -192,6 +194,8 @@ export class SolusApp {
   readonly shells: SessionShells
   /** The hosts whose live shell warmed their top rows on the current connection, by server session. */
   private readonly warmedShells = new Map<string, number>()
+  /** Each host's prefetch waits until the list it follows has painted. */
+  private readonly warmTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** The first history pages read before a session opens: on a press on its row, and for the top rows when a host's list loads. */
   readonly historyPrefetch: HistoryPrefetch
   /** What each host holds of each session, and where the next turn syncs from (docs/plans/portable-sessions.md §10). */
@@ -680,11 +684,19 @@ export class SolusApp {
     if (thread && !thread.cloudOnly) void this.historyPrefetch.prefetch(hostId, thread.record)
   }
 
-  /** The list of a host loaded: the first pages of its rows are read, top down. */
+  /**
+   * The list of a host loaded: the first pages of its rows are read, top down,
+   * after `WARM_DELAY_MS`. Each read parses and saves a page on the JavaScript
+   * thread, so it must not compete with the list's first paint.
+   */
   warmHistory(hostId: string): void {
-    const records = this.threads.threads()
-      .filter((thread) => thread.hostId === hostId && !thread.cloudOnly).map((thread) => thread.record)
-    void this.historyPrefetch.warm(hostId, records)
+    clearTimeout(this.warmTimers.get(hostId))
+    this.warmTimers.set(hostId, setTimeout(() => {
+      this.warmTimers.delete(hostId)
+      const records = this.threads.threads()
+        .filter((thread) => thread.hostId === hostId && !thread.cloudOnly).map((thread) => thread.record)
+      void this.historyPrefetch.warm(hostId, records)
+    }, WARM_DELAY_MS))
   }
 
   /** The open conversation for a saved session or a new one. One store per
@@ -817,6 +829,8 @@ export class SolusApp {
 
   /** Ends this app object: its watches, sync, and host sockets. Saved state stays. */
   dispose(): void {
+    for (const timer of this.warmTimers.values()) clearTimeout(timer)
+    this.warmTimers.clear()
     for (const store of this.conversations.values()) this.closeConversation(store)
     this.conversations.clear()
     this.accountSync.dispose()
