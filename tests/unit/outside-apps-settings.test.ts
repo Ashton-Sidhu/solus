@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { appEndpointAddresses, claudeMcpAddCommand, pairingCodeExpiry } from '@solus/workspace-ui/components/connections/lib/outside-apps'
-import { pairedDeviceDetail } from '@solus/workspace-ui/components/connections/lib/paired-devices'
+import { pairedDeviceAppName, pairedDeviceDetail } from '@solus/workspace-ui/components/connections/lib/paired-devices'
 
 // "Use Solus in other apps" on a host's Access tab (plans/035 §10). What a person
 // would notice going wrong: a command that only works on the host's own computer
@@ -44,13 +44,20 @@ describe('an outside app in the paired devices list', () => {
   const device = { deviceId: 'd1', deviceLabel: 'Phone', pairedAt: now - 3 * 86_400_000, lastSeenAt: now - 2 * 3_600_000, revokedAt: null }
 
   test('names the access it was given', () => {
-    expect(pairedDeviceDetail({ ...device, app: { access: 'read' } }, false, now)).toBe('Read access · Last seen 2h ago · paired 3d ago')
-    expect(pairedDeviceDetail({ ...device, app: { access: 'write' } }, false, now)).toBe('Read and write access · Last seen 2h ago · paired 3d ago')
-    expect(pairedDeviceDetail({ ...device, app: { access: 'full' } }, false, now)).toBe('Full access · Last seen 2h ago · paired 3d ago')
-    expect(pairedDeviceDetail({ ...device, app: { access: 'full' }, revokedAt: now - 60_000 }, false, now)).toBe('Full access · Revoked 1m ago')
+    expect(pairedDeviceDetail({ ...device, app: { access: 'read', appId: 'local' } }, false, now)).toBe('Read access · Last seen 2h ago · paired 3d ago')
+    expect(pairedDeviceDetail({ ...device, app: { access: 'write', appId: 'local' } }, false, now)).toBe('Read and write access · Last seen 2h ago · paired 3d ago')
+    expect(pairedDeviceDetail({ ...device, app: { access: 'full', appId: 'local' } }, false, now)).toBe('Full access · Last seen 2h ago · paired 3d ago')
+    expect(pairedDeviceDetail({ ...device, app: { access: 'full', appId: 'local' }, revokedAt: now - 60_000 }, false, now)).toBe('Full access · Revoked 1m ago')
   })
 
   test('a device keeps its line as before', () => {
     expect(pairedDeviceDetail(device, false, now)).toBe('Last seen 2h ago · paired 3d ago')
+  })
+
+  test('a named app shows its name; a device, an app on the computer, and an unknown app do not', () => {
+    expect(pairedDeviceAppName({ ...device, app: { access: 'read', appId: 'chatgpt' } })).toBe('ChatGPT')
+    expect(pairedDeviceAppName(device)).toBeNull()
+    expect(pairedDeviceAppName({ ...device, app: { access: 'read', appId: 'local' } })).toBeNull()
+    expect(pairedDeviceAppName({ ...device, app: { access: 'read', appId: 'other' } })).toBeNull()
   })
 })

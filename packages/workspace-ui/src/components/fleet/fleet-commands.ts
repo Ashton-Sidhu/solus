@@ -59,7 +59,7 @@ export function fleetPaletteCommands(showHosts: () => void): Command[] {
       label: 'Use Solus in other apps',
       group: 'Servers',
       icon: AppWindow,
-      keywords: ['mcp', 'claude desktop', 'cursor', 'claude code', 'outside app', 'connect app', 'pairing code', 'tools'],
+      keywords: ['mcp', 'claude', 'claude desktop', 'chatgpt', 'grok', 'poke', 'cursor', 'claude code', 'codex', 'outside app', 'connect app', 'pairing code', 'tools'],
       run: () => {
         const serverId = (hosts.device ?? hosts.runOn)?.id
         if (serverId) {

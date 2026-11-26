@@ -1,7 +1,8 @@
 <script lang="ts">
   /** One `policy.json` document: its text, its check against the one validator,
    *  what the edit changes, Export in the three formats, and Import JSON with a
-   *  confirmation that lists the changes. Read-only shows the text and Export. */
+   *  confirmation that lists the changes, and the Outside apps limit as a
+   *  control. Read-only shows the text, the limit, and Export. */
   import type { Snippet } from "svelte";
   import { Download as DownloadIcon, Upload as UploadIcon } from "@lucide/svelte";
   import type { PolicyDocument, PolicyKind } from "@solus/contracts/policy";
@@ -11,7 +12,8 @@
   import { Button } from "../../ui/button";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import { Textarea } from "../../ui/textarea";
-  import { checkPolicyText, differenceLine } from "./lib/policy-editor";
+  import PolicyOutsideApps from "./PolicyOutsideApps.svelte";
+  import { checkPolicyText, differenceLine, policyText } from "./lib/policy-editor";
   import { editDifferences, exportChoice, readImport, type PendingImport } from "./lib/policy-document-editor";
 
   interface Props {
@@ -93,6 +95,12 @@
       <p class="text-destructive" role="alert">{exportError}</p>
     {/if}
   </div>
+
+  <PolicyOutsideApps
+    document={check.ok ? check.document : null}
+    {readOnly}
+    onChange={(document) => onChange?.(policyText(document))}
+  />
 
   {#if pendingImport}
     <div class="flex flex-col gap-2 rounded-lg border border-border p-3 text-xs" role="alert" data-testid="policy-import-confirm">

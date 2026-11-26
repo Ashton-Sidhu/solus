@@ -14,7 +14,7 @@ Status: built, with the app allow-list and member approval (§0.3). Reference: T
 | The host's OAuth server, consent page, pairing codes, app grants | `transport/mcp-oauth.ts`, `admission/app-sign-in.ts`, `admission/auth.ts` (`app:<access>` rows in `host_device`) |
 | The tools an outside app may use (`APP_TOOLS`) | `execution/agents/tools/tool-access.ts` |
 | RPCs `connectionsAppEndpoint`, `connectionsCreateAppPairingCode` | `transport/handlers/connections-handlers.ts` |
-| The UI: address, `claude mcp add` command, pairing code, apps with their access and Revoke | desktop and web: `components/connections/OutsideAppsSection.svelte`, `paired-devices.ts`, palette entry in `fleet-commands.ts`; mobile: `apps/mobile/src/solus/OutsideAppsSection.tsx` |
+| The UI: app picker (`OUTSIDE_APP_GUIDES`, policy-marked), address, `claude mcp add` command, pairing code for every person with `host.use`, apps with their access and Revoke; the policy editor's Outside apps limit | desktop and web: `components/connections/OutsideAppsSection.svelte`, `settings/policy/PolicyOutsideApps.svelte`, `paired-devices.ts`, palette entry in `fleet-commands.ts`; mobile: `apps/mobile/src/solus/OutsideAppsSection.tsx` |
 
 ### 0.2 Differences from the design below
 

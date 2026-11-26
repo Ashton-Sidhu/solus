@@ -1,4 +1,5 @@
 import type { AppAccess, PairedDevice } from '@solus/contracts/host-api'
+import { OUTSIDE_APP_NAMES } from '@solus/contracts/outside-apps'
 import { relativeTime } from '../../../lib/relative-time'
 
 const APP_ACCESS_LABELS = {
@@ -18,4 +19,10 @@ export function pairedDeviceDetail(device: PairedDevice, isConnected: boolean, n
   if (device.revokedAt !== null) return `${access}Revoked ${relativeTime(device.revokedAt, now)}`
   const seen = isConnected ? 'Connected now' : `Last seen ${relativeTime(device.lastSeenAt, now)}`
   return `${access}${seen} · paired ${relativeTime(device.pairedAt, now)}`
+}
+
+/** The app a paired row is, by name, beside its label: Claude, ChatGPT, Cursor. Null for a device, and for an app on the person's computer or one Solus cannot name, whose label already says what it is. */
+export function pairedDeviceAppName(device: PairedDevice): string | null {
+  const appId = device.app?.appId
+  return appId && appId !== 'local' && appId !== 'other' ? OUTSIDE_APP_NAMES[appId] : null
 }

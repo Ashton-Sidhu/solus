@@ -36,7 +36,7 @@
   import { hostLock, pairingLock } from "../settings/policy/managed-setting.svelte";
   import type { RemoteAccessMode } from "@solus/contracts/host-api";
   import { tailscaleServePreview, tailscaleServeStateText } from './lib/tailscale-serve';
-  import { pairedDeviceDetail } from './lib/paired-devices';
+  import { pairedDeviceAppName, pairedDeviceDetail } from './lib/paired-devices';
 
   interface Props {
     serverId: string;
@@ -64,6 +64,8 @@
   const showsPairedDevices = $derived(hasPairing && (info?.principal === "local-owner" || info?.principal === "remote-owner"));
   // Only a principal with host.local.reach may list and decide approval requests.
   const showsApprovals = $derived(hasPairing && info?.principal !== undefined && !!hosts.get(serverId)?.me.may("host.local.reach"));
+  // Every person who uses the host connects outside apps that act as them (plans/035 §0.3), on a cloud machine too.
+  const showsOutsideApps = $derived(info?.principal !== undefined && !!hosts.get(serverId)?.me.may("host.use"));
   const connectedDeviceIds = $derived(new Set(connections.sessions.map((session) => session.deviceId)));
   const connectedPage = $derived(pageOf(connections.sessions, connectedExpanded));
   const pairedPage = $derived(pageOf(connections.pairedDevices, pairedExpanded));
@@ -254,8 +256,8 @@
 
 <!-- Outside apps sign in here like a device pairs; they are listed and revoked
      with the paired devices below (plans/035 §10). -->
-{#if showsPairedDevices}
-  <OutsideAppsSection {serverId} canMakeCode={showsApprovals} />
+{#if showsOutsideApps}
+  <OutsideAppsSection {serverId} />
 {/if}
 
 {#if hasPairing && canChangeNetwork}
@@ -314,11 +316,17 @@
     {:else}
       {#each pairedPage.rows as device (device.deviceId)}
         {@const DeviceIcon = device.app ? AppWindowIcon : MonitorIcon}
+        {@const appName = pairedDeviceAppName(device)}
         <div class="group flex items-center gap-3 px-4 py-2.5">
           <DeviceIcon size={16} class={["shrink-0", device.revokedAt === null ? "text-foreground" : "text-(--solus-text-tertiary)"]} />
           <div class="min-w-0 flex-1">
-            <p class={["truncate text-workspace-chrome font-medium", device.revokedAt === null ? "text-(--solus-text-primary)" : "text-(--solus-text-tertiary)"]}>
-              {device.deviceLabel}
+            <p class="flex min-w-0 items-baseline gap-2">
+              <span class={["truncate text-workspace-chrome font-medium", device.revokedAt === null ? "text-(--solus-text-primary)" : "text-(--solus-text-tertiary)"]}>
+                {device.deviceLabel}
+              </span>
+              {#if appName && appName !== device.deviceLabel}
+                <span class="shrink-0 text-chrome-dense text-(--solus-text-tertiary)">{appName}</span>
+              {/if}
             </p>
             <p class="truncate text-[0.875em] text-(--solus-text-tertiary)">
               {pairedDeviceDetail(device, connectedDeviceIds.has(device.deviceId))}

@@ -4,27 +4,28 @@ Apps outside Solus, such as Claude Desktop, Cursor, or Claude Code and Codex in 
 
 ## Connect an app
 
-1. Open the host's **Access** tab (on mobile, the host page) and find **Use Solus in other apps**. The command palette command **Use Solus in other apps** opens it too. Copy the MCP address.
+1. Open the host's **Access** tab (on mobile, the host page) and find **Use Solus in other apps**. The command palette command **Use Solus in other apps** opens it too. Every person who uses the host sees it: the owner, and each member of an organization the host works for.
+2. Choose the app: Claude, ChatGPT, Grok Bot, Poke, Cursor, Claude Code, or Codex. Solus shows how to set it up, with one action that opens the app with the address, copies the address or a message and opens the app, or gives the commands to run. To set up another app, copy the MCP address.
    - An app on the same computer as the host uses `http://localhost:<port>/mcp`.
    - An app on another computer, or a cloud app such as claude.ai, uses the public address. Only a host with a public tunnel has one.
-2. Add the address to the app. For Claude Code:
+3. Or add the address to the app yourself. For Claude Code:
 
    ```sh
    claude mcp add --transport http solus <address>
    claude mcp login solus
    ```
 
-3. The app opens a sign-in page. Choose the access, then approve the app in one of two ways:
+4. The app opens a sign-in page. Choose the access, then approve the app in one of two ways:
    - **Approve in the Solus app.** The host owner sees the request on desktop, web, and mobile. Check that its code is the same as the code on the sign-in page.
    - **Use a pairing code.** Make one with **Make pairing code**. A code works once and lasts ten minutes.
-
-The section lists known apps (Claude, ChatGPT, Grok Bot, Poke, Cursor, Claude Code, Codex) with how to add Solus to each.
 
 Through the public address, and on a cloud machine, only a pairing code approves an app.
 
 ## Who the app acts as
 
 The app acts as the person who approved it. The host owner approves in the Solus app or with a pairing code. A member of an organization that uses the host makes a pairing code in their own Solus client; their app then acts as them, with their access. A member's app stops within five minutes after the member loses access to the host.
+
+An organization can choose the apps its members may connect: in Settings → Policy, **Outside apps** in the policy editor writes `sessions.limits.apps.allowed`. The picker marks the other apps as not allowed, and the host refuses them.
 
 ## Access
 
