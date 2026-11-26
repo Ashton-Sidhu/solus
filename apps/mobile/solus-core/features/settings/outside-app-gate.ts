@@ -1,94 +1,173 @@
-import type { HostAccessState } from './host-access'
-import type { HostCloudLinkState, HostSelfTestState } from './host-cloud-link'
+import type { AppAddress } from '@solus/contracts/host-api'
+import { appAddressesOf, appAddressSourceLabel, cloudAppAddress } from './app-addresses'
+import type { AppAddressTestState, HostAccessState } from './host-access'
+import type { HostCloudLinkState } from './host-cloud-link'
 
 /**
  * What stands between a person and the steps that connect an outside app from
- * the phone (plans/035 §10). The phone offers only apps that run in the cloud,
- * so the host must answer at its public address: registered to Solus Cloud,
- * with its tunnel on and online, and with a passed test of its own connection.
- * Only `open` lets the person go on.
+ * the phone (plans/035 §10, §0.8). The phone offers only apps that run in the
+ * cloud, so the host needs an address that the internet reaches: its Solus
+ * tunnel, Tailscale Funnel, or the person's own ingress. The host does not have
+ * to be linked to a Solus account. The host then tests that address from
+ * outside, as an app would ask it. Only `open` lets the person go on.
  *
- * The phone is never the host machine, so it cannot turn the tunnel on
- * (`uplinkLink` needs `host.local.reach`). The screen says where to do it.
+ * The phone is never the host machine: it cannot turn the tunnel or Funnel on
+ * (both need `host.local.reach`), so the screen says where to do it. A person who
+ * may change host settings sets their own address from the phone.
  */
 export type OutsideAppGate =
-  /** `self-test`: the host is tunneled and online; its test of its own connection is running. */
-  | { kind: 'checking'; step: 'host' | 'self-test' }
+  /** `address`: the host tests the address that the app would use. */
+  | { kind: 'checking'; step: 'host' | 'address' }
+  /** No address that the internet reaches. `solus` is how far the Solus link got, when the host said. */
+  | { kind: 'no-address'; solus: SolusLinkStep | null; hasTailnetAddress: boolean }
+  /** The address does not answer from outside. */
+  | { kind: 'unreachable'; address: AppAddress; reason: string }
+  /** The host cannot be read. */
+  | { kind: 'offline'; reason: string }
+  | { kind: 'open'; address: AppAddress }
+
+/** How far the host is from a Solus tunnel address. `reason`: why Solus Cloud stopped a link, or why the tunnel is down. */
+export type SolusLinkStep =
   | { kind: 'not-registered' }
-  /** `reason`: why Solus Cloud no longer accepts a link the host had. */
   | { kind: 'tunnel-off'; reason: string | null }
-  | { kind: 'offline'; reason: string; fix: string | null }
-  | { kind: 'open'; publicUrl: string }
+  | { kind: 'tunnel-offline'; reason: string | null }
 
 export function outsideAppGate(input: {
   access: HostAccessState
   cloudLink: HostCloudLinkState
-  selfTest: HostSelfTestState | null
+  addressTest: AppAddressTestState | null
 }): OutsideAppGate {
-  const { access, cloudLink, selfTest } = input
-  if (access.kind === 'error') return { kind: 'offline', reason: access.message, fix: null }
-  if (cloudLink.kind === 'error') return { kind: 'offline', reason: cloudLink.message, fix: null }
-  if (access.kind !== 'loaded' || cloudLink.kind !== 'loaded' || cloudLink.status === null) return { kind: 'checking', step: 'host' }
-  if (access.appEndpointError) return { kind: 'offline', reason: access.appEndpointError, fix: null }
+  const { access } = input
+  if (access.kind === 'error') return { kind: 'offline', reason: access.message }
+  if (access.kind !== 'loaded') return { kind: 'checking', step: 'host' }
+  if (access.appEndpointError) return { kind: 'offline', reason: access.appEndpointError }
+  const addresses = access.appEndpoint ? appAddressesOf(access.appEndpoint) : []
+  const address = cloudAppAddress(addresses)
+  if (address === null) {
+    return {
+      kind: 'no-address',
+      solus: solusLinkStep(input.cloudLink),
+      hasTailnetAddress: addresses.some((entry) => entry.reach === 'tailnet'),
+    }
+  }
+  // A test of an address the host no longer gives says nothing about this one.
+  const test = input.addressTest?.url === address.url ? input.addressTest : null
+  if (test === null || test.kind === 'running') return { kind: 'checking', step: 'address' }
+  if (test.kind === 'error') return { kind: 'unreachable', address, reason: test.message }
+  if (!test.reachable) return { kind: 'unreachable', address, reason: test.reason ?? 'The address did not answer.' }
+  return { kind: 'open', address }
+}
+
+/** The Solus link is one of three ways; the gate never waits for it. */
+function solusLinkStep(cloudLink: HostCloudLinkState): SolusLinkStep | null {
+  if (cloudLink.kind !== 'loaded' || cloudLink.status === null) return null
   const { registration, link } = cloudLink.status
   if (!registration.registered) return { kind: 'not-registered' }
   if (!link.linked) return { kind: 'tunnel-off', reason: link.error ?? null }
-  if (link.state.observed !== 'online') {
-    return { kind: 'offline', reason: link.state.error ?? 'The tunnel of this host is offline.', fix: null }
-  }
-  // The address is read apart from the tunnel; a tunnel that just came online is in it at the next read.
-  const publicUrl = access.appEndpoint?.publicUrl ?? null
-  if (publicUrl === null) return { kind: 'offline', reason: 'The host has no public address yet.', fix: null }
-  if (selfTest === null || selfTest.kind === 'running') return { kind: 'checking', step: 'self-test' }
-  if (selfTest.kind === 'error') return { kind: 'offline', reason: selfTest.message, fix: null }
-  const { test } = selfTest
-  if (test.problem) return { kind: 'offline', reason: test.problem.reason, fix: test.problem.fix }
-  if (test.reachable === false) return { kind: 'offline', reason: test.summary, fix: null }
-  return { kind: 'open', publicUrl }
+  if (link.state.observed !== 'online') return { kind: 'tunnel-offline', reason: link.state.error ?? null }
+  return null
 }
 
-/** The tunnel answers now: the host's MCP address read before it came online is out of date. */
+/** The test the gate waits for: the address the app would use, when it has no test yet. */
+export function addressToTest(gate: OutsideAppGate, access: HostAccessState): AppAddress | null {
+  if (gate.kind !== 'checking' || gate.step !== 'address' || access.kind !== 'loaded' || !access.appEndpoint) return null
+  return cloudAppAddress(appAddressesOf(access.appEndpoint))
+}
+
+/** The tunnel answers now: the app addresses read before it came online are out of date. */
 export function isTunnelOnline(cloudLink: HostCloudLinkState): boolean {
   if (cloudLink.kind !== 'loaded' || !cloudLink.status?.link.linked) return false
   return cloudLink.status.link.state.observed === 'online'
+}
+
+/** One way to give the host an address. */
+export interface OutsideAppWay {
+  label: string
+  detail: string
 }
 
 /** What the phone says about a gate that is not open. */
 export interface OutsideAppGateMessage {
   title: string
   lines: string[]
+  ways: OutsideAppWay[]
+  /** The person may type their own address here (`publicAddress`, `host.admin`). */
+  showsAddressField: boolean
   /** The person can act: on the host, or by asking the host again. */
   canCheckAgain: boolean
 }
 
-/** What the phone says about a gate that is not open. The phone cannot change the host, so it says where to. */
-export function outsideAppGateMessage(gate: Exclude<OutsideAppGate, { kind: 'open' }>, hostName: string): OutsideAppGateMessage {
-  const needsAddress = `These apps run in the cloud. They need a public address to reach ${hostName}.`
+/** What the phone says about a gate that is not open. The phone cannot change how the host is reached, so it says where to. */
+export function outsideAppGateMessage(
+  gate: Exclude<OutsideAppGate, { kind: 'open' }>,
+  hostName: string,
+  options: { mayChangeHostSettings: boolean },
+): OutsideAppGateMessage {
+  const none = { ways: [], showsAddressField: false }
   switch (gate.kind) {
     case 'checking':
-      return { title: `Checking the public address of ${hostName}…`, lines: [], canCheckAgain: false }
-    case 'not-registered':
       return {
-        title: `Register ${hostName} to Solus Cloud`,
-        lines: [needsAddress, `On ${hostName}, sign in to Solus. Signing in registers the host. Then turn on its public address.`],
-        canCheckAgain: true,
+        title: gate.step === 'host' ? `Reading the addresses of ${hostName}…` : `Testing the address of ${hostName}…`,
+        lines: [],
+        ...none,
+        canCheckAgain: false,
       }
-    case 'tunnel-off':
+    case 'no-address':
       return {
-        title: `Turn on the public address on ${hostName}`,
+        title: `Give ${hostName} an address apps can reach`,
         lines: [
-          needsAddress,
-          `On ${hostName}, open Solus. In Settings → Account, turn on Reachable from the internet. You cannot turn it on from a phone.`,
+          `These apps run in the cloud. They need an address on the internet to reach ${hostName}. Use one of these ways.`,
           'Only apps that you approve can use the address.',
-          ...(gate.reason ? [gate.reason] : []),
         ],
+        ways: [
+          { label: 'Link the host to your Solus account', detail: solusWayDetail(gate.solus, hostName) },
+          {
+            label: 'Turn on Tailscale Funnel',
+            detail: `On ${hostName}, open Solus and turn on Tailscale Funnel. You cannot turn it on from a phone. Tailscale Serve alone reaches only the devices on your tailnet${gate.hasTailnetAddress ? ', so the address that the host has now does not work for cloud apps' : ''}.`,
+          },
+          {
+            label: 'Use your own address',
+            detail: options.mayChangeHostSettings
+              ? `Enter the https address where your own reverse proxy or tunnel serves ${hostName}.`
+              : `The owner of ${hostName} sets the https address where their own reverse proxy or tunnel serves it, in the host settings.`,
+          },
+        ],
+        showsAddressField: options.mayChangeHostSettings,
         canCheckAgain: true,
       }
-    case 'offline':
+    case 'unreachable': {
+      const isOwnAddress = gate.address.source === 'custom'
       return {
-        title: `${hostName} cannot be reached from the internet`,
-        lines: [gate.reason, ...(gate.fix ? [`Fix: ${gate.fix}`] : [])],
+        title: `${hostName} does not answer at its address`,
+        lines: [
+          `${gate.address.url} (${appAddressSourceLabel(gate.address.source)})`,
+          gate.reason,
+          ...(isOwnAddress && !options.mayChangeHostSettings ? [`The owner of ${hostName} sets this address in the host settings.`] : []),
+        ],
+        ways: [],
+        showsAddressField: isOwnAddress && options.mayChangeHostSettings,
         canCheckAgain: true,
       }
+    }
+    case 'offline':
+      return { title: `${hostName} cannot be read`, lines: [gate.reason], ...none, canCheckAgain: true }
   }
+}
+
+function solusWayDetail(step: SolusLinkStep | null, hostName: string): string {
+  const turnOn = 'In Settings → Account, turn on Reachable from the internet. You cannot turn it on from a phone.'
+  switch (step?.kind) {
+    case undefined:
+    case 'not-registered':
+      return `On ${hostName}, open Solus and sign in. ${turnOn}`
+    case 'tunnel-off':
+      return [`On ${hostName}, open Solus. ${turnOn}`, step.reason].filter(Boolean).join(' ')
+    case 'tunnel-offline':
+      return `${hostName} is linked, but its tunnel is offline.${step.reason ? ` ${step.reason}` : ''} Open Solus on ${hostName} to start it again.`
+  }
+}
+
+/** The line under the address on the Connect step: where the address comes from. */
+export function appAddressNote(address: AppAddress, appName: string | null, hostName: string): string {
+  return `${appName ?? 'The app'} reaches ${hostName} at this address (${appAddressSourceLabel(address.source)}).`
 }

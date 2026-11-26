@@ -8,6 +8,7 @@ import {
 import { ListChoiceRow } from "../components/ui/ListChoiceRow";
 import { SettingsSection } from "../features/settings/components/SettingsSection";
 import { useSolusSettingsFilter } from "../features/settings/settings-environment-filter";
+import { AppAddressesSection } from "./AppAddressesSection";
 import { HostAccessSection } from "./HostAccessSection";
 import { OutsideAppsSection } from "./OutsideAppsSection";
 import { Note } from "./SettingsFeedback";
@@ -18,7 +19,8 @@ import { useSolusWorkspace } from "./runtime";
  * Settings → Sharing & access, where T3 Code's Settings puts how other apps and
  * devices reach a host. The person chooses one connected host; the page shows
  * its pairing code and approval requests, Use Solus in other apps, and Connected
- * apps, with the same sections as the host's page. `environmentId` is the host
+ * apps, with the same sections as the host's page, and the addresses at which
+ * apps reach the host. `environmentId` is the host
  * whose page links here.
  */
 export function SharingAccessSettings({
@@ -57,6 +59,7 @@ export function SharingAccessSettings({
           {/* It also loads the host's access answer, which Use Solus in other apps reads. */}
           <HostAccessSection hostId={host.id} isConnected makeCode={false} />
           <OutsideAppsSection hostId={host.id} hostName={host.label} />
+          <AppAddressesSection hostId={host.id} />
         </Fragment>
       ) : null}
     </SettingsPage>

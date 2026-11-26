@@ -1,5 +1,5 @@
 import type { HostApi } from '@solus/client-core/host-api'
-import type { AppAccess, ConnectionsServerInfo, PairedDevice } from '@solus/contracts/host-api'
+import type { AppAccess, AppAddress, ConnectionsServerInfo, PairedDevice } from '@solus/contracts/host-api'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import { Listeners } from '../../lib/listeners'
 import { relativeTime } from '../../lib/time'
@@ -45,6 +45,16 @@ export interface HostAccessSnapshot {
   busy: HostAccessAction | null
 }
 
+/**
+ * The host's test of one app address from outside, as an app would ask it
+ * (`connectionsTestAppAddress`). `url` is the address tested: a test of an
+ * address the host no longer gives says nothing about the new one.
+ */
+export type AppAddressTestState =
+  | { kind: 'running'; url: string }
+  | { kind: 'done'; url: string; reachable: boolean; reason: string | null }
+  | { kind: 'error'; url: string; message: string }
+
 export type HostAccessState =
   | { kind: 'idle' }
   | { kind: 'loading' }
@@ -56,12 +66,48 @@ const IDLE = { kind: 'idle' } as const
 export class HostAccess {
   readonly changes = new Listeners()
   private readonly states = new Map<string, HostAccessState>()
+  private readonly addressTests = new Map<string, AppAddressTestState>()
   /** One `host.organizationsChanged` subscription per host connection. */
   private readonly watches = new Map<string, { connection: HostConnection; stop: () => void }>()
 
   constructor(private readonly connectionFor: (hostId: string) => HostConnection | null) {}
 
   stateOf = (hostId: string): HostAccessState => this.states.get(hostId) ?? IDLE
+
+  addressTestOf = (hostId: string): AppAddressTestState | null => this.addressTests.get(hostId) ?? null
+
+  /** The host asks this address of its own from outside. A newer test, or another connection, drops the answer. */
+  async testAppAddress(hostId: string, address: Pick<AppAddress, 'source' | 'url'>): Promise<void> {
+    const connection = this.connectionFor(hostId)
+    const current = this.addressTests.get(hostId)
+    if (current?.kind === 'running' && current.url === address.url) return
+    if (!connection) {
+      this.setAddressTest(hostId, { kind: 'error', url: address.url, message: 'This host cannot be reached now.' })
+      return
+    }
+    const running: AppAddressTestState = { kind: 'running', url: address.url }
+    this.setAddressTest(hostId, running)
+    let answer: AppAddressTestState
+    try {
+      const result = await connection.api.connectionsTestAppAddress({ source: address.source })
+      answer = { kind: 'done', url: address.url, reachable: result.reachable, reason: result.reason }
+    } catch (error) {
+      answer = { kind: 'error', url: address.url, message: error instanceof Error ? error.message : String(error) }
+    }
+    if (this.addressTests.get(hostId) !== running || this.connectionFor(hostId) !== connection) return
+    this.setAddressTest(hostId, answer)
+  }
+
+  /** Reads the app addresses again, as after a change of the person's own address. */
+  async refreshAppEndpoint(hostId: string): Promise<void> {
+    const connection = this.connectionFor(hostId)
+    if (!connection || this.stateOf(hostId).kind !== 'loaded') return
+    const appEndpoint = await readAppEndpoint(connection.api)
+    const latest = this.stateOf(hostId)
+    if (this.connectionFor(hostId) !== connection || latest.kind !== 'loaded') return
+    this.dropFinishedAddressTest(hostId)
+    this.set(hostId, { ...latest, appEndpoint: appEndpoint.endpoint, appEndpointError: appEndpoint.error })
+  }
 
   async load(hostId: string): Promise<void> {
     const connection = this.connectionFor(hostId)
@@ -83,6 +129,8 @@ export class HostAccess {
       ])
       if (this.connectionFor(hostId) !== connection) return
       const latest = this.stateOf(hostId)
+      // A new read asks the address again: what answered before may not answer now.
+      this.dropFinishedAddressTest(hostId)
       this.set(hostId, {
         kind: 'loaded',
         info,
@@ -170,6 +218,7 @@ export class HostAccess {
     this.watches.get(hostId)?.stop()
     this.watches.delete(hostId)
     this.states.delete(hostId)
+    this.addressTests.delete(hostId)
     this.changes.notify()
   }
 
@@ -208,7 +257,18 @@ export class HostAccess {
       if (current.kind === 'loaded') this.set(hostId, { ...current, info: { ...current.info, tailscaleServe: status } })
       void this.load(hostId)
     })
-    this.watches.set(hostId, { connection, stop: () => { stopOrganizations(); stopServe() } })
+    // The person's own address is a host setting (`publicAddress`); the app addresses follow it.
+    const stopConfig = connection.events.subscribe('config.changed', () => void this.refreshAppEndpoint(hostId))
+    this.watches.set(hostId, { connection, stop: () => { stopOrganizations(); stopServe(); stopConfig() } })
+  }
+
+  private dropFinishedAddressTest(hostId: string): void {
+    if (this.addressTests.get(hostId)?.kind !== 'running') this.addressTests.delete(hostId)
+  }
+
+  private setAddressTest(hostId: string, state: AppAddressTestState): void {
+    this.addressTests.set(hostId, state)
+    this.changes.notify()
   }
 
   private set(hostId: string, state: HostAccessState): void {

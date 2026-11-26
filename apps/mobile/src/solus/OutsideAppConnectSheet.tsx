@@ -4,11 +4,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import { useListened } from "@solus-mobile/app/app-context";
 import {
+  addressToTest,
+  appAddressNote,
   isTunnelOnline,
   outsideAppGate,
   outsideAppGateMessage,
   type OutsideAppGate,
 } from "@solus-mobile/features/settings/outside-app-gate";
+import { publicAddressInput } from "@solus-mobile/features/settings/app-addresses";
 import {
   APP_ACCESS_OPTIONS,
   appAccessLabel,
@@ -21,7 +24,7 @@ import {
   PHONE_APP_GUIDES,
 } from "@solus-mobile/features/settings/outside-app-setup";
 import type { HostAppPairCode } from "@solus-mobile/features/settings/host-access";
-import type { AppAccess } from "@solus/contracts/host-api";
+import type { AppAccess, AppAddress } from "@solus/contracts/host-api";
 import type { OutsideAppGuide } from "@solus/contracts/outside-apps";
 import { AppActivityIndicator } from "../components/ui/AppActivityIndicator";
 import { AppText } from "../components/ui/AppText";
@@ -32,6 +35,7 @@ import { ListRow } from "../components/ui/ListRow";
 import { ListSection } from "../components/ui/ListSection";
 import { Sheet } from "../components/ui/Sheet";
 import { Toast } from "../components/ui/Toast";
+import { ConnectionFormField } from "../features/connection/ConnectionFormField";
 import { cn } from "../lib/cn";
 import { HostOperationError } from "./host-operation-error";
 import { outsideAppLogo } from "./outside-app-logos";
@@ -40,8 +44,8 @@ import { solus } from "./runtime";
 /**
  * Connect an outside app from the phone, in the steps of the desktop and web
  * flow: App → Access → Connect (plans/035 §10). The steps show only when the
- * host answers at its public address (`outsideAppGate`): the phone offers the
- * apps that run in the cloud, and it is never the host machine.
+ * host answers at an address that the internet reaches (`outsideAppGate`): the
+ * phone offers the apps that run in the cloud, and it is never the host machine.
  */
 
 type Step = 0 | 1 | 2;
@@ -75,26 +79,38 @@ export function OutsideAppConnectSheet(props: {
   const cloudLink = useListened(solus.hostCloudLink.changes, () =>
     solus.hostCloudLink.stateOf(hostId),
   );
-  const selfTest = useListened(solus.hostCloudLink.changes, () =>
-    solus.hostCloudLink.selfTestOf(hostId),
+  const addressTest = useListened(solus.hostAccess.changes, () =>
+    solus.hostAccess.addressTestOf(hostId),
   );
-  const gate = outsideAppGate({ access: hostAccess, cloudLink, selfTest });
-  const checkAgain = () =>
-    void Promise.all([solus.hostAccess.load(hostId), solus.hostCloudLink.load(hostId)]).then(() =>
-      solus.hostCloudLink.runSelfTest(hostId),
-    );
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the host to check its public address once the sheet opens
+  const mayChangeHostSettings = useListened(solus.connections.changes, () =>
+    solus.connections.may(hostId, "host.admin"),
+  );
+  const gate = outsideAppGate({ access: hostAccess, cloudLink, addressTest });
+  // A new read of the host drops the last test of its address, so the address is tested again.
+  const checkAgain = () => {
+    void solus.hostAccess.load(hostId);
+    void solus.hostCloudLink.load(hostId);
+  };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the host's app addresses once the sheet opens
   useEffect(checkAgain, [hostId]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the person's own address is a host setting, which the field shows
+  useEffect(() => {
+    if (mayChangeHostSettings) void solus.hostSettings.load(hostId);
+  }, [hostId, mayChangeHostSettings]);
   const isOnline = isTunnelOnline(cloudLink);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a tunnel that came online gives the host a public address to read
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a tunnel that came online gives the host a Solus address to read
   useEffect(() => {
     if (isOnline) void solus.hostAccess.load(hostId);
   }, [hostId, isOnline]);
-  const needsSelfTest = gate.kind === "checking" && gate.step === "self-test" && selfTest === null;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a changed tunnel dropped the last test of the connection, so the host tests it again
+  const pending = addressToTest(gate, hostAccess);
+  const testUrl = pending !== null && addressTest?.url !== pending.url ? pending.url : null;
+  const testSource = pending?.source ?? null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the host tests the address the app would use before the steps open
   useEffect(() => {
-    if (needsSelfTest) void solus.hostCloudLink.runSelfTest(hostId);
-  }, [hostId, needsSelfTest]);
+    if (testUrl !== null && testSource !== null) {
+      void solus.hostAccess.testAppAddress(hostId, { source: testSource, url: testUrl });
+    }
+  }, [hostId, testUrl, testSource]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stops the notice timer when the sheet closes
   useEffect(() => () => clearTimeout(noticeTimer.current), []);
   const notify: Notify = (next) => {
@@ -112,7 +128,13 @@ export function OutsideAppConnectSheet(props: {
         contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
       >
         {gate.kind !== "open" ? (
-          <GateScreen gate={gate} hostName={hostName} onCheckAgain={checkAgain} />
+          <GateScreen
+            gate={gate}
+            hostId={hostId}
+            hostName={hostName}
+            mayChangeHostSettings={mayChangeHostSettings}
+            onCheckAgain={checkAgain}
+          />
         ) : (
           <>
             <StepBar step={step} onStep={setStep} />
@@ -151,7 +173,7 @@ export function OutsideAppConnectSheet(props: {
                 <ConnectStep
                   hostId={hostId}
                   hostName={hostName}
-                  publicUrl={gate.publicUrl}
+                  address={gate.address}
                   choice={choice}
                   access={access}
                   notify={notify}
@@ -209,10 +231,14 @@ function StepBar(props: { readonly step: Step; readonly onStep: (step: Step) => 
 
 function GateScreen(props: {
   readonly gate: Exclude<OutsideAppGate, { kind: "open" }>;
+  readonly hostId: string;
   readonly hostName: string;
+  readonly mayChangeHostSettings: boolean;
   readonly onCheckAgain: () => void;
 }) {
-  const message = outsideAppGateMessage(props.gate, props.hostName);
+  const message = outsideAppGateMessage(props.gate, props.hostName, {
+    mayChangeHostSettings: props.mayChangeHostSettings,
+  });
   return (
     <View className="gap-3" accessibilityLiveRegion="polite">
       <View className="flex-row items-center gap-2">
@@ -231,7 +257,84 @@ function GateScreen(props: {
           {line}
         </AppText>
       ))}
+      {message.ways.map((way, index) => (
+        <View key={way.label} className="gap-1 rounded-xl bg-grouped-card px-4 py-3">
+          <AppText className="text-sm font-t3-medium text-foreground">
+            {index + 1}. {way.label}
+          </AppText>
+          <AppText className="text-sm text-foreground-muted">{way.detail}</AppText>
+        </View>
+      ))}
+      {message.showsAddressField ? (
+        <PublicAddressField hostId={props.hostId} onSaved={props.onCheckAgain} />
+      ) : null}
       {message.canCheckAgain ? <Button label="Check again" onPress={props.onCheckAgain} /> : null}
+    </View>
+  );
+}
+
+/** The person's own https address for the host (host setting `publicAddress`). Empty removes it. */
+function PublicAddressField(props: { readonly hostId: string; readonly onSaved: () => void }) {
+  const settings = useListened(solus.hostSettings.changes, () =>
+    solus.hostSettings.stateOf(props.hostId),
+  );
+  const saved = settings.kind === "loaded" ? (settings.settings.publicAddress ?? "") : null;
+  const [draft, setDraft] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (saved === null) {
+    return (
+      <AppText className="text-sm text-foreground-muted">
+        {settings.kind === "error" ? settings.message : "Reading the host settings…"}
+      </AppText>
+    );
+  }
+  const shown = draft ?? saved;
+  const save = () => {
+    const input = publicAddressInput(shown);
+    if (!input.ok) {
+      setError(input.message);
+      return;
+    }
+    setIsSaving(true);
+    void solus.hostSettings
+      .update(props.hostId, { publicAddress: input.value })
+      .then(() => {
+        setDraft(null);
+        setError(null);
+        props.onSaved();
+      })
+      .catch((e) => setError(`Could not save the address. ${HostOperationError.from(e).message}`))
+      .finally(() => setIsSaving(false));
+  };
+  return (
+    <View className="gap-2">
+      <ConnectionFormField
+        label="Your own address"
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="url"
+        returnKeyType="done"
+        placeholder="https://solus.example.com"
+        editable={!isSaving}
+        value={shown}
+        onChangeText={(text) => {
+          setDraft(text);
+          setError(null);
+        }}
+        onSubmitEditing={save}
+      />
+      {error ? (
+        <AppText accessibilityRole="alert" className="text-sm text-danger-foreground">
+          {error}
+        </AppText>
+      ) : null}
+      <Button
+        label={isSaving ? "Saving…" : "Save address"}
+        tone="primary"
+        disabled={isSaving || draft === null || draft.trim() === saved}
+        onPress={save}
+      />
     </View>
   );
 }
@@ -268,7 +371,7 @@ function AppStep(props: { readonly onChoose: (choice: Choice) => void }) {
 function ConnectStep(props: {
   readonly hostId: string;
   readonly hostName: string;
-  readonly publicUrl: string;
+  readonly address: AppAddress;
   readonly choice: Choice;
   readonly access: AppAccess;
   readonly notify: Notify;
@@ -284,10 +387,13 @@ function ConnectStep(props: {
       notify={props.notify}
     />
   );
-  const address = <CopyRow label="Address" value={props.publicUrl} notify={props.notify} />;
+  const publicUrl = props.address.url;
+  const address = (
+    <AddressRow address={props.address} app={app} hostName={props.hostName} notify={props.notify} />
+  );
   if (app === null || anotherWay) {
     const handoff = app?.handoff;
-    const message = handoff?.kind === "copy-message" ? handoff.message(props.publicUrl) : null;
+    const message = handoff?.kind === "copy-message" ? handoff.message(publicUrl) : null;
     const docs = app?.docs;
     return (
       <View className="gap-4">
@@ -318,11 +424,26 @@ function ConnectStep(props: {
   }
   return (
     <View className="gap-4">
-      <PrimaryAction guide={app} publicUrl={props.publicUrl} notify={props.notify} />
+      <PrimaryAction guide={app} publicUrl={publicUrl} notify={props.notify} />
       {note ? <Hint>{note}</Hint> : null}
       {address}
       {code}
       <TextAction label="Set up another way" onPress={() => setAnotherWay(true)} />
+    </View>
+  );
+}
+
+/** The address the app uses, with Copy, and where the address comes from. */
+function AddressRow(props: {
+  readonly address: AppAddress;
+  readonly app: OutsideAppGuide | null;
+  readonly hostName: string;
+  readonly notify: Notify;
+}) {
+  return (
+    <View className="gap-2">
+      <CopyRow label="Address" value={props.address.url} notify={props.notify} />
+      <Hint>{appAddressNote(props.address, props.app?.name ?? null, props.hostName)}</Hint>
     </View>
   );
 }

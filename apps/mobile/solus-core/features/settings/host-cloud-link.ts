@@ -1,5 +1,4 @@
 import { uplinkControl, type UplinkControl } from '@solus/client-core/uplink-control'
-import type { HostSelfTest } from '@solus/contracts/host-connection'
 import type { UplinkEnrollmentTicket, UplinkStatus } from '@solus/contracts/uplink'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
@@ -21,18 +20,11 @@ export type HostCloudLinkState =
   | { kind: 'loaded'; control: UplinkControl; status: UplinkStatus | null; busy: boolean }
   | { kind: 'error'; message: string }
 
-/** The host's test of its own connection, as this phone last asked for it. */
-export type HostSelfTestState =
-  | { kind: 'running' }
-  | { kind: 'done'; test: HostSelfTest }
-  | { kind: 'error'; message: string }
-
 const IDLE = { kind: 'idle' } as const
 
 export class HostCloudLink {
   readonly changes = new Listeners()
   private readonly states = new Map<string, HostCloudLinkState>()
-  private readonly selfTests = new Map<string, HostSelfTestState>()
   /** One `host.uplinkStatusChanged` subscription per host connection: the tunnel's "online" arrives after `uplinkLink` answers. */
   private readonly watches = new Map<string, { connection: HostConnection; stop: () => void }>()
 
@@ -44,24 +36,6 @@ export class HostCloudLink {
   ) {}
 
   stateOf = (hostId: string): HostCloudLinkState => this.states.get(hostId) ?? IDLE
-
-  selfTestOf = (hostId: string): HostSelfTestState | null => this.selfTests.get(hostId) ?? null
-
-  /** The host tests its own connection. An older host has no such test, and the screen says so. */
-  async runSelfTest(hostId: string): Promise<void> {
-    const connection = this.connectionFor(hostId)
-    if (this.selfTests.get(hostId)?.kind === 'running') return
-    if (!connection) {
-      this.setSelfTest(hostId, { kind: 'error', message: 'This host cannot be reached now.' })
-      return
-    }
-    this.setSelfTest(hostId, { kind: 'running' })
-    try {
-      this.setSelfTest(hostId, { kind: 'done', test: await connection.api.hostSelfTest() })
-    } catch (error) {
-      this.setSelfTest(hostId, { kind: 'error', message: error instanceof Error ? error.message : String(error) })
-    }
-  }
 
   async load(hostId: string): Promise<void> {
     const connection = this.connectionFor(hostId)
@@ -114,7 +88,6 @@ export class HostCloudLink {
     this.watches.get(hostId)?.stop()
     this.watches.delete(hostId)
     this.states.delete(hostId)
-    this.selfTests.delete(hostId)
     this.changes.notify()
   }
 
@@ -145,16 +118,9 @@ export class HostCloudLink {
     existing?.stop()
     const stop = connection.events.subscribe('host.uplinkStatusChanged', (status) => {
       const current = this.stateOf(hostId)
-      // The tunnel changed: a finished test now says something that may not be true.
-      if (this.selfTests.get(hostId)?.kind !== 'running') this.selfTests.delete(hostId)
       if (current.kind === 'loaded') this.set(hostId, { ...current, status })
     })
     this.watches.set(hostId, { connection, stop })
-  }
-
-  private setSelfTest(hostId: string, state: HostSelfTestState): void {
-    this.selfTests.set(hostId, state)
-    this.changes.notify()
   }
 
   private set(hostId: string, state: HostCloudLinkState): void {
