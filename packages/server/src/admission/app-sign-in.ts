@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto
 import { z } from 'zod'
 import { formatCheckCode, normalizeCheckCode } from '@solus/contracts/add-machine'
 import type { AppAccess } from '@solus/contracts/host-api'
-import { outsideAppOf, type OutsideAppId } from '@solus/contracts/outside-apps'
+import { isLoopbackHost, outsideAppOf, type OutsideAppId } from '@solus/contracts/outside-apps'
 import { hostKindSchema, organizationRoleSchema } from '@solus/contracts/uplink'
 import { isHostOwner, type Principal } from './principal'
 import { getAssetSigningSecret, readSignedToken, signToken } from './signed-token'
@@ -87,6 +87,13 @@ export function spendAppPairingCode(typed: string, now = Date.now()): Omit<AppPa
 /** The app a registered client is, from where its sign-in returns. */
 export function appOfClient(client: RegisteredClient): OutsideAppId {
   return outsideAppOf(client.redirectUris)
+}
+
+/** Where the app's sign-in goes, as a person reads it: the host of a web address, else the app's scheme. */
+export function redirectPlace(redirectUri: string) {
+  const url = new URL(redirectUri)
+  const web = url.protocol === 'http:' || url.protocol === 'https:'
+  return { label: web ? url.host : `${url.protocol}${url.host ? `//${url.host}` : ''}`, onThisComputer: web && isLoopbackHost(url.hostname) }
 }
 
 /** What a sign-in asked for, kept with its authorization code. */

@@ -5,7 +5,9 @@ import { credentialLocationOf } from '../../vault/vault'
 import { permissionsFor } from '../../admission/access-policy'
 import { wirePrincipalKind } from '../../admission/principal'
 import { generatePairToken, listPairedDevices, revokeDevice, getInstallationId } from '../../admission/auth'
-import { appApproverOf, createAppPairingCode } from '../../admission/app-sign-in'
+import { appAccessChecks, appApproverOf, approvedRedirect, createAppPairingCode, type AppApprover } from '../../admission/app-sign-in'
+import { readAppSignInRequest, settleAppSignInRequest } from '../../admission/app-sign-in-requests'
+import { createTokenBucketRateLimiter } from '../rate-limit'
 import { advertisedRoutes, discoverTailnetServers, listReachableEndpoints } from '../endpoints'
 import { hostIdentity } from '../../host/host-identity'
 import { shareRoutesFor } from '../../sharing/share-routes'
@@ -15,7 +17,7 @@ import { captureServerEvent } from '../../analytics'
 import { hostIdentityKeySchema } from '@solus/contracts/host-identity'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import type { ConnectionsServerInfo, RemoteAccessMode, TailscaleServeStatus } from '@solus/contracts/host-api'
-import type { SolusServer } from '../server'
+import type { HandlerCtx, SolusServer } from '../server'
 import { hostUserKey } from '../../host/host-user'
 import { memberUsers } from '../../host/member-users'
 import { recentEventLoopStall } from '../../host/event-loop-stalls'
@@ -195,6 +197,35 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     return code
   })
 
+  server.register('connectionsReadAppSignIn', (args, ctx) => {
+    const approver = signInApprover(ctx)
+    const by = readSignInSchema.parse(args[0])
+    // A check code is short: each person tries a few a minute. An id is too long to guess.
+    if ('checkCode' in by && !checkCodeReads.allow(approver.kind === 'member' ? `member:${approver.userId}` : 'owner')) throw new Error('Too many tries. Wait a minute.')
+    const found = readAppSignInRequest(by)
+    if (!found) throw new Error(NO_SIGN_IN)
+    return found.view
+  })
+
+  server.register('connectionsDecideAppSignIn', (args, ctx) => {
+    const approver = signInApprover(ctx)
+    const { requestId, decision } = decideSignInSchema.parse(args[0])
+    const found = readAppSignInRequest({ requestId })
+    if (!found) throw new Error(NO_SIGN_IN)
+    const { signIn } = found
+    if (decision === 'approve') {
+      // The person's organization may allow only some apps (plans/035 §10).
+      const denied = appAccessChecks().appDenial(signIn.app, approver)
+      if (denied) throw new Error(denied)
+    }
+    // Nothing awaits between the read and here, so the sign-in still waits.
+    settleAppSignInRequest(requestId, decision === 'approve' ? { approve: approvedRedirect(signIn, approver) } : 'deny')
+    const facts = { decision, app: signIn.app, access: signIn.access, approver: approver.kind }
+    if (approver.kind === 'member') log.info('app_sign_in_decided', { ...facts, userId: approver.userId, organizationId: approver.organizationId })
+    else log.info('app_sign_in_decided', facts)
+    return { ok: true as const }
+  })
+
   server.register('connectionsRevokeDevice', (args) => {
     const [{ deviceId }] = args
     const isActingHost = deps.getActiveSessions().some((session) => session.deviceId === deviceId && session.isActingHost)
@@ -245,6 +276,23 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     const [{ installationId }] = args
     return { allowed: deps.introducedHosts.allow(installationId) }
   })
+}
+
+const readSignInSchema = z.union([z.object({ requestId: z.string().min(1).max(128) }).strict(), z.object({ checkCode: z.string().min(1).max(16) }).strict()])
+const decideSignInSchema = z.object({ requestId: z.string().min(1).max(128), decision: z.enum(['approve', 'deny']) }).strict()
+/** Unknown, expired, and decided read the same, so a check code tells nothing about other sign-ins. */
+const NO_SIGN_IN = 'This sign-in does not wait for approval. Start it again in the app.'
+const checkCodeReads = createTokenBucketRateLimiter(10, 60_000)
+
+/**
+ * The person who decides an outside app's sign-in in their own client: the app
+ * acts as them. The rule of making a pairing code (`appApproverOf`), and never a
+ * host acting for a person, which is an agent, not the person at a client.
+ */
+function signInApprover(ctx: HandlerCtx): AppApprover {
+  const approver = ctx.actingHostId ? null : appApproverOf(ctx.principal)
+  if (!approver) throw new Error('Only the host owner or a member of its organization can approve an outside app, from their own Solus client.')
+  return approver
 }
 
 const forHostSchema = z.object({ installationId: z.string().min(1), label: z.string().max(128) })

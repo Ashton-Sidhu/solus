@@ -1,9 +1,10 @@
 import { randomInt } from 'node:crypto'
 import { z } from 'zod'
 import { formatCheckCode } from '@solus/contracts/add-machine'
-import { isLoopbackHost } from '@solus/contracts/outside-apps'
+import { appSignInLink, isLoopbackHost } from '@solus/contracts/outside-apps'
 import { permissionOf } from '@solus/contracts/permissions'
 import { HOST_CREDENTIALS_KEY } from '@solus/client-core/host-credentials'
+import { encodeQrByteMode } from '@solus/client-core/qr'
 import { authorize as authorizePrincipal } from '../admission/access-policy'
 import { getInstallationId, issueAppToken, revokeAppToken } from '../admission/auth'
 import type { Doors } from '../admission/doors'
@@ -14,6 +15,7 @@ import {
   approvedRedirect,
   deniedRedirect,
   redeemCode,
+  redirectPlace,
   registerClient,
   registeredClient,
   spendAppPairingCode,
@@ -21,6 +23,7 @@ import {
   type AppApprover,
   type AuthorizationRequest,
 } from '../admission/app-sign-in'
+import { startAppSignInRequest, waitAppSignInRequest } from '../admission/app-sign-in-requests'
 import type { PairApprovals } from '../admission/pair-approvals'
 import { createTokenBucketRateLimiter } from './rate-limit'
 
@@ -37,10 +40,14 @@ export interface McpOAuthOptions {
   hostName: string
   /** The doors of this server: a browser signed in to this host approves with its own credential. Absent, it cannot. */
   doors?: Doors
+  /** This origin serves the web client (not through the tunnel): the page links to its Approve a sign-in view. */
+  servesWebClient?: boolean
 }
 
 /** Guessing a pairing code costs a request; a person types a few. */
 const codeAttempts = createTokenBucketRateLimiter(10, 60_000)
+/** Anyone who reaches the page can start a sign-in that waits in memory; a person starts a few. */
+const inSolusStarts = createTokenBucketRateLimiter(10, 60_000)
 
 const accessSchema = z.enum(['read', 'write', 'full'])
 const authorizeSchema = z.object({
@@ -55,8 +62,10 @@ const approveSchema = authorizeSchema.extend({
   /** The access chosen on the page, for approval in the Solus app or as the signed-in person; a pairing code names its own. */
   access: accessSchema.optional(),
   pairing_code: z.string().max(16).optional(),
+  /** Approve in Solus: the sign-in waits for a person to approve it in their own client (plans/035 §0.5). */
+  in_solus: z.literal(true).optional(),
 })
-const waitSchema = z.object({ requestId: z.string().min(1), waitToken: z.string().min(1) })
+const waitSchema = z.object({ requestId: z.string().min(1), waitToken: z.string().min(1), in_solus: z.literal(true).optional() })
 const registerSchema = z.object({ client_name: z.string().max(200).optional(), redirect_uris: z.array(z.string().min(1)).min(1).max(8) })
 const tokenSchema = z.object({
   grant_type: z.literal('authorization_code'),
@@ -169,7 +178,7 @@ function authorize(request: Request, options: McpOAuthOptions): Response {
   const params = authorizeSchema.safeParse(Object.fromEntries(new URL(request.url).searchParams))
   const signIn = params.success ? signInOf(params.data) : null
   if (!params.success || !signIn) return consentError('This sign-in link is not valid. Start the connection again from the app.')
-  const html = consentPage(signIn, options.hostName, params.data, !options.viaTunnel && !!options.pairApprovals, options.doors ? getInstallationId() : null)
+  const html = consentPage(signIn, options.hostName, params.data, !options.viaTunnel && !!options.pairApprovals, options.doors ? getInstallationId() : null, options.servesWebClient ? getInstallationId() : null)
   return new Response(html, { headers: PAGE_HEADERS })
 }
 
@@ -227,6 +236,7 @@ async function approve(request: Request, options: McpOAuthOptions): Promise<Resp
   const parsed = await parsedBody(request, approveSchema)
   const signIn = parsed ? signInOf(parsed) : null
   if (!parsed || !signIn) return Response.json({ error: 'This sign-in is not valid.' }, { status: 400 })
+  if (parsed.in_solus) return startInSolus(signIn, parsed.access, options)
   if (parsed.pairing_code === undefined && request.headers.has('authorization')) {
     const signedIn = await signedInApprover(request, options)
     if (!signedIn) return Response.json({ error: SIGNED_IN_REFUSED }, { status: 403 })
@@ -263,8 +273,35 @@ async function approve(request: Request, options: McpOAuthOptions): Promise<Resp
   return Response.json({ requestId: started.request.requestId, waitToken: started.waitToken, checkCode, expiresAt: started.request.expiresAt })
 }
 
+/**
+ * Approve in Solus: on every path, for the owner and members alike, because the
+ * person signs in to their own client, not to this page. The page shows a check
+ * code and a link with the sign-in's id; whoever decides it there gives the app
+ * their own access (`connectionsDecideAppSignIn`). Starting one gives nothing:
+ * only the page that holds its wait token gets the result.
+ */
+function startInSolus(signIn: Omit<AuthorizationRequest, 'access'>, access: AuthorizationRequest['access'] | undefined, options: McpOAuthOptions): Response {
+  if (!access) return Response.json({ error: 'Choose the access to give.' }, { status: 400 })
+  if (!inSolusStarts.allow(options.remoteAddress)) return Response.json({ error: 'Too many attempts. Wait a minute.' }, { status: 429 })
+  const started = startAppSignInRequest({ ...signIn, access })
+  if (!started) return Response.json({ error: 'Too many sign-ins wait for approval. Try again later.' }, { status: 429 })
+  const link = appSignInLink(getInstallationId(), started.requestId)
+  return Response.json({ requestId: started.requestId, waitToken: started.waitToken, checkCode: started.checkCode, expiresAt: started.expiresAt, link, qrSvg: qrSvg(link) })
+}
+
+/** A QR code as inline SVG: dark on white with its quiet zone, whatever the page's colors, so a phone reads it. */
+function qrSvg(text: string): string {
+  const qr = encodeQrByteMode(text)
+  const quiet = 4
+  const size = qr.size + quiet * 2
+  let path = ''
+  qr.modules.forEach((row, y) => row.forEach((dark, x) => { if (dark) path += `M${x + quiet} ${y + quiet}h1v1h-1z` }))
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="200" height="200" shape-rendering="crispEdges" role="img" aria-label="QR code that opens this sign-in in Solus"><rect width="${size}" height="${size}" fill="#fff"/><path fill="#000" d="${path}"/></svg>`
+}
+
 async function approvalWait(request: Request, options: McpOAuthOptions): Promise<Response> {
   const parsed = await parsedBody(request, waitSchema)
+  if (parsed?.in_solus) return Response.json(await waitAppSignInRequest(parsed.requestId, parsed.waitToken, request.signal))
   if (!parsed || !options.pairApprovals) return Response.json({ status: 'expired' })
   const outcome = await options.pairApprovals.wait(parsed.requestId, parsed.waitToken, request.signal)
   return Response.json(outcome.status === 'approved' ? { status: 'approved', redirect: outcome.granted } : outcome)
@@ -341,14 +378,9 @@ button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(
 input[type=text]{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg);font:inherit;letter-spacing:.1em;text-transform:uppercase}
 .code{font:600 22px/1 ui-monospace,monospace;letter-spacing:.15em;text-align:center;padding:12px;border:1px dashed var(--border);border-radius:8px;margin:8px 0 12px}
 .status{min-height:1.5em;margin-top:12px;color:var(--muted)}.or{text-align:center;color:var(--muted);margin:12px 0 4px;font-size:13px}
+.code.large{font-size:32px;padding:16px}.qr svg{display:block;width:200px;height:200px;margin:8px auto 4px;border-radius:8px}.caption{text-align:center;font-size:13px;margin:0 0 8px}
+a.button{display:block;text-align:center;padding:10px;border-radius:8px;border:1px solid var(--border);color:var(--fg);text-decoration:none;margin:8px 0}
 </style></head><body><main>${main}</main>${script ? `<script>${script}</script>` : ''}</body></html>`
-}
-
-/** Where the app's sign-in goes, as the person reads it: the host of a web address, else the app's scheme. */
-function redirectPlace(redirectUri: string) {
-  const url = new URL(redirectUri)
-  const web = url.protocol === 'http:' || url.protocol === 'https:'
-  return { label: web ? url.host : `${url.protocol}${url.host ? `//${url.host}` : ''}`, onThisComputer: web && isLoopbackHost(url.hostname) }
 }
 
 /**
@@ -359,7 +391,7 @@ function redirectPlace(redirectUri: string) {
  */
 function signedInScript(hostId: string): string {
   return `const signedIn=(()=>{try{const list=JSON.parse(localStorage.getItem(${scriptValue(HOST_CREDENTIALS_KEY)})||'[]');const entry=Array.isArray(list)?list.find((e)=>e&&e.hostId===${scriptValue(hostId)}):null;return entry&&typeof entry.token==='string'?entry.token:''}catch{return ''}})();
-if(signedIn)post('/oauth/mcp/approver',{},signedIn).then((r)=>{if(!r.ok)return;approveAs.textContent='Approve as '+r.body.name;approveAs.hidden=false;$('accessChoice').hidden=false;const or=$('orSignedIn');if(or)or.hidden=false;for(const button of [ask,usePairing])if(button)button.classList.remove('primary')});
+if(signedIn)post('/oauth/mcp/approver',{},signedIn).then((r)=>{if(!r.ok)return;approveAs.textContent='Approve as '+r.body.name;approveAs.hidden=false;for(const button of [inSolus,ask,usePairing])if(button)button.classList.remove('primary')});
 approveAs.onclick=async()=>{if(!armed||busy.has(approveAs))return;busy.add(approveAs);sync();const r=await post('/oauth/mcp/approve',{...request,access:access()},signedIn);if(r.ok)return go(r.body.redirect);status.textContent=r.body.error;busy.delete(approveAs);sync()};`
 }
 
@@ -371,8 +403,10 @@ const ARM_DELAY_MS = 700
  * to it may approve as its person: the page looks for that host's credential in
  * its own origin's storage (`HOST_CREDENTIALS_KEY`, which the web client this
  * host serves writes) and, when the host accepts it, shows "Approve as {name}".
+ * `webClientHostId` is this host's id when this origin serves the web client:
+ * the waiting view links to its Approve a sign-in view (`?approveApp=&host=`).
  */
-function consentPage(signIn: Omit<AuthorizationRequest, 'access'>, hostName: string, params: z.infer<typeof authorizeSchema>, canAskInApp: boolean, signedInHostId: string | null): string {
+function consentPage(signIn: Omit<AuthorizationRequest, 'access'>, hostName: string, params: z.infer<typeof authorizeSchema>, canAskInApp: boolean, signedInHostId: string | null, webClientHostId: string | null): string {
   const app = escapeHtml(signIn.appName)
   const place = redirectPlace(signIn.redirectUri)
   const main = `<div id="consent">
@@ -383,18 +417,24 @@ function consentPage(signIn: Omit<AuthorizationRequest, 'access'>, hostName: str
 <dt>Access goes to</dt><dd><strong>${escapeHtml(place.label)}</strong> <span class="muted">${place.onThisComputer ? 'on the computer that opened this page' : '· Whoever runs it gets this access.'}</span></dd>
 </dl>
 <p class="note">Only approve a sign-in you just started.</p>
-${canAskInApp || signedInHostId ? `<fieldset id="accessChoice"${canAskInApp ? '' : ' hidden'}><legend>What it may do</legend>
+<fieldset id="accessChoice"><legend>What it may do</legend>
 <label><input type="radio" name="access" value="read"><span>Read<small><br>See works, projects, tasks, automations, and sessions.</small></span></label>
 <label><input type="radio" name="access" value="write" checked><span>Read and write<small><br>Also start sessions and change records.</small></span></label>
 <label><input type="radio" name="access" value="full"><span>Full<small><br>Also run tools that ask for approval in Solus.</small></span></label>
-</fieldset>` : ''}
+</fieldset>
 ${signedInHostId ? '<button class="primary" id="approveAs" hidden disabled></button>' : ''}
-${canAskInApp ? `<button class="primary" id="ask" disabled>Approve in the Solus app</button><div id="check" hidden><p>Approve the request in Solus. Check that it shows this code:</p><div class="code" id="checkCode"></div></div>` : ''}
-${canAskInApp || signedInHostId ? `<div class="or"${canAskInApp ? '' : ' id="orSignedIn" hidden'}>or</div>` : ''}
+<button class="primary" id="inSolus" disabled>Approve in Solus</button>
+<div id="inSolusWait" hidden><p>Approve this sign-in in Solus. Check that Solus shows this code:</p><div class="code large" id="inSolusCode"></div>
+<div class="qr" id="inSolusQr"></div><p class="caption">Scan with the Solus app on your phone</p>
+<a class="button" id="openSolus">Open Solus</a>
+${webClientHostId ? '<a class="button" id="openWeb">Open Solus on the web</a>' : ''}
+<p class="note">Or in Solus, open Use Solus in other apps, choose Approve a sign-in, and enter this code.</p></div>
+${canAskInApp ? `<button id="ask" disabled>Ask the host owner</button><div id="check" hidden><p>The host owner sees the request in Solus. Check that it shows this code:</p><div class="code" id="checkCode"></div></div>` : ''}
+<div class="or">or</div>
 <label class="field" for="pairing">Pairing code</label>
 <input type="text" id="pairing" placeholder="Pairing code" autocomplete="one-time-code" maxlength="9" aria-describedby="pairingHelp">
-<p class="note" id="pairingHelp">Get one from Use Solus in other apps in Solus: the host's Access tab, or the command palette. The code gives the access chosen when it was made${canAskInApp ? ', so the choice above does not apply to it' : ''}.</p>
-<button${canAskInApp ? '' : ' class="primary"'} id="usePairing" disabled>Use pairing code</button>
+<p class="note" id="pairingHelp">Get one from Use Solus in other apps in Solus: the host's Access tab, or the command palette. The code gives the access chosen when it was made, so the choice above does not apply to it.</p>
+<button id="usePairing" disabled>Use pairing code</button>
 <button id="deny">Deny</button>
 <p class="status" id="status" role="status"></p>
 </div>
@@ -412,14 +452,22 @@ location.replace(url.href);return true};
 const access=()=>document.querySelector('input[name=access]:checked').value;
 const post=(path,data,bearer)=>fetch(path,{method:'POST',headers:bearer?{'content-type':'application/json',authorization:'Bearer '+bearer}:{'content-type':'application/json'},body:JSON.stringify(data)}).then(async(r)=>({ok:r.ok,body:await r.json()})).catch(()=>({ok:false,body:{error:'Could not reach this host. Try again.'}}));
 const go=(redirect)=>{if(follow(redirect))status.textContent='Approved. Returning to the app…'};
-const ask=$('ask');const usePairing=$('usePairing');const approveAs=$('approveAs');const busy=new Set();let armed=false;let timer=0;
-const sync=()=>{for(const button of [approveAs,ask,usePairing])if(button)button.disabled=!armed||busy.has(button)};
+const ask=$('ask');const usePairing=$('usePairing');const approveAs=$('approveAs');const inSolus=$('inSolus');const busy=new Set();let armed=false;let timer=0;
+const sync=()=>{for(const button of [approveAs,inSolus,ask,usePairing])if(button)button.disabled=!armed||busy.has(button)};
 const arm=()=>{armed=false;sync();clearTimeout(timer);timer=setTimeout(()=>{armed=true;sync()},${ARM_DELAY_MS})};
 addEventListener('focus',arm);document.addEventListener('visibilitychange',arm);arm();
 ${signedInHostId ? signedInScript(signedInHostId) : ''}
 $('deny').onclick=()=>{if(follow(denied))status.textContent='Denied. Returning to the app…'};
 usePairing.onclick=async()=>{if(!armed||busy.has(usePairing))return;const code=$('pairing').value;if(!code){status.textContent='Enter a pairing code from Use Solus in other apps.';return}
 busy.add(usePairing);sync();const r=await post('/oauth/mcp/approve',{...request,pairing_code:code});busy.delete(usePairing);sync();if(r.ok)go(r.body.redirect);else status.textContent=r.body.error};
+inSolus.onclick=async()=>{if(!armed||busy.has(inSolus))return;busy.add(inSolus);sync();const r=await post('/oauth/mcp/approve',{...request,access:access(),in_solus:true});
+const stop=(message)=>{$('inSolusWait').hidden=true;status.textContent=message;busy.delete(inSolus);sync()};
+if(!r.ok)return stop(r.body.error);
+$('inSolusCode').textContent=r.body.checkCode;$('inSolusQr').innerHTML=r.body.qrSvg;if(r.body.link.startsWith('solus://'))$('openSolus').href=r.body.link;${webClientHostId ? `$('openWeb').href=location.origin+'/?'+new URLSearchParams({approveApp:r.body.requestId,host:${scriptValue(webClientHostId)}});` : ''}$('inSolusWait').hidden=false;status.textContent='Waiting for approval in Solus…';
+for(;;){const w=await post('/oauth/mcp/approve/wait',{requestId:r.body.requestId,waitToken:r.body.waitToken,in_solus:true});
+if(!w.ok)return stop(w.body.error);if(w.body.status==='approved')return go(w.body.redirect);
+if(w.body.status==='denied'){if(follow(denied))status.textContent='Denied in Solus. Returning to the app…';return}
+if(w.body.status!=='pending')return stop('Nobody approved the sign-in within 10 minutes. Try again.')}};
 if(ask)ask.onclick=async()=>{if(!armed||busy.has(ask))return;busy.add(ask);sync();const r=await post('/oauth/mcp/approve',{...request,access:access()});
 if(!r.ok){status.textContent=r.body.error;busy.delete(ask);sync();return}
 $('check').hidden=false;$('checkCode').textContent=r.body.checkCode;status.textContent='Waiting for approval in Solus…';

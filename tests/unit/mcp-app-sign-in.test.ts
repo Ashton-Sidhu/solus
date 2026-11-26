@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, setSystemTime, test } from 'bun:test'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -17,6 +17,12 @@ const { PairApprovals } = await import('@solus/server/admission/pair-approvals')
 const { serveMcpOAuth } = await import('@solus/server/transport/mcp-oauth')
 const { serveMcp } = await import('@solus/server/transport/mcp-endpoint')
 const { createDoors } = await import('@solus/server/admission/doors')
+const { resetAppSignInRequestsForTests } = await import('@solus/server/admission/app-sign-in-requests')
+const { INTERNAL_HANDLER_CTX, SolusServer } = await import('@solus/server/transport/server')
+const { registerConnectionsHandlers } = await import('@solus/server/transport/handlers/connections-handlers')
+const { parseAppSignInLink } = await import('@solus/contracts/outside-apps')
+const { buildHttpServer } = await import('@solus/server/transport/http')
+const { ActingIdentities, useActingIdentities } = await import('@solus/server/execution/seats/acting-identity')
 type Doors = ReturnType<typeof createDoors>
 
 // WHY: an outside app (Claude Desktop, Cursor, a person's own CLI) reaches this
@@ -36,6 +42,7 @@ beforeEach(() => {
   process.env.SOLUS_DATA_DIR = dataDir
   auth.resetAuthStateForTests()
   resetAppSignInForTests()
+  resetAppSignInRequestsForTests()
   remoteAddress = `127.0.0.${++testNumber}`
 })
 afterEach(() => {
@@ -50,13 +57,13 @@ const REDIRECT = 'http://127.0.0.1:33418/callback'
 const verifier = randomBytes(32).toString('base64url')
 const challenge = createHash('sha256').update(verifier).digest('base64url')
 
-type OAuthOptions = { viaTunnel?: boolean; pairApprovals?: InstanceType<typeof PairApprovals>; doors?: Doors }
+type OAuthOptions = { viaTunnel?: boolean; pairApprovals?: InstanceType<typeof PairApprovals>; doors?: Doors; servesWebClient?: boolean }
 function oauth(path: string, init: RequestInit & { json?: object; form?: Record<string, string> } = {}, options: OAuthOptions = {}) {
   const headers = new Headers(init.headers)
   let requestBody = init.body
   if (init.json) { headers.set('content-type', 'application/json'); requestBody = JSON.stringify(init.json) }
   if (init.form) { headers.set('content-type', 'application/x-www-form-urlencoded'); requestBody = new URLSearchParams(init.form).toString() }
-  return serveMcpOAuth(new Request(`${ORIGIN}${path}`, { ...init, headers, body: requestBody }), { viaTunnel: options.viaTunnel ?? false, remoteAddress, hostName: 'Studio Mac', pairApprovals: options.pairApprovals, doors: options.doors })
+  return serveMcpOAuth(new Request(`${ORIGIN}${path}`, { ...init, headers, body: requestBody }), { viaTunnel: options.viaTunnel ?? false, remoteAddress, hostName: 'Studio Mac', pairApprovals: options.pairApprovals, doors: options.doors, servesWebClient: options.servesWebClient })
 }
 
 async function register(redirect = REDIRECT): Promise<string> {
@@ -255,14 +262,12 @@ describe('the consent page', () => {
     close()
   })
 
-  test('the access choice shows only where approval in the Solus app is offered: a pairing code names its own', async () => {
+  test('the access choice applies to approval in Solus on every path; a pairing code names its own', async () => {
     const clientId = await register()
-    const inApp = await consentHtml(clientId, REDIRECT, { pairApprovals: new PairApprovals() })
-    expect(inApp).toContain('name="access"')
-    expect(inApp).toContain('so the choice above does not apply to it')
-    const tunnel = await consentHtml(clientId, REDIRECT, { pairApprovals: new PairApprovals(), viaTunnel: true })
-    expect(tunnel).not.toContain('name="access"')
-    expect(tunnel).toContain('The code gives the access chosen when it was made.')
+    for (const html of [await consentHtml(clientId, REDIRECT, { pairApprovals: new PairApprovals() }), await consentHtml(clientId, REDIRECT, { viaTunnel: true })]) {
+      expect(html).toContain('name="access"')
+      expect(html).toContain('so the choice above does not apply to it')
+    }
     // The page sends no access with a pairing code, and approval in the app must name one.
     const withCode = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), pairing_code: createAppPairingCode(OWNER, 'read').code } })
     expect(withCode.status).toBe(200)
@@ -518,17 +523,229 @@ describe('approving as the person signed in to this host', () => {
     const other = open([{ hostId: 'another-host', token: auth.issueSessionToken('Chrome').token, routes: [] }])
     await Bun.sleep(50)
     expect(button(other.window).hidden).toBe(true)
-    expect(other.document.querySelector<HTMLElement>('#accessChoice')!.hidden).toBe(true)
     other.close()
     const signedIn = open([{ hostId: auth.getInstallationId(), token: auth.issueSessionToken('Chrome').token, routes: [] }])
     await Bun.sleep(800)
     expect(button(signedIn.window).hidden).toBe(false)
     expect(button(signedIn.window).textContent).toBe('Approve as the host owner')
-    expect(signedIn.document.querySelector<HTMLElement>('#accessChoice')!.hidden).toBe(false)
     signedIn.document.querySelector<HTMLInputElement>('input[name=access][value=read]')!.checked = true
     button(signedIn.window).click()
     await Bun.sleep(50)
     expect(signedIn.document.querySelector('#status')!.textContent).toBe('Approved. Returning to the app…')
     signedIn.close()
+  })
+})
+
+// WHY: an organization member's client keeps no paired-device token in the
+// browser, and through the tunnel even the owner has only pairing codes. A
+// person approves the sign-in in the Solus client they are already signed in
+// to, and the app then acts as them (plans/035 §0.5). Whoever reads the check
+// code or the link may decide only as themselves, once, and within ten minutes.
+describe('approving in Solus', () => {
+  type Principal = Parameters<InstanceType<typeof SolusServer>['handle']>[2]['principal']
+  const member = (userId: string): Principal => ({ kind: 'org-member', userId, organizationId: 'org-a', organizationRole: 'member', teamIds: ['t1'], hostKind: 'personal', displayName: 'Alice', deviceId: `grant-${userId}`, expiresAt: Date.now() + 600_000, deviceLabel: 'Solus account' })
+  const owner: Principal = { kind: 'owner', via: 'local', deviceId: null, deviceLabel: 'This Mac', expiresAt: null }
+  // A call runs as its person; these calls start no process.
+  beforeEach(() => useActingIdentities(new ActingIdentities({
+    memberToken: async () => null,
+    fetchLogin: async () => { throw new Error('no GitHub login here') },
+    memberHome: () => { throw new Error('no member process here') },
+    gitHelper: () => null,
+    now: Date.now,
+  })))
+  afterEach(() => useActingIdentities(null))
+  function rpc() {
+    const server = new SolusServer()
+    // SAFETY: the sign-in methods read none of the dependencies.
+    registerConnectionsHandlers(server, {} as never)
+    return {
+      read: (by: { requestId: string } | { checkCode: string }, principal: Principal = owner) => server.handle('connectionsReadAppSignIn', [by], { clientId: 'ws:test', principal }),
+      decide: (requestId: string, decision: 'approve' | 'deny', principal: Principal = owner, actingHostId?: string) => server.handle('connectionsDecideAppSignIn', [{ requestId, decision }], { clientId: 'ws:test', principal, actingHostId }),
+      system: (requestId: string) => server.handle('connectionsDecideAppSignIn', [{ requestId, decision: 'approve' }], INTERNAL_HANDLER_CTX),
+    }
+  }
+  const startedSchema = z.object({ requestId: z.string(), waitToken: z.string(), checkCode: z.string(), expiresAt: z.number(), link: z.string(), qrSvg: z.string() })
+  async function start(access: 'read' | 'write' | 'full' = 'read', options: OAuthOptions = {}) {
+    const clientId = await register()
+    const response = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access, in_solus: true } }, options)
+    expect(response.status).toBe(200)
+    return { clientId, ...startedSchema.parse(await response.json()) }
+  }
+  const wait = async (started: { requestId: string; waitToken: string }, options: OAuthOptions = {}) =>
+    (await oauth('/oauth/mcp/approve/wait', { method: 'POST', json: { requestId: started.requestId, waitToken: started.waitToken, in_solus: true } }, options)).json()
+  async function grantOf(clientId: string, outcome: unknown) {
+    const { redirect } = z.object({ status: z.literal('approved'), redirect: z.string() }).parse(outcome)
+    const token = z.object({ access_token: z.string(), scope: z.string() }).parse(await (await tokenFor(clientId, redirect)).json())
+    return { scope: token.scope, approver: auth.verifyAppToken(token.access_token)?.approver }
+  }
+  const NOT_WAITING = 'This sign-in does not wait for approval. Start it again in the app.'
+
+  test('a member approves by the id in the link, and the app acts as that member with the access chosen on the page', async () => {
+    const started = await start('read')
+    // The link names this host and the sign-in; the id is 128 bits.
+    expect(parseAppSignInLink(started.link)).toEqual({ hostId: auth.getInstallationId(), requestId: started.requestId })
+    expect(Buffer.from(started.requestId, 'base64url').length).toBeGreaterThanOrEqual(16)
+    const waiting = wait(started)
+    const api = rpc()
+    expect(await api.read({ requestId: started.requestId }, member('alice'))).toEqual({ requestId: started.requestId, appName: 'Claude Desktop', appId: 'local', redirectPlace: '127.0.0.1:33418', onThisComputer: true, access: 'read', expiresAt: started.expiresAt })
+    expect(await api.decide(started.requestId, 'approve', member('alice'))).toEqual({ ok: true })
+    expect(await grantOf(started.clientId, await waiting)).toEqual({ scope: 'read', approver: { kind: 'member', userId: 'alice', organizationId: 'org-a', organizationRole: 'member', teamIds: ['t1'], hostKind: 'personal', displayName: 'Alice' } })
+  })
+
+  test('the check code on the page finds the sign-in, typed in any case and with or without its dash', async () => {
+    const started = await start('full')
+    const api = rpc()
+    const found = await api.read({ checkCode: started.checkCode.replace('-', '').toLowerCase() }, member('bob'))
+    expect(found.requestId).toBe(started.requestId)
+    const waiting = wait(started)
+    await api.decide(found.requestId, 'approve')
+    expect(await grantOf(started.clientId, await waiting)).toEqual({ scope: 'full', approver: { kind: 'owner' } })
+  })
+
+  test('deny ends the sign-in, and the page sends the app away with access_denied', async () => {
+    const started = await start()
+    const waiting = wait(started)
+    await rpc().decide(started.requestId, 'deny', member('carol'))
+    expect(await waiting).toEqual({ status: 'denied' })
+  })
+
+  test('a sign-in is decided once, and a decided, unknown, or expired one reads the same', async () => {
+    const api = rpc()
+    const started = await start()
+    await api.decide(started.requestId, 'approve', member('dave'))
+    await expect(api.decide(started.requestId, 'deny', member('dave'))).rejects.toThrow(NOT_WAITING)
+    await expect(api.decide(started.requestId, 'approve')).rejects.toThrow(NOT_WAITING)
+    await expect(api.read({ requestId: started.requestId })).rejects.toThrow(NOT_WAITING)
+    await expect(api.read({ requestId: 'unknown' })).rejects.toThrow(NOT_WAITING)
+    await expect(api.read({ checkCode: 'ABCD-EFGH' }, member('dave'))).rejects.toThrow(NOT_WAITING)
+  })
+
+  test('after ten minutes the sign-in is refused, and the page reads expired', async () => {
+    const started = await start()
+    try {
+      setSystemTime(new Date(started.expiresAt + 1))
+      await expect(rpc().decide(started.requestId, 'approve', member('erin'))).rejects.toThrow(NOT_WAITING)
+      expect(await wait(started)).toEqual({ status: 'expired' })
+    } finally {
+      setSystemTime()
+    }
+  })
+
+  test("the member's organization refuses an app it does not allow, and the sign-in still waits", async () => {
+    installAppAccessChecks({ ...allowEverything, appDenial: (app, approver) => approver.kind === 'member' && app === 'local' ? 'Example Corp does not allow Apps on your computer to use Solus.' : null })
+    const started = await start()
+    const api = rpc()
+    await expect(api.decide(started.requestId, 'approve', member('frank'))).rejects.toThrow('does not allow')
+    expect((await api.read({ requestId: started.requestId })).requestId).toBe(started.requestId)
+  })
+
+  test('only the host owner or a member, from their own client, decides: not the host itself, and not a host acting for a person', async () => {
+    const started = await start()
+    const api = rpc()
+    await expect(api.system(started.requestId)).rejects.toThrow('Only the host owner or a member')
+    await expect(api.decide(started.requestId, 'approve', member('gina'), 'host-2')).rejects.toThrow('Only the host owner or a member')
+    await expect(api.read({ requestId: started.requestId }, member('gina'))).resolves.toMatchObject({ requestId: started.requestId })
+  })
+
+  test('each person tries ten check codes a minute', async () => {
+    const api = rpc()
+    for (let i = 0; i < 10; i++) await expect(api.read({ checkCode: 'ZZZZ-ZZZZ' }, member('hank'))).rejects.toThrow(NOT_WAITING)
+    await expect(api.read({ checkCode: 'ZZZZ-ZZZZ' }, member('hank'))).rejects.toThrow('Too many tries')
+    // Another person has their own count, and an id is not counted.
+    await expect(api.read({ checkCode: 'ZZZZ-ZZZZ' }, member('iris'))).rejects.toThrow(NOT_WAITING)
+    const started = await start()
+    expect((await api.read({ requestId: started.requestId }, member('hank'))).requestId).toBe(started.requestId)
+  })
+
+  test('works through the public tunnel, where no other approval but a pairing code does', async () => {
+    const html = await consentHtml(await register(), REDIRECT, { viaTunnel: true })
+    expect(html).toContain('<button class="primary" id="inSolus" disabled>Approve in Solus</button>')
+    const started = await start('write', { viaTunnel: true })
+    const waiting = wait(started, { viaTunnel: true })
+    await rpc().decide(started.requestId, 'approve', member('jill'))
+    expect((await grantOf(started.clientId, await waiting)).scope).toBe('write')
+  })
+
+  test('only the page that started the sign-in collects its result', async () => {
+    const started = await start()
+    expect(await wait({ requestId: started.requestId, waitToken: 'not-the-token' })).toEqual({ status: 'expired' })
+    const waiting = wait(started)
+    await rpc().decide(started.requestId, 'approve')
+    expect(await waiting).toMatchObject({ status: 'approved' })
+    // A result is read once.
+    expect(await wait(started)).toEqual({ status: 'expired' })
+  })
+
+  test('the page shows the check code, a QR code of the link, and Open Solus, then returns to the app when approved', async () => {
+    const clientId = await register()
+    const browser = consentInBrowser(await consentHtml(clientId), false, (window) => {
+      Object.assign(window, { fetch: (path: string, init: RequestInit) => serveMcpOAuth(new Request(`${ORIGIN}${path}`, init), { viaTunnel: false, remoteAddress, hostName: 'Studio Mac' }) })
+    })
+    const $ = (id: string) => browser.document.getElementById(id)!
+    await Bun.sleep(800)
+    $('inSolus').click()
+    await Bun.sleep(50)
+    const checkCode = $('inSolusCode').textContent ?? ''
+    expect(checkCode).toMatch(/^[2-9A-Z]{4}-[2-9A-Z]{4}$/)
+    expect($('inSolusWait').hidden).toBe(false)
+    expect($('inSolusQr').querySelector('svg path')?.getAttribute('d')).toMatch(/^M\d+ \d+h1v1h-1z/)
+    expect(browser.document.body.textContent).toContain('Scan with the Solus app on your phone')
+    expect(browser.document.body.textContent).toContain('Or in Solus, open Use Solus in other apps, choose Approve a sign-in, and enter this code.')
+    const link = parseAppSignInLink($('openSolus').getAttribute('href') ?? '')
+    expect($('openSolus').textContent).toBe('Open Solus')
+    expect(link?.hostId).toBe(auth.getInstallationId())
+    const api = rpc()
+    expect((await api.read({ checkCode }, member('kate'))).requestId).toBe(link!.requestId)
+    expect($('status').textContent).toBe('Waiting for approval in Solus…')
+    await api.decide(link!.requestId, 'approve', member('kate'))
+    await Bun.sleep(50)
+    expect($('status').textContent).toBe('Approved. Returning to the app…')
+    browser.close()
+  })
+})
+
+// WHY: the web client opens its Approve a sign-in view from `?approveApp=&host=`.
+// The link helps only where this origin serves that client: the standalone
+// server and the desktop app do, from their `staticDir`; the tunnel never does.
+describe('Open Solus on the web', () => {
+  async function consentFrom(options: { staticDir?: string; viaTunnel?: boolean }): Promise<string> {
+    const { server } = buildHttpServer({ host: '127.0.0.1', port: 0, getPort: () => 0, requireAuth: () => false, isTrustedRequester: async () => true, isTunnelRequest: () => options.viaTunnel ?? false, staticDir: options.staticDir })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const base = `http://127.0.0.1:${z.object({ port: z.number() }).parse(server.address()).port}`
+    try {
+      const registered = await fetch(`${base}/oauth/mcp/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'Claude Desktop', redirect_uris: [REDIRECT] }) })
+      const { client_id } = z.object({ client_id: z.string() }).parse(await registered.json())
+      return await (await fetch(`${base}/oauth/mcp/authorize?${new URLSearchParams(authorizeParams(client_id))}`)).text()
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }
+
+  test('shows only where this host serves the web client at its own origin, and never through the tunnel', async () => {
+    const staticDir = mkdtempSync(join(tmpdir(), 'solus-client-'))
+    try {
+      expect(await consentFrom({ staticDir })).toContain('id="openWeb"')
+      expect(await consentFrom({ staticDir, viaTunnel: true })).not.toContain('id="openWeb"')
+      expect(await consentFrom({})).not.toContain('id="openWeb"')
+      expect(await consentFrom({ staticDir: join(staticDir, 'missing') })).not.toContain('id="openWeb"')
+    } finally {
+      rmSync(staticDir, { recursive: true, force: true })
+    }
+  })
+
+  test("links to this page's origin with the sign-in and this host", async () => {
+    const browser = consentInBrowser(await consentHtml(await register(), REDIRECT, { servesWebClient: true }), false, (window) => {
+      Object.assign(window, { fetch: (path: string, init: RequestInit) => serveMcpOAuth(new Request(`${ORIGIN}${path}`, init), { viaTunnel: false, remoteAddress, hostName: 'Studio Mac', servesWebClient: true }) })
+    })
+    await Bun.sleep(800)
+    browser.document.getElementById('inSolus')!.click()
+    await Bun.sleep(50)
+    const link = new URL(browser.document.getElementById('openWeb')!.getAttribute('href') ?? '')
+    const requestId = parseAppSignInLink(browser.document.getElementById('openSolus')!.getAttribute('href') ?? '')?.requestId
+    expect(`${link.origin}${link.pathname}`).toBe(`${ORIGIN}/`)
+    expect(Object.fromEntries(link.searchParams)).toEqual({ approveApp: requestId, host: auth.getInstallationId() })
+    expect(browser.document.getElementById('openWeb')!.textContent).toBe('Open Solus on the web')
+    browser.close()
   })
 })

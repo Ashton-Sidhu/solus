@@ -332,12 +332,14 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   // Outside apps sign in on every host but the Solus API server. A cloud machine has no
   // pairing, so there a member's pairing code approves; the Solus app does not.
   const appsSignIn = opts.isApiMode !== true
+  // The standalone server and the desktop app both serve the web client from `staticDir`, at the host's own origin.
+  const servesWebClient = !!opts.staticDir && existsSync(opts.staticDir)
   app.all('/mcp', (c) => serveMcp(c.req.raw, { appsSignIn }))
   const appSignIn = async (c: Ctx, next: () => Promise<void>) => appsSignIn ? next() : c.notFound()
   app.get('/.well-known/oauth-protected-resource', appSignIn, (c) => protectedResourceMetadata(c.req.raw))
   app.get('/.well-known/oauth-protected-resource/mcp', appSignIn, (c) => protectedResourceMetadata(c.req.raw))
   app.get('/.well-known/oauth-authorization-server', appSignIn, (c) => authorizationServerMetadata(c.req.raw))
-  app.all('/oauth/mcp/*', appSignIn, (c) => serveMcpOAuth(c.req.raw, { pairApprovals: pairingDisabled() ? undefined : opts.pairApprovals, viaTunnel: viaTunnel(c), remoteAddress: clientIp(c), hostName: currentName(), doors }))
+  app.all('/oauth/mcp/*', appSignIn, (c) => serveMcpOAuth(c.req.raw, { pairApprovals: pairingDisabled() ? undefined : opts.pairApprovals, viaTunnel: viaTunnel(c), remoteAddress: clientIp(c), hostName: currentName(), doors, servesWebClient: servesWebClient && !viaTunnel(c) }))
 
   // The service API (docs/plans/app-deploy.md §5.2): a deployed app asks for what Solus owns.
   const appService = opts.appService
@@ -616,7 +618,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   // Static fallback for the bundled client. serveStatic streams the requested
   // file (with traversal protection + range support); the second handler is the
   // SPA fallback that serves index.html for any unmatched client-side route.
-  if (opts.staticDir && existsSync(opts.staticDir)) {
+  if (opts.staticDir && servesWebClient) {
     const root = opts.staticDir
     // Registered after every dynamic/range route, so only the static fallback
     // reaches compression. Hono preserves streaming and skips 206 responses.
