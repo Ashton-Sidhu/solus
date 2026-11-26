@@ -20,7 +20,9 @@ const SOLUS_TOOL_TIMEOUT_SEC = 65 * 60
 
 /** The thread config that points Codex at the run's tools. */
 export function codexSolusServers(access: RunToolAccess, tools: AgentTool[]) {
-  const server = { url: access.url, http_headers: { Authorization: access.authorization }, tool_timeout_sec: SOLUS_TOOL_TIMEOUT_SEC }
+  // The endpoint asks the person before a Solus tool that needs approval (plans/035 §6). Codex must not
+  // ask again, and under the `never` policy (full access, plan) it refuses an MCP call it would ask about.
+  const server = { url: access.url, http_headers: { Authorization: access.authorization }, tool_timeout_sec: SOLUS_TOOL_TIMEOUT_SEC, default_tools_approval_mode: 'approve' }
   const direct = tools.filter((tool) => tool.alwaysLoad).map((tool) => tool.name)
   if (direct.length === 0) return { [`mcp_servers.${SOLUS_MCP_SERVER}`]: server }
   return {

@@ -45,6 +45,9 @@ describe('the Codex config for Solus tools', () => {
     const config = codexSolusServers(access, [tool('list_works'), tool('render_artifact', true)])
     expect(config['mcp_servers.solus']).toMatchObject({ url: access.url, http_headers: { Authorization: 'Bearer t' }, disabled_tools: ['render_artifact'] })
     expect(config['mcp_servers.solus-direct']).toMatchObject({ enabled_tools: ['render_artifact'], omit_tools_from: ['deferred'] })
+    // Under the `never` policy Codex refuses an MCP call it would ask about; the endpoint asks instead.
+    expect(config['mcp_servers.solus']).toMatchObject({ default_tools_approval_mode: 'approve' })
+    expect(config['mcp_servers.solus-direct']).toMatchObject({ default_tools_approval_mode: 'approve' })
     expect(Object.keys(codexSolusServers(access, [tool('list_works')]))).toEqual(['mcp_servers.solus'])
   })
 
