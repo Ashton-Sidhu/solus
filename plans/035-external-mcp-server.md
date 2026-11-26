@@ -1,6 +1,40 @@
 # External MCP server
 
-Status: proposed. Reference: T3 Code at `pingdotgg/t3code` commit `60375a56` (`apps/server/src/mcp/`).
+Status: phases 1 to 4 built; phase 5 needs a decision (§0.3). Reference: T3 Code at `pingdotgg/t3code` commit `60375a56` (`apps/server/src/mcp/`). User page: `docs/outside-apps.md`.
+
+## 0. What was built, and where it differs from the design
+
+### 0.1 Built
+
+| Part | Where |
+|---|---|
+| One access rule for each tool (`TOOL_ACCESS`), checked before each call | `execution/agents/tools/tool-access.ts`, `execution/sessions/run-lifecycle.ts` |
+| `/mcp` with run tokens; Claude over HTTP | `execution/agents/tools/agent-tool-endpoint.ts`, `transport/mcp-endpoint.ts`, `claude/claude-backend.ts` |
+| Codex over `mcp_servers` (`solus` and `solus-direct`) | `codex/codex-solus-tools.ts`, `codex/codex-backend.ts` |
+| The host's OAuth server, consent page, pairing codes, app grants | `transport/mcp-oauth.ts`, `admission/app-sign-in.ts`, `admission/auth.ts` (`app:<access>` rows in `host_device`) |
+| The tools an outside app may use (`APP_TOOLS`) | `execution/agents/tools/tool-access.ts` |
+| RPCs `connectionsAppEndpoint`, `connectionsCreateAppPairingCode` | `transport/handlers/connections-handlers.ts` |
+
+### 0.2 Differences from the design below
+
+1. **Tokens.** A Claude run gets a token for the run. A Codex session keeps one token across its runs, because Codex may keep a loaded thread's MCP config; between runs the token reaches no tools. There is no `ActiveRun` registry: the run that holds the token gives its tools, context, and approval (`RunToolBinding`).
+2. **Approval.** Claude still asks through `canUseTool`, for each Solus tool that is not in `allowedTools`; this works the same over HTTP. Codex's approval comes from the endpoint, with the card the dynamic tools used, and the Codex adapter accepts Codex's own approval request for the Solus servers. `effect` was not added to the rule: `requiresApproval` stays the approval flag.
+3. **Call ids.** §9.1 was not needed. The Claude CLI stamps `claudecode/toolUseId` on calls to every MCP server. Codex names no item, so a call takes the `mcpToolCall` item that Codex started for that tool and those arguments (`SolusCallItems`).
+4. **Outside app approval.** The consent page starts the pair approval that a device uses (`PairApprovals` takes the grant it hands out), so the request already shows on desktop, web, and mobile. Through the public tunnel, only a pairing code approves: pairing is local authorization. A cloud machine has no app sign-in.
+5. **App grants.** A grant is a `host_device` row of kind `app:read`, `app:write`, or `app:full`, so it is listed, revoked, and kept with the paired devices with no migration. It acts as the host owner (`via: 'local'`), bounded by its access. Tokens live while used within thirty days; there is no refresh token.
+6. **Tools for outside apps.** The first list (`APP_TOOLS`) has only tools that work with no calling session: works, project and codebase reads, tasks except create, automations except create, and `list_agent_targets`, `search_sessions`, `read_session`, `start_sessions`, `stop_session`, `organize_session`. The `session_id` arguments, the requester key (§8), and the pull request, link, `send_session`, and `read_session_exchange` tools are not built yet.
+7. **Provider of an app's call.** An outside app has no harness. Its calls record `claude-code` where a tool records a provider.
+8. **Sessions that an app starts.** `createSession` with no parent now works for the tool call's person (`toolCallActor` in `prompt-dispatch.ts`), not the host. This also applies to a parentless session that a harness turn starts.
+
+### 0.3 Phase 5: decision needed
+
+Approval with a Solus account needs the account plane to treat a linked host as a client that signs a person in through a browser. Today a host client has no redirect addresses and only `client_credentials`, token exchange, and `refresh_token` (`solus-cloud: src/lib/server/auth/host-clients.ts`). The proposal:
+
+1. Host clients also get `authorization_code`, with the redirect `<tunnel>/oauth/mcp/account/callback`, registered at link and when the tunnel address changes. Existing host clients are updated once.
+2. The consent page sends the person to app.solus.sh with PKCE and `resource` = the host. The callback spends the code with `private_key_jwt` and checks the token as `access-tokens.ts` does.
+3. The grant keeps the account principal (a new `host_device` column, by migration). Each `/mcp` call checks that the person is still a member of the organization, as the socket does.
+
+This changes what a host may ask app.solus.sh for, so it is a decision for the maintainers before it is built.
 
 ## 1. Problem
 
