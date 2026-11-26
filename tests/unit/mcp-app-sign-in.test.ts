@@ -121,6 +121,18 @@ async function appClient(token: string): Promise<Client> {
 }
 
 describe('signing in an outside app', () => {
+  test("an app's first call shows it as connected at once, not a minute later", () => {
+    const approvedAt = 1_000_000
+    const { token } = auth.issueAppToken('Claude', 'claude', 'read', OWNER, approvedAt)
+    const listedAt = () => auth.listPairedDevices().find((device) => device.app)?.lastSeenAt
+    expect(listedAt()).toBe(approvedAt)
+    auth.verifyAppToken(token, approvedAt + 5_000)
+    expect(listedAt()).toBe(approvedAt + 5_000)
+    // Later calls within the minute are not written.
+    auth.verifyAppToken(token, approvedAt + 20_000)
+    expect(listedAt()).toBe(approvedAt + 5_000)
+  })
+
   test('the consent page names the app and the host', async () => {
     const clientId = await register()
     const page = await oauth(`/oauth/mcp/authorize?${new URLSearchParams(authorizeParams(clientId))}`)

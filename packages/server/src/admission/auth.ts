@@ -283,7 +283,9 @@ export function verifyAppToken(token: string, now = Date.now()): AppGrant | null
   if (!row.success || row.data.revoked_at !== null || now - row.data.last_seen_at > SESSION_TOKEN_TTL_MS) return null
   const approver = appApproverSchema.safeParse(JSON.parse(row.data.approved_by))
   if (!approver.success) return null
-  if (now - row.data.last_seen_at >= LAST_SEEN_WRITE_INTERVAL_MS) db.prepare('UPDATE host_device SET last_seen_at = ? WHERE device_id = ?').run(now, row.data.device_id)
+  // The first call is always written, so the app's list shows it as connected at once; later calls at most once a minute.
+  const firstCall = row.data.last_seen_at === row.data.paired_at
+  if (firstCall || now - row.data.last_seen_at >= LAST_SEEN_WRITE_INTERVAL_MS) db.prepare('UPDATE host_device SET last_seen_at = ? WHERE device_id = ?').run(now, row.data.device_id)
   return { deviceId: row.data.device_id, deviceLabel: row.data.label, lastSeenAt: now, appId: row.data.app_id, access: row.data.app_access, approver: approver.data }
 }
 
