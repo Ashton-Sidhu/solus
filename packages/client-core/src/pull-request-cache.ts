@@ -77,16 +77,42 @@ export function prunedCacheKeys(entries: readonly PullRequestCacheEntry[], now: 
   return removed
 }
 
+function keyTimes(entries: readonly PullRequestCacheEntry[]): Map<string, number> {
+  return new Map(entries.map(entry => [entry.key, entry.updatedAt]))
+}
+
 /** Changing the stored shape changes this, so an old record is not read as a new one. */
 const FORMAT = 'v1'
 
 export class PullRequestCache {
   // Pruning already reads these keys. A caller can start its host request at
   // once on a likely miss, while an independent disk read still verifies it.
-  private readonly responseKeys = new Map<string, Set<string>>()
+  // Each key has the time its record was written.
+  private readonly responseKeys = new Map<string, Map<string, number>>()
+  private readonly keyReads = new Map<string, Promise<void>>()
 
+  /** Undefined until `readResponseKeys` or a write read the keys of the host. */
   hasResponseKey(hostId: string, key: string): boolean | undefined {
     return this.responseKeys.get(hostId)?.has(`${FORMAT}:${key}`)
+  }
+
+  /** When the kept answer was written; undefined when there is none or the keys are not read yet. */
+  responseWrittenAt(hostId: string, key: string): number | undefined {
+    return this.responseKeys.get(hostId)?.get(`${FORMAT}:${key}`)
+  }
+
+  /** Reads the keys of a host once, so that `hasResponseKey` answers true or false. */
+  readResponseKeys(hostId: string): Promise<void> {
+    const held = this.keyReads.get(hostId)
+    if (held) return held
+    const read = this.database.entries('response', hostId).then(entries => {
+      // A write read the keys after this read started; its keys are newer.
+      if (this.keyReads.get(hostId) === read && !this.responseKeys.has(hostId)) this.responseKeys.set(hostId, keyTimes(entries))
+    }, () => {
+      if (this.keyReads.get(hostId) === read) this.keyReads.delete(hostId)
+    })
+    this.keyReads.set(hostId, read)
+    return read
   }
 
   constructor(
@@ -109,7 +135,7 @@ export class PullRequestCache {
       await this.database.put('response', hostId, { key: `${FORMAT}:${key}`, payload, bytes, updatedAt: this.now() })
       const entries = await this.database.entries('response', hostId)
       const removed = prunedCacheKeys(entries, this.now())
-      const keys = new Set(entries.map(entry => entry.key))
+      const keys = keyTimes(entries)
       for (const key of removed) keys.delete(key)
       this.responseKeys.set(hostId, keys)
       if (removed.length > 0) await this.database.delete('response', hostId, removed)
@@ -136,6 +162,7 @@ export class PullRequestCache {
   /** Everything this device kept for a host leaves with it. */
   async forgetHost(hostId: string): Promise<void> {
     this.responseKeys.delete(hostId)
+    this.keyReads.delete(hostId)
     await this.database.deleteHost(hostId).catch(() => undefined)
   }
 

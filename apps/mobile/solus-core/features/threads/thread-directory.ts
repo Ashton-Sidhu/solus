@@ -101,6 +101,13 @@ const RATE_LIMIT_RETRIES = 3
 
 const IDLE = { kind: 'idle' } as const
 
+/** A host of the last start, as this device saved it: the start shows its saved list before the registry reads its hosts. */
+export interface PresumedHost {
+  readonly id: string
+  readonly installationId: string
+  readonly identityKey?: string
+}
+
 /** How a cloud-only row names where it comes from when this phone keeps no host that ran it. */
 const CLOUD_LABEL = 'Solus Cloud'
 
@@ -122,6 +129,8 @@ export class ThreadDirectory {
   }
 
   private readonly restores = new Map<string, Promise<void>>()
+  /** The hosts restored before the registry knew them: each stays until the registry confirms or leaves it out. */
+  private readonly presumed = new Map<string, PresumedHost>()
   private readonly requests = new Map<string, number>()
   private readonly directoryWrites = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly retries = new Map<string, ReturnType<typeof setTimeout>>()
@@ -169,15 +178,17 @@ export class ThreadDirectory {
     cloud?.changes.subscribe(() => this.remerge())
   }
 
-  restore(hostId: string): Promise<void> {
+  /** Shows the saved list of a host. `presumed` is the host of the last start, for a restore before the registry is read. */
+  restore(hostId: string, presumed?: PresumedHost): Promise<void> {
     const held = this.restores.get(hostId)
     if (held) return held
-    const host = this.registry.host(hostId)
+    const host = this.registry.host(hostId) ?? presumed
     if (!host || !this.cache) return Promise.resolve()
+    if (host === presumed) this.presumed.set(hostId, presumed)
     const pending = this.cache.forHost(hostId).directory().then(cached => {
       // The catalog rebuilds its host objects when a route or label changes. Forgetting
       // the host or switching accounts cancels this read even if the same id returns.
-      const currentHost = this.registry.host(hostId)
+      const currentHost = this.registry.host(hostId) ?? this.presumed.get(hostId)
       if (!cached || this.restores.get(hostId) !== pending || this.denied.has(hostId) ||
           !currentHost || currentHost.installationId !== host.installationId ||
           (host.identityKey && currentHost.identityKey !== host.identityKey)) return
@@ -190,6 +201,37 @@ export class ThreadDirectory {
     })
     this.restores.set(hostId, pending)
     return pending
+  }
+
+  /** True while the list of the host shows from the last start and the registry has not confirmed the host. */
+  presumes(hostId: string): boolean {
+    return this.presumed.has(hostId)
+  }
+
+  /**
+   * The registry read its hosts: a presumed host that it knows as the same
+   * installation stays. One it knows as another installation, or one that it
+   * still leaves out after the host list and the directory answered, loses
+   * the rows the start showed. Answers the hosts it dropped.
+   */
+  confirmPresumedHosts(): string[] {
+    const listsAnswered = this.registry.listState() !== 'loading' && this.registry.directoryState() !== 'loading'
+    const dropped: string[] = []
+    for (const [hostId, presumed] of this.presumed) {
+      const host = this.registry.host(hostId)
+      if (host && host.installationId === presumed.installationId &&
+          (!presumed.identityKey || !host.identityKey || host.identityKey === presumed.identityKey)) this.presumed.delete(hostId)
+      else if (host || listsAnswered) {
+        this.forgetHost(hostId)
+        dropped.push(hostId)
+      }
+    }
+    return dropped
+  }
+
+  /** Every host this directory holds a list or a pending restore for. */
+  hostIds(): string[] {
+    return [...new Set([...this.hosts.keys(), ...this.restores.keys()])]
   }
 
   /** Change the list filter without changing a record or closing an open thread. */
@@ -574,6 +616,7 @@ export class ThreadDirectory {
 
   forgetHost(hostId: string): void {
     this.restores.delete(hostId)
+    this.presumed.delete(hostId)
     clearTimeout(this.retries.get(hostId))
     this.retries.delete(hostId)
     this.denied.delete(hostId)
