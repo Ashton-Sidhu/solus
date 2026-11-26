@@ -528,8 +528,8 @@ export interface SolusAPI {
   connectionsListDevices(): Promise<PairedDevice[]>
   /** Where an outside app reaches this host's tools: on this machine, and at the public tunnel address when the host has one. */
   connectionsAppEndpoint(): Promise<{ localUrl: string; publicUrl: string | null }>
-  /** A one-time code that approves an outside app's sign-in on its consent page. */
-  connectionsCreateAppPairingCode(): Promise<{ code: string; expiresAt: number }>
+  /** A one-time code that approves an outside app's sign-in on its consent page, with the access it gives. */
+  connectionsCreateAppPairingCode(args: { access: AppAccess }): Promise<{ code: string; access: AppAccess; expiresAt: number }>
   connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean }>
   connectionsSetRemoteAccess(args: { remoteAccess: RemoteAccessMode }): Promise<{ remoteAccess: RemoteAccessMode; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
   connectionsGetTailscaleServe(): Promise<TailscaleServeStatus>

@@ -51,25 +51,29 @@ export const appApproverSchema = z.discriminatedUnion('kind', [
 ])
 export type AppApprover = z.infer<typeof appApproverSchema>
 
-/** A pairing code lives ten minutes and works once, for the person who made it. */
+/**
+ * A pairing code lives ten minutes and works once, for the person who made it.
+ * It names the access it gives, so the consent page does not ask again.
+ */
 export const APP_PAIRING_CODE_TTL_MS = 10 * 60 * 1000
-const pairingCodes = new Map<string, { expiresAt: number; approver: AppApprover }>()
+interface AppPairingCode { expiresAt: number; approver: AppApprover; access: AppAccess }
+const pairingCodes = new Map<string, AppPairingCode>()
 
-export function createAppPairingCode(approver: AppApprover, now = Date.now()) {
+export function createAppPairingCode(approver: AppApprover, access: AppAccess, now = Date.now()) {
   for (const [code, entry] of pairingCodes) if (entry.expiresAt <= now) pairingCodes.delete(code)
   const code = formatCheckCode((n) => randomInt(n))
   const expiresAt = now + APP_PAIRING_CODE_TTL_MS
-  pairingCodes.set(code, { expiresAt, approver })
-  return { code, expiresAt }
+  pairingCodes.set(code, { expiresAt, approver, access })
+  return { code, access, expiresAt }
 }
 
-/** Spends a pairing code: the person who made it, or null when it is unknown, used, or expired. */
-export function spendAppPairingCode(typed: string, now = Date.now()): AppApprover | null {
+/** Spends a pairing code: who made it and the access it gives, or null when it is unknown, used, or expired. */
+export function spendAppPairingCode(typed: string, now = Date.now()): Omit<AppPairingCode, 'expiresAt'> | null {
   const code = normalizeCheckCode(typed)
   if (!code) return null
   const entry = pairingCodes.get(code)
   pairingCodes.delete(code)
-  return entry && entry.expiresAt > now ? entry.approver : null
+  return entry && entry.expiresAt > now ? { approver: entry.approver, access: entry.access } : null
 }
 
 /** The app a registered client is, from where its sign-in returns. */

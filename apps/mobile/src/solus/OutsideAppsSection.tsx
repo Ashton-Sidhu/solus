@@ -56,7 +56,7 @@ export function OutsideAppsSection({ hostId }: { hostId: string }) {
   const apps = connectedApps(access.pairedDevices);
   const makeCode = () =>
     void solus.hostAccess
-      .createAppPairCode(hostId)
+      .createAppPairCode(hostId, 'write')
       .then(() => setNow(Date.now()))
       .catch((e) => Alert.alert("Could not make a pairing code", String(e)));
   const copy = (url: string) =>

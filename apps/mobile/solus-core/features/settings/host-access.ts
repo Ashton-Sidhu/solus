@@ -131,8 +131,8 @@ export class HostAccess {
     await this.change(hostId, 'pair', async (api) => ({ pair: await api.connectionsGeneratePairToken() }))
   }
 
-  async createAppPairCode(hostId: string): Promise<void> {
-    await this.change(hostId, 'app-pair', async (api) => ({ appPair: await api.connectionsCreateAppPairingCode() }))
+  async createAppPairCode(hostId: string, access: AppAccess): Promise<void> {
+    await this.change(hostId, 'app-pair', async (api) => ({ appPair: await api.connectionsCreateAppPairingCode({ access }) }))
   }
 
   async revokeDevice(hostId: string, deviceId: string): Promise<void> {

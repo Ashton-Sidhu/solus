@@ -23,6 +23,9 @@ const { serveMcp } = await import('@solus/server/transport/mcp-endpoint')
 
 const originalDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
+// The pairing code limiter counts by address across the file: each test comes from its own.
+let remoteAddress = '127.0.0.1'
+let testNumber = 0
 const allowEverything = { appDenial: () => null, memberHasAccess: async () => true }
 beforeEach(() => {
   installAppAccessChecks(allowEverything)
@@ -30,6 +33,7 @@ beforeEach(() => {
   process.env.SOLUS_DATA_DIR = dataDir
   auth.resetAuthStateForTests()
   resetAppSignInForTests()
+  remoteAddress = `127.0.0.${++testNumber}`
 })
 afterEach(() => {
   auth.resetAuthStateForTests()
@@ -48,7 +52,7 @@ function oauth(path: string, init: RequestInit & { json?: object; form?: Record<
   let requestBody = init.body
   if (init.json) { headers.set('content-type', 'application/json'); requestBody = JSON.stringify(init.json) }
   if (init.form) { headers.set('content-type', 'application/x-www-form-urlencoded'); requestBody = new URLSearchParams(init.form).toString() }
-  return serveMcpOAuth(new Request(`${ORIGIN}${path}`, { ...init, headers, body: requestBody }), { viaTunnel: options.viaTunnel ?? false, remoteAddress: '127.0.0.1', hostName: 'Studio Mac', pairApprovals: options.pairApprovals })
+  return serveMcpOAuth(new Request(`${ORIGIN}${path}`, { ...init, headers, body: requestBody }), { viaTunnel: options.viaTunnel ?? false, remoteAddress, hostName: 'Studio Mac', pairApprovals: options.pairApprovals })
 }
 
 async function register(): Promise<string> {
@@ -72,7 +76,7 @@ const MEMBER: Approver = { kind: 'member', userId: 'alice', organizationId: 'org
 
 async function signInWithPairingCode(access: 'read' | 'write' | 'full', approver: Approver = OWNER): Promise<string> {
   const clientId = await register()
-  const approved = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access, pairing_code: createAppPairingCode(approver).code } })
+  const approved = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access, pairing_code: createAppPairingCode(approver, access).code } })
   const { redirect } = z.object({ redirect: z.string() }).parse(await approved.json())
   return z.object({ access_token: z.string() }).parse(await (await tokenFor(clientId, redirect)).json()).access_token
 }
@@ -101,7 +105,7 @@ describe('signing in an outside app', () => {
 
   test('a pairing code from the owner approves; the code works once, with the verifier', async () => {
     const clientId = await register()
-    const pairing = createAppPairingCode({ kind: 'owner' }).code
+    const pairing = createAppPairingCode({ kind: 'owner' }, 'write').code
     const approved = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access: 'write', pairing_code: pairing } })
     const { redirect } = z.object({ redirect: z.string() }).parse(await approved.json())
     expect(new URL(redirect).searchParams.get('state')).toBe('st-1')
@@ -112,6 +116,14 @@ describe('signing in an outside app', () => {
     const wrong = await oauth('/oauth/mcp/token', { method: 'POST', form: { grant_type: 'authorization_code', code, redirect_uri: REDIRECT, client_id: clientId, code_verifier: 'x'.repeat(43) } })
     expect(wrong.status).toBe(400)
     expect((await tokenFor(clientId, redirect)).status).toBe(400)
+  })
+
+  test('a pairing code gives the access its maker chose, whatever the sign-in page sends', async () => {
+    const clientId = await register()
+    const approved = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access: 'full', pairing_code: createAppPairingCode(OWNER, 'read').code } })
+    const { redirect } = z.object({ redirect: z.string() }).parse(await approved.json())
+    const token = z.object({ scope: z.string() }).parse(await (await tokenFor(clientId, redirect)).json())
+    expect(token.scope).toBe('read')
   })
 
   test('the owner approves in the Solus app, comparing the check code', async () => {
@@ -209,11 +221,11 @@ describe('which apps may connect, and as whom', () => {
     const call = await serveMcp(new Request(`${ORIGIN}/mcp`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }), { appsSignIn: true })
     expect(call.status).toBe(403)
     const clientId = await register()
-    const refused = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access: 'write', pairing_code: createAppPairingCode(MEMBER).code } })
+    const refused = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access: 'write', pairing_code: createAppPairingCode(MEMBER, 'write').code } })
     expect(refused.status).toBe(403)
     expect(z.object({ error: z.string() }).parse(await refused.json()).error).toContain('does not allow')
     // The owner's own work is not that organization's.
-    expect((await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access: 'write', pairing_code: createAppPairingCode(OWNER).code } })).status).toBe(200)
+    expect((await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access: 'write', pairing_code: createAppPairingCode(OWNER, 'write').code } })).status).toBe(200)
   })
 
   test("a member's app stops when the member loses access to the host", async () => {

@@ -153,12 +153,13 @@ async function approve(request: Request, options: McpOAuthOptions): Promise<Resp
   if (!parsed || !signIn) return Response.json({ error: 'This sign-in is not valid.' }, { status: 400 })
   if (parsed.pairing_code !== undefined) {
     if (!codeAttempts.allow(options.remoteAddress)) return Response.json({ error: 'Too many attempts. Wait a minute.' }, { status: 429 })
-    const approver = spendAppPairingCode(parsed.pairing_code)
-    if (!approver) return Response.json({ error: 'That pairing code is not valid. Make a new one in Solus.' }, { status: 403 })
+    const spent = spendAppPairingCode(parsed.pairing_code)
+    if (!spent) return Response.json({ error: 'That pairing code is not valid. Make a new one in Solus.' }, { status: 403 })
     // The person's organization may allow only some apps (plans/035 §10).
-    const denied = appAccessChecks().appDenial(signIn.app, approver)
+    const denied = appAccessChecks().appDenial(signIn.app, spent.approver)
     if (denied) return Response.json({ error: denied }, { status: 403 })
-    return Response.json({ redirect: approvedRedirect(signIn, approver) })
+    // The code names the access, chosen by the person who made it.
+    return Response.json({ redirect: approvedRedirect({ ...signIn, access: spent.access }, spent.approver) })
   }
   // Pairing is local authorization: through the public tunnel, only the owner's pairing code approves.
   if (options.viaTunnel || !options.pairApprovals) return Response.json({ error: 'Use a pairing code from Solus.' }, { status: 403 })

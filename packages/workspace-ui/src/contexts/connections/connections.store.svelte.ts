@@ -10,7 +10,7 @@ export interface PairToken {
 }
 
 export type { ConnectionsServerInfo, PairedDevice } from '@solus/contracts/host-api'
-import type { ConnectionsServerInfo, PairedDevice, SolusAPI } from '@solus/contracts/host-api'
+import type { AppAccess, ConnectionsServerInfo, PairedDevice, SolusAPI } from '@solus/contracts/host-api'
 
 /** Where an outside app reaches a host's tools over MCP (plans/035 §10). */
 export type AppEndpoint = Awaited<ReturnType<SolusAPI['connectionsAppEndpoint']>>
@@ -160,12 +160,12 @@ export class ConnectionsStore {
   }
 
   /** Makes a new one-time code for an outside app's sign-in page; it replaces the code shown. */
-  async createAppPairingCode(serverId: string): Promise<void> {
+  async createAppPairingCode(serverId: string, access: AppAccess): Promise<void> {
     if (this.appPairingCodeCreating) return
     this.appPairingCodeCreating = true
     this.appPairingCodeError = null
     try {
-      const code = await serverConnections.apiFor(serverId).connectionsCreateAppPairingCode()
+      const code = await serverConnections.apiFor(serverId).connectionsCreateAppPairingCode({ access })
       if (this.appServerId === serverId) this.appPairingCode = code
     } catch (e) {
       if (this.appServerId === serverId) this.appPairingCodeError = e instanceof Error ? e.message : String(e)

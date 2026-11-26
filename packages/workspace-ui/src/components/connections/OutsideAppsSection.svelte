@@ -301,7 +301,7 @@
         variant="outline"
         size="sm"
         disabled={connections.appPairingCodeCreating}
-        onclick={() => void connections.createAppPairingCode(serverId)}
+        onclick={() => void connections.createAppPairingCode(serverId, 'write')}
       >
         <KeyIcon size={14} />
         {code ? "Make new code" : "Make pairing code"}

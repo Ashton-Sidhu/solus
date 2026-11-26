@@ -185,15 +185,16 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     return { localUrl: `http://localhost:${deps.getServerInfo().port}/mcp`, publicUrl: tunnel ? `${tunnel}/mcp` : null }
   })
 
-  server.register('connectionsCreateAppPairingCode', (_args, ctx) => {
+  server.register('connectionsCreateAppPairingCode', (args, ctx) => {
+    const [{ access }] = args
     // The app the code approves acts as the person who made it.
     const principal = ctx.principal
     const approver: AppApprover | null = isHostOwner(principal) ? { kind: 'owner' }
       : principal.kind === 'org-member' ? { kind: 'member', userId: principal.userId, organizationId: principal.organizationId, organizationRole: principal.organizationRole, teamIds: principal.teamIds, hostKind: principal.hostKind, displayName: principal.displayName }
         : null
     if (!approver) throw new Error('Only the host owner or a member of its organization can connect an outside app.')
-    const code = createAppPairingCode(approver)
-    log.info('app_pairing_code_created', { expiresAt: code.expiresAt, approver: approver.kind })
+    const code = createAppPairingCode(approver, access)
+    log.info('app_pairing_code_created', { expiresAt: code.expiresAt, approver: approver.kind, access })
     return code
   })
 

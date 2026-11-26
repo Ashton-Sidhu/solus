@@ -175,18 +175,18 @@ describe('outside apps on the Access tab', () => {
     })
     mockedServerConnections.registerHost('open', {
       connectionsAppEndpoint: async () => ({ localUrl: 'http://localhost:2/mcp', publicUrl: null }),
-      connectionsCreateAppPairingCode: async () => ({ code: '123456', expiresAt: 10 }),
+      connectionsCreateAppPairingCode: async () => ({ code: '123456', access: 'write', expiresAt: 10 }),
     })
     const { ConnectionsStore } = await import('@solus/workspace-ui/contexts/connections/connections.store.svelte')
     const store = new ConnectionsStore()
 
     await store.loadAppEndpoint('open')
-    await store.createAppPairingCode('open')
-    expect(store.appPairingCode).toEqual({ code: '123456', expiresAt: 10 })
+    await store.createAppPairingCode('open', 'write')
+    expect(store.appPairingCode).toEqual({ code: '123456', access: 'write', expiresAt: 10 })
 
     await store.loadAppEndpoint('locked')
     expect(store.appPairingCode).toBeNull()
-    await store.createAppPairingCode('locked')
+    await store.createAppPairingCode('locked', 'write')
     expect(store.appPairingCode).toBeNull()
     expect(store.appPairingCodeError).toBe('A policy turns off remote access')
     expect(store.appPairingCodeCreating).toBe(false)

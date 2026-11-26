@@ -141,16 +141,16 @@ describe('outside apps on a host’s Access screen', () => {
   })
 
   test('a pairing code stays on screen through a reload, and a refused code changes nothing', async () => {
-    const api = hostApi().on('connectionsCreateAppPairingCode', () => ({ code: 'ABCD-EFGH', expiresAt: 600_000 }))
+    const api = hostApi().on('connectionsCreateAppPairingCode', () => ({ code: 'ABCD-EFGH', access: 'write', expiresAt: 600_000 }))
     const { access } = await phoneWith(api)
-    await access.createAppPairCode('inst-a')
-    expect(loaded(access).appPair).toEqual({ code: 'ABCD-EFGH', expiresAt: 600_000 })
+    await access.createAppPairCode('inst-a', 'write')
+    expect(loaded(access).appPair).toEqual({ code: 'ABCD-EFGH', access: 'write', expiresAt: 600_000 })
     await access.load('inst-a')
     expect(loaded(access).appPair?.code).toBe('ABCD-EFGH')
 
     const policy = hostApi().on('connectionsCreateAppPairingCode', () => { throw new Error('Your organization turned off connecting outside apps') })
     const blocked = await phoneWith(policy)
-    await expect(blocked.access.createAppPairCode('inst-a')).rejects.toThrow('turned off')
+    await expect(blocked.access.createAppPairCode('inst-a', 'write')).rejects.toThrow('turned off')
     expect(loaded(blocked.access).appPair).toBeNull()
     expect(loaded(blocked.access).busy).toBeNull()
   })
