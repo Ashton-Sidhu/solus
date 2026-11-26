@@ -60,7 +60,7 @@ export function taskSnoozeToastLabel(input: {
   /** True when any snoozed task has a turn in flight. */
   keepsRunning: boolean
 }): string {
-  const subject = input.count === 1 ? 'Task' : `${input.count} tasks`
+  const subject = input.count === 1 ? 'Session' : `${input.count} sessions`
   const reminder = input.hasNote ? ' with a reminder' : ''
   const agents = input.count === 1 ? 'the agent keeps working' : 'their agents keep working'
   return `${subject} snoozed${reminder}${input.keepsRunning ? ` — ${agents}` : ''}`

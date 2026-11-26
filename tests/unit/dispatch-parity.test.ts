@@ -123,69 +123,24 @@ function toolContext(sessionId: string) {
   } as never
 }
 
-describe('agent task lifecycle policy', () => {
-  /** The policy is the one the session's dispatch carried in its person's
-   *  preferences (plans/018 §3.3), not the host's config. */
-  async function dispatchedWith(sessionId: string, agentTaskLifecyclePolicy: 'none' | 'moderate' | 'autonomous'): Promise<void> {
-    const { recordSessionSettings } = await import('@solus/server/execution/sessions/session-settings')
-    recordSessionSettings(sessionId, { organizationId: 'local', preferences: { agentTaskLifecyclePolicy } })
-  }
-
-  test('none prevents every agent status change', async () => {
-    await dispatchedWith('none-policy', 'none')
-    const task = await heldTask(jiraIssue(1))
-
-    const result = await taskTools.updateTaskStatusAgentTool.execute(
-      { task_id: task.id, status: 'active' },
-      toolContext('none-policy'),
-    )
-
-    expect(result.ok).toBe(false)
-    expect(result.text).toContain('user controls')
-    // Nothing reached Jira, and the copy did not change.
-    expect(providers.callsOf('setState:')).toEqual([])
-    expect((await taskStore.loadTask(task.id))?.category).toBe('open')
-  })
-
-  test('moderate permits progress but prevents Done', async () => {
-    // No preferences were dispatched for this session, so the built-in moderate policy applies.
+describe('agent task status changes', () => {
+  test('an agent moves a task to a named column or to done', async () => {
     // The task is on a Jira project source, so its columns are its statuses.
     await (await import('@solus/server/data/tasks/task-cache')).storeSourceRead(JIRA, jiraRead([jiraIssue(1)]))
     providers.hold(jiraIssue(1))
     const task = { id: 'jira:site:10001' }
     const moved = await taskTools.updateTaskStatusAgentTool.execute(
-      { task_id: task.id, status: 'In Progress' },
-      toolContext('moderate-policy'),
+      { issue_id: task.id, status: 'In Progress' },
+      toolContext('status-session'),
     )
-    // A column whose category is done is refused as the category is.
-    const doneColumn = await taskTools.updateTaskStatusAgentTool.execute(
-      { task_id: task.id, status: 'Done' },
-      toolContext('moderate-policy'),
-    )
-    const done = await taskTools.updateTaskStatusAgentTool.execute(
-      { task_id: task.id, status: 'done' },
-      toolContext('moderate-policy'),
-    )
-
     expect(moved.ok).toBe(true)
-    expect(doneColumn.ok).toBe(false)
-    expect(done.ok).toBe(false)
-    expect(done.text).toContain('Moderate mode')
     expect((await taskStore.loadTask(task.id))?.state).toEqual({ name: 'In Progress', category: 'active' })
-  })
 
-  test('autonomous permits Done', async () => {
-    await dispatchedWith('autonomous-policy', 'autonomous')
-    const task = await heldTask(githubIssue(2))
-
-    const result = await taskTools.updateTaskStatusAgentTool.execute(
-      { task_id: task.id, status: 'done' },
-      toolContext('autonomous-policy'),
+    const done = await taskTools.updateTaskStatusAgentTool.execute(
+      { issue_id: task.id, status: 'done' },
+      toolContext('status-session'),
     )
-
-    expect(result.ok).toBe(true)
-    // The issue is closed on GitHub, and the copy follows the provider's answer.
-    expect(providers.tasks.get(task.id)?.state.name).toBe('Closed')
+    expect(done.ok).toBe(true)
     expect((await taskStore.loadTask(task.id))?.category).toBe('done')
   })
 })
@@ -272,11 +227,11 @@ describe('task tools on a dispatched session (foreign task)', () => {
     foreignTasks.setForeignTaskSnapshot(sessionId, shippedSnapshot(foreignTaskId))
   })
 
-  test('read_task answers from the shipped snapshot, and asks no provider', async () => {
+  test('read_issue answers from the shipped snapshot, and asks no provider', async () => {
     // WHY: another host reads the task with its person's connection. This
     // machine may have no connection that can read it at all.
     const result = await taskTools.readTaskAgentTool.execute(
-      { task_id: foreignTaskId },
+      { issue_id: foreignTaskId },
       toolContext(sessionId),
     )
     expect(result.ok).toBe(true)
@@ -287,9 +242,9 @@ describe('task tools on a dispatched session (foreign task)', () => {
     expect(providers.calls).toEqual([])
   })
 
-  test('comment_task records an op and the agent reads its own write back', async () => {
+  test('comment_issue records an op and the agent reads its own write back', async () => {
     const commented = await taskTools.commentTaskAgentTool.execute(
-      { task_id: foreignTaskId, body: 'blocked on X' },
+      { issue_id: foreignTaskId, body: 'blocked on X' },
       toolContext(sessionId),
     )
     expect(commented.ok).toBe(true)
@@ -299,26 +254,18 @@ describe('task tools on a dispatched session (foreign task)', () => {
     expect(pending[0].name).toBe('comment')
 
     const read = await taskTools.readTaskAgentTool.execute(
-      { task_id: foreignTaskId },
+      { issue_id: foreignTaskId },
       toolContext(sessionId),
     )
     expect(read.text).toContain('blocked on X')
   })
 
-  test('update_task_status records an op and later snapshots re-overlay it', async () => {
+  test('update_issue_status records an op and later snapshots re-overlay it', async () => {
     const moved = await taskTools.updateTaskStatusAgentTool.execute(
-      { task_id: foreignTaskId, status: 'done' },
+      { issue_id: foreignTaskId, status: 'done' },
       toolContext(sessionId),
     )
-    // No session settings were dispatched: the built-in moderate policy refuses done here too.
-    expect(moved.ok).toBe(false)
-    const { recordSessionSettings } = await import('@solus/server/execution/sessions/session-settings')
-    recordSessionSettings(sessionId, { organizationId: 'local', preferences: { agentTaskLifecyclePolicy: 'autonomous' } })
-    const allowed = await taskTools.updateTaskStatusAgentTool.execute(
-      { task_id: foreignTaskId, status: 'done' },
-      toolContext(sessionId),
-    )
-    expect(allowed.ok).toBe(true)
+    expect(moved.ok).toBe(true)
     // The host that reads the task makes the move: nothing reaches a provider from here.
     expect(providers.calls).toEqual([])
     expect(outbox.pendingOutboxOpsFor('tasks', foreignTaskId).map((op) => [op.name, op.payload])).toEqual([['set-status', expect.objectContaining({ status: 'done' })]])
@@ -327,7 +274,7 @@ describe('task tools on a dispatched session (foreign task)', () => {
     // op drained; the pending overlay keeps the agent's own move visible.
     foreignTasks.setForeignTaskSnapshot(sessionId, shippedSnapshot(foreignTaskId))
     const read = await taskTools.readTaskAgentTool.execute(
-      { task_id: foreignTaskId },
+      { issue_id: foreignTaskId },
       toolContext(sessionId),
     )
     expect(read.text).toContain('status category: done')
@@ -346,7 +293,7 @@ describe('task tools on a dispatched session (foreign task)', () => {
   test('a task that is not the shipped one is written to its provider from this host', async () => {
     const task = await heldTask(githubIssue(5))
     const commented = await taskTools.commentTaskAgentTool.execute(
-      { task_id: task.id, body: 'plain comment' },
+      { issue_id: task.id, body: 'plain comment' },
       toolContext(sessionId),
     )
     expect(commented.ok).toBe(true)
@@ -354,11 +301,11 @@ describe('task tools on a dispatched session (foreign task)', () => {
     expect(providers.comments.get(task.id)?.map((comment) => comment.body)).toEqual(['plain comment'])
   })
 
-  test('comment_task says so when the provider did not take the comment, and Solus holds it as unsent', async () => {
+  test('comment_issue says so when the provider did not take the comment, and Solus holds it as unsent', async () => {
     // WHY: an agent that believes its handoff note is on GitHub when it is not leaves the next person with nothing.
     const task = await heldTask(githubIssue(6))
     providers.failure = new Error('socket hang up')
-    const commented = await taskTools.commentTaskAgentTool.execute({ task_id: task.id, body: 'handoff note' }, toolContext(sessionId))
+    const commented = await taskTools.commentTaskAgentTool.execute({ issue_id: task.id, body: 'handoff note' }, toolContext(sessionId))
     providers.failure = null
     expect(commented.ok).toBe(false)
     expect(commented.text).toContain('socket hang up')
@@ -366,15 +313,15 @@ describe('task tools on a dispatched session (foreign task)', () => {
   })
 })
 
-describe('read_task returns what the task packet no longer carries', () => {
+describe('read_issue returns what the task packet no longer carries', () => {
   const sessionId = 'dispatched-session-read'
   const read = async (snapshot: TaskSnapshot) => {
     foreignTasks.setForeignTaskSnapshot(sessionId, snapshot)
-    return taskTools.readTaskAgentTool.execute({ task_id: snapshot.details.task.id }, toolContext(sessionId))
+    return taskTools.readTaskAgentTool.execute({ issue_id: snapshot.details.task.id }, toolContext(sessionId))
   }
 
   test('names the task as its provider does, with its state', async () => {
-    // WHY: the packet carries the task key and the title only; read_task is
+    // WHY: the packet carries the task key and the title only; read_issue is
     // where the agent learns what the task is on GitHub or Jira.
     const result = await read(shippedSnapshot('github:I_readstate', { state: { name: 'Closed', category: 'done' }, category: 'done' }))
     expect(result.text).toContain('GitHub acme/solus#41 — https://github.com/acme/solus/issues/41')
@@ -546,7 +493,7 @@ describe('linked-item tools on a dispatched session', () => {
 
     const run = await automationTools.executeAutomationTool('run_automation', { automation_id: 'automation-on-task-host' }, { ctx })
     expect(run.ok).toBe(false)
-    expect(run.text).toContain("task's host")
+    expect(run.text).toContain("issue's host")
   })
 })
 

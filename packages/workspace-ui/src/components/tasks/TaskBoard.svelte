@@ -213,8 +213,8 @@
             type="button"
             class="flex size-5 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground opacity-50 transition-[background-color,opacity] duration-150 hover:bg-[var(--wash-2)] hover:opacity-100 focus-visible:bg-[var(--wash-2)] focus-visible:opacity-100 focus-visible:outline-none"
             onclick={() => onAddInColumn?.(col.id)}
-            aria-label={`New task in ${col.label}`}
-            title={`New task in ${col.label}`}
+            aria-label={`New issue in ${col.label}`}
+            title={`New issue in ${col.label}`}
           >
             <PlusIcon size={11} weight="bold" />
           </button>

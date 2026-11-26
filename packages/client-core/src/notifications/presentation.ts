@@ -50,7 +50,7 @@ export type NotificationKindGroup = 'reviews' | 'tasks' | 'pull-requests' | 'aut
 /** The kind filter's choices: each names the kinds it shows. */
 export const NOTIFICATION_KIND_GROUPS: readonly { value: NotificationKindGroup; label: string; kinds: readonly NotificationKind[] }[] = [
   { value: 'reviews', label: 'Work reviews', kinds: ['work.review_requested', 'work.review_decided'] },
-  { value: 'tasks', label: 'Tasks', kinds: ['task.assigned'] },
+  { value: 'tasks', label: 'Issues', kinds: ['task.assigned'] },
   { value: 'pull-requests', label: 'Pull requests', kinds: ['pr.assigned', 'pr.review_requested'] },
   { value: 'automations', label: 'Automations', kinds: ['automation.finished'] },
   { value: 'apps', label: 'Apps', kinds: ['app.signal'] },

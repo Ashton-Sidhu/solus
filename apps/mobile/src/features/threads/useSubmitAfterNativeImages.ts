@@ -5,7 +5,7 @@ export function useSubmitAfterNativeImages(props: {
   readonly draftKey: string;
   readonly readResetGeneration: () => number;
   readonly blocked: boolean;
-  readonly onPasteImages: (uris: ReadonlyArray<string>) => Promise<boolean>;
+  readonly onPasteImages: (uris: ReadonlyArray<string>, onPreviewReady: () => void) => Promise<boolean>;
   readonly onSubmit: (followUp?: ActiveTurnComposerAction) => void;
 }) {
   type HeldSend = {
@@ -13,6 +13,7 @@ export function useSubmitAfterNativeImages(props: {
     readonly generation: number;
     readonly followUp?: ActiveTurnComposerAction;
   };
+  const [preparingImageCount, setPreparingImageCount] = useState(0);
   const pendingCount = useRef(0);
   const failed = useRef(false);
   const heldSend = useRef<HeldSend | null>(null);
@@ -30,6 +31,7 @@ export function useSubmitAfterNativeImages(props: {
     sendReleased(releasedSend);
   }, [releasedSend, props.blocked]);
   return {
+    preparingImageCount,
     deferSend: (followUp?: ActiveTurnComposerAction) => {
       if (pendingCount.current === 0) return false;
       heldSend.current = {
@@ -42,7 +44,15 @@ export function useSubmitAfterNativeImages(props: {
     pasteImages: (uris: ReadonlyArray<string>) => {
       if (pendingCount.current === 0) failed.current = false;
       pendingCount.current += 1;
+      setPreparingImageCount((count) => count + uris.length);
+      let preparing = true;
+      const finishPreparation = () => {
+        if (!preparing) return;
+        preparing = false;
+        setPreparingImageCount((count) => count - uris.length);
+      };
       const finish = (success: boolean) => {
+        finishPreparation();
         if (!success) failed.current = true;
         pendingCount.current -= 1;
         if (pendingCount.current === 0) {
@@ -51,7 +61,7 @@ export function useSubmitAfterNativeImages(props: {
           if (held && !failed.current) setReleasedSend(held);
         }
       };
-      return props.onPasteImages(uris).then(finish, (error: unknown) => {
+      return props.onPasteImages(uris, finishPreparation).then(finish, (error: unknown) => {
         finish(false);
         throw error;
       });

@@ -569,7 +569,7 @@ describe('reading tasks from more than one host', () => {
     await store.ensureLoaded()
 
     expect(store.tasks.map((row) => row.id)).toEqual([TASK])
-    expect(store.error).toBe("Couldn't read tasks from 1 host.")
+    expect(store.error).toBe("Couldn't read issues from 1 host.")
   })
 
   test('a reconnecting host re-reads its own list, not every host\'s', async () => {

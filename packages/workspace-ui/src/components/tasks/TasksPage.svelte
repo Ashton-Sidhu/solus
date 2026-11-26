@@ -160,7 +160,7 @@
     if (loadingSource) return;
     loadingSource = source.sourceKey;
     try { await taskSourcesStore.loadMore(source.source); await store.load(); }
-    catch (error) { toastTaskError('load more tasks', error); }
+    catch (error) { toastTaskError('load more issues', error); }
     finally { loadingSource = null; }
   }
   const providerSearch = new ProviderTaskSearch(store);
@@ -316,13 +316,13 @@
 
   async function resolveIssue(address: string, hostId = taskHostId()): Promise<ResolvedIssueUrl> {
     if (!hostId || serverConnections.readinessFor(hostId).readiness !== "ready") {
-      throw new Error("Connect the task host and try again.");
+      throw new Error("Connect the issue host and try again.");
     }
     const scope = issueScope();
     const api = serverConnections.apiFor(hostId);
     const issue = await api.tasksResolve(address, { detailsOnly: true });
     if (scope !== issueScope() || api !== serverConnections.apiFor(hostId)) {
-      throw new Error("The task host or account changed. Try again.");
+      throw new Error("The issue host or account changed. Try again.");
     }
     return { address, hostId, issue, scope };
   }
@@ -479,7 +479,7 @@
     try {
       await workspace.opening.openTaskSession(task);
     } catch (error) {
-      toastTaskError("start task", error);
+      toastTaskError("start issue", error);
     }
   }
 
@@ -514,7 +514,7 @@
     try {
       await task.move(target);
     } catch (err) {
-      toastTaskError("move the task", err);
+      toastTaskError("move the issue", err);
     }
   }
 
@@ -530,7 +530,7 @@
     const draftIds = tasks.filter((task) => task.canDelete).map((task) => task.id);
     const issueCount = tasks.length - draftIds.length;
     if (issueCount) {
-      toasts.error(`Couldn't delete ${issueCount} task${issueCount === 1 ? "" : "s"}`, {
+      toasts.error(`Couldn't delete ${issueCount} issue${issueCount === 1 ? "" : "s"}`, {
         description: "Only a draft item can be deleted. Close an issue on its provider, or move it to a done column.",
       });
     }
@@ -625,7 +625,7 @@
       await store.create(input);
       saveLastTaskSource(taskSourceKey(input.source));
     } catch (err) {
-      toastTaskError("create the task", err);
+      toastTaskError("create the issue", err);
       // Rethrow so the composer keeps the modal (and the user's draft) open; the
       // composer owns dismissal on success so "Create more" can stay open.
       throw err;
@@ -665,7 +665,7 @@
     bind:query={view.query}
     bind:searchEl
     compactText
-    placeholder={splitList ? "Search tasks…" : "Search tasks, labels, assignees…"}
+    placeholder={splitList ? "Search issues…" : "Search issues, labels, assignees…"}
     {filters}
     activeCount={Number(!view.boardLayout && !isOpenColumnFilter(view.columns, view.columnIds)) + Number(view.involvement !== "all")}
     onClearFilters={clearMenuFilters}
@@ -699,7 +699,7 @@
         <ListSortMenu
           bind:value={view.sort}
           options={TASK_SORT_OPTIONS}
-          ariaLabel="Sort tasks"
+          ariaLabel="Sort issues"
         />
       {/if}
     {/snippet}
@@ -712,7 +712,7 @@
     bind:clientWidth={pageWidth}
     bind:this={pageEl}
     role="dialog"
-    aria-label="Tasks"
+    aria-label="Issues"
     tabindex="-1"
   >
     <div
@@ -733,7 +733,7 @@
         : isSettingUp
           ? undefined
           : canCreate
-            ? { label: "New task", shortcut: comboHint("global.new-task"), run: () => startNewTask() }
+            ? { label: "New issue", shortcut: comboHint("global.new-task"), run: () => startNewTask() }
             : undefined}
       onClose={workspace ? close : undefined}
       toolbarFilters
@@ -780,7 +780,7 @@
           <PageEmpty
             icon={WarningCircleIcon}
             tone="muted"
-            title="Couldn't load tasks."
+            title="Couldn't load issues."
           >
             {displayError}
             {#snippet actions()}
@@ -797,12 +797,12 @@
         {:else if hasNoSource && tasks.length === 0}
           {@render sourceSetup()}
         {:else if tasks.length === 0 && view.searched.length === 0}
-          <PageEmpty icon={TaskIcon} title="No tasks yet.">
+          <PageEmpty icon={TaskIcon} title="No issues yet.">
             {#if hasNoHost}
-              No connected machine runs agents, so your task sources cannot be
-              read. Connect a machine to see their tasks.
+              No connected machine runs agents, so your issue sources cannot be
+              read. Connect a machine to see their issues.
             {:else}
-              Your sources have no open tasks yet. Create one, then start a
+              Your sources have no open issues yet. Create one, then start a
               session from it to give the agent its full context.
             {/if}
             {#snippet actions()}
@@ -814,7 +814,7 @@
                   onclick={() => startNewTask()}
                 >
                   <PlusIcon size={14} weight="bold" />
-                  <span>New task</span>
+                  <span>New issue</span>
                 </button>
               {/if}
             {/snippet}

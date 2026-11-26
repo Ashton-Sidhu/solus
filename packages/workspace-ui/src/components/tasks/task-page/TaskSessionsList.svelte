@@ -192,7 +192,7 @@
   <div class="flex flex-col gap-3 pt-3.5">
     {#if !rows.length}
       <div class="px-1 py-3.5 text-muted-foreground">
-        No session has worked on this task yet. Start one to run an agent against this task
+        No session has worked on this issue yet. Start one to run an agent against this issue
         with the work linked back here.
       </div>
     {:else}
@@ -323,10 +323,10 @@
   {#if !rows.length}
     <div class="px-1 py-3.5 text-muted-foreground">
       {#if onNewSession}
-        No session has worked on this task yet. Start one to run an agent against this task
+        No session has worked on this issue yet. Start one to run an agent against this issue
         with the work linked back here.
       {:else}
-        No session has worked on this task yet. One run on a machine linked to this
+        No session has worked on this issue yet. One run on a machine linked to this
         organization is recorded here.
       {/if}
     </div>

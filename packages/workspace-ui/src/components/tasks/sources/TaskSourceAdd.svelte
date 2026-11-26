@@ -133,7 +133,7 @@
 {#if look === "providers"}
   <!-- The menu anchors to the card that opened it, so these are plain buttons
        rather than one trigger. The cards are the setup's own cards. -->
-  <div class="grid grid-cols-1 gap-2 @min-[40rem]/pane:grid-cols-3" role="group" aria-label="Add a task source">
+  <div class="grid grid-cols-1 gap-2 @min-[40rem]/pane:grid-cols-3" role="group" aria-label="Add an issue source">
     {#each PROVIDERS as shown (shown.id)}
       <button
         bind:this={cards[shown.id]}
@@ -162,7 +162,7 @@
     title={options?.github.connected ? "Connect GitHub again" : "Connect GitHub"}
     description={options?.github.connected
       ? "Sign in again to let Solus read your GitHub Projects."
-      : "Sign in with a code, then pick the repositories and Projects your tasks come from."}
+      : "Sign in with a code, then pick the repositories and Projects your issues come from."}
     logo={PROVIDER_LOGOS.github}
     onClose={() => closeGitHub(serverId)}
   >
@@ -174,7 +174,7 @@
   <IntegrationDialog
     isOpen={connecting === "jira"}
     title="Connect Jira"
-    description="Sign in to your Atlassian site, then pick the Jira projects and boards your tasks come from."
+    description="Sign in to your Atlassian site, then pick the Jira projects and boards your issues come from."
     logo={PROVIDER_LOGOS.atlassian}
     onClose={() => closeJira(serverId)}
   >
@@ -183,7 +183,7 @@
   <IntegrationDialog
     isOpen={connecting === "linear"}
     title="Connect Linear"
-    description="Paste a personal API key, then pick the Linear teams your tasks come from."
+    description="Paste a personal API key, then pick the Linear teams your issues come from."
     logo={PROVIDER_LOGOS.linear}
     onClose={() => { connecting = null; linearDraft = ""; }}
   >
@@ -215,7 +215,7 @@
           {...props}
           type="button"
           class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border-0 bg-transparent px-2 text-workspace-chrome text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-9"
-          aria-label="Add a task source"
+          aria-label="Add an issue source"
           title="Add a GitHub repository or Project, a Jira project or board, or a Linear team."
         >
           <PlusIcon size={16} class="shrink-0" aria-hidden="true" />

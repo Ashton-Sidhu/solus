@@ -33,7 +33,6 @@ import { z } from 'zod'
 /** `replay` is the development-only provider that replays recorded turns (docs/replay-provider.md). */
 export type AgentId = 'claude-code' | 'codex' | 'opencode' | 'replay'
 
-export type AgentTaskLifecyclePolicy = 'none' | 'moderate' | 'autonomous'
 
 /** The binary each provider runs. `replay` runs in the server process and has none. */
 export type AgentBinaries = { readonly [agent in AgentId]?: string }
@@ -810,9 +809,9 @@ export interface QuestionRequest {
    *  `cloud-machine`: the machine card of a cloud machine tool, with `cloudMachine`; the client answers it with `respondQuestion` and `cloudMachineAnswers` (plans/035-cloud-machine-tools.md §6). */
   kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link' | 'cloud-machine'
   /** `host-link` only: what the agent asks to add. */
+  hostLink?: AddMachineAsk
   /** `cloud-machine` only: the choices the card collects. */
   cloudMachine?: CloudMachineAsk
-  hostLink?: AddMachineAsk
   message?: string
   url?: string
   serverName?: string
@@ -2273,7 +2272,7 @@ export interface PromptOptions {
   /** The task's live state, shipped by the client when `taskId` names a task on
    *  a different host than the one executing this prompt (a dispatch). The
    *  execution host renders the system-prompt packet from it and serves
-   *  `read_task` from the same shape; without it a foreign `taskId` is
+   *  `read_issue` from the same shape; without it a foreign `taskId` is
    *  unreadable — hosts never talk to each other. */
   taskSnapshot?: TaskSnapshot
   /** Goal objective attached to a fresh session dispatch. Main persists it as

@@ -209,7 +209,7 @@
       {/each}
     {:else}
       <div class="px-1 py-3.5 text-muted-foreground">
-        Nothing linked yet. Attach docs, plans or automations to keep this task's context in one
+        Nothing linked yet. Attach docs, plans or automations to keep this issue's context in one
         place.
       </div>
     {/if}
@@ -342,7 +342,7 @@
                   e.stopPropagation();
                   onPin(row.link, !pinned);
                 }}
-                title={pinned ? "Stop opening this task with this render" : "Open this task with this render"}
+                title={pinned ? "Stop opening this issue with this render" : "Open this issue with this render"}
                 aria-label={pinned ? `Unpin ${row.label}` : `Pin ${row.label}`}
                 aria-pressed={pinned}
                 data-testid="task-artifact-pin"
@@ -449,7 +449,7 @@
       {/if}
     {:else}
       <div class="px-1 py-3.5 text-muted-foreground">
-        Nothing linked yet. Attach docs, plans or automations to keep this task's context in one
+        Nothing linked yet. Attach docs, plans or automations to keep this issue's context in one
         place.
       </div>
     {/if}

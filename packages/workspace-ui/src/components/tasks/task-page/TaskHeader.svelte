@@ -195,7 +195,7 @@
         e.currentTarget.blur();
       }
     }}
-    aria-label="Task title"
+    aria-label="Issue title"
   />
 {:else}
   <h1 class="m-0 text-2xl leading-[1.25] font-medium text-pretty" title={locks.title}>

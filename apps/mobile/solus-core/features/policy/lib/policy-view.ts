@@ -84,12 +84,6 @@ const RATE_LIMIT_BEHAVIOR = {
   stop: 'stop at a rate limit',
 } satisfies Record<ManagedValue<'rateLimitBehavior'>, string>
 
-const TASK_LIFECYCLE = {
-  none: 'no task status changes by agents',
-  moderate: 'task status changes by agents, except done',
-  autonomous: 'all task status changes by agents',
-} satisfies Record<ManagedValue<'agentTaskLifecyclePolicy'>, string>
-
 /** Each managed setting: its name, and how its value reads in "Globex sessions use <value> (managed)." */
 const SESSION_SETTINGS: { [K in ManagedSessionSettingKey]: { label: string; describe: (value: ManagedValue<K>) => string } } = {
   workerModel: { label: 'Worker model', describe: (value) => (value ? modelName(value.provider, value.model) : "the caller's model by default") },
@@ -104,7 +98,6 @@ const SESSION_SETTINGS: { [K in ManagedSessionSettingKey]: { label: string; desc
   worktreeBranchNaming: { label: 'Branch naming', describe: () => 'a set branch name format' },
   codebaseNaming: { label: 'Codebase names', describe: (value) => (value === 'generated' ? 'generated codebase names' : 'codebase names from the folder names') },
   defaultPermissionMode: { label: 'Default mode', describe: (value) => `${PERMISSION_MODE_TEXT[value].label} by default` },
-  agentTaskLifecyclePolicy: { label: 'Task status by agents', describe: (value) => TASK_LIFECYCLE[value] },
   rateLimitBehavior: { label: 'Rate limits', describe: (value) => RATE_LIMIT_BEHAVIOR[value] },
   reviewAgent: { label: 'Review agent', describe: (value) => `${PROVIDER_NAMES[value]} for reviews` },
   reviewModel: { label: 'Review model', describe: (value) => `${value} for reviews` },

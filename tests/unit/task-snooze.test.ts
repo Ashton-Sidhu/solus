@@ -78,14 +78,14 @@ describe("taskSnoozeUntil", () => {
 describe("taskSnoozeToastLabel", () => {
   test("says the agent keeps working when a turn is in flight", () => {
     expect(taskSnoozeToastLabel({ count: 1, hasNote: false, keepsRunning: true }))
-      .toBe("Task snoozed — the agent keeps working");
+      .toBe("Session snoozed — the agent keeps working");
     expect(taskSnoozeToastLabel({ count: 3, hasNote: false, keepsRunning: true }))
-      .toBe("3 tasks snoozed — their agents keep working");
+      .toBe("3 sessions snoozed — their agents keep working");
   });
 
   test("claims nothing about work that is not running", () => {
     expect(taskSnoozeToastLabel({ count: 1, hasNote: true, keepsRunning: false }))
-      .toBe("Task snoozed with a reminder");
+      .toBe("Session snoozed with a reminder");
   });
 });
 

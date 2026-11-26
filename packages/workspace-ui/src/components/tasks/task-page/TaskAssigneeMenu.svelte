@@ -87,7 +87,7 @@
     sideOffset={6}
     collisionPadding={8}
     class="menu-surface z-[10002] w-[min(15rem,calc(100vw-2rem))] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
-    aria-label="Assign the task"
+    aria-label="Assign the issue"
   >
     <Command.Root shouldFilter={false}>
       <MenuSearch bind:value={query} placeholder="Search people" />

@@ -307,7 +307,7 @@
     try {
       await unlinkTabFromTask(session, targetTabId);
     } catch (error) {
-      toasts.error("Couldn't unlink the session from the task", {
+      toasts.error("Couldn't unlink the session from the issue", {
         description: error instanceof Error ? error.message : String(error),
       });
     }
@@ -526,18 +526,18 @@
       {#if linkedTask}
         <ContextMenu.Item onSelect={openTask}>
           <TaskIcon />
-          Open Task
+          Open issue
         </ContextMenu.Item>
         {#if canDrive}
           <ContextMenu.Item onSelect={() => void unlinkFromTask()}>
             <UnlinkIcon />
-            Unlink from Task
+            Unlink from issue
           </ContextMenu.Item>
         {/if}
       {:else}
         <ContextMenu.Item onSelect={linkToTask}>
           <LinkIcon />
-          Link to Task…
+          Link to issue…
         </ContextMenu.Item>
       {/if}
       {#if canDrive && sess?.agentSessionId}

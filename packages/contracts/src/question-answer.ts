@@ -1,4 +1,4 @@
-import type { QuestionItem } from './types'
+import type { QuestionItem, QuestionRequest } from './types'
 
 /**
  * How a question's answer is encoded on the wire. Both providers consume the
@@ -12,7 +12,18 @@ export function questionKey(q: Pick<QuestionItem, 'id' | 'question'>): string {
   return q.id || q.question
 }
 
-/** One question's choice and remark, followed by host file paths for an async reply. */
+/**
+ * A standard question takes files in its free-form answer: an async Codex
+ * question, and a callback question from Claude or Codex. The answer is text
+ * with one `[Attached file: <path>]` line for each file, and both providers send
+ * that text to the agent as it is. An MCP form maps answers onto its schema, and
+ * the secret and machine cards have their own answers, so they take no files.
+ */
+export function questionTakesAttachments(request: Pick<QuestionRequest, 'kind'>): boolean {
+  return !request.kind || request.kind === 'standard'
+}
+
+/** One question's choice and remark, followed by host file paths. */
 export function formatAnswer(choice: string, comment?: string, attachmentPaths: readonly string[] = []): string {
   const remark = (comment ?? '').trim()
   const text = choice && remark ? `${choice} — ${remark}` : choice || remark

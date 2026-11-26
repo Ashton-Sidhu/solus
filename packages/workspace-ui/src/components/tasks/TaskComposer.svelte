@@ -367,7 +367,7 @@
  ? 'w-[clamp(22rem,78vw,60rem)] h-[min(46rem,86vh)]'
  : 'w-[clamp(22rem,64vw,46rem)]'} max-w-[calc(100vw-3rem)] outline-none flex flex-col text-sm rounded-xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow)] overflow-hidden origin-top transition-[width,height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] [animation:task-modal-enter_200ms_cubic-bezier(0.22,1,0.36,1)_backwards]"
     role="dialog"
-    aria-label="New task"
+    aria-label="New issue"
     aria-modal="true"
   >
     {#if templates.length}
@@ -398,7 +398,7 @@
         bind:value={title}
         type="text"
         placeholder="Title"
-        aria-label="Task title"
+        aria-label="Issue title"
         disabled={saving}
         class="h-auto min-w-0 flex-1 appearance-none rounded-none border-0 bg-transparent! p-0 text-lg leading-7 font-semibold tracking-[-0.014em] text-(--solus-text-primary) shadow-none outline-none placeholder:font-semibold placeholder:text-(--solus-text-tertiary)! placeholder:opacity-70! focus-visible:ring-0 disabled:opacity-60 dark:bg-transparent!"
         onkeydown={(e) => {
@@ -491,10 +491,10 @@
                 {...props}
                 type="button"
                 class={PROPERTY_TRIGGER}
-                aria-label="Task source"
+                aria-label="Issue source"
                 title={sources.length > 1
-                  ? `Task source (${keys.source})`
-                  : `The task is created in ${source.label}`}
+                  ? `Issue source (${keys.source})`
+                  : `The issue is created in ${source.label}`}
               >
                 <SourceLogo source={taskSourceProvider(source.source)} />
                 <span class="truncate">{source.label}</span>
@@ -505,7 +505,7 @@
             align="start"
             sideOffset={6}
             class="z-[10010] w-[min(16rem,calc(100vw-2rem))]"
-            aria-label="Choose the task source"
+            aria-label="Choose the issue source"
             onCloseAutoFocus={focusTitle}
           >
             {#each sources as option (option.sourceKey)}
@@ -843,7 +843,7 @@
             />
             Creating…
           {:else}
-            Create task
+            Create issue
             <span class="opacity-55 tabular-nums">{keys.create}</span>
           {/if}
         </button>

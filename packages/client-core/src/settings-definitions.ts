@@ -105,6 +105,10 @@ export const settingsDefinitions = {
     label: "Delegation instructions",
     description: "Extra guidance for agents when they delegate work.",
   },
+  "sessions.completed-retention": {
+    label: "Completed sessions",
+    description: "Days that settled sessions stay on the Completed shelf of the sidebar.",
+  },
   "sessions.rate-limit-behavior": {
     label: "Rate limit behavior",
     description: "What your runs do when they hit a provider rate limit, on every host.",
@@ -115,17 +119,6 @@ export const settingsDefinitions = {
   "sessions.typesafe-key-required": {
     label: "TypeSafe key required",
     description: "Needs a TypeSafe key. Until then, Auto uses General use.",
-  },
-  "tasks.section-task-behavior": {
-    label: "Task behavior",
-  },
-  "tasks.task-lifecycle": {
-    label: "Task lifecycle control",
-    description: "None: no changes. Moderate: Done is yours. Autonomous: full control.",
-  },
-  "tasks.completed-retention": {
-    label: "Completed task history",
-    description: "Days to keep completed tasks in the sidebar.",
   },
   "appearance.section-theme": {
     label: "Theme",
@@ -154,7 +147,7 @@ export const settingsDefinitions = {
   },
   "appearance.sidebar-motion": {
     label: "Sidebar animation",
-    description: "Sidebar task animation length. 0 turns it off.",
+    description: "Sidebar animation length. 0 turns it off.",
   },
   "appearance.project-panel-items": {
     label: "Project panel",
@@ -560,6 +553,6 @@ export const settingsDefinitions = {
   },
   "host.delete-unfiled-recordings-after": {
     label: "Delete unfiled recordings after",
-    description: "Days to keep a browser recording that is not filed on a task or pull request, or sent to an agent.",
+    description: "Days to keep a browser recording that is not filed on an issue or pull request, or sent to an agent.",
   },
 } satisfies Record<string, SettingCopy>

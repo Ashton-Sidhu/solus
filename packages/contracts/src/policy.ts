@@ -48,7 +48,6 @@ export const MANAGED_SESSION_SETTING_KEYS = [
   'worktreeBranchNaming',
   'codebaseNaming',
   'defaultPermissionMode',
-  'agentTaskLifecyclePolicy',
   'rateLimitBehavior',
   'reviewAgent',
   'reviewModel',
@@ -69,7 +68,6 @@ export const managedSessionSettingsSchema = z.object({
   worktreeBranchNaming: PERSONAL_SETTING_SCHEMAS.worktreeBranchNaming,
   codebaseNaming: PERSONAL_SETTING_SCHEMAS.codebaseNaming,
   defaultPermissionMode: PERSONAL_SETTING_SCHEMAS.defaultPermissionMode,
-  agentTaskLifecyclePolicy: PERSONAL_SETTING_SCHEMAS.agentTaskLifecyclePolicy,
   rateLimitBehavior: PERSONAL_SETTING_SCHEMAS.rateLimitBehavior,
   reviewAgent: PERSONAL_SETTING_SCHEMAS.reviewAgent,
   reviewModel: PERSONAL_SETTING_SCHEMAS.reviewModel,
@@ -141,7 +139,7 @@ export type SessionLimits = z.infer<typeof sessionLimitsSchema>
 
 // ── The document ────────────────────────────────────────────────────────────
 
-const policyDocumentFields = z.object({
+export const policyDocumentFields = z.object({
   schemaVersion: z.literal(1),
   organization: z.object({ name: z.string().trim().min(1) }).strict(),
   name: z.string().trim().min(1).optional(),
@@ -317,7 +315,7 @@ export function isPolicyRefusalCode(code: string): code is PolicyRefusalCode {
   return POLICY_REFUSAL_CODES.some((known) => known === code)
 }
 
-const MODE_LABELS = {
+export const PERMISSION_MODE_LABELS = {
   plan: 'Plan',
   supervised: 'Supervised',
   'accept-edits': 'Accept edits',
@@ -325,10 +323,10 @@ const MODE_LABELS = {
   'full-access': 'Full access',
 } satisfies Record<PermissionMode, string>
 
-const PROVIDER_LABELS = { 'claude-code': 'Claude', codex: 'Codex', opencode: 'OpenCode', replay: 'Replay' } satisfies Record<AgentId, string>
+export const PROVIDER_LABELS = { 'claude-code': 'Claude', codex: 'Codex', opencode: 'OpenCode', replay: 'Replay' } satisfies Record<AgentId, string>
 
 export function permissionCeilingMessage(source: PolicySource, ceiling: PermissionMode): string {
-  return `${capitalize(policySourceLabel(source))} limits sessions to ${MODE_LABELS[ceiling]}.`
+  return `${capitalize(policySourceLabel(source))} limits sessions to ${PERMISSION_MODE_LABELS[ceiling]}.`
 }
 
 export function providerDeniedMessage(source: PolicySource, provider: AgentId): string {

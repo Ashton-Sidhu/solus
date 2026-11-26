@@ -417,7 +417,7 @@ export type TaskLinkedItemSnapshot =
 /**
  * The serializable task state a dispatched prompt carries: exactly what
  * `formatTaskContext` consumes, so the execution host renders the packet from
- * it verbatim and serves `read_task` from the same shape. Assembled on the
+ * it verbatim and serves `read_issue` from the same shape. Assembled on the
  * task's own host; never persisted on the execution host.
  */
 export interface TaskSnapshot {

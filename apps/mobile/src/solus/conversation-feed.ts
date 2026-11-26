@@ -1,3 +1,4 @@
+import { hostNoticeKind, watchNotification } from "@solus/client-core/host-notice";
 import { applyOrchestrationV2ProjectionEvent } from "@t3tools/client-runtime/state/orchestration-v2-projection";
 import { sessionSubagent, type AgentFeedContext } from "./session-subagent";
 import type { ReactNode } from "react";
@@ -8,6 +9,7 @@ import {
   MessageId,
   ProviderThreadId,
   RunId,
+  ScheduledTaskId,
   ThreadId,
   TurnItemId,
   type OrchestrationV2Subagent,
@@ -16,11 +18,12 @@ import {
   type OrchestrationV2TurnItem,
   type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2ConversationMessage,
+  type OrchestrationV2Notification,
 } from "@t3tools/contracts";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import { DateTime } from "effect";
 import { toolFeedBody, userMessageBody } from "@solus/contracts/session-feed-item";
-import { savedTurnItems } from "@solus-mobile/features/conversation/lib/transcript-model";
+import { savedTurnItems, type TranscriptItem } from "@solus-mobile/features/conversation/lib/transcript-model";
 import {
   buildThreadFeed,
   createThreadFeedCache,
@@ -33,6 +36,21 @@ import { artifactHtmlRender, type ArtifactRender } from "@solus-mobile/features/
 import { HTML_RENDER_TOOL_NAME } from "@t3tools/shared/htmlRender";
 
 const empty = [] as const;
+
+function projectedUserBody(item: Extract<TranscriptItem, { kind: "user" }>) {
+  const saved = savedTurnItems.get(item);
+  // Older hosts can send a generic turn body beside the recorded sender.
+  const body = saved?.type === "user_message" && saved.createdBy === "agent"
+    ? saved
+    : userMessageBody(item.text, item.sender, !item.sender && !!hostNoticeKind({ content: item.text, via: item.via }));
+  const { senderThreadId, scheduledTaskId, ...fields } = body;
+  return {
+    ...fields,
+    text: item.text,
+    ...(senderThreadId && { senderThreadId: ThreadId.make(senderThreadId) }),
+    ...(scheduledTaskId && { scheduledTaskId: ScheduledTaskId.make(scheduledTaskId) }),
+  };
+}
 
 export function hostFeedWork(feed: readonly ThreadFeedEntry[], busy: boolean, hasPendingText: boolean) {
   // T3 already reserves the working rows below a pending prompt.
@@ -100,6 +118,10 @@ export function conversationFeed(
       sources: ThreadFeedSourceRow[];
     }
   >();
+  const monitorMessages = new WeakMap<OrchestrationV2TurnItem, {
+    message: Extract<OrchestrationV2TurnItem, { type: "user_message" }>;
+    notification: OrchestrationV2Notification;
+  }>();
   const subagentByItem = new WeakMap<OrchestrationV2TurnItem, OrchestrationV2Subagent>();
   const threadId = ThreadId.make(id);
   const project = (
@@ -286,10 +308,19 @@ export function conversationFeed(
           ? { ...base, ...(saved?.type === "assistant_message" ? saved : { type: "assistant_message" as const, text: item.text, streaming }) }
           : {
               ...base,
-              ...(saved?.type === "user_message" && saved.text === item.text ? saved : userMessageBody(item.text)),
+              ...projectedUserBody(item),
               attachments: messageAttachments(item.sourceSessionId ?? id, key, item.attachments, resolveImagePath),
             },
     };
+    if (item.kind === "user" && !item.sender && row.item?.type === "user_message") {
+      const monitor = (saved?.type === "user_message" && saved.notification) || watchNotification(item.text, item.via);
+      if (monitor && !item.attachments.length) {
+        const notification = { ...monitor, detail: item.text };
+        const activity = { ...base, type: "notification" as const, ...notification };
+        monitorMessages.set(activity, { message: row.item, notification });
+        return [{ ...row, item: activity }];
+      }
+    }
     return item.kind === "user" &&
       item.delivery === "failed"
       ? [row, { hostEntries: [{ ...card, id: key + ":attachments" }] }]
@@ -331,14 +362,19 @@ export function conversationFeed(
     };
     let sources = collectSources();
     const messageOf = (item: OrchestrationV2TurnItem): OrchestrationV2ConversationMessage | null => {
+      const monitor = monitorMessages.get(item);
+      if (monitor) item = monitor.message;
       if (item.type !== "user_message" && item.type !== "assistant_message") return null;
       return {
         id: item.messageId, threadId, runId: item.runId, nodeId: item.nodeId,
         role: item.type === "assistant_message" ? "assistant" : "user",
+        ...(monitor && { notification: monitor.notification }),
         text: item.text, streaming: item.type === "assistant_message" && item.streaming,
         createdAt: item.startedAt ?? item.updatedAt, updatedAt: item.updatedAt,
         createdBy: item.type === "assistant_message" ? "agent" : item.createdBy,
-        creationSource: "provider", attachments: item.type === "user_message" ? item.attachments : [],
+        creationSource: item.type === "user_message" ? item.creationSource : "provider",
+        ...(item.type === "user_message" && { senderThreadId: item.senderThreadId, scheduledTaskId: item.scheduledTaskId }),
+        attachments: item.type === "user_message" ? item.attachments : [],
       };
     };
     const buildProjection = (shell: OrchestrationV2ThreadShell): OrchestrationV2ThreadProjection => {

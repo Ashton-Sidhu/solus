@@ -77,7 +77,7 @@
           {...props}
           type="button"
           class="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-workspace-chrome font-medium text-muted-foreground transition-[background-color,color] duration-100 hover:bg-[var(--wash-2)] hover:text-foreground max-md:order-5 max-md:h-11 max-md:bg-[var(--wash-2)] max-md:px-3.5"
-          aria-label="Set task status"
+          aria-label="Set issue status"
         >
           <TaskStatusGlyph category={task.category} size={13} />
           {task.state.name}

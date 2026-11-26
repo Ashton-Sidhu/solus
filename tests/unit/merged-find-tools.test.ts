@@ -115,7 +115,7 @@ describe('session-only links', () => {
     }
   })
 
-  test('read_task lists session IDs for read_session', async () => {
+  test('read_issue lists session IDs for read_session', async () => {
     // GitHub owns the task: the read asks the provider, here a fake one.
     const { FakeTaskProviders, githubIssue } = await import('./helpers/task-fixtures')
     const { useTaskAdaptersForTests } = await import('@solus/server/data/tasks/providers/registry')
@@ -125,7 +125,7 @@ describe('session-only links', () => {
     useTaskAdaptersForTests(providers.adapters())
     const task = { id: 'github:I_1' }
     await linkTaskSession('local', task.id, 'prior-attempt')
-    const read = await taskTools.readTaskAgentTool.execute({ task_id: task.id }, toolContext('calling-session-id'))
+    const read = await taskTools.readTaskAgentTool.execute({ issue_id: task.id }, toolContext('calling-session-id'))
     expect(read.ok).toBe(true)
     expect(read.text).toContain('prior-attempt [working]')
     expect(read.text).toContain('read_session with session_id')

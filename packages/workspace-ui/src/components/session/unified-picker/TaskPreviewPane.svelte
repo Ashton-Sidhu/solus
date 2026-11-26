@@ -140,7 +140,7 @@
   {#if task.body}
     <p class="mb-5 whitespace-pre-wrap text-workspace-chrome leading-[1.7] text-pretty text-muted-foreground max-md:mb-[18px]">{@render marked(highlightWordRuns(task.body, query))}</p>
   {:else}
-    <p class="mb-5 text-workspace-chrome leading-[1.7] text-muted-foreground opacity-70 max-md:mb-[18px]">No task description.</p>
+    <p class="mb-5 text-workspace-chrome leading-[1.7] text-muted-foreground opacity-70 max-md:mb-[18px]">No issue description.</p>
   {/if}
 
   <!-- The task's sessions as a compact roll, so a reader who came for one of

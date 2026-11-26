@@ -587,9 +587,9 @@
                         ? 'bg-red-500'
                         : 'bg-amber-500'}"
                       title={taskSyncFailed
-                        ? "Some task updates failed to sync"
-                        : `${taskSyncOps.length} task update${taskSyncOps.length === 1 ? "" : "s"} waiting to sync`}
-                      aria-label="Task updates waiting to sync"
+                        ? "Some issue updates failed to sync"
+                        : `${taskSyncOps.length} issue update${taskSyncOps.length === 1 ? "" : "s"} waiting to sync`}
+                      aria-label="Issue updates waiting to sync"
                     ></span>
                   {/if}
                 </button>
@@ -603,7 +603,7 @@
                   <Command.Root shouldFilter={false}>
                     <MenuSearch
                       bind:value={taskQuery}
-                      placeholder="Search tasks in {projectLabel}"
+                      placeholder="Search sessions in {projectLabel}"
                     />
                     <Command.List
                       class="max-h-[min(24rem,calc(100vh-8rem))] overflow-y-auto p-[0.3125rem]"
@@ -612,7 +612,7 @@
                         <div
                           class="px-3 py-6 text-center text-xs text-muted-foreground"
                         >
-                          No tasks match
+                          No sessions match
                         </div>
                       {/if}
 

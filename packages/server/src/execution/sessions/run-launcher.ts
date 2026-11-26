@@ -1020,14 +1020,14 @@ export class RunLauncher {
     // a prompt prefix it was read back as the user's own turn on reload, and a
     // session's whole history folds behind one row when its first turn has no
     // user message to lead it. The packet holds no live task state, so it stays
-    // the same from turn to turn; the agent reads that state with read_task.
+    // the same from turn to turn; the agent reads that state with read_issue.
     if (options.taskId) {
       const context = await dispatchStep('task_context', {
         taskId: options.taskId,
         fn: 'taskSystemContext',
         file: 'run-launcher.ts',
       }, async (annotate) => {
-        const composed = await taskSystemContext(options.taskId!, options.taskSnapshot ?? null, sessionId, effectiveInput.executionPreferences)
+        const composed = await taskSystemContext(options.taskId!, options.taskSnapshot ?? null, sessionId)
         annotate({ contextChars: composed.length })
         return composed
       })

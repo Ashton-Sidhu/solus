@@ -243,7 +243,7 @@ describe('a query across every type', () => {
       records: [project('p1', 'release-tools'), { type: 'automation', automation: automation('a1', 'Release watch') }, pullRequest(3, 'Fix release script'), work('w1', 'Release notes')],
       actions: [{ id: 'new-session', label: 'New session', run: () => {} }],
     })
-    expect(headers(rows)).toEqual(['Tasks', 'Sessions', 'Works', 'Pull requests', 'Automations', 'Projects'])
+    expect(headers(rows)).toEqual(['Issues', 'Sessions', 'Works', 'Pull requests', 'Automations', 'Projects'])
   })
 
   test('a record named for the query is lifted above the tasks and sessions that only hold the words', () => {
@@ -360,7 +360,7 @@ describe('the action bar of a preview', () => {
     expect(hasActionBar(null)).toBe(false)
     // A row with no bar says what ⏎ does in the key hints.
     expect(Object.fromEntries(entries.map((entry) => [titleOf(entry), entryOpenLabel(entry)])))
-      .toEqual({ 'task:t1': 'Open task', 'session:s1': 'Resume', 'work:w1': 'Open', 'pr:local:/repo:3': 'Open', 'project:p1': 'New session' })
+      .toEqual({ 'task:t1': 'Open issue', 'session:s1': 'Resume', 'work:w1': 'Open', 'pr:local:/repo:3': 'Open', 'project:p1': 'New session' })
   })
 })
 

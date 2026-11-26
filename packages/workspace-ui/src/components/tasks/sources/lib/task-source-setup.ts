@@ -91,7 +91,7 @@ export function sourceHealthNote(state: Pick<TaskSourceState, 'health' | 'messag
     return {
       label: 'Truncated',
       tone: 'warning',
-      message: 'This source holds more tasks than Solus read. Search reaches the rest.',
+      message: 'This source holds more issues than Solus read. Search reaches the rest.',
     }
   }
   return null

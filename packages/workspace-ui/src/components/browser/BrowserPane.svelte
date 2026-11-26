@@ -419,7 +419,7 @@
             // capture-only one has nowhere to go.
             action: target
               ? {
-                  label: target.kind === "pr" ? "View PR" : "View task",
+                  label: target.kind === "pr" ? "View PR" : "View issue",
                   onAction: () => openEvidenceTarget(target),
                 }
               : undefined,

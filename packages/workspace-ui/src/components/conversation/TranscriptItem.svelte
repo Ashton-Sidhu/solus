@@ -18,7 +18,7 @@
   import BackgroundCommandRow from "./BackgroundCommandRow.svelte";
   import McpTaskNoticeRow from "./McpTaskNoticeRow.svelte";
   import ResourceWatchNoticeRow from "./ResourceWatchNoticeRow.svelte";
-  import { hostNoticeKind } from "./lib/host-notice";
+  import { hostNoticeKind } from "@solus/client-core/host-notice";
   import SubagentGroup from "./SubagentGroup.svelte";
   import PlanMessageItem from "../plan/PlanMessageItem.svelte";
   import DocumentStackCard from "../work/DocumentStackCard.svelte";

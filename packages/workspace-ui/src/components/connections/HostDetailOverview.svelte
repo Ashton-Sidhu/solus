@@ -149,7 +149,7 @@
             </span>
           {/if}
           {#if session.task}
-            <span class="flex min-w-0 items-center gap-1" title="Task">
+            <span class="flex min-w-0 items-center gap-1" title="Issue">
               <TaskIcon size={12} class="shrink-0" />
               <span class="truncate">{session.task}</span>
             </span>

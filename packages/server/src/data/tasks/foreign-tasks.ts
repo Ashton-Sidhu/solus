@@ -33,7 +33,7 @@ const taskCommentPayloadSchema = z.object({
   originSessionId: z.string().optional(),
 })
 
-/** `status` is a status category or the name of a column, as `update_task_status` takes it. */
+/** `status` is a status category or the name of a column, as `update_issue_status` takes it. */
 const taskStatusPayloadSchema = z.object({
   status: z.string(),
   actor: attributionSchema.optional(),
@@ -46,7 +46,7 @@ const taskIdPayloadSchema = z.object({ taskId: z.string() })
  * Foreign tasks on the execution host: the per-session snapshot a dispatched
  * prompt shipped (see docs/plans/dispatch-parity.md). The snapshot is the only
  * task state this host has — the host that reads the task is another machine — so the packet
- * renders from it and `read_task` answers from it.
+ * renders from it and `read_issue` answers from it.
  *
  * Reads see the agent's own undelivered writes: a recorded op is applied to the
  * held snapshot immediately, and a fresh snapshot (re-shipped with every

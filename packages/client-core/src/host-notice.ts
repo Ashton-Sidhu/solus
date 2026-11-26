@@ -1,5 +1,5 @@
 import { backgroundCommandWake } from '@solus/client-core/background-command-wake'
-import { pullRequestWatchWake } from '@solus/client-core/pull-request-watch-wake'
+import { pullRequestWatchWake, pullRequestWatchWakeSummary } from '@solus/client-core/pull-request-watch-wake'
 import { mcpTaskWake } from '@solus/contracts/integrations/mcp-task'
 import { resourceWatchWake } from '@solus/contracts/integrations/resource-watch'
 import type { Message } from '@solus/contracts/types'
@@ -19,5 +19,23 @@ export function hostNoticeKind(message: Pick<Message, 'via' | 'content'>): HostN
   if (backgroundCommandWake(message.content)) return 'background-command'
   if (mcpTaskWake(message.content)) return 'mcp-task'
   if (resourceWatchWake(message.content)) return 'resource-watch'
+  return null
+}
+
+/** The monitor activity that T3 displays for a watch wake. */
+export function watchNotification(text: string, via?: Message['via']) {
+  const watch = pullRequestWatchWake(text)
+  if (watch) {
+    const failed = (watch.ended && !watch.news.length) || watch.news.some(({ kind }) => kind === 'checks-failed' || kind === 'conflicting')
+    const completed = watch.news.length > 0 && watch.news.every(({ kind }) => kind === 'merged' || kind === 'checks-passed' || kind === 'all-checks-passed')
+    return {
+      source: { kind: 'monitor' }, outcome: failed ? 'failed' : completed ? 'completed' : 'updated',
+      summary: `#${watch.number}: ${pullRequestWatchWakeSummary(watch) || 'updated'}`,
+    } as const
+  }
+  const resource = resourceWatchWake(text)
+  if (resource || via === 'resource-watch' || via === 'pull-request-watch') {
+    return { source: { kind: 'monitor' }, outcome: 'updated', summary: resource?.label ?? (via === 'resource-watch' ? 'Resource watch updated' : 'Pull request updated') } as const
+  }
   return null
 }

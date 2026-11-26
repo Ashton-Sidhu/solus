@@ -485,7 +485,6 @@ describe('the agent write policy', () => {
     for (const [section, meaning] of [
       ['personal', 'The order that the next-tab and previous-tab keys follow'], // personal.tabGroupMode
       ['personal', 'the maximum of earlier conversation it takes, in tokens'], // personal.handoffHistoryTokens
-      ['personal', 'What agents can do to the status of a task'], // personal.agentTaskLifecyclePolicy
       ['host', 'By project path on this host'], // host.reviewWarmingByProject
       ['deviceManager', 'shows next to the conversation of that agent'], // deviceManager.autoShowAgentDevices
       ['device', 'Shortcut overrides by binding id'], // device.keybindings

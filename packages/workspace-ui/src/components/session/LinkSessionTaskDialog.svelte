@@ -68,7 +68,7 @@
       await linkTabToTask(session, tabId, task);
       close();
     } catch (error) {
-      toasts.error("Couldn't link the session to the task", {
+      toasts.error("Couldn't link the session to the issue", {
         description: error instanceof Error ? error.message : String(error),
       });
     } finally {
@@ -87,12 +87,12 @@
 
 {#snippet taskList()}
     <div class="px-3.5 pt-3 pb-1">
-      <span class="font-medium">Link to task</span>
+      <span class="font-medium">Link to issue</span>
     </div>
     <!-- The rows filter themselves (`matchesSearch`): the command's own filter
          moves row DOM nodes behind the keyed lists. -->
     <Command.Root shouldFilter={false}>
-      <MenuSearch bind:value={query} placeholder="Search tasks" />
+      <MenuSearch bind:value={query} placeholder="Search issues" />
       <Command.List class="max-h-[18rem] overflow-y-auto p-1.5">
         {#if !providerSearch.searching && foundTasks.length === 0}
           <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">
@@ -153,7 +153,7 @@
       align="end"
       sideOffset={8}
       collisionPadding={8}
-      aria-label="Link session to task"
+      aria-label="Link session to issue"
       onEscapeKeydown={(event) => event.stopPropagation()}
       onCloseAutoFocus={(event) => {
         event.preventDefault();
@@ -185,7 +185,7 @@
     bind:this={dialogEl}
     class="menu-surface flex w-[min(24rem,calc(100vw-2rem))] flex-col rounded-2xl bg-(--solus-menu-bg) text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)]"
     role="dialog"
-    aria-label="Link session to task"
+    aria-label="Link session to issue"
     aria-modal="true"
   >
     {@render taskList()}

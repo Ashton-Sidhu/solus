@@ -250,7 +250,7 @@ describe('settings import graph', () => {
     const reached = new Set([...graph.files].map((file) => relative(ROOT, file)))
     const sections = [
       'SettingsTabGeneral', 'SettingsTabAppearance', 'SettingsTabChat',
-      'SettingsTabNotifications', 'SettingsTabSessions', 'SettingsTabTasks',
+      'SettingsTabNotifications', 'SettingsTabSessions',
       'SettingsTabReview', 'SettingsTabTools', 'SettingsTabProviders',
       'SettingsTabSkills', 'SettingsTabMcp', 'SettingsTabVoice',
       'SettingsTabExperimental', 'SettingsTabTelemetry', 'SettingsTabSourceControl',

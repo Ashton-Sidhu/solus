@@ -67,7 +67,7 @@
           class="cursor-pointer items-center gap-1.5 rounded-full border-0 bg-transparent px-2.5 text-xs font-medium whitespace-nowrap text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:inline-flex @max-[30rem]/pane:h-9 @max-[30rem]/pane:text-workspace-chrome {inlineMoves
             ? 'hidden'
             : 'inline-flex py-1'}"
-          aria-label="Move the selected tasks"
+          aria-label="Move the selected issues"
         >
           <CircleDashedIcon size={14} class="shrink-0 opacity-75" />
           Move

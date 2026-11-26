@@ -29,7 +29,7 @@
       filters: held?.filters ?? $state.snapshot(filters),
     });
     if (!settings.setPersonal('taskSavedViews', next)) {
-      toasts.error('Could not save the task view');
+      toasts.error('Could not save the issue view');
       return;
     }
     name = '';

@@ -190,12 +190,12 @@ export const SOLUS_TOOL_GROUPS = [
     'update_codebase',
     'delete_codebase',
   ] },
-  { id: 'tasks', label: 'Tasks', tools: [
-    'list_tasks',
-    'read_task',
-    'update_task_status',
-    'create_task',
-    'comment_task',
+  { id: 'tasks', label: 'Issues', tools: [
+    'list_issues',
+    'read_issue',
+    'update_issue_status',
+    'create_issue',
+    'comment_issue',
   ] },
 ] as const
 

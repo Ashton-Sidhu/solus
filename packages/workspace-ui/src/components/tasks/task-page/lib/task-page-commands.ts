@@ -42,7 +42,7 @@ export function createTaskPageCommands(input: TaskPageCommandsInput) {
   function notifySessionUnavailable(): void {
     toasts.error('Session no longer available', {
       description:
-        'This task still has the session link, but its history is not available on the host that owns it.',
+        'This issue still has the session link, but its history is not available on the host that owns it.',
     })
   }
 
@@ -92,7 +92,7 @@ export function createTaskPageCommands(input: TaskPageCommandsInput) {
         await task().update(patch)
         return true
       } catch (error) {
-        toastTaskError('save task', error)
+        toastTaskError('save issue', error)
         return false
       }
     },
@@ -103,7 +103,7 @@ export function createTaskPageCommands(input: TaskPageCommandsInput) {
       try {
         await task().move(target)
       } catch (error) {
-        toastTaskError('move task', error)
+        toastTaskError('move issue', error)
       }
     },
 
@@ -112,7 +112,7 @@ export function createTaskPageCommands(input: TaskPageCommandsInput) {
       try {
         await task().loadDetails()
       } catch (error) {
-        toastTaskError('refresh task', error)
+        toastTaskError('refresh issue', error)
       }
     },
 
@@ -156,9 +156,9 @@ export function createTaskPageCommands(input: TaskPageCommandsInput) {
       if (!task().canDelete) return
       const pending = store.softRemove([task().id])
       if (!pending.length) return
-      toasts.undo('Task deleted', () => store.restorePending(pending), {
+      toasts.undo('Issue deleted', () => store.restorePending(pending), {
         onDismiss: () =>
-          store.commitPending(pending).catch((error) => toastTaskError('delete task', error)),
+          store.commitPending(pending).catch((error) => toastTaskError('delete issue', error)),
       })
       input.onClose()
     },

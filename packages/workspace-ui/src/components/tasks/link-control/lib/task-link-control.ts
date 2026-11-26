@@ -43,13 +43,13 @@ export function taskLinkControlState(
     const [task] = linked
     return { kind: 'one', task, label: `Linked to ${linkedTaskRef(task)} · ${task.title}` }
   }
-  return { kind: 'many', tasks: linked, label: `Linked to ${linked.length} tasks` }
+  return { kind: 'many', tasks: linked, label: `Linked to ${linked.length} issues` }
 }
 
 /** The one-click verb when nothing is linked yet: the conversation's own task
  *  by reference, else the picker. */
 export function linkVerb(state: Extract<TaskLinkControlState, { kind: 'none' }>): string {
-  return state.currentTask ? `Link to ${linkedTaskRef(state.currentTask)}` : 'Link to task…'
+  return state.currentTask ? `Link to ${linkedTaskRef(state.currentTask)}` : 'Link to issue…'
 }
 
 /**

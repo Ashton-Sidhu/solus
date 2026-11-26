@@ -17,11 +17,11 @@ describe('session task shortcuts', () => {
       web: { alt: true, shift: true, code: 'KeyN' },
       label: 'New session',
     })
-    expect(KEYBINDINGS['global.new-task']).toMatchObject({ combo: null, label: 'New task' })
+    expect(KEYBINDINGS['global.new-task']).toMatchObject({ combo: null, label: 'New issue' })
     expect(KEYBINDINGS['global.new-task']).not.toHaveProperty('web')
     expect(KEYBINDINGS['global.new-session-in-task']).toMatchObject({
       combo: null,
-      label: 'New session in task',
+      label: 'New session in issue',
     })
   })
 
@@ -102,7 +102,7 @@ describe('session task shortcuts', () => {
     expect(KEYBINDINGS['global.focus-sidebar-task-search']).toMatchObject({
       combo: { ctrl: true, code: 'Slash' },
       scope: 'global',
-      label: 'Focus sidebar task search',
+      label: 'Focus sidebar search',
     })
   })
 

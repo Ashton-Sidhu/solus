@@ -98,7 +98,7 @@
     } catch (error) {
       if (isLinked) store.noteLinked(target, task);
       else store.noteUnlinked(target, taskId);
-      toasts.error(isLinked ? "Couldn't unlink from the task" : "Couldn't link to the task", {
+      toasts.error(isLinked ? "Couldn't unlink from the issue" : "Couldn't link to the issue", {
         description: error instanceof Error ? error.message : String(error),
       });
     } finally {
@@ -212,8 +212,8 @@
               bind:this={triggerEl}
               type="button"
               class="task-link-control__action flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md"
-              title="Choose tasks"
-              aria-label="Choose tasks to link"
+              title="Choose issues"
+              aria-label="Choose issues to link"
               data-testid="task-link-more"
             >
               <CaretDownIcon size={11} />
@@ -235,7 +235,7 @@
         <!-- The rows filter themselves (`matchesSearch`): the command's own
              filter moves row DOM nodes behind the keyed list. -->
         <Command.Root shouldFilter={false}>
-          <MenuSearch bind:value={query} placeholder="Link to tasks" />
+          <MenuSearch bind:value={query} placeholder="Link to issues" />
           <Command.List class="max-h-[288px] overflow-y-auto p-1.5">
             <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">
               No tasks match

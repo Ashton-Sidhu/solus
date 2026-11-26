@@ -303,6 +303,7 @@ DispatchQueue.main.async {
   check(pasteEditor.text == "Keep this draft", "Image paste must preserve the draft text")
   print("Composer provider-paste checks passed")
   deferredEditor.onPasteImages = { urls in
+    check(pendingDeltas == [1, -1], "Release the native placeholder before handing the image to the composer")
     let files = urls.compactMap(URL.init(string:))
     check(files.count == 1 && (try? Data(contentsOf: files[0])) == deferredPNG,
           "A pasted PNG must keep the provider's original bytes")

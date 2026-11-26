@@ -1,11 +1,25 @@
+import type { PromptSender } from './types'
 import { z } from 'zod'
 
 /** History fields used by the T3 conversation feed on every page. */
 export const sessionFeedHistoryOptions = { turnItems: true, promptFiles: true, replyLayout: true, deferArtifactHtml: true } as const
 
 type ToolInput = z.infer<ReturnType<typeof z.json>>
-export function userMessageBody(text: string) {
-  return { type: 'user_message', text, inputIntent: 'turn_start', createdBy: 'user', creationSource: 'provider' } as const
+export interface WatchNotification {
+  source: { kind: 'monitor' }
+  outcome: 'failed' | 'updated' | 'completed'
+  summary: string
+}
+
+export function userMessageBody(text: string, sender?: PromptSender, hostNotice = false, notification?: WatchNotification) {
+  return {
+    type: 'user_message', text, inputIntent: 'turn_start',
+    createdBy: sender || hostNotice ? 'agent' : 'user',
+    creationSource: hostNotice ? 'server' : 'provider',
+    ...(notification && { notification }),
+    ...(sender?.kind === 'agent' && { senderThreadId: sender.sessionId }),
+    ...(sender?.kind === 'automation' && { scheduledTaskId: sender.automationId }),
+  } as const
 }
 
 export type SavedMessageBody =

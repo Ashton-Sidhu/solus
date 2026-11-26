@@ -609,7 +609,7 @@ function queryList(
     writer.header({
       kind: 'header',
       key: 'header:tasks',
-      label: 'Tasks',
+      label: 'Issues',
       count: restTasks.length,
       hint: PICKER_SORT_HINTS[sort],
     })

@@ -4,9 +4,11 @@
     getMarkdownImageContext,
     isMarkdownVideo,
     markdownAssetId,
+    markdownImageFileName,
     markdownImagePath,
     zoomScrollOffset,
   } from "./lib/markdown-image";
+  import { ImageOff as ImageOffIcon } from "@lucide/svelte";
   import { HostVideoPlayer, VideoPlayer } from "../ui/video-player";
   import { HostMediaUrl, type HostMediaRequest } from "../../lib/host-media-url.svelte";
 
@@ -95,6 +97,12 @@
   const image = new HostMediaUrl(() => (isVideo ? null : hostRequest));
   // Only authored Markdown can fall back to its original reference.
   const src = $derived(hostPath ? image.url : !hostRequest || image.hasFailed ? href : image.url);
+  // The source the browser could not load. Kept by source, so a new one tries again.
+  let brokenSrc = $state<string | null>(null);
+  // The host could not serve the file, or the browser could not load it: the
+  // file was deleted, moved, or never existed.
+  const isMissing = $derived((!!hostPath && image.hasFailed) || (src !== null && src === brokenSrc));
+  const fileName = $derived(markdownImageFileName(href, path, assetId));
 </script>
 
 {#if isVideo}
@@ -107,6 +115,20 @@
       <VideoPlayer src={href} label={text || title || ""} class="my-2 max-w-[40rem]" />
     {/if}
   {/key}
+{:else if isMissing}
+  <!-- Spans, not divs: Markdown puts an image inside a paragraph. -->
+  <span
+    role="img"
+    aria-label={text ? `Image not found: ${text}` : "Image not found"}
+    title={path ?? href}
+    class="my-1 inline-flex max-w-full items-center gap-2 rounded-lg border border-dashed border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+  >
+    <ImageOffIcon class="size-4 shrink-0" aria-hidden="true" />
+    <span class="shrink-0 font-medium">Image not found</span>
+    {#if text || fileName}
+      <span class="min-w-0 truncate opacity-80">{text || fileName}</span>
+    {/if}
+  </span>
 {:else if src && expandable}
   <button
     type="button"
@@ -119,6 +141,7 @@
       {title}
       alt={text}
       loading="lazy"
+      onerror={() => (brokenSrc = src)}
       class="block h-auto max-h-[30rem] max-w-[min(100%,30rem)] rounded-lg border border-border/40"
     />
   </button>
@@ -161,5 +184,5 @@
     {/if}
   </dialog>
 {:else if src}
-  <img {src} {title} alt={text} loading="lazy" class="block h-auto max-w-full" />
+  <img {src} {title} alt={text} loading="lazy" onerror={() => (brokenSrc = src)} class="block h-auto max-w-full" />
 {/if}

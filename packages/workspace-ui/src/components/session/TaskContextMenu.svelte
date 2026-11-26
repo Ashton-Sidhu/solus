@@ -123,9 +123,9 @@
         document.execCommand("copy");
         textarea.remove();
       }
-      toasts.success("Task ID copied");
+      toasts.success("Issue ID copied");
     } catch {
-      toasts.error("Couldn't copy task ID");
+      toasts.error("Couldn't copy issue ID");
     }
     requestInputFocus();
   }
@@ -172,11 +172,11 @@
       await record.snooze(until);
       if (until !== null) {
         toasts.undo(taskSnoozeToastLabel({ count: 1, hasNote: false, keepsRunning: isRunning }), () => {
-          void record.snooze(null).catch(() => toasts.error("Couldn't wake task"));
+          void record.snooze(null).catch(() => toasts.error("Couldn't wake issue"));
         });
       }
     } catch (error) {
-      toasts.error(error instanceof Error ? error.message : until === null ? "Couldn't wake task" : "Couldn't snooze task");
+      toasts.error(error instanceof Error ? error.message : until === null ? "Couldn't wake issue" : "Couldn't snooze issue");
     }
     requestInputFocus();
   }
@@ -239,7 +239,7 @@
     <ContextMenu.Separator />
     <ContextMenu.Item variant="destructive" onSelect={() => select(() => onUnlinkPr(choice))}>
       <XIcon />
-      Unlink from task
+      Unlink from issue
     </ContextMenu.Item>
   {/if}
 {/snippet}
@@ -256,7 +256,7 @@
   >
     <ContextMenu.Item onSelect={copyTaskId}>
       <CopyIcon />
-      Copy task ID
+      Copy issue ID
     </ContextMenu.Item>
     {#if sessionId}
       <ContextMenu.Item onSelect={copySessionId}>
@@ -268,7 +268,7 @@
 
     <ContextMenu.Item onSelect={() => select(onOpenTask)}>
       <TaskIcon />
-      Open task
+      Open issue
     </ContextMenu.Item>
     {#if onOpenSource && task.url}
       <ContextMenu.Item onSelect={() => select(onOpenSource)}>
@@ -387,7 +387,7 @@
     {#if onStartRename}
       <ContextMenu.Item onSelect={() => select(onStartRename)}>
         <PencilSimpleIcon />
-        Rename task
+        Rename issue
       </ContextMenu.Item>
     {/if}
     {#if onRemove}
@@ -399,7 +399,7 @@
     {#if onDelete}
       <ContextMenu.Item variant="destructive" onSelect={() => select(onDelete)}>
         <TrashIcon />
-        Delete task
+        Delete issue
       </ContextMenu.Item>
     {/if}
   </ContextMenu.Content>

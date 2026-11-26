@@ -3815,7 +3815,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const [landedListKey, setLandedListKey] = useState<string | null>(null);
   // LegendList reports ready, and shows its rows, while rows measured during its initial scroll can
   // still leave it hundreds of points short of the end; isAtEnd stays true through that.
-  const settling = props.feed.length > 0 && landedListKey !== feedThreadKey;
+  // A newly submitted first prompt already has its position. Paint it on
+  // the first layout instead of waiting for saved history to settle.
+  const settling = props.anchorMessageId === null && props.feed.length > 0 && landedListKey !== feedThreadKey;
   const openingViewport = useAnimatedRef<View>();
   const openingScroll = useSharedValue(0);
   const openingPlacement = useMemo(() => ({

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GitPullRequestIcon, IssueOpenedIcon } from "../ui/octicons";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import { isSolusApiId } from "@solus/contracts/uplink";
   import { onDestroy, untrack, type Component } from "svelte";
   import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
@@ -41,8 +41,7 @@
     codebasesStore,
     accountStore,
   } from "../../contexts";
-  import { FOOTER_TAB, settingsNavGroups, settingsTabShown, type SettingsNavGroup } from "./lib/settings-nav";
-  import SettingsNavAccount from "./SettingsNavAccount.svelte";
+  import { settingsNavGroups, settingsTabShown, type SettingsNavGroup } from "./lib/settings-nav";
   import { NEW_CODEBASE } from "../codebases/lib/codebase-view";
   import type { SettingsTab } from "../../contexts/workspace/routing/route-registry";
   import { connectionsNav } from "../connections/connections-nav.svelte";
@@ -224,13 +223,6 @@
       group: "Code",
     },
     {
-      id: "tasks",
-      label: "Tasks",
-      description: "How agents work on tasks, and how a task's lead runs.",
-      icon: IssueOpenedIcon,
-      group: "Code",
-    },
-    {
       id: "review",
       label: "Review companion",
       description: "How review guides are made, and by which agent.",
@@ -348,7 +340,6 @@
         session.settingsTab === "chat" ||
         session.settingsTab === "notifications" ||
         session.settingsTab === "review" ||
-        session.settingsTab === "tasks" ||
         session.settingsTab === "telemetry" ||
         session.settingsTab === "experimental"),
   );
@@ -588,7 +579,9 @@
 <!-- The dialog owns its keyboard events; menus and child dialogs handle theirs.
      Every settings text field is one field: the border, fill, and focus of the
      review instructions field and of the dropdowns (SettingsSelect), so a field
-     never blends into its row. A search field (name="search") keeps its own frame. -->
+     never blends into its row. An input with a transparent fill sits inside a
+     frame of its own (a search field, the MCP search, an inline name in a list),
+     so it gets no second frame. -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   role="region"
@@ -597,7 +590,7 @@
   tabindex="-1"
   {@attach (element) => element.focus({ preventScroll: true })}
   onkeydown={handleKeydown}
-  class="flex h-full w-full min-w-0 overflow-hidden text-workspace-chrome outline-none [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [&_button]:text-[length:inherit] [&_input[data-slot=input]:not([name=search])]:border [&_input[data-slot=input]:not([name=search])]:border-input [&_input[data-slot=input]:not([name=search])]:bg-white [&_input[data-slot=input]:not([name=search])]:shadow-xs/5 dark:[&_input[data-slot=input]:not([name=search])]:bg-input/30 [&_input[data-slot=input]:not([name=search]):focus-visible]:border-(--solus-accent) [&_input[data-slot=input]:not([name=search]):focus-visible]:ring-0 [&_input[data-slot=input]:not([name=search]):focus-visible]:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)]"
+  class="flex h-full w-full min-w-0 overflow-hidden text-workspace-chrome outline-none [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [&_button]:text-[length:inherit] [&_input[data-slot=input]:not(.bg-transparent)]:border [&_input[data-slot=input]:not(.bg-transparent)]:border-input [&_input[data-slot=input]:not(.bg-transparent)]:bg-white [&_input[data-slot=input]:not(.bg-transparent)]:shadow-xs/5 dark:[&_input[data-slot=input]:not(.bg-transparent)]:bg-input/30 [&_input[data-slot=input]:not(.bg-transparent):focus-visible]:border-(--solus-accent) [&_input[data-slot=input]:not(.bg-transparent):focus-visible]:ring-0 [&_input[data-slot=input]:not(.bg-transparent):focus-visible]:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)]"
 >
   <!-- The dialog is the pane container. Below 48rem, section buttons replace
        the fixed navigation column. A page under Hosts takes the whole dialog:
@@ -667,11 +660,6 @@
           </Sidebar.Group>
         {/each}
       </Sidebar.Content>
-      {#if searchedTabs.some((tab) => tab.id === FOOTER_TAB)}
-        <Sidebar.Footer class="border-t border-sidebar-border/50 px-[1.1875rem] py-3">
-          <SettingsNavAccount isActive={session.settingsTab === FOOTER_TAB} onSelect={() => selectTab(FOOTER_TAB)} />
-        </Sidebar.Footer>
-      {/if}
     </Sidebar.Root>
   </Sidebar.Provider>
 

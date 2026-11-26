@@ -48,10 +48,10 @@
   function deleteTask(task: Task): void {
     const pending = session.tasksStore.softRemove([task.id]);
     if (!pending.length) return;
-    toasts.undo("Task deleted", () => session.tasksStore.restorePending(pending), {
+    toasts.undo("Issue deleted", () => session.tasksStore.restorePending(pending), {
       onDismiss: () =>
         session.tasksStore.commitPending(pending).catch((error) =>
-          toasts.error("Couldn't delete task", {
+          toasts.error("Couldn't delete issue", {
             description: error instanceof Error ? error.message : String(error),
           })),
     });

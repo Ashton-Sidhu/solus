@@ -177,7 +177,7 @@ describe('the schemas the model reads for every Solus tool', () => {
       ['create_automation', { name: 'Nightly', prompt: 'Check CI', model_id: null, trigger: { type: 'interval', every_minutes: 60 } }],
       ['start_sessions', { sessions: [{ prompt: 'Go', model_id: 'claude-opus-5' }, { prompt: 'Also go', agent_provider: 'codex', isolation: 'worktree' }] }],
       ['query_insights', { sql: 'select 1' }],
-      ['list_tasks', {}],
+      ['list_issues', {}],
     ]
     for (const [name, input] of samples) {
       const agentTool = toolbox.find((candidate) => candidate.name === name)

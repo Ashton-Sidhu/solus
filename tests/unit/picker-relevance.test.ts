@@ -113,7 +113,7 @@ describe('picker top hits', () => {
 
   test('newest first lists the sections as they are', () => {
     const { rows } = build([...noise, owner], sessions, 'websocket reconnect', { sort: 'recency' })
-    expect(rows[0]).toMatchObject({ kind: 'header', label: 'Tasks' })
+    expect(rows[0]).toMatchObject({ kind: 'header', label: 'Issues' })
   })
 
   test('a session is not lifted beside its own task', () => {

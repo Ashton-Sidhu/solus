@@ -68,6 +68,11 @@ export const sessionSettings = [
     keywords: ["queue", "throttle"],
   },
   {
+    id: "completed-retention",
+    ...settingsDefinitions["sessions.completed-retention"],
+    keywords: ["done", "retention", "history", "shelf", "sidebar", "settled"],
+  },
+  {
     id: "model-routing",
     ...settingsDefinitions["sessions.section-model-routing"],
     keywords: ["auto", "jev", "interface", "exploration", "task", "general"],
@@ -222,21 +227,6 @@ export const appearanceSettings: SettingItem[] = [
 
 /** Search words, read by the settings page to find this page from any other. */
 
-export const taskSettings: SettingItem[] = [
-  {
-    id: "task-lifecycle",
-    ...settingsDefinitions["tasks.task-lifecycle"],
-    keywords: ["agent", "ticket", "status"],
-  },
-  {
-    id: "completed-retention",
-    ...settingsDefinitions["tasks.completed-retention"],
-    keywords: ["done", "retention"],
-  },
-];
-
-/** Search words, read by the settings page to find this page from any other. */
-
 export const reviewSettings: SettingItem[] = [
   { id: "review-generate-on-open", ...settingsDefinitions["review.review-generate-on-open"], keywords: ["automatic"] },
   { id: "review-warming", ...settingsDefinitions["review.review-warming"], keywords: ["background", "prefetch"] },
@@ -319,7 +309,6 @@ export const settingsByPage = {
   sessions: sessionSettings,
   general: generalSettings,
   appearance: appearanceSettings,
-  tasks: taskSettings,
   review: reviewSettings,
   tools: toolSettings,
   experimental: experimentalSettings,

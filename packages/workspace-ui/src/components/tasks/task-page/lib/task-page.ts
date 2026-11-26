@@ -200,7 +200,7 @@ export function taskFieldLocks(task: {
     if (readOnly) return 'Read-only issue'
     return task.canWrite?.(field)
       ? null
-      : `${PROVIDER_NAMES[task.providerId]} does not take a change of ${FIELD_NAMES[field]} for this task`
+      : `${PROVIDER_NAMES[task.providerId]} does not take a change of ${FIELD_NAMES[field]} for this issue`
   }
   return {
     title: lock('title'),

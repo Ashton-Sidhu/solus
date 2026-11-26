@@ -17,6 +17,6 @@ export function saveTaskSources(settings: TaskSourceSettings, patch: TaskSourceC
   if (!patch) return false
   // Plain values: the settings store clones what it keeps.
   const isSaved = settings.setPersonal('taskSources', $state.snapshot(patch.taskSources))
-  if (!isSaved) toasts.error("Couldn't save the task sources", { description: 'Solus refused the change.' })
+  if (!isSaved) toasts.error("Couldn't save the issue sources", { description: 'Solus refused the change.' })
   return isSaved
 }

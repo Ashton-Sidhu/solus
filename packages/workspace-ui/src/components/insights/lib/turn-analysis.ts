@@ -448,8 +448,8 @@ export const READ_ONLY_TOOLS = new Set([
   'TodoWrite',
   'mcp__solus__browser_snapshot',
   'mcp__solus__browser_status',
-  'mcp__solus__read_task',
-  'mcp__solus__list_tasks',
+  'mcp__solus__read_issue',
+  'mcp__solus__list_issues',
   'mcp__solus__read_session',
   'mcp__solus__search_sessions',
 ])

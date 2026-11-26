@@ -33,7 +33,7 @@
 </script>
 
 <DropdownMenu.Root>
-  <DropdownMenu.Trigger class={triggerClass} title={groups.length ? "Move the task" : undefined} disabled={groups.length === 0}>
+  <DropdownMenu.Trigger class={triggerClass} title={groups.length ? "Move the issue" : undefined} disabled={groups.length === 0}>
     {@render trigger()}
   </DropdownMenu.Trigger>
   <DropdownMenu.Content {align} class="max-h-[min(24rem,var(--bits-dropdown-menu-content-available-height))] w-[min(14rem,calc(100vw-2rem))] overflow-y-auto">

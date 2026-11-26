@@ -10,6 +10,8 @@
   import SessionRowHost from "./SessionRowHost.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
   import * as TooltipUI from "../ui/tooltip";
+  import { mergeProps } from "bits-ui";
+  import { closesRowTooltip } from "./lib/row-tooltip";
   import {
     resolveSidebarRowMark,
     shouldEmphasizeTitle,
@@ -102,6 +104,8 @@
       live,
     }),
   );
+
+  let isTooltipOpen = $state(false);
 
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let suppressNextClick = false;
@@ -212,11 +216,31 @@
 
 <!-- A session listed one step in under the session that started it. In the
      raised card a row takes a wash, never a second plate. -->
-<TooltipUI.Root disabled={isTooltipQuiet}>
+<TooltipUI.Root bind:open={isTooltipOpen} disabled={isTooltipQuiet}>
   <TooltipUI.Trigger>
     {#snippet child({ props: tooltipProps })}
+<!-- The row's pointer and click handlers run after the tooltip's, never
+     instead of them: a press on the row closes its tooltip. -->
 <div
-  {...tooltipProps}
+  {...mergeProps(tooltipProps, {
+    onclick: (event: MouseEvent) => {
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        event.preventDefault();
+        return;
+      }
+      if (!shouldActivateRenameableRow(event.detail)) return;
+      onSelect();
+    },
+    onpointerdown: startLongPress,
+    onpointerup: cancelLongPress,
+    onpointermove: cancelLongPress,
+  })}
+  {@attach closesRowTooltip({
+    isOpen: () => isTooltipOpen,
+    isQuiet: () => isTooltipQuiet,
+    close: () => (isTooltipOpen = false),
+  })}
   class="group/session relative flex h-9 cursor-pointer items-center gap-[0.5625rem] rounded-md pr-2 pl-2.5 transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring {inRaisedCard ? 'hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)]' : 'hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)]'} {recedes
     ? 'text-[color-mix(in_oklch,var(--solus-text-secondary)_75%,transparent)] hover:text-foreground'
     : 'text-foreground'} {isCurrent
@@ -232,23 +256,11 @@
 
   aria-selected={isCurrent}
   aria-label={session.label}
-  onclick={(event) => {
-    if (suppressNextClick) {
-      suppressNextClick = false;
-      event.preventDefault();
-      return;
-    }
-    if (!shouldActivateRenameableRow(event.detail)) return;
-    onSelect();
-  }}
   ondblclick={onStartRename}
   oncontextmenu={onMore}
   draggable={!!onDragStart && !renaming}
   ondragstart={onDragStart}
-  onpointerdown={startLongPress}
-  onpointerup={cancelLongPress}
   onpointercancel={cancelLongPress}
-  onpointermove={cancelLongPress}
   onkeydown={(event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -270,7 +282,6 @@
     {groupKey}
     {projectLabel}
     branchName={session.branchName}
-    worktreePath={session.worktreePath}
     serverId={session.serverId}
     {isGuest}
     provider={session.provider}

@@ -117,7 +117,7 @@ describe('unified picker rows', () => {
     // list with sessions and pushed the other sections below the fold.
     const { rows } = build(tasks, sessions, 'alpha')
     expect(rows.map((row) => row.kind)).toEqual(['header', 'task'])
-    expect(rows[0]).toMatchObject({ label: 'Tasks', count: 1, hint: 'best match first' })
+    expect(rows[0]).toMatchObject({ label: 'Issues', count: 1, hint: 'best match first' })
     expect(rows[1]).toMatchObject({
       kind: 'task',
       matchedIn: 'title',

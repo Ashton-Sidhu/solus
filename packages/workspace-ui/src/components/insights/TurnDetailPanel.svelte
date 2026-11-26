@@ -303,12 +303,12 @@
     size="sm"
     class="h-6.5 gap-2 rounded-full px-3 text-insights-chrome bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:tap-area @max-[44rem]:w-6.5 @max-[44rem]:px-0 @max-[44rem]:pointer-coarse:w-10"
     disabled={!sessionId}
-    title={taskTitle ? `Open task: ${taskTitle}` : "Open the task this turn ran under"}
-    aria-label="Open task"
+    title={taskTitle ? `Open issue: ${taskTitle}` : "Open the issue this turn ran under"}
+    aria-label="Open issue"
     onclick={() => void openSessionTask()}
   >
     <TaskIcon size={16} aria-hidden="true" />
-    <span class="@max-[44rem]:hidden">Open task</span>
+    <span class="@max-[44rem]:hidden">Open issue</span>
   </Button>
   <DropdownMenu.Root bind:open={moreOpen}>
     <DropdownMenu.Trigger>

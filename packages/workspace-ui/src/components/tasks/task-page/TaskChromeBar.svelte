@@ -65,7 +65,7 @@
     onclick={onRefresh}
     disabled={refreshing}
     title="{task.reference ?? `${providerName} draft`} · click to read it from {providerName} again"
-    aria-label="Read the task from {providerName} again"
+    aria-label="Read the issue from {providerName} again"
   >
     {#if refreshing}
       <CircleNotchIcon size={11} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
@@ -86,7 +86,7 @@
       class={PAGE_PILL_ICON_BTN}
       onclick={onCopyLink}
       title="Copy {providerName} link"
-      aria-label="Copy the {providerName} link of this task"
+      aria-label="Copy the {providerName} link of this issue"
       data-testid="task-copy-link"
     >
       <LinkIcon class="size-4" strokeWidth={1.5} />
@@ -99,8 +99,8 @@
       size="icon-sm"
       class={PAGE_PILL_ICON_BTN}
       onclick={onOpenPage}
-      title="Open task page"
-      aria-label="Open task page"
+      title="Open issue page"
+      aria-label="Open issue page"
     >
       <ArrowsOutSimpleIcon class="size-4" strokeWidth={1.5} />
     </Button>
@@ -113,7 +113,7 @@
       class={PAGE_PILL_ICON_BTN}
       onclick={onOpenSource}
       title={`Open in ${providerName}`}
-      aria-label={`Open task in ${providerName}`}
+      aria-label={`Open issue in ${providerName}`}
     >
       <ArrowSquareOutIcon class="size-4" strokeWidth={1.5} />
     </Button>
@@ -140,7 +140,7 @@
   leaf={taskRef(task)}
   leafTitle={task.reference}
   copyText={task.reference ?? task.id}
-  copyTitle={task.reference ? "Copy task reference" : "Copy task key"}
+  copyTitle={task.reference ? "Copy issue reference" : "Copy issue key"}
   {actions}
   {tools}
   stepper={{ onPrevious: onPrevious ?? null, onNext: onNext ?? null, itemLabel: "task" }}

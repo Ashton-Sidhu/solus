@@ -233,7 +233,7 @@ export class TasksPageView {
     if (providerSearch.searching) return 'searching the provider…'
     if (providerSearch.error) return 'the provider did not answer the search'
     if (providerSearch.query && providerSearch.query === this.query.trim()) return 'searched the provider'
-    return 'not every task is loaded · search reaches the rest'
+    return 'not every issue is loaded · search reaches the rest'
   })
 
   clearFilters(): void {

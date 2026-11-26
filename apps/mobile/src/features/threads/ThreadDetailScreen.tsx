@@ -323,7 +323,7 @@ export interface ThreadDetailScreenProps {
   readonly hostMedia?: readonly import("../../lib/composerImages").DraftComposerAttachment[];
   readonly onPickDraftMedia: () => Promise<void>;
   readonly onPickDraftFiles: () => Promise<void>;
-  readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<boolean>;
+  readonly onNativePasteImages: (uris: ReadonlyArray<string>, onPreviewReady: () => void) => Promise<boolean>;
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
   readonly onRetryHostAttachment?: (attachmentId: string) => void;
   readonly onRemoveDraftImage: (imageId: string) => void;
@@ -578,8 +578,6 @@ function ThreadDetailBody(
   const [isAtEnd, setIsAtEnd] = useState(true);
   const submissionSequence = useRef(0);
   const [submissionScroll, setSubmissionScroll] = useState<"prompt" | "media" | null>(null);
-  const [sendingWithKeyboard, setSendingWithKeyboard] = useState(false);
-  if (sendingWithKeyboard && !isKeyboardVisible) setSendingWithKeyboard(false);
   const hasSidebarTabBar = useSidebarWorkspaceTabs() === "picker";
   const composerBottomInset = useComposerBottomInset();
   const composerKeyboardOffset = composerBottomInset;
@@ -1433,40 +1431,37 @@ function ThreadDetailBody(
       }
       const hasMedia = (props.hostMedia?.length ?? 0) > 0;
       setSubmissionScroll(followingExistingSession ? (hasMedia ? "media" : "prompt") : null);
-      if (Platform.OS !== "ios" || !followingExistingSession || !KeyboardController.isVisible()) return;
-      setSendingWithKeyboard(true);
-      dismissingKeyboard = true;
+      if (Platform.OS === "ios") {
+        dismissingKeyboard = followingExistingSession && KeyboardController.isVisible();
+        if (props.draftMode && !KeyboardController.isVisible()) composerEditorRef.current?.blur();
+      }
     }).catch((error) => {
       discardFailedAnchor();
       releaseScroll();
-      if (isCurrent()) setSendingWithKeyboard(false);
       throw error;
     });
     if (messageId === null || scope.aborted) {
       discardFailedAnchor();
       releaseScroll();
-      if (!scope.aborted) {
-        setSendingWithKeyboard(false);
-      }
       return messageId;
     }
 
     clearUsageLimitsFor(targetThreadKey);
 
-    if (!dismissingKeyboard) composerEditorRef.current?.blur();
+    if (!dismissingKeyboard && !(props.draftMode && Platform.OS === "ios")) composerEditorRef.current?.blur();
     const followSubmission =
       contentPresentationKind === "ready" &&
       (followingExistingSession || (Platform.OS !== "ios" && firstPromptAnchor === messageId));
     if (followSubmission) {
       void finishThreadFeedGlide({
         afterPaint: () => new Promise((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          requestAnimationFrame(() => resolve()),
         ),
         isCurrent,
-        dismissKeyboard: KeyboardController.isVisible() || dismissingKeyboard
+        dismissKeyboard: Platform.OS !== "ios" && KeyboardController.isVisible()
           ? () => KeyboardController.dismiss()
           : undefined,
-        scrollToEnd: () => scrollMessageToEnd({ animated: !reduceMotion, closeKeyboard: false }),
+        scrollToEnd: () => scrollMessageToEnd({ animated: !reduceMotion, closeKeyboard: dismissingKeyboard }),
       }).catch(() => {
         if (isCurrent()) freeze.set(false);
       }).finally(releaseScroll);
@@ -1666,7 +1661,8 @@ function ThreadDetailBody(
                   keyboardLiftBehavior={
                     Platform.OS === "ios" && submissionScroll === "media"
                       ? "never"
-                      : sendingWithKeyboard ? "persistent" : "whenAtEnd"
+                      : Platform.OS === "ios" && submissionScroll === "prompt" && isKeyboardVisible
+                        ? "persistent" : "whenAtEnd"
                   }
                   fitShortFeedToViewport={questionInFlow && !isKeyboardVisible}
                   contentBottomInset={

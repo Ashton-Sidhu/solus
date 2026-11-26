@@ -64,7 +64,7 @@ export function breadcrumbLeafLabels(
   draftMode: BreadcrumbDraftMode,
 ): BreadcrumbLeafLabels {
   if (draftMode === 'no-task') return { task: null, session: 'New session' }
-  if (draftMode === 'existing-task') return { task: taskLabel ?? 'Task', session: 'New session' }
+  if (draftMode === 'existing-task') return { task: taskLabel ?? 'Issue', session: 'New session' }
   return { task: taskLabel, session: sessionLabel }
 }
 

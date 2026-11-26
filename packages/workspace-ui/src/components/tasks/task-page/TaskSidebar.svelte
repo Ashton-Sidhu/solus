@@ -190,7 +190,7 @@
           type="button"
           class="{VALUE_BUTTON} min-w-0 overflow-hidden"
           onclick={() => onOpenExternal(url)}
-          title="Open {task.reference ?? 'this task'} in {PROVIDER_NAMES[task.providerId]}"
+          title="Open {task.reference ?? 'this issue'} in {PROVIDER_NAMES[task.providerId]}"
         >
           <SourceLogo source={task.providerId} />
           <span class="truncate">{PROVIDER_NAMES[task.providerId]}</span>
@@ -238,7 +238,7 @@
           candidates={labelCandidateOptions}
           allowCreate
           align="start"
-          menuLabel="Edit task labels"
+          menuLabel="Edit issue labels"
           onSet={locks.labels === null ? async (labels) => { await onSave({ labels }); } : undefined}
         />
       </span>

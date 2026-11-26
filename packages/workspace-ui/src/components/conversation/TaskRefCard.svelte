@@ -25,7 +25,7 @@
   title={ref.title}
   type="task"
   actionLabel="Open"
-  ariaLabel={`Open task: ${ref.title}`}
+  ariaLabel={`Open issue: ${ref.title}`}
   onOpen={open}
   open={isOpen}
   {skipMotion}

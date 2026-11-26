@@ -402,7 +402,7 @@ describe('search of the provider', () => {
     jest.useFakeTimers()
     const { view, providerSearch, answers } = scene({ sources: [truncatedRepo, board] })
     view.query = 'payment'
-    expect(view.truncationNote).toBe('not every task is loaded · search reaches the rest')
+    expect(view.truncationNote).toBe('not every issue is loaded · search reaches the rest')
 
     providerSearch.request(view.query)
     expect(view.truncationNote).toBe('searching the provider…')
@@ -416,7 +416,7 @@ describe('search of the provider', () => {
 
     view.query = 'payment retry'
     expect(view.flatVisibleIds).toEqual(['repo-only'])
-    expect(view.truncationNote).toBe('not every task is loaded · search reaches the rest')
+    expect(view.truncationNote).toBe('not every issue is loaded · search reaches the rest')
   })
 
   test('a source view does not show a match that the source does not list', async () => {

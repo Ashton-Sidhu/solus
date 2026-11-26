@@ -17,7 +17,7 @@ export const GUEST_PICKER_RESULT_TYPES: readonly PickerResultType[] = ['all', 's
 export const PICKER_RESULT_LABELS = {
   all: 'All',
   sessions: 'Sessions',
-  tasks: 'Tasks',
+  tasks: 'Issues',
   works: 'Works',
   pullRequests: 'Pull requests',
   automations: 'Automations',
@@ -28,7 +28,7 @@ export const PICKER_RESULT_LABELS = {
 export const PICKER_RESULT_PLACEHOLDERS = {
   all: 'Search',
   sessions: 'Search sessions',
-  tasks: 'Search tasks',
+  tasks: 'Search issues',
   works: 'Search works',
   pullRequests: 'Search pull requests',
   automations: 'Search automations',

@@ -123,7 +123,7 @@
     role="dialog"
     tabindex="-1"
     aria-modal="true"
-    aria-label="Link something to this task"
+    aria-label="Link something to this issue"
   >
     <input
       bind:this={inputEl}

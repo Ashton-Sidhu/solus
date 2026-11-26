@@ -107,46 +107,20 @@ describe('stripInjectedContext', () => {
   })
 })
 
-describe('task lifecycle work contracts', () => {
-  test('moderate keeps Done under user control by default', () => {
-    const packet = formatTaskContext(task)
-    expect(packet).toContain('Do not move it to done; the user closes completed work.')
-  })
-
-  test('none tells the agent not to change task status', () => {
-    const packet = formatTaskContext(task, 'none')
-    expect(packet).toContain("Do not change this task's status")
-    expect(packet).not.toContain('Use comment_task and update_task_status')
-  })
-
-  test('autonomous permits the agent to finish the task', () => {
-    const packet = formatTaskContext(task, 'autonomous')
-    expect(packet).toContain('Move it to done when the work is complete without review.')
-  })
-
-  // The pull request linking rule is in the runtime instructions of every
-  // session that has the link tool. A second copy in the packet repeats it.
-  test('the packet does not repeat the pull request linking rule', () => {
-    for (const policy of ['none', 'moderate', 'autonomous'] as const) {
-      expect(formatTaskContext(task, policy)).not.toContain('link (kind=pr')
-    }
-  })
-})
-
 describe('the task packet', () => {
   test('names the task and holds no state that changes while the agent works', () => {
     // WHY: the packet is appended to the system prompt of every run. Status,
     // body and comments in it changed the prompt on every status move or
-    // comment, and repeated what read_task returns.
+    // comment, and repeated what read_issue returns.
     const packet = formatTaskContext(task)
-    expect(packet.split('\n')[0]).toBe('[Working On Task — "Task System Testing" (task_id: 01KZ4TSYMQRX31D1DK5AAEW5TR)]')
-    expect(packet).toContain('Call read_task with task_id "01KZ4TSYMQRX31D1DK5AAEW5TR" before you start work.')
+    expect(packet.split('\n')[0]).toBe('[Working On Issue — "Task System Testing" (issue_id: 01KZ4TSYMQRX31D1DK5AAEW5TR)]')
+    expect(packet).toContain('Call read_issue with issue_id "01KZ4TSYMQRX31D1DK5AAEW5TR" before you start work.')
     expect(packet).not.toContain('status:')
   })
 
-  test('a task this host cannot read still gets its id and contract', () => {
+  test('a task this host cannot read still gets its id', () => {
     const packet = formatTaskContext({ id: 'task-elsewhere' })
-    expect(packet.split('\n')[0]).toBe('[Working On Task (task_id: task-elsewhere)]')
-    expect(packet).toContain('Work contract:')
+    expect(packet.split('\n')[0]).toBe('[Working On Issue (issue_id: task-elsewhere)]')
+    expect(packet).toContain('Call read_issue with issue_id "task-elsewhere"')
   })
 })

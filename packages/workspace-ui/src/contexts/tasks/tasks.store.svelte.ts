@@ -689,7 +689,7 @@ export class TasksStore {
           const failed = snapshots.filter((entry) => 'error' in entry)
           this.refreshedAt = Date.now()
           this.error = failed.length
-            ? `Couldn't read tasks from ${failed.length} host${failed.length === 1 ? '' : 's'}.`
+            ? `Couldn't read issues from ${failed.length} host${failed.length === 1 ? '' : 's'}.`
             : null
           break
         }

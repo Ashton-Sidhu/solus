@@ -74,7 +74,7 @@
   </TooltipUI.Trigger>
   <TooltipUI.Content
     side="bottom"
-    value="Capture this page — attach it to a task or pull request"
+    value="Capture this page — attach it to an issue or pull request"
   />
 </TooltipUI.Root>
 

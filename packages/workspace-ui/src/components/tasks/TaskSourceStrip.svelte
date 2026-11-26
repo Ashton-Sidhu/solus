@@ -68,7 +68,7 @@
   <div
     class="-m-0.5 flex min-w-0 items-center gap-1 overflow-x-auto p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:h-0"
     role="group"
-    aria-label="Task sources"
+    aria-label="Issue sources"
   >
     {#if rows.length > 1}
       <button
@@ -133,7 +133,7 @@
           <button
             type="button"
             class="pointer-events-none flex size-5 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-inherit opacity-0 transition-opacity duration-100 [grid-area:1/1] group-focus-within/chip:pointer-events-auto group-focus-within/chip:opacity-60 group-hover/chip:pointer-events-auto group-hover/chip:opacity-60 hover:opacity-100! focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:pointer-events-auto pointer-coarse:tap-area pointer-coarse:opacity-60"
-            title="Remove {row.label}. The tasks stay on {taskSourceProvider(row.source) === 'github' ? 'GitHub' : 'Jira'}."
+            title="Remove {row.label}. The issues stay on {taskSourceProvider(row.source) === 'github' ? 'GitHub' : 'Jira'}."
             aria-label="Remove {row.label}"
             onclick={() => remove(row)}
           >

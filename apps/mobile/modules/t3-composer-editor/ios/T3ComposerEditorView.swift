@@ -344,13 +344,14 @@ private final class ComposerTextView: UITextView {
       guard let self else {
         return
       }
-      defer { self.onPasteImagesPending?(-providers.count) }
       guard !self.isReadOnly else {
+        self.onPasteImagesPending?(-providers.count)
         return
       }
       let urls = images.compactMap { $0 }.compactMap {
         Self.writeTemporaryImage($0.data, fileExtension: $0.fileExtension)
       }
+      self.onPasteImagesPending?(-providers.count)
       if !urls.isEmpty {
         self.onPasteImages?(urls)
       }

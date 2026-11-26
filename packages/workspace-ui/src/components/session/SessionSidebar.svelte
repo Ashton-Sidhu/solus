@@ -969,8 +969,8 @@
           bind:value={taskQuery}
           type="search"
           placeholder="Search"
-          aria-label="Search sidebar tasks and sessions"
-          title={`Search sidebar tasks and sessions (${comboHint("global.focus-sidebar-task-search")})`}
+          aria-label="Search sidebar sessions"
+          title={`Search sidebar sessions (${comboHint("global.focus-sidebar-task-search")})`}
           class="w-full h-7 rounded-lg border-0 bg-transparent pr-8 pl-[1.5625rem] text-workspace-chrome tracking-[-0.006em] text-foreground outline-none placeholder:text-[color-mix(in_oklch,var(--foreground)_45%,transparent)] [&::-webkit-search-cancel-button]:hidden"
           onkeydown={(event) => {
             if (event.key !== "Escape") return;
@@ -983,7 +983,7 @@
           <button
             type="button"
             class="absolute top-1/2 right-1 flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_8%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.96]"
-            aria-label="Clear task search"
+            aria-label="Clear session search"
             onclick={() => {
               taskQuery = "";
               taskSearchEl?.focus();

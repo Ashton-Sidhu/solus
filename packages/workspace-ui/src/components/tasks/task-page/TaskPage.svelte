@@ -236,7 +236,7 @@
       void store
         .get(id)
         .loadDetails()
-        .catch((err) => toastTaskError("open task", err))
+        .catch((err) => toastTaskError("open issue", err))
         .finally(() => {
           if (loadingTaskId === id) loadingTaskId = null;
         });
@@ -426,7 +426,7 @@
   bind:this={rootEl}
   class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-chrome-dense"
   role="dialog"
-  aria-label="Task"
+  aria-label="Issue"
   tabindex="-1"
 >
   <!-- The sidebar row already holds the record, so the page draws at once;
@@ -640,7 +640,7 @@
             {@render bottomBar()}
           {/if}
           {:else}
-            <ContentSkeleton label="Loading task details" />
+            <ContentSkeleton label="Loading issue details" />
           {/if}
         </div>
 

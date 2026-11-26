@@ -592,7 +592,7 @@ describe('which fields the page lets the person edit', () => {
 
   test('a disabled editor says which provider does not take the field', () => {
     expect(taskFieldLocks(taskWith([])).dueDate)
-      .toBe('GitHub does not take a change of the due date for this task')
+      .toBe('GitHub does not take a change of the due date for this issue')
   })
 
   test('opening an issue by URL locks every field even if the provider grants edits', () => {

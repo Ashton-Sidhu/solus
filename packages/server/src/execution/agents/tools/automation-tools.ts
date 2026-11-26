@@ -218,7 +218,7 @@ function foreignAutomationLink(sessionId: string | undefined, automationId: stri
 
 /** The honest answer for a write against an automation that lives elsewhere. */
 function foreignAutomationError(operation: string, automationId: string): string {
-  return `Automation ${automationId} lives on the task's host (this session was dispatched), and ${operation} cannot reach it from here. Manage it from the task's host, or note the request in a comment_task.`
+  return `Automation ${automationId} lives on the issue's host (this session was dispatched), and ${operation} cannot reach it from here. Manage it from the issue's host, or note the request in a comment_issue.`
 }
 
 /** The person whose turn calls the tool, as the run admitted them; the host's own work outside a turn. */

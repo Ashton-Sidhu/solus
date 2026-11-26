@@ -52,8 +52,8 @@
                     ? 'text-primary'
                     : 'text-muted-foreground'}"
                 aria-label={scopedProject
-                  ? `Filter tasks by project. Current filter: ${scopedProject.label}`
-                  : "Filter tasks by project"}
+                  ? `Filter sessions by project. Current filter: ${scopedProject.label}`
+                  : "Filter sessions by project"}
                 title={scopedProject
                   ? `Project: ${scopedProject.label}`
                   : "Filter by project"}
@@ -74,7 +74,7 @@
             align="end"
             sideOffset={6}
             collisionPadding={8}
-            aria-label="Filter tasks by project"
+            aria-label="Filter sessions by project"
             class="flex max-h-[min(32rem,calc(var(--bits-dropdown-menu-content-available-height,36rem)-1rem))] w-72 max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-2"
             onOpenAutoFocus={(event) => {
               const find = menuEl?.querySelector<HTMLInputElement>("[data-project-find]");

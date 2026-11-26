@@ -79,12 +79,12 @@ export function sourcesFailure(sources: readonly TaskSourceState[]): SourcesFail
     failed.filter((source) => AUTH_HEALTHS.has(source.health) && taskSourceProvider(source.source) === provider)
   const kind = authOf('github').length ? 'github-auth' : authOf('jira').length ? 'jira-auth' : 'generic'
   const title = kind === 'github-auth'
-    ? 'Connect GitHub to load tasks.'
-    : kind === 'jira-auth' ? 'Connect Atlassian to load tasks.' : 'Couldn’t load tasks.'
+    ? 'Connect GitHub to load issues.'
+    : kind === 'jira-auth' ? 'Connect Atlassian to load issues.' : 'Couldn’t load issues.'
   const [first] = failed
   const detail = failed.length === 1
     ? `${first.label}: ${first.message ?? 'the provider did not answer the last read.'}`
-    : `${failed.length} task sources cannot be read: ${failed.map((source) => source.label).join(', ')}.`
+    : `${failed.length} issue sources cannot be read: ${failed.map((source) => source.label).join(', ')}.`
   const key = failed.map((source) => `${source.sourceKey}:${source.health}`).sort().join('|')
   return { kind, title, detail, key }
 }

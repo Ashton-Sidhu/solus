@@ -27,7 +27,7 @@ describe('the Link control on a conversation card', () => {
     expect(state.kind).toBe('none')
     if (state.kind === 'none') expect(linkVerb(state)).toBe('Link to #184')
     const loose = taskLinkControlState([], null)
-    if (loose.kind === 'none') expect(linkVerb(loose)).toBe('Link to task…')
+    if (loose.kind === 'none') expect(linkVerb(loose)).toBe('Link to issue…')
   })
 
   test('one link names the task; several count them', () => {
@@ -37,7 +37,7 @@ describe('the Link control on a conversation card', () => {
     const one = taskLinkControlState([edge('t1', 'Fix sync', 'acme/app#184')], null)
     expect(one).toMatchObject({ kind: 'one', label: 'Linked to #184 · Fix sync' })
     const many = taskLinkControlState([edge('t1', 'Fix sync', 'acme/app#184'), edge('t2', 'Ship it', 'SOL-190')], null)
-    expect(many).toMatchObject({ kind: 'many', label: 'Linked to 2 tasks' })
+    expect(many).toMatchObject({ kind: 'many', label: 'Linked to 2 issues' })
   })
 
   test('names a task by the reference its provider gives it', () => {

@@ -17,7 +17,7 @@
 
 <!-- The column fades out down the list rather than ending on a hard edge: the
      placeholder says "tasks are coming", not "there are exactly six". -->
-<div class="flex flex-col gap-0.5" role="status" aria-label="Loading tasks">
+<div class="flex flex-col gap-0.5" role="status" aria-label="Loading sessions">
   {#each ROWS as row, i (i)}
     <div
       class="flex h-[2.625rem] items-center pr-2 pl-[0.625rem]"

@@ -7,7 +7,7 @@
      wrong is the reflow this exists to prevent. -->
 <ListPageSkeleton
   page="tasks"
-  label="Loading tasks"
+  label="Loading issues"
   hasPrimaryAction
   hasViewSwitcher={false}
   identWidth={62}

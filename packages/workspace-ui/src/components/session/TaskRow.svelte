@@ -25,6 +25,8 @@
   import DotMatrix from "../ui/DotMatrix.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
   import * as TooltipUI from "../ui/tooltip";
+  import { mergeProps } from "bits-ui";
+  import { closesRowTooltip } from "./lib/row-tooltip";
   import { getSessionSidebarStore, type SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import {
     resolveSidebarRowMark,
@@ -276,6 +278,8 @@
   function activate(event?: MouseEvent) {
     onSelect(event);
   }
+
+  let isTooltipOpen = $state(false);
 
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let suppressNextClick = false;
@@ -579,11 +583,31 @@
   onpointerleave={() => onRest?.(false)}
   onfocusin={() => onRest?.(true)}
   onfocusout={() => onRest?.(false)}>
-  <TooltipUI.Root disabled={isTooltipQuiet}>
+  <TooltipUI.Root bind:open={isTooltipOpen} disabled={isTooltipQuiet}>
     <TooltipUI.Trigger>
       {#snippet child({ props: tooltipProps })}
+  <!-- The row's pointer and click handlers run after the tooltip's, never
+       instead of them: a press on the row closes its tooltip. -->
   <div
-    {...tooltipProps}
+    {...mergeProps(tooltipProps, {
+      onclick: (event: MouseEvent) => {
+        if (suppressNextClick) {
+          suppressNextClick = false;
+          event.preventDefault();
+          return;
+        }
+        if (!shouldActivateRenameableRow(event.detail)) return;
+        activate(event);
+      },
+      onpointerdown: startLongPress,
+      onpointerup: cancelLongPress,
+      onpointermove: cancelLongPress,
+    })}
+    {@attach closesRowTooltip({
+      isOpen: () => isTooltipOpen,
+      isQuiet: () => isTooltipQuiet,
+      close: () => (isTooltipOpen = false),
+    })}
     class="group/row relative -mx-2 flex cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 {inFolder ? 'pl-[2.1875rem]' : 'pl-[0.625rem]'} transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring {isCardRaised ? 'hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)]' : 'hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)]'} {isCurrentSession && !isCardRaised
  ? 'supports-[overflow-clip-margin:0.5rem]:bg-card supports-[overflow-clip-margin:0.5rem]:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:supports-[overflow-clip-margin:0.5rem]:bg-[color-mix(in_oklch,var(--card)_94%,white)]'
  : ''} {bulkSelected
@@ -602,23 +626,11 @@
       : task.lifecycle === "snoozed" && task.snoozeNote
         ? task.snoozeNote
         : undefined}
-    onclick={(event) => {
-      if (suppressNextClick) {
-        suppressNextClick = false;
-        event.preventDefault();
-        return;
-      }
-      if (!shouldActivateRenameableRow(event.detail)) return;
-      activate(event);
-    }}
     ondblclick={() => onStartRename(null)}
     oncontextmenu={onMore}
     draggable={!!onDragRow && !renamingRow}
     ondragstart={onDragRow}
-    onpointerdown={startLongPress}
-    onpointerup={cancelLongPress}
     onpointercancel={cancelLongPress}
-    onpointermove={cancelLongPress}
     onkeydown={(event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
@@ -767,7 +779,6 @@
       projectLabel={task.projectLabel}
       taskTitle={task.linkedTask?.title}
       {branchName}
-      worktreePath={tooltipSession?.worktreePath ?? task.worktreePath}
       serverId={lastRunServerId ?? tooltipSession?.serverId ?? task.serverId}
       {isGuest}
       provider={tooltipSession?.provider}
