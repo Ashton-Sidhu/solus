@@ -54,9 +54,10 @@ export type ActivityKind =
   | { kind: 'queued_prompt_changed'; queueId: string; change: 'removed' | 'edited'; author?: User }
   /** No longer recorded; rows stored before still parse and are not drawn. */
   | { kind: 'seat_needed'; provider: AgentId }
-  /** An agent or an automation (`by`) sent a prompt into the session. Not
-   *  drawn: a history read folds `by` onto the user row whose text has this
-   *  hash, as its `sender` (docs/plans/prompt-sender.md). */
+  /** An agent, an automation, or a person (`by`) sent a prompt into the
+   *  session. Not drawn: a history read folds `by` onto the user row whose
+   *  text has this hash, as its `sender`, or as its `author` for a person
+   *  (docs/plans/prompt-sender.md). */
   | { kind: 'prompt_sent'; promptHash: string }
   // any subject
   | { kind: 'renamed'; title: string }

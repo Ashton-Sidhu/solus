@@ -72,6 +72,17 @@ describe('native sent-prompt attachments', () => {
     expect(item?.kind === 'user' && item.attachments).toEqual([{ kind: 'host-image', key: 'ref:0:/h/up/shot.png', name: 'shot.png', hostPath: '/h/up/shot.png', mimeType: 'image/png' }])
   })
 
+  test('a video the desktop sent plays in the live bubble', () => {
+    // WHY: the event text is only what the person typed; the host names the
+    // files beside it, as a projected history row does.
+    const hostPath = '/h/attachments/s/7aa330d0eec5a77c36879c5c-clip.mp4'
+    const model = new TranscriptModel('s')
+    model.apply({ type: 'user_message', text: 'Look', attachedFilePaths: [hostPath] })
+    expect(model.items.get(model.order[0]!)).toMatchObject({
+      kind: 'user', text: 'Look', attachments: [{ kind: 'file', name: 'clip.mp4', hostPath, video: true }],
+    })
+  })
+
   test('a photo saved as a file shows the JPEG the host stored, in live and saved messages', () => {
     const hostPath = '/h/attachments/session/c6bc17110d37cdfa0afa6ded-photo.jpg'
     const content = `[Attached file: ${hostPath}]\n\nLook`

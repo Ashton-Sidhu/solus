@@ -239,9 +239,6 @@ export const KEYBINDINGS = {
   'project-search.regex':         { combo: { alt: true, code: 'KeyR' },                    scope: 'project-search',     label: 'Use regular expression',   group: 'Search' },
 
   // ── Snapshot lightbox (a frame from a capture plate, open at full size) ────
-  'snapshot-lightbox.close':      { combo: { code: 'Escape' },                             scope: 'snapshot-lightbox',  label: 'Close capture',            group: 'General' },
-  'snapshot-lightbox.previous':   { combo: { code: 'ArrowLeft' },                          scope: 'snapshot-lightbox',  label: 'Previous capture',         group: 'General' },
-  'snapshot-lightbox.next':       { combo: { code: 'ArrowRight' },                         scope: 'snapshot-lightbox',  label: 'Next capture',             group: 'General' },
 
   // ── Browser pane (while it has focus) ─────────────────────────────────────
   'browser-pane.toggle-recording': { combo: { alt: true, code: 'KeyR' },                   scope: 'browser-pane',       label: 'Start or stop recording',  group: 'Browser' },

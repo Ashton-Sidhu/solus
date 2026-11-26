@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs'
 import { basename } from 'node:path'
 import { isTaskFolderPath, type TaskFolder } from '@solus/contracts/codebases'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
+import { splitPromptFiles } from '@solus/contracts/injected-context'
 import { installedRoutingProviders, routeModelPrompt } from '../agents/model-routing'
 import { forkedFrom } from './thread-activity'
 import { createLogger } from '../../logger'
@@ -28,7 +29,7 @@ import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../../admission/principal'
 import { setForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
-import { recordPromptSender } from '../../data/activity/prompt-senders'
+import { recordPromptSender, type RecordedPromptSender } from '../../data/activity/prompt-senders'
 import { ANSWERING_ANOTHER_SESSION } from '../orchestration/session-orchestrator'
 import type { AgentBackend, RunHandle } from '../agents/agent-backend'
 import { hasOpenBackgroundQuery } from './background-work'
@@ -154,9 +155,15 @@ export class RunLauncher {
       type: 'user_message',
       text: options.displayPrompt ?? options.prompt,
     }
+    // The display text leaves out the files the composer named before it.
+    // Without display text, the prompt is the text and keeps its file lines.
+    if (options.displayPrompt !== undefined) {
+      const { paths } = splitPromptFiles(options.prompt)
+      if (paths.length) event.attachedFilePaths = paths
+    }
     if (delivery) event.delivery = delivery
     // Every client labels the bubble with its author; the host's own work
-    // (automations, follow-ups) carries no name, and neither does a history reload.
+    // (automations, follow-ups) carries no name.
     if (actor?.user) event.author = actor.user
     if (options.clientPromptId) event.clientPromptId = options.clientPromptId
     // Refs win: they name bytes the host already holds, so the echo every client
@@ -168,11 +175,17 @@ export class RunLauncher {
     return event
   }
 
-  /** Keep who sent a prompt no person typed, so a history reload can say it too. */
-  private async recordSender(sessionId: string, options: PromptOptions): Promise<void> {
-    if (!options.sender) return
+  /**
+   * Keep who sent a prompt, so a history reload can say it too: the agent or
+   * the automation, else the person who wrote it. A message that Solus made
+   * (`via`) has no author.
+   */
+  private async recordSender(sessionId: string, options: PromptOptions, actor: Actor | undefined): Promise<void> {
+    const sender: RecordedPromptSender | null = options.sender
+      ?? (actor?.user && !options.via ? { kind: 'user', user: actor.user } : null)
+    if (!sender) return
     try {
-      await recordPromptSender(await this.rt.turnOrganization(sessionId) ?? LOCAL_ORGANIZATION_ID, sessionId, options.sender, options.displayPrompt ?? options.prompt)
+      await recordPromptSender(await this.rt.turnOrganization(sessionId) ?? LOCAL_ORGANIZATION_ID, sessionId, sender, options.displayPrompt ?? options.prompt)
     } catch (error) {
       // Live readers still get it on the event; only a reload would miss it.
       log.warn('prompt_sender_append_failed', { sessionId, error: String(error) })
@@ -219,7 +232,7 @@ export class RunLauncher {
     session.promptCount = (session.promptCount ?? 0) + 1
     session.lastActivityAt = Date.now()
     const userMessage = this.userMessageEvent(request.options, 'steer', request.actor)
-    void this.recordSender(session.sessionId, request.options)
+    void this.recordSender(session.sessionId, request.options, request.actor)
     if (backend.isSessionRunning(agentSessionId)) {
       this.rt.restarts.saveRestartRun({ ...request, input: { ...(session.runInput ?? request.input), agentSessionId } }, await sessionIsOrganizationWork(request.sessionId), 'running')
     }
@@ -1048,7 +1061,7 @@ export class RunLauncher {
     this.rt.publish(sessionId, this.userMessageEvent(options, undefined, request.actor), {
       except: request.servedQueueId || options.clientPromptId ? undefined : sourceClientId,
     })
-    void this.recordSender(sessionId, options)
+    void this.recordSender(sessionId, options, request.actor)
 
     let handle: RunHandle
     const activeRun: SessionRunRequest = { ...request, input: effectiveInput }

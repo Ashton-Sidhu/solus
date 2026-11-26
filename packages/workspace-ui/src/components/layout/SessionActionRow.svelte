@@ -36,14 +36,20 @@
   import { hostPolicy } from "@solus/client-core/host-policy";
   import "./SessionActionRow.css";
   import { checkoutGit, runHost, workingPlace } from "../../contexts/workspace/run-location";
+  import RunOnPicker from "../servers/RunOnPicker.svelte";
+  import { isRunOnHostLocked } from "../servers/run-on";
 
   let {
     tabId,
+    paneId,
     leftReservedWidth = 0,
     isAwayFromEnd = false,
     onJumpToEnd,
   }: {
     tabId: string;
+    /** The pane of this conversation; unset in the workspace's own column. */
+    paneId?: string;
+    /** Width the activity strip takes at the left; the Run on chip steps aside for it. */
     leftReservedWidth?: number;
     /** The reader scrolled up from the end; the jump-to-end arrow shows. */
     isAwayFromEnd?: boolean;
@@ -100,6 +106,17 @@
   const isPinned = $derived(
     sidebarStore.isPinned(sess?.id, runHost(sess?.run)),
   );
+
+  // Run on for a started session: the next turn can run on another host
+  // (RunHostChanges). Locked while a turn runs, and for a person who may not
+  // change the run of a shared session.
+  const isRunOnLocked = $derived(
+    isRunOnHostLocked(sess) ||
+      (!!sess && sessionComposerMode(runHost(sess.run), sess.id) !== "prompt"),
+  );
+  // The centered row keeps clear of whichever left-side item is wider.
+  let runOnWidth = $state(0);
+  const reservedWidth = $derived(Math.max(leftReservedWidth, runOnWidth));
 
   // ── Plan progress ──
   const progress = $derived(sess?.progress ?? null);
@@ -326,9 +343,28 @@
       <SessionActionList actions={listActions} onClose={closeActionList} />
     </div>
   {:else}
+    <!-- The activity strip takes this corner while it shows; a plan waits then,
+         so the host could not change anyway. The picker hides itself when
+         there is no other host to run on. -->
+    {#if sess && leftReservedWidth === 0}
+      <div
+        bind:clientWidth={runOnWidth}
+        class="pointer-events-auto absolute bottom-1.5 left-0 flex min-w-0 max-w-[calc(50%-1rem)] items-center"
+      >
+        <RunOnPicker
+          run={sess.run}
+          requesterId={tabId}
+          locked={isRunOnLocked}
+          onRun={(next) => session.runHosts.change(tabId, next.location)}
+          onDismiss={() => requestInputFocus({ tabId })}
+          variant="header"
+          {paneId}
+        />
+      </div>
+    {/if}
     <div
       class="pointer-events-auto absolute bottom-1.5 left-1/2 flex -translate-x-1/2 items-center gap-1 whitespace-nowrap text-workspace-chrome text-(--solus-text-tertiary)"
-      style:max-width="calc(100% - {leftReservedWidth * 2}px - 1rem)"
+      style:max-width="calc(100% - {reservedWidth * 2}px - 1rem)"
       role="toolbar"
       aria-label="Session actions"
     >

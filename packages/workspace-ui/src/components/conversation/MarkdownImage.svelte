@@ -153,7 +153,7 @@
        on the backdrop closes it. -->
   <dialog
     bind:this={dialog}
-    class="scrollbar-on-hover m-auto max-h-[90dvh] max-w-[90vw] overflow-auto rounded-lg bg-transparent p-0 outline-none backdrop:modal-backdrop"
+    class="scrollbar-on-hover m-auto max-h-[90dvh] max-w-[90vw] overflow-auto rounded-lg bg-transparent p-0 outline-none backdrop:media-backdrop"
     aria-label={text || "Image"}
     onclick={closeOnBackdrop}
     onclose={() => {

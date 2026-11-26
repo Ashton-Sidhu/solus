@@ -37,9 +37,6 @@ export type Scope =
   | 'go-to-file'
   /** Settings blocks shortcuts from the workspace kept behind its dialog. */
   | 'settings-dialog'
-  /** A capture from a snapshot plate, open at full size. Exclusive: while a
-   *  frame is up the arrow keys step the reel rather than the transcript. */
-  | 'snapshot-lightbox'
   /** The browser pane while it has focus: its own sub-page keys. */
   | 'browser-pane'
   /** The app surface while it has focus: the switch between the app and its Manage page. */

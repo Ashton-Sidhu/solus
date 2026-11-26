@@ -419,7 +419,8 @@ const ANNOTATION_LINE = /^\[Browser annotation: (.+)\]$/
 const ANNOTATION_CAPTURE_LINE = /^Annotated capture: (.+)$/
 const ANNOTATION_MARK_LINE = /^\d+\. /
 
-function attachedFile(path: string, index: number, serverId: string | undefined): Attachment {
+/** One sent file as the chip that shows it: a video plays, an image shows, others are files. */
+export function attachedFile(path: string, index: number, serverId: string | undefined): Attachment {
   const name = (hostPathBaseName(path) || path).replace(UPLOAD_NAME_PREFIX, '')
   const imageMime = storedAttachmentImageMime(path)
   if (imageMime) {

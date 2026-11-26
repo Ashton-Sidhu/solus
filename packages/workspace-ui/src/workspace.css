@@ -1292,9 +1292,8 @@ html, body, #root {
      a path. A keycap sets `leading-none` on itself and is unaffected. */
   --text-micro: 0.625rem;
   --text-micro--line-height: 1.25;
-  /* The chip rung the browser snapshot gallery and lightbox annotate an image
-     with: a viewport size or an error count laid over the capture, where the
-     chrome rung would cover what it labels. It began as the pull request
+  /* The small rung for a caption on a browser recording, where the chrome
+     rung would crowd what it labels. It began as the pull request
      review's meta rung; the review now reads at the chrome rung like the rest
      of the workspace, and only these overlays still want the smaller step. */
   --text-review-meta: 0.6875rem;
@@ -2818,6 +2817,12 @@ html.is-mac-workspace
   @variant dark {
     background: color-mix(in srgb, var(--background) 64%, transparent);
   }
+}
+
+/* One dark background for every image and video viewer, in both themes, so
+   the picture stands out from the page behind it. Dialogs use modal-backdrop. */
+@utility media-backdrop {
+  background: rgb(0 0 0 / 0.7);
 }
 
 @utility menu-surface {

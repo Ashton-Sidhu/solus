@@ -16,7 +16,7 @@ import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionRecords } from './session-records.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { AgentConversationCards } from './agent-conversation-cards'
-import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, followThreadProvider, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, splitSentAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests, dropBlockingQuestions } from './session.utils'
+import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, followThreadProvider, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, attachedFile, splitSentAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests, dropBlockingQuestions } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 import { hostReportedSetup, isWorktreeSetupCard, settleSetupCard } from '@solus/contracts/setup-card'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -961,14 +961,17 @@ export class SessionEventReducer {
         if (outbound?.reason === 'rate_limit' && outbound.enqueuedAt) {
           message.queuedWaitMs = Date.now() - outbound.enqueuedAt
         }
-        // A prompt this client did not compose (another agent's send_session)
-        // carries its files as the composer's `[Attached file: …]` lines.
+        // A prompt this client did not compose names its files beside the
+        // text (`attachedFilePaths`), or, from another agent's send_session,
+        // as the composer's `[Attached file: …]` lines in the text.
         const attached = outbound ? null : splitSentAttachments(event.text, runHost(session.run))
+        const namedFiles = outbound ? [] : (event.attachedFilePaths ?? []).map((path, index) => attachedFile(path, index, runHost(session.run)))
         if (attached?.attachments.length) message.content = attached.text
         if (outbound?.attachments?.length) {
           message.attachments = outbound.attachments
-        } else if (attached?.attachments.length || event.imageAttachmentRefs?.length || event.imageAttachments?.length) {
+        } else if (namedFiles.length || attached?.attachments.length || event.imageAttachmentRefs?.length || event.imageAttachments?.length) {
           message.attachments = [
+            ...namedFiles,
             ...(attached?.attachments ?? []),
             ...(imageRefAttachments(event.imageAttachmentRefs) ?? []),
             ...(event.imageAttachments ?? []).map((image) => ({

@@ -272,8 +272,10 @@ export class ProviderEvents {
           existingSession.gitContext ??= runReqInput?.gitContext ?? undefined
           // The record now exists from dispatch, so this init is what takes it
           // out of 'connecting'. Anything already busier than that (awaiting
-          // input, rate-limited) outranks it and is left alone.
-          if (existingSession.status === 'connecting' || !isSessionBusyStatus(existingSession.status)) {
+          // input, rate-limited) outranks it and is left alone. A run that Stop
+          // aborted can still report its init; the stopped turn stays stopped.
+          const isStopped = !!this.rt.turnStops.get(initSessionId)?.signal.aborted
+          if (!isStopped && (existingSession.status === 'connecting' || !isSessionBusyStatus(existingSession.status))) {
             this.rt.statuses.setStatus(initSessionId, 'running')
           }
         } else {

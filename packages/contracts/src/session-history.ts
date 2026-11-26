@@ -2,6 +2,7 @@ import type { AgentId, ContextCompaction, ExchangeProgress, SessionDescription, 
 import type { SessionReport } from './session-exchange'
 import type { SecretOutcomeRecord } from './secret-request'
 import type { Activity } from './activity'
+import type { User } from './user'
 import type { ArtifactLayout } from './artifact-page'
 import type { SavedMessageBody, SavedToolBody } from './session-feed-item'
 
@@ -131,6 +132,9 @@ export interface SessionLoadMessage {
   imageAttachmentRefs?: PromptImageRef[]
   /** The agent or automation that sent a user turn, from the host's record. */
   sender?: PromptSender
+  /** The person who sent a user turn, from the host's record. Absent on a turn
+   *  from before the host kept it, and on one that no person wrote. */
+  author?: User
   /** Images a tool returned: on a `tool_result` row, or on a `tool` row that
    *  carries its own output (Codex). */
   toolImages?: ToolResultImage[]

@@ -94,7 +94,7 @@ class RecordingBackend extends EventEmitter implements AgentBackend {
     await Promise.resolve()
   }
 
-  getSessionHandle(): RunHandle | undefined { return undefined }
+  getSessionHandle(threadId: string): RunHandle | undefined { return this.handles.find((handle) => handle.agentSessionId === threadId) }
   getPendingHandles(): RunHandle[] { return [...this.handles] }
   cancelSession(threadId: string): boolean {
     this.cancelledThreads.push(threadId)
@@ -230,6 +230,40 @@ describe('Stop once the provider runs', () => {
     expect(plane.stopSession(sessionId, HOST_ACTOR)).toBe(true)
 
     expect(backend.handles[0]?.abortController.signal.aborted).toBe(true)
+    plane.shutdown()
+  })
+
+  test('keeps the turn stopped when session_init arrives after Stop', async () => {
+    // WHY: a run that Stop aborted can still report session_init before it exits.
+    // That late init must not open the stopped turn again, or every client shows
+    // it as running ("Picking this back up…") until the next prompt.
+    const backend = new RecordingBackend()
+    const plane = new runtime.SessionRuntime(new Map([['claude-code', backend]]))
+    plane.on('error', () => {})
+    const statuses: string[] = []
+    plane.on('event', (_sessionId: string, event: NormalizedEvent) => {
+      if (event.type === 'status_change') statuses.push(event.status)
+    })
+    const sessionId = 'solus-stop-late-init'
+
+    const lifecycle = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId, input: input(), tools: [],
+      options: { prompt: 'do the work', promptSource: 'typed' },
+    })
+    void lifecycle.done.catch(() => {})
+    expect(plane.stopSession(sessionId, HOST_ACTOR)).toBe(true)
+    const stoppedAt = statuses.length
+
+    const handle = backend.handles[0]!
+    handle.agentSessionId = 'thread-late-init'
+    backend.emit('normalized', 'thread-late-init', {
+      type: 'session_init', sessionId: 'thread-late-init', model: 'claude-test', skills: [],
+    } satisfies NormalizedEvent)
+    backend.emit('exit', 'thread-late-init', null, 'SIGINT', handle)
+    await backend.endRun()
+
+    expect(statuses.slice(stoppedAt)).not.toContain('running')
+    expect(statuses.at(-1)).toBe('interrupted')
     plane.shutdown()
   })
 

@@ -359,6 +359,7 @@ export function materializeSessionTranscript(
       }
     }
     if (m.role === 'user' && m.sender) msg.sender = m.sender
+    if (m.role === 'user' && m.author) msg.author = m.author
     // The reply's content is kept as read, so the frame offsets stay valid.
     if (m.role === 'assistant' && m.replyHtmlLayout) msg.replyHtmlLayout = m.replyHtmlLayout
     if (m.role === 'user' && m.imageAttachmentRefs?.length) {

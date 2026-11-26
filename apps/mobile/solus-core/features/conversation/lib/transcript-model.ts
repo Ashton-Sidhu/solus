@@ -976,7 +976,7 @@ export class TranscriptModel {
       this.append({ kind: 'user', sender: event.sender, via: event.via, id: event.clientPromptId ?? this.mintId('u'), text: event.text, delivery: 'sent', error: null, attachments: [], backgroundCommand })
       return
     }
-    const { text, files } = splitAttachedFiles(event.text)
+    const { text, files } = splitAttachedFiles(event.text, event.attachedFilePaths)
     const attachments = [...promptImageAttachments(event.imageAttachments, event.imageAttachmentRefs), ...files]
     this.append({ kind: 'user', sender: event.sender, via: event.via, id: event.clientPromptId ?? this.mintId('u'), text, delivery: 'sent', error: null, attachments })
   }

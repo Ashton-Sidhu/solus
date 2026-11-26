@@ -1599,8 +1599,9 @@ export interface Message {
   sender?: PromptSender
   /** Correlates the committed transcript entry with its optimistic outbox row. */
   clientPromptId?: string
-  /** Who wrote this prompt, as the host stamped it. Live-only, like `via`: a
-   *  history reload does not know, and the bubble then carries no name. */
+  /** Who wrote this prompt, as the host stamped it. The host keeps it, so a
+   *  history reload carries it too; a prompt from before the host kept it
+   *  carries no name. */
   author?: User
   /** How this message entered an already-running session. */
   delivery?: PromptDelivery
@@ -2165,7 +2166,9 @@ export type NormalizedEvent =
    *  codebase that the host made is also a `codebase_formed` activity. */
   | { type: 'session_codebase'; codebaseId: string; name: string }
   | { type: 'git_status'; cwd: string; state: GitState | null }
-  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; sender?: PromptSender; author?: User }
+  /** `text` is what the person typed. `attachedFilePaths` names the files the
+   *  composer put before it in the prompt, so every client shows them as chips. */
+  | { type: 'user_message'; text: string; attachedFilePaths?: string[]; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; sender?: PromptSender; author?: User }
   | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia; author?: User }
   | { type: 'prompt_dequeued'; queueId: string }
   | { type: 'session_queue'; held: boolean; entries: QueuedPromptSnapshot[] }
