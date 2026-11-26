@@ -52,7 +52,16 @@ Maintainer request, 2026-11-26: bring over T3 Code's connect UX. T3 Code writes 
 6. **Share.** Clients show a QR code for an app link, and a dialog with the value when the clipboard fails. The host menu has **Copy MCP address**.
 7. **`solus mcp`** prints the addresses and the setup commands. `solus mcp code --access` makes a code over the local socket.
 
-Not brought over: T3 Code's peer links (agents on one machine using threads on another), and its hosted approval page. One-click approval and member pairing codes cover the need of that page.
+Not brought over: T3 Code's peer links (agents on one machine using threads on another). Its hosted approval page has an equivalent in §0.5.
+
+### 0.5 Approval in your own Solus client (built)
+
+Maintainer request, 2026-11-26: remove the limits of §0.4. Members could approve only with a pairing code, because the consent page reads only a paired-device token from the browser.
+
+1. **Approve in Solus.** The consent page keeps a waiting sign-in: a 128-bit `requestId`, a check code, the access, and an expiry of ten minutes. It shows the code, a QR code of `appSignInLink` (`solus://approve-app?host=&request=`), and, when the host serves its web client at the page's origin, a link `/?approveApp=&host=`. The person approves in a client where they are signed in: `connectionsReadAppSignIn` (by id or code, rate-limited) and `connectionsDecideAppSignIn`, with `appApproverOf(ctx.principal)` and the app allow-list. A sign-in is decided once. This works through the tunnel, because the approver proves who they are in their own client, and no request is pushed to anyone. The owner's old in-app approval is now **Ask the host owner**, on the host's network only.
+2. **Clients.** On mobile, the `solus://approve-app` link opens a sheet (production scheme; dev and preview builds take their own scheme by hand), and **Approve a sign-in** takes the code. On desktop and web, **Approve a sign-in** is in the dialog and the palette. The desktop app registers no `solus://` scheme: the phone app owns it.
+3. **First call.** An app's first call writes `last_seen_at` at once, so it does not show "Not connected yet" for a minute.
+4. **Catalog.** Muse returns to `agent.meta.ai` (third-party connector guides) or `muse.ai`. Instinct is matched by `instinct.com` and its subdomains, which only Instinct controls. Cursor installs Solus from its MCP install link (`cursor://anysphere.cursor-deeplink/mcp/install`), which the desktop app allows in exactly that shape. ChatGPT's QR code carries the address.
 
 ## 1. Problem
 

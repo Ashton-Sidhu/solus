@@ -14,19 +14,24 @@ Every person who uses the host can connect an app: the owner, and each member of
 2. **Which app?** Choose Claude, ChatGPT, Grok Bot, Poke, Muse, Instinct, Cursor, Claude Code, Codex, OpenClaw, or Hermes Agent. For another app, choose **Something else…**. An app that your organization does not allow is marked and cannot be chosen. Mobile shows only the apps that run in the cloud, because a phone cannot run commands or open Cursor.
 3. **What can the app do?** Choose Read, Read and write (the default), or Full. See [Access](#access).
 4. **Connect.**
-   - The main button opens the app with the address filled in, or copies the address or a message and then opens the app. For an app that runs on a computer, Solus shows the commands to run.
-   - For an app that opens a link, a QR code opens the same link on your phone.
+   - The main button opens the app with the address filled in, or copies the address or a message and then opens the app. Cursor installs Solus from one link. For an app that runs on a command line, Solus shows the commands to run.
+   - For a cloud app that opens a link, a QR code opens the same link on your phone. For ChatGPT, which takes a pasted address, the QR code gives the address to your phone.
    - **Get code** makes a pairing code for the access you chose. It shows "Expires m:ss · one use" and counts down. When it expires, get a new code. Solus does not copy the code for you.
    - **Set up another way** shows the address, the message, the steps for that app, a note about the app, and a link to the app's help.
-5. The app opens a sign-in page on the host. The page names the app, and the place where its access goes. When the app is on the computer that opened the page, the page says so. Approve the app in one of two ways:
-   - **Pairing code.** Type the code from step 4. The code gives the access that was chosen when it was made.
-   - **Approve in the Solus app.** The host owner sees the request on desktop, web, and mobile. Check that its code is the same as the code on the sign-in page. The access is the one chosen on the sign-in page.
+5. The app opens a sign-in page on the host. The page names the app, and the place where its access goes. When the app is on the computer that opened the page, the page says so. Approve the app in one of these ways:
+   - **Approve in Solus.** Choose the access, then approve as yourself in a Solus client where you are signed in. This works for the owner and for members, also through the public address. The page shows a code and a QR code, and waits ten minutes:
+     - On your phone, scan the QR code with the camera. The Solus app opens the sign-in.
+     - On desktop or web, open **Approve a sign-in** in **Use Solus in other apps** (or the command palette command **Approve an app sign-in**) and type the code.
+     - When the host serves its web client at the page's address, **Open Solus on the web** opens the sign-in there.
 
-   - **Approve as {name}.** When this browser is signed in to the host's web client at the same address, the page offers to approve as you, with the access chosen on the page. No code is needed.
+     Solus shows the app, where its access goes, the access, and the time left. **Approve** or **Deny**. Then go back to the app.
+   - **Approve as {name}.** When this browser is signed in to the host's web client at the same address, the page approves as you with one click, with the access chosen on the page.
+   - **Pairing code.** Type a code from step 4. The code gives the access that was chosen when it was made.
+   - **Ask the host owner.** On the host's own network, the owner sees the request on desktop, web, and mobile. Check that its code is the same as the code on the sign-in page.
 
    **Deny** sends the app away with no access. Approve only a sign-in that you just started.
 
-Through the public address, and on a cloud machine, only a pairing code approves an app.
+Through the public address, and on a cloud machine, the owner is not asked: approve in Solus, or use a pairing code.
 
 ### Before the steps
 
@@ -86,5 +91,5 @@ Connected apps are listed with their access and when each one last connected: on
 ## Limits
 
 - An organization can choose which apps its members may connect: in its policy, **Outside apps** under the session limits. With no choice, every app may connect. An app the policy does not allow cannot sign in, and an app approved before stops working.
-- Solus knows an app by where its sign-in returns. An app on your own computer, such as Claude Code, Codex, OpenClaw, or Hermes Agent, is one of **Apps on your computer**. An app Solus does not know is one of **Other apps**. Solus does not know yet where Muse and Instinct sign-ins return, so a policy counts them as **Other apps**.
+- Solus knows an app by where its sign-in returns. An app on your own computer, such as Claude Code, Codex, OpenClaw, or Hermes Agent, is one of **Apps on your computer**. An app Solus does not know is one of **Other apps**. Muse is known by its sign-in at `agent.meta.ai` or `muse.ai`. Instinct publishes no sign-in address, so Solus takes any address at `instinct.com`.
 - An app can register only a sign-in return address that uses `https`, `localhost`, or the app's own scheme (such as `cursor:`).
