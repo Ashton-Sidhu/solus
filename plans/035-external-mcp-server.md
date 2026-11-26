@@ -80,69 +80,69 @@ interface McpGrant {
 
 ## 5. Tool access
 
-### 5.1 The declaration
+### 5.1 The rule of each tool
 
-`access` is a required field on `AgentTool`, so the compiler finds every tool.
+Every Solus tool has one rule in `TOOL_ACCESS` (`execution/agents/tools/tool-access.ts`). The table is keyed by tool name and must name every tool in `SOLUS_AGENT_TOOL_NAMES`: the type check fails when a tool has no rule, as it does for an RPC method that the access tables do not name (`contracts/src/permissions.ts`). A tool made for one run (an integration's tool, a resource tool, an app operation) carries its rule in its own `access` field. A tool with no rule is refused.
 
 ```ts
-interface ToolAccess {
-  /** The action authorize() checks: a host Permission or a resource action. */
-  action: Permission | ResourceActionPath
-  /** Where the resource id is in the input, as RESOURCE_LOCATORS does for RPC methods. */
-  resource?: (input: unknown, caller: McpCaller) => AccessResource | null
-  /** read: allowed for a read grant. write: needs a write grant. destructive: also needs approval. */
-  effect: 'read' | 'write' | 'destructive'
-  /** The Solus API scope an outside app needs. */
-  scope: SolusApiScope
-  /** Listed for client callers. False when it is not set. */
-  exposeToApps?: true
-}
+type ToolAccess =
+  | { permission: Permission }                                  // a permission on the host
+  | { action: ResourceActionPath; resource: ToolResource }      // a verb on the record the call names
+
+/** The record a call names: from an input field (`work_id`, `session_id`, …), or the session the call runs in. */
+type ToolResource = (input: ToolCallInput, callerSessionId: string | undefined) => AccessResource | null
 ```
 
-`effect: 'destructive'` replaces `requiresApproval`.
+Each rule is the rule of the RPC method for the same action. For example, `update_work` needs `edit` on the work (as `agentSaveWork`), `run_automation` needs `drive` on the automation (as `automationRun`), the pull request writes need `host.git.write` (as `prMerge`), and a tool that acts on its own session needs the verb on that session (`move_checkout` needs `drive.prompt`, as `sessionAttachFolder`).
+
+Later phases add two fields to the rule:
+- `effect: 'read' | 'write' | 'destructive'` (Phase 2, when approval moves into the endpoint; `destructive` then replaces `requiresApproval`);
+- `exposeToApps: true` (Phase 4).
+
+There is no Solus API scope in the rule. The scope list has no scopes for automations, projects, or pull requests, so the grant level (read, write, or full) is the only limit on an outside app.
 
 ### 5.2 The gate
 
+The check is `toolAccessRefusal(tool, input, callerSessionId, principal)`. It calls `authorize()` (`admission/access-policy.ts`), the decision that RPC and the Solus API use, through `toolActionRefusal` in `admission/workspace-tool-authority.ts`. Phase 1 runs it in `credentialScopedAgentTools` (`execution/sessions/run-lifecycle.ts`), before each tool call of a run, with the turn's principal. A refused call returns an error result and the tool does not run.
+
 The endpoint runs these checks in this order. A tool runs only when all of them pass.
 
-1. **Caller.** A client caller may call only an `exposeToApps` tool.
-2. **Grant.** For a client caller, the tool's `effect` and `scope` must be within the grant.
-3. **Person.** `authorize(principal, access.action, access.resource(input, caller))`. The principal is the actor of the active run, or the client's principal.
+1. **Caller.** A client caller may call only an `exposeToApps` tool (Phase 4).
+2. **Grant.** For a client caller, the tool's `effect` must be within the grant level (Phase 4).
+3. **Person.** `toolAccessRefusal` with the principal of the caller: the actor of the active run, or the client's principal.
 4. **Settings → Tools switch.** This stays in `executeAgentTool`.
 5. **Approval** (§6).
 6. **Run.** `execute` runs inside `withActorScope(actor)` and `withWorkspaceToolAuthority(principal)`, with an `AgentToolContext` built from the caller.
 
-`tools/list` uses the same declaration: the caller kind, the grant, and the host permission. Resource checks run only on a call. A session caller gets the `tools` of its active run. When they change, the endpoint sends `notifications/tools/list_changed`.
+`tools/list` uses the same rules: the caller kind, the grant, and the host permission. Resource checks run only on a call. A session caller gets the `tools` of its active run. When they change, the endpoint sends `notifications/tools/list_changed`.
 
-MCP annotations come from the declaration:
+MCP annotations come from the rule:
 - `effect` becomes `readOnlyHint` and `destructiveHint`.
 - `alwaysLoad` becomes `_meta: { "anthropic/alwaysLoad": true }`. T3 Code uses this for Claude (`toolkits/orchestrator/tools.ts:221`).
 
-### 5.3 No principal is never `system`
+### 5.3 A call with no principal
 
-The endpoint always sets a principal. The host's own work, such as an automation, uses `system` explicitly. So these fallbacks, which treat "no principal" as `system`, are deleted, and a missing principal throws:
+Some tools still read "no principal" as the host's own work and act as `system` (`app-tools.ts`, `automation-tools.ts`, `webhook-tools.ts`, `insights-tools.ts`, `add-mcp-server-tool.ts`, `connect-integration-tool.ts`, and `toolMayRead` and `assertToolMay`). This stays: plans/031 rule 1 says that the host's own work, with no person, may do everything, and `tests/unit/tool-access.test.ts` keeps that rule. The risk is closed at the gate instead. `toolAccessRefusal` takes a principal that cannot be absent, and every way into a tool (a run's tools, and later the endpoint) runs it first. The endpoint never sends a request with no principal to a tool.
 
-- `tool-context.ts:44`
-- `app-tools.ts:67`
-- `automation-tools.ts:226`
-- `webhook-tools.ts:179`
-- `insights-tools.ts:44`
-- `integrations/add-mcp-server-tool.ts:50`
-- `integrations/connect-integration-tool.ts:96`
-- `toolMayRead` and `assertToolMay` in `admission/workspace-tool-authority.ts`
+### 5.4 Access gaps fixed in Phase 1
 
-### 5.4 Access gaps to fix
+These tools could be reached from the harness turns of organization members and guests:
 
-These tools can be reached from the harness turns of organization members today:
-
-| Tool | Gap | New declaration |
+| Tool | Gap | Now |
 |---|---|---|
-| `update_config` | Writes host config and SSH device hosts with no check (`config-tools.ts:170-203`) | `host.admin`, `destructive` |
-| `reply_comment`, `resolve_comment` | No access check | `comment` on the work or plan |
+| `update_config` | Wrote host config and SSH device hosts with no check (`config-tools.ts`) | `host.connect`, and `host.admin` for the `host` and `deviceManager` sections |
+| `reply_comment`, `resolve_comment` | No access check | `comment` on the work, or on the session of a plan |
 | `publish_work`, `pull_work_upstream` | No role check on the local path | `edit` on the work |
-| `read_task` | No check for each person (to confirm) | `read` on the task |
-| `create_automation`, `create_webhook` | With no session, the host user becomes the owner | Record the actor as the owner |
-| `start_sessions` | With no parent, the session runs as the host (`prompt-dispatch.ts:388-399`) | Run as the caller's person |
+| Every host-wide tool from a guest's turn | A guest's turn reached tools that its guest cannot reach from a client | Refused: a guest has no `host.use` (plans/031: "a guest still reaches only its link's resource") |
+
+These gaps are for callers with no session, so they move to Phase 4:
+
+| Tool | Gap |
+|---|---|
+| `create_automation`, `create_webhook` | With no session, the host user becomes the owner. Record the actor as the owner. |
+| `start_sessions` | With no parent, the session runs as the host (`prompt-dispatch.ts:388-399`). Run as the caller's person. |
+
+`read_task` has no gap: the task RPCs also use `host.use`.
 
 ## 6. Approval
 
@@ -280,7 +280,7 @@ Other apps use their own connector screens with the same URL.
 | Area | Files |
 |---|---|
 | Endpoint, tokens, caller, gate | new `packages/server/src/transport/mcp/`; `transport/http.ts` |
-| Tool access | `execution/agents/tools/agent-tool.ts` (`access`), every tool file, `admission/workspace-tool-authority.ts` |
+| Tool access | `execution/agents/tools/tool-access.ts` (`TOOL_ACCESS`), the per-run tool builders, `admission/workspace-tool-authority.ts` |
 | Approval | the gate, `execution/sessions/input-requests.ts` |
 | Harness configuration | `claude-backend.ts`, `claude-agent.ts`, `codex-backend.ts`, `codex-utils.ts`; delete `claude-tool-adapter.ts` and the tool code in `codex-tool-adapter.ts` |
 | Run binding | `execution/sessions/run-launcher.ts`, `run-lifecycle.ts` (delete `credentialScopedAgentTools`) |
@@ -292,7 +292,7 @@ Other apps use their own connector screens with the same URL.
 
 ## 13. Phases
 
-1. **Access foundation.** Add `access` to every tool, fix the gaps in §5.4, delete the fallbacks in §5.3, and add the toolbox test. Harness behavior does not change.
+1. **Access foundation.** Done: `TOOL_ACCESS`, the check before each tool call of a run, and the gap fixes in §5.4 (`tests/unit/tool-access-table.test.ts`). Harness behavior changed only where §5.4 says.
 2. **Endpoint and Claude.** Add `/mcp`, session tokens, `ActiveRun`, the gate, and approval. Move the cards to tool results (§9.1). Move Claude to HTTP. Delete the in-process server.
 3. **Codex.** Move Codex to `mcp_servers` with `solus-direct`, and accept its approval elicitations for the Solus servers. Delete the dynamic tools.
 4. **Outside apps.** Add OAuth on the host with approval in the app and by pairing code, client admission, `exposeToApps`, the `session_id` arguments, requester keys, `start_sessions` as the person, and the UI on all three clients.
