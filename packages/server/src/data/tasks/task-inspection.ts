@@ -1,7 +1,8 @@
 import { connectedSite } from '../../atlassian/api'
 import { linearConnection } from './providers/linear-api'
 import { issueKey } from '@solus/contracts/task-sources'
-import { withTaskProviderMetadata } from '@solus/contracts/task-data'
+import { GITHUB_PROVIDER_CAPABILITIES as GITHUB_CAPABILITIES, providerDataFromMetadata } from '@solus/contracts/task-data'
+import { changeEvents, changelogPageSchema, JIRA_PROVIDER_CAPABILITIES } from './providers/jira-model'
 import { serializeTaskWrite } from './task-writes'
 import {
   inspectLinearIssue,
@@ -17,6 +18,7 @@ import type {
   TaskTemplate
 } from '@solus/contracts/task-data'
 import { githubRun, jiraTransport, taskAdapters } from './providers/registry'
+import { readGithubIssueTimeline } from './providers/github-issue-timeline'
 import { githubIssueDetails, readIssueNode } from './providers/github'
 import {
   GITHUB_ISSUE_METADATA_QUERY, githubIssueIdentity, githubIssueMetadata, githubReactionContent,
@@ -25,8 +27,7 @@ import {
 import type { ProviderTaskDetails } from './providers/types'
 import { getTask } from './task'
 import type { RecordScope } from '../../admission/principal'
-import { emitChanged, taskHomeOf } from './task-store'
-import { readGithubIssueTimeline } from '../../providers/github/issue-timeline'
+import { emitChanged } from './task-store'
 
 const emptyInspection = (reason: string): TaskProviderData => ({
   author: null,
@@ -45,77 +46,44 @@ export async function inspectTask(taskId: string, cursor?: string, timelineOnly 
   if (cursor && cursor.length > 4096) throw new Error('Invalid history cursor.')
   if (ref.provider === 'linear') return inspectLinearIssue(ref.workspaceId, ref.id, cursor)
   if (ref.provider === 'github')
-    return githubRun('inspect_github_task', async ({ graphql, rest }) => {
-      const capabilities = { history: true, reactions: true, multipleAssignees: true, templates: true }
-      const home = cursor || timelineOnly ? await taskHomeOf(taskId) : null
-      if (home?.provider === 'github' && home.kind === 'issue') {
-        const timeline = await readGithubIssueTimeline(rest, taskId, home, cursor)
-        return { ...timeline, author: null, assignees: [], reactions: [], capabilities }
+    // One GraphQL query: an older page of history, the newest page alone, or
+    // the newest page with the issue's provider metadata.
+    return githubRun('inspect_github_task', async ({ graphql }) => {
+      const draft = emptyInspection('Draft items do not expose provider history or reactions.')
+      if (cursor || timelineOnly) {
+        const history = await readGithubIssueTimeline(graphql, taskId, ref.id, cursor)
+        return history ? { ...history, author: null, assignees: [], reactions: [], capabilities: GITHUB_CAPABILITIES } : draft
       }
       const { node } = await graphql<{ node: GitHubIssueProviderSelection | null }>(GITHUB_ISSUE_METADATA_QUERY, { id: ref.id })
-      if (node && node.__typename !== 'Issue')
-        return emptyInspection('Draft items do not expose provider history or reactions.')
+      if (node && node.__typename !== 'Issue') return draft
       const identity = githubIssueIdentity.safeParse(node)
-      if (!node || !identity.success || !identity.data.repository || identity.data.number === undefined)
-        throw new Error('This issue is unavailable to your GitHub connection.')
-      const { repository, number } = identity.data
-      const [timeline, metadata] = await Promise.all([
-        readGithubIssueTimeline(rest, taskId, { owner: repository.owner.login, repo: repository.name, number }, cursor),
-        githubIssueMetadata(node, graphql)
-      ])
-      const data = { ...timeline, author: null, assignees: [], reactions: [], capabilities }
-      return metadata ? withTaskProviderMetadata(data, metadata) : data
+      if (!node || !identity.success) throw new Error('This issue is unavailable to your GitHub connection.')
+      const metadata = await githubIssueMetadata(taskId, node, graphql)
+      if (!metadata) throw new Error('GitHub did not return the history of this issue.')
+      return providerDataFromMetadata(metadata)
     })
-  const answer = await taskAdapters().provider(ref.provider).fetch(ref)
-  if (answer.task.home.provider !== 'jira')
-    return emptyInspection('Provider history is unavailable for this task.')
-  const home = answer.task.home
-  const startAt = cursor ? z.coerce.number().int().nonnegative().parse(cursor) : 0
+  // Jira: the detail read carries the newest changes; an older page is one
+  // changelog read, addressed by the issue id the key names.
+  if (!cursor) {
+    const { providerMetadata } = await taskAdapters().provider('jira').fetch(ref)
+    if (!providerMetadata) throw new Error('Jira did not return the history of this issue.')
+    return providerDataFromMetadata(providerMetadata)
+  }
+  const startAt = z.coerce.number().int().nonnegative().parse(cursor)
   const page = await jiraTransport.request(
     {
-      cloudId: home.cloudId,
-      path: `/rest/api/3/issue/${encodeURIComponent(home.key)}/changelog`,
-      query: { startAt: String(startAt), maxResults: '50' }
+      cloudId: ref.cloudId,
+      path: `/rest/api/3/issue/${encodeURIComponent(ref.id)}/changelog`,
+      query: { startAt: String(startAt), maxResults: '100' }
     },
-    z.object({
-      startAt: z.number(),
-      maxResults: z.number(),
-      total: z.number(),
-      values: z.array(
-        z.object({
-          id: z.string(),
-          created: z.string(),
-          author: z.object({ displayName: z.string() }).nullish(),
-          items: z.array(
-            z.object({
-              field: z.string(),
-              fromString: z.string().nullish(),
-              toString: z.string().nullish()
-            })
-          )
-        })
-      )
-    })
+    changelogPageSchema
   )
+  const next = page.startAt + page.values.length
   return {
     ...emptyInspection('Jira supports one assignee and has no issue reactions.'),
-    commentsTruncated: answer.commentsTruncated,
-    assignees: answer.task.assignee
-      ? [{ login: answer.task.assignee, avatarUrl: answer.task.assigneeAvatarUrl }]
-      : [],
-    events: page.values.flatMap((change) =>
-      change.items.map((item, index) => ({
-        id: `${change.id}:${index}`,
-        at: Date.parse(change.created),
-        actor: change.author?.displayName ?? null,
-        text: `changed ${item.field} from “${item.fromString ?? 'none'}” to “${item.toString ?? 'none'}”`
-      }))
-    ),
-    historyCursor:
-      page.startAt + page.values.length < page.total
-        ? String(page.startAt + page.values.length)
-        : null,
-    capabilities: { history: true, reactions: false, multipleAssignees: false, templates: false }
+    events: changeEvents(page.values),
+    historyCursor: page.values.length && next < page.total ? String(next) : null,
+    capabilities: JIRA_PROVIDER_CAPABILITIES
   }
 }
 
@@ -292,8 +260,8 @@ export async function resolveTaskUrl(
   const taskId = issueKey(resolved.task.ref)
   const details = await getTask(scope, taskId, personKey, { resolved })
   if (detailsOnly) return { details, readOnly: true }
+  // GitHub's detail read already holds the newest page of history.
   const metadata = details.providerMetadata
-  const timeline = await inspectTask(taskId, undefined, !!metadata)
-  const inspection = metadata ? withTaskProviderMetadata(timeline, metadata) : timeline
+  const inspection = metadata?.events ? providerDataFromMetadata(metadata) : await inspectTask(taskId)
   return { details, inspection, readOnly: true }
 }

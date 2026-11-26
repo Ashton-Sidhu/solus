@@ -1,4 +1,4 @@
-import type { IssueSidebarSnapshot } from '@solus/contracts/task-types'
+import type { IssueList } from '@solus/contracts/task-types'
 import { getDatabase } from '../../db/database'
 import { readTaskPrLinks } from './task-links'
 import { listTasks, type TaskReader } from './task-store'
@@ -11,7 +11,7 @@ import { taskSessions } from './task-sessions'
  * has no copy on this host: a host can hold the links of a task it never read.
  * `taskIds` narrows the read to the tasks a `issues.invalidated` event named.
  */
-export async function readTaskSidebarSnapshot(reader: TaskReader, taskIds?: readonly string[]): Promise<IssueSidebarSnapshot> {
+export async function readTaskSidebarSnapshot(reader: TaskReader, taskIds?: readonly string[]): Promise<IssueList> {
   return {
     tasks: await listTasks(reader, taskIds),
     sessionsByTask: await taskSessions(reader.scope, taskIds),

@@ -2,7 +2,9 @@ import { z } from 'zod'
 import type { IssueRef, IssueSource, IssueStatusCategory } from '@solus/contracts/task-sources'
 import type { IssueAssigneeCandidate, IssueUpdatePatch } from '@solus/contracts/task-types'
 import type { TaskInvolvement } from '@solus/contracts/task-data'
+import { currentPersonKey } from '../../../vault/acting-scope'
 import { assetReferencesIn } from '../task-assets'
+import { LINEAR_PROVIDER_FIELDS, linearInspectionSchema, linearProviderData } from './linear-inspection'
 import {
   linearCategory,
   linearIssueSchema,
@@ -19,6 +21,7 @@ import {
   type ProviderTaskDetails,
   type SourceMove,
   type SourceRead,
+  type SourceReadHeld,
   type SourceWriteState,
   type TaskDraft,
   type TaskHome,
@@ -78,7 +81,8 @@ function toTask(issue: z.infer<typeof linearIssueSchema>, workspaceId: string): 
     updatedAt: Date.parse(issue.updatedAt)
   }
 }
-async function choices(teamId: string) {
+/** Read the states, members and labels of a team, and keep them for the next write. */
+async function readChoices(teamId: string) {
   const answer = await linearRequest(
     'query($id: String!) { organization { id } team(id: $id) { name states { nodes { id name type position } } members(first: 100) { nodes { id name email avatarUrl } } labels(first: 100) { nodes { id name } } } }',
     { id: teamId },
@@ -93,7 +97,27 @@ async function choices(teamId: string) {
     })
   )
   answer.team.states.nodes.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+  heldChoices.set(choicesKey(teamId), { choices: answer, readAt: Date.now() })
   return answer
+}
+type LinearChoices = Awaited<ReturnType<typeof readChoices>>
+/** The choices of each team, for each person, as their last read gave them. */
+const heldChoices = new Map<string, { choices: LinearChoices; readAt: number }>()
+/** A team's states, members and labels change rarely, so a write uses a copy this recent. */
+const CHOICES_KEEP_MS = 10 * 60_000
+function choicesKey(teamId: string): string {
+  return `${currentPersonKey() ?? ''}\u0000${teamId}`
+}
+/**
+ * The choices a write needs: a recent copy, else one read. A source read
+ * calls `readChoices` itself, so its columns are always fresh. A write whose
+ * copy lacks what it names reads once more (`hasChoice`): the team may have
+ * changed since the copy.
+ */
+async function choices(teamId: string, hasChoice: (account: LinearChoices) => boolean = () => true): Promise<LinearChoices> {
+  const held = heldChoices.get(choicesKey(teamId))
+  if (held && Date.now() - held.readAt < CHOICES_KEEP_MS && hasChoice(held.choices)) return held.choices
+  return readChoices(teamId)
 }
 function requestedAssignees(patch: IssueUpdatePatch): string[] | undefined {
   const assignees =
@@ -116,7 +140,9 @@ async function writeInput(
   if (patch.dueDate !== undefined) input.dueDate = patch.dueDate
   const assignees = requestedAssignees(patch)
   if (patch.labels !== undefined || assignees !== undefined) {
-    const account = await choices(home.teamId)
+    const account = await choices(home.teamId, ({ team }) =>
+      (patch.labels ?? []).every((name) => team.labels.nodes.some((label) => label.name === name))
+      && (!assignees?.length || team.members.nodes.some((person) => person.email === assignees[0])))
     checkWorkspace(account.organization.id, home.workspaceId)
     if (patch.labels !== undefined)
       input.labelIds = patch.labels.map((name) => {
@@ -133,19 +159,26 @@ async function writeInput(
   }
   return input
 }
+const detailSchema = z.object({
+  organization: organizationSchema,
+  issue: linearIssueSchema.extend({
+    comments: z.object({ nodes: z.array(commentSchema), pageInfo })
+  })
+})
+/** One query: the issue, its comments, and its provider section (history, reactions, links). */
 async function readIssue(
   ref: Extract<IssueRef, { provider: 'linear' }>
 ): Promise<ProviderTaskDetails> {
-  const answer = await linearRequest(
-    `query($id: String!) { organization { id } issue(id: $id) { ${LINEAR_ISSUE_FIELDS} comments(first: 100) { nodes { id body createdAt user { name } } pageInfo { hasNextPage endCursor } } } }`,
-    { id: ref.id },
-    z.object({
-      organization: organizationSchema,
-      issue: linearIssueSchema.extend({
-        comments: z.object({ nodes: z.array(commentSchema), pageInfo })
-      })
-    })
+  const data = await linearRequest(
+    `query($id: String!, $before: String) { organization { id } viewer { id } issue(id: $id) {
+      ${LINEAR_ISSUE_FIELDS}
+      comments(first: 100) { nodes { id body createdAt user { name } } pageInfo { hasNextPage endCursor } }
+      ${LINEAR_PROVIDER_FIELDS}
+    } }`,
+    { id: ref.id, before: null },
+    z.unknown()
   )
+  const answer = detailSchema.parse(data)
   checkWorkspace(answer.organization.id, ref.workspaceId)
   return {
     task: toTask(answer.issue, ref.workspaceId),
@@ -155,12 +188,16 @@ async function readIssue(
       body: comment.body,
       createdAt: Date.parse(comment.createdAt)
     })),
-    commentsTruncated: answer.issue.comments.pageInfo.hasNextPage
+    commentsTruncated: answer.issue.comments.pageInfo.hasNextPage,
+    providerMetadata: linearProviderData(linearInspectionSchema.parse(data))
   }
 }
+/**
+ * One mutation, which answers the issue. It reads nothing first: an issue id
+ * is a UUID, so a key of another workspace cannot reach this issue, and
+ * Linear refuses the write.
+ */
 async function updateIssue(home: LinearHome, input: LinearInput): Promise<ProviderTask> {
-  // A fresh read proves workspace access before any mutation.
-  await readIssue({ provider: 'linear', workspaceId: home.workspaceId, id: home.issueId })
   const answer = await linearRequest(
     `mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success issue { ${LINEAR_ISSUE_FIELDS} } } }`,
     { id: home.issueId, input },
@@ -179,23 +216,21 @@ export class LinearTaskProvider implements TaskProviderAdapter {
     if (ref.provider !== 'linear') throw new Error('This task is not from Linear.')
     return readIssue(ref)
   }
-  async update(home: TaskHome, patch: IssueUpdatePatch): Promise<ProviderTask> {
+  async update(home: TaskHome, patch: IssueUpdatePatch, _current: ProviderTask): Promise<ProviderTask> {
     const target = homeOf(home)
     return updateIssue(target, await writeInput(target, patch))
   }
-  async setState(home: TaskHome, category: IssueStatusCategory): Promise<ProviderTask> {
+  async setState(home: TaskHome, category: IssueStatusCategory, _current: ProviderTask): Promise<ProviderTask> {
     const target = homeOf(home)
-    const account = await choices(target.teamId)
+    const inCategory = (candidate: { type: string }) => linearCategory(candidate.type) === category
+    const account = await choices(target.teamId, ({ team }) => team.states.nodes.some(inCategory))
     checkWorkspace(account.organization.id, target.workspaceId)
-    const state = account.team.states.nodes.find(
-      (candidate) => linearCategory(candidate.type) === category
-    )
+    const state = account.team.states.nodes.find(inCategory)
     if (!state) throw new Error(`This Linear team has no ${category} state.`)
     return updateIssue(target, { stateId: state.id })
   }
   async comment(home: TaskHome, body: string) {
     const target = homeOf(home)
-    await readIssue({ provider: 'linear', workspaceId: target.workspaceId, id: target.issueId })
     const answer = await linearRequest(
       'mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id body createdAt user { name } } } }',
       { input: { issueId: target.issueId, body } },
@@ -238,10 +273,10 @@ export class LinearTaskProvider implements TaskProviderAdapter {
 
 export class LinearTeamSource implements TaskSourceAdapter {
   readonly kind = 'linear-team' as const
-  async read(source: IssueSource, continuation?: string): Promise<SourceRead> {
-    const team = sourceOf(source),
-      account = await choices(team.teamId)
-    checkWorkspace(account.organization.id, team.workspaceId)
+  async read(source: IssueSource, continuation?: string, held?: SourceReadHeld): Promise<SourceRead> {
+    const team = sourceOf(source)
+    // A next page keeps the label and columns of the first, so it reads only the issues.
+    const layout = continuation && held ? { label: held.label, columns: held.columns } : await this.layout(team)
     const answer = await linearRequest(
       `query($id: String!, $after: String) { team(id: $id) { issues(first: ${MAX_SOURCE_TASKS}, after: $after, orderBy: updatedAt) { nodes { ${LINEAR_ISSUE_FIELDS} } pageInfo { hasNextPage endCursor } } } }`,
       { id: team.teamId, after: continuation ?? null },
@@ -250,12 +285,7 @@ export class LinearTeamSource implements TaskSourceAdapter {
       })
     )
     return {
-      label: `${team.teamKey} · ${account.team.name}`,
-      columns: account.team.states.nodes.map((state) => ({
-        id: state.id,
-        name: state.name,
-        category: linearCategory(state.type)
-      })),
+      ...layout,
       writeState: null,
       items: answer.team.issues.nodes.map((issue) => ({
         task: toTask(issue, team.workspaceId),
@@ -266,6 +296,19 @@ export class LinearTeamSource implements TaskSourceAdapter {
       nextCursor: answer.team.issues.pageInfo.hasNextPage
         ? answer.team.issues.pageInfo.endCursor
         : null
+    }
+  }
+  /** The label and columns of a team: always a fresh read, so the columns are current. */
+  private async layout(team: LinearSource): Promise<Pick<SourceRead, 'label' | 'columns'>> {
+    const account = await readChoices(team.teamId)
+    checkWorkspace(account.organization.id, team.workspaceId)
+    return {
+      label: `${team.teamKey} · ${account.team.name}`,
+      columns: account.team.states.nodes.map((state) => ({
+        id: state.id,
+        name: state.name,
+        category: linearCategory(state.type)
+      }))
     }
   }
   async search(
@@ -297,7 +340,8 @@ export class LinearTeamSource implements TaskSourceAdapter {
     draft: TaskDraft
   }) {
     const team = sourceOf(source),
-      account = await choices(team.teamId)
+      account = await choices(team.teamId, ({ team: choice }) =>
+        !draft.columnId || choice.states.nodes.some((state) => state.id === draft.columnId))
     checkWorkspace(account.organization.id, team.workspaceId)
     const input = await writeInput(team, { ...draft })
     input.teamId = team.teamId
@@ -324,7 +368,7 @@ export class LinearTeamSource implements TaskSourceAdapter {
   async move(input: SourceMove): Promise<ProviderTask> {
     const team = sourceOf(input.source),
       target = homeOf(input.home),
-      account = await choices(team.teamId)
+      account = await choices(team.teamId, ({ team: choice }) => choice.states.nodes.some((state) => state.id === input.columnId))
     checkWorkspace(account.organization.id, team.workspaceId)
     if (target.workspaceId !== team.workspaceId || target.teamId !== team.teamId)
       throw new Error('This issue belongs to another Linear team.')

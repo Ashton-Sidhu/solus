@@ -21,8 +21,31 @@ function deferred<T>() {
 }
 
 describe('provider task data', () => {
+  test('history that came with the details needs no second read, and older pages still load', async () => {
+    // WHY: GitHub's detail read carries the newest page of history. Asking for
+    // it again doubled the issue page's round trips.
+    const reads: Array<string | undefined> = []
+    const store = new TaskDataStore('github:I1', () => ({
+      issuesGet: async (_id, read) => {
+        reads.push(read?.cursor)
+        return inspection(null, ['old'])
+      },
+      issuesReact: async () => {}
+    }))
+    // Jira's detail read carries history too; the section keeps its capabilities.
+    const jira = { history: true, reactions: false, multipleAssignees: false, templates: false }
+    await store.loadProvider({ ...inspection('older', ['new']), capabilities: jira })
+    expect(reads).toEqual([])
+    expect(store.current.provider.value?.events.map((event) => event.id)).toEqual(['new'])
+    expect(store.current.provider.value?.capabilities).toEqual(jira)
+
+    await store.loadOlderHistory()
+    expect(reads).toEqual(['older'])
+    expect(store.current.provider.value?.events.map((event) => event.id)).toEqual(['old', 'new'])
+  })
+
   test('loads older GitHub comments and keeps local attribution on duplicate comments', async () => {
-    const comment = (id: string) => ({ id, providerCommentId: id, taskId: 'github:I1', body: id, createdAt: 1 })
+    const comment = (id: string) => ({ id, providerCommentId: id, issueId: 'github:I1', body: id, createdAt: 1 })
     const store = new TaskDataStore('github:I1', () => ({
       issuesGet: async (_id, read) => read?.cursor
         ? { ...inspection(null, []), comments: [comment('old'), comment('new')] }

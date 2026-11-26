@@ -4,7 +4,7 @@ import type { IssueSource } from '@solus/contracts/task-sources'
 import type { IssueAssigneeCandidate, IssueColumn } from '@solus/contracts/task-types'
 import type { AtlassianRequest } from '../../../atlassian/api'
 import { jiraStatusCategory } from '../status-category'
-import { createJiraTask, readJiraTask, transitionJiraIssue } from '../providers/jira'
+import { createJiraTask, movedJiraTask, transitionJiraIssue } from '../providers/jira'
 import {
   boardConfigurationSchema,
   boardIssuesSchema,
@@ -24,6 +24,7 @@ import {
   type SourceItem,
   type SourceMove,
   type SourceRead,
+  type SourceReadHeld,
   type SourceWriteState,
   type TaskDraft,
   type TaskSourceAdapter,
@@ -32,7 +33,7 @@ import {
 type JiraBoard = Extract<IssueSource, { kind: 'jira-board' }>
 type BoardWriteState = Extract<SourceWriteState, { kind: 'jira-board' }>
 
-const PAGE_SIZE = 50
+const PAGE_SIZE = 100
 
 function jiraBoard(source: IssueSource): JiraBoard {
   if (source.kind !== 'jira-board') throw new Error(`The Jira board source cannot read a ${source.kind} source.`)
@@ -113,8 +114,9 @@ export class JiraBoardSource implements TaskSourceAdapter {
     )
   }
 
-  async read(source: IssueSource, continuation?: string): Promise<SourceRead> {
-    const board = jiraBoard(source)
+  /** The name, columns and write state of the board: three reads, which a next page takes from `held`. */
+  private async layout(board: JiraBoard, held?: SourceReadHeld): Promise<{ label: string; columns: IssueColumn[]; writeState: BoardWriteState }> {
+    if (held?.writeState?.kind === 'jira-board') return { label: held.label, columns: held.columns, writeState: held.writeState }
     const boardPath = `/rest/agile/1.0/board/${board.boardId}`
     const [details, configuration, siteStatuses] = await Promise.all([
       this.agile(board, { path: boardPath }, boardSchema),
@@ -137,6 +139,12 @@ export class JiraBoardSource implements TaskSourceAdapter {
       columns.push({ id: column.name, name: column.name, category: jiraStatusCategory(categoryKey ?? '') })
       writeState.columns.push({ columnId: column.name, statusIds })
     }
+    return { label: details.name, columns, writeState }
+  }
+
+  async read(source: IssueSource, continuation?: string, held?: SourceReadHeld): Promise<SourceRead> {
+    const board = jiraBoard(source)
+    const { label, columns, writeState } = await this.layout(board, held)
 
     const offset = continuation ? Number(continuation) : 0
     if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid Jira page.')
@@ -155,7 +163,7 @@ export class JiraBoardSource implements TaskSourceAdapter {
 
     const siteUrl = await this.jira.siteUrl(board.cloudId)
     return {
-      label: details.name,
+      label,
       columns,
       writeState,
       items: issues.slice(0, MAX_SOURCE_TASKS).map((issue) => {
@@ -199,11 +207,11 @@ export class JiraBoardSource implements TaskSourceAdapter {
 
   /** A legal transition to one of the statuses of the column. */
   async move(input: SourceMove): Promise<ProviderTask> {
-    const { cloudId } = jiraBoard(input.source)
+    jiraBoard(input.source)
     const statusIds = columnStatusIds(boardWriteState(input.writeState), input.columnId)
     if (input.home.provider !== 'jira') throw new Error('A Jira board can move only a Jira issue.')
-    await transitionJiraIssue(this.jira, input.home, (to) => statusIds.includes(to.id), input.columnId)
-    return (await readJiraTask(this.jira, cloudId, input.home.key)).task
+    const to = await transitionJiraIssue(this.jira, input.home, (status) => statusIds.includes(status.id), input.columnId)
+    return movedJiraTask(input.current, to)
   }
 
   /** Solus does not write the assignee of a Jira issue, so it lists no candidates. */

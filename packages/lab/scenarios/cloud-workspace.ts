@@ -95,7 +95,7 @@ async function membersStep(proof: Proof): Promise<{ alice: LabClient; bob: LabCl
   await expectOk(ctx, `${tag} bob hears the tasks change`, heard)
   const bobAttachments = await expectOk(ctx, `${tag} bob reads the attachments of the task`, bob.rpc('issuesAttachments', TASK_KEY))
   ctx.check(`${tag} bob sees alice's link`, bobAttachments?.links.some((link) => link.targetKey === 'lab-automation') === true, JSON.stringify(bobAttachments?.links))
-  const bobTasks = await expectOk(ctx, `${tag} bob lists tasks`, bob.rpc('issuesSidebarSnapshot'))
+  const bobTasks = await expectOk(ctx, `${tag} bob lists tasks`, bob.rpc('issuesList'))
   ctx.check(`${tag} the service holds no copy of a task`, bobTasks?.tasks.length === 0, JSON.stringify(bobTasks?.tasks.map((row) => row.id)))
   await expectNotServed(ctx, `${tag} a task read is refused: the service reads no provider`, bob.rpc('issuesGet', TASK_KEY))
   return { alice, bob, taskId: TASK_KEY }

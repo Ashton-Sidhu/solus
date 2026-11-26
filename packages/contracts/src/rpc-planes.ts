@@ -558,11 +558,9 @@ export const RPC_PLANES = {
   // Tasks
   // Reading and writing a task needs this machine's provider connection and
   // project config; a task's attachments are records.
-  issuesSources: 'execution',
-  issuesLoadMore: 'execution',
   issuesSourceOptions: 'execution',
   issuesSearch: 'execution',
-  issuesSidebarSnapshot: 'collaboration',
+  issuesList: 'collaboration',
   issuesSearchComments: 'collaboration',
   issuesGet: 'execution',
  issuesReact: 'execution', issuesTemplates: 'execution', issuesResolve: 'execution',

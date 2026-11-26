@@ -642,11 +642,9 @@ export const RPC_INVOKE_METHODS = [
   'retractReviewLensComment',
 
   // Tasks (provider-owned: docs/plans/provider-owned-tasks.md)
-  'issuesSources',
-  'issuesLoadMore',
   'issuesSourceOptions',
   'issuesSearch',
-  'issuesSidebarSnapshot',
+  'issuesList',
   'issuesSearchComments',
   'issuesGet',
   'issuesReact',

@@ -1,7 +1,7 @@
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { IssueComment, IssueDetails } from '@solus/contracts/task-types'
 import type { IssueSource } from '@solus/contracts/task-sources'
-import { withTaskProviderMetadata } from '@solus/contracts/task-data'
+import { providerDataFromMetadata, withTaskProviderMetadata } from '@solus/contracts/task-data'
 import type {
   TaskProviderData,
   TaskProviderMetadata,
@@ -131,7 +131,15 @@ export class TaskDataStore {
       throw new Error('Update the task host to read provider history and reactions.')
     return metadata ? withTaskProviderMetadata(value, metadata) : value
   }
+  /** Metadata that carries history (the GitHub and Jira detail reads) is the section itself:
+   *  the page shows it with no second read. */
   loadProvider(metadata?: TaskProviderMetadata): Promise<void> {
+    if (metadata?.events) {
+      this.#providerGeneration++
+      this.#providerRead = null
+      this.#provider({ value: providerDataFromMetadata(metadata), pending: false, error: null, loadingMore: false })
+      return Promise.resolve()
+    }
     if (this.#providerRead) return this.#providerRead
     const generation = ++this.#providerGeneration
     this.#provider({ pending: true, loadingMore: false, error: null })

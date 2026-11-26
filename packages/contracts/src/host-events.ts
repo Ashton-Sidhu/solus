@@ -134,7 +134,7 @@ export interface HostEventMap {
    *  Delivered only to that person's connections; a client that shows this host's copy reads it again. */
   'personalDocument.changed': { kind: PersonalDocumentKind }
   /** The host read these task sources again, or one of them changed health.
-   *  Clients that show a source it names read `issuesSources` again. */
+   *  Clients that show a source it names read `issuesList` with their sources again. */
   'issues.sourcesChanged': { sourceKeys: string[] }
   'workspaceProjects.changed': Record<string, never>
   /** A codebase was saved or deleted on this host. Clients read `codebaseList` again. */

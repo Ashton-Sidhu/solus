@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { issueKey } from '@solus/contracts/task-sources'
 import type { IssueSource } from '@solus/contracts/task-sources'
-import type { JiraTransport, SourceWriteState, TaskHome } from '@solus/server/data/tasks/providers/types'
+import type { JiraTransport, ProviderTask, SourceWriteState, TaskHome } from '@solus/server/data/tasks/providers/types'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 
@@ -26,6 +26,11 @@ type JiraRequest = Parameters<JiraTransport['request']>[0]
 const CLOUD_ID = 'cloud-1'
 const SITE_URL = 'https://acme.atlassian.net'
 const HOME: TaskHome = { provider: 'jira', cloudId: CLOUD_ID, key: 'ACME-7' }
+/** The host's copy of ACME-7, which a write receives. */
+const CURRENT: ProviderTask = {
+  ref: { provider: 'jira', cloudId: CLOUD_ID, id: '10007' }, kind: 'issue', reference: 'ACME-7', url: null, title: 'Fix login',
+  body: '', state: { name: 'To Do', category: 'open' }, labels: [], writableFields: ['title', 'body', 'labels'], home: HOME, updatedAt: 0,
+}
 const PROJECT_SOURCE: IssueSource = { kind: 'jira-project', cloudId: CLOUD_ID, projectKey: 'ACME' }
 const BOARD_SOURCE: IssueSource = { kind: 'jira-board', cloudId: CLOUD_ID, boardId: 12 }
 const BOARD_WRITE_STATE: SourceWriteState = {
@@ -162,7 +167,7 @@ describe('the identity of a Jira task', () => {
     const { jira, requests } = fakeJira(() => issuePayload())
     const provider = new JiraTaskProvider(jira)
     await expect(provider.fetch({ provider: 'github', id: 'I_1' })).rejects.toThrow(/github/i)
-    await expect(provider.update({ provider: 'github', kind: 'issue', owner: 'a', repo: 'b', number: 1 }, { title: 'x' }))
+    await expect(provider.update({ provider: 'github', kind: 'issue', owner: 'a', repo: 'b', number: 1 }, { title: 'x' }, CURRENT))
       .rejects.toThrow(/github/i)
     expect(requests).toHaveLength(0)
   })
@@ -220,7 +225,7 @@ describe('reading one Jira issue', () => {
 describe('writing to a Jira issue', () => {
   test('writes the fields and the priority in one issue update', async () => {
     const { jira, requests } = fakeJira(issueAnswers())
-    await new JiraTaskProvider(jira).update(HOME, { title: 'New title', priority: 'urgent', labels: ['a'] })
+    await new JiraTaskProvider(jira).update(HOME, { title: 'New title', priority: 'urgent', labels: ['a'] }, CURRENT)
     const update = requests.find((request) => request.method === 'PUT')
     expect(update?.path).toBe('/rest/api/3/issue/ACME-7')
     expect(update?.body).toEqual({ fields: { summary: 'New title', labels: ['a'], priority: { name: 'Highest' } } })
@@ -229,7 +234,7 @@ describe('writing to a Jira issue', () => {
   test('clears a priority the task no longer has', async () => {
     // WHY: a cleared priority must reach Jira as "none", not as "leave it".
     const { jira, requests } = fakeJira(issueAnswers())
-    await new JiraTaskProvider(jira).update(HOME, { priority: null })
+    await new JiraTaskProvider(jira).update(HOME, { priority: null }, CURRENT)
     expect(requests.find((request) => request.method === 'PUT')?.body).toEqual({ fields: { priority: null } })
   })
 
@@ -237,8 +242,8 @@ describe('writing to a Jira issue', () => {
     // WHY: a silent success would show a value that Jira does not hold.
     const { jira, requests } = fakeJira(issueAnswers())
     const provider = new JiraTaskProvider(jira)
-    await expect(provider.update(HOME, { assignee: 'ada' })).rejects.toThrow(/assignee or the due date/)
-    await expect(provider.update(HOME, { title: 'x', dueDate: '2026-09-01' })).rejects.toThrow(/assignee or the due date/)
+    await expect(provider.update(HOME, { assignee: 'ada' }, CURRENT)).rejects.toThrow(/assignee or the due date/)
+    await expect(provider.update(HOME, { title: 'x', dueDate: '2026-09-01' }, CURRENT)).rejects.toThrow(/assignee or the due date/)
     expect(requests).toHaveLength(0)
   })
 
@@ -246,8 +251,8 @@ describe('writing to a Jira issue', () => {
     const { jira, requests } = fakeJira(issueAnswers())
     const provider = new JiraTaskProvider(jira)
 
-    await provider.setState(HOME, 'done')
-    await provider.setState(HOME, 'active')
+    await provider.setState(HOME, 'done', CURRENT)
+    await provider.setState(HOME, 'active', CURRENT)
 
     expect(transitionPosts(requests).map((request) => request.body)).toEqual([
       { transition: { id: '41' } },
@@ -259,7 +264,7 @@ describe('writing to a Jira issue', () => {
     // WHY: a guess of a near state would put the issue where nobody asked, and
     // Solus would then show a status that Jira does not hold.
     const { jira, requests } = fakeJira(issueAnswers({ transitions: [TRANSITIONS[0]] }))
-    await expect(new JiraTaskProvider(jira).setState(HOME, 'done'))
+    await expect(new JiraTaskProvider(jira).setState(HOME, 'done', CURRENT))
       .rejects.toThrow("No Jira transition from ACME-7's current status reaches done.")
     expect(transitionPosts(requests)).toHaveLength(0)
   })
@@ -357,6 +362,7 @@ describe('a Jira project source', () => {
       writeState: null,
       home: HOME,
       itemId: null,
+      current: CURRENT,
       columnId: '4',
     })
 
@@ -373,6 +379,7 @@ describe('a Jira project source', () => {
       writeState: null,
       home: HOME,
       itemId: null,
+      current: CURRENT,
       columnId: '5',
     })).rejects.toThrow("No Jira transition from ACME-7's current status reaches status 5. Adjust the workflow or move the issue in Jira.")
     expect(transitionPosts(requests)).toHaveLength(0)
@@ -441,6 +448,20 @@ describe('a Jira board source', () => {
     throw new Error(`unexpected request ${request.path}`)
   }
 
+  test('a next page keeps the columns of the first and reads only the issues', async () => {
+    // WHY: each load-more page read the board, its configuration and every
+    // status of the site again, three calls for columns that the host holds.
+    const { jira, requests } = fakeJira(boardAnswers)
+    const first = await new JiraBoardSource(jira).read(BOARD_SOURCE)
+    requests.length = 0
+
+    const next = await new JiraBoardSource(jira).read(BOARD_SOURCE, '2', first)
+
+    expect(requests.map((request) => request.path)).toEqual(['/rest/agile/1.0/board/12/issue'])
+    expect(next.columns).toEqual(first.columns)
+    expect(next.items[0]?.columnId).toBe('Doing')
+  })
+
   test('reads the columns from the board configuration, with the category of the first status', async () => {
     // WHY: a board column is a group of statuses that a person named. Solus
     // shows the names of the board, and Jira gives a category only for a status.
@@ -462,7 +483,7 @@ describe('a Jira board source', () => {
     ])
     expect(read.truncated).toBe(false)
     const issues = requests.find((request) => request.path.endsWith('/issue'))
-    expect(issues?.query).toMatchObject({ maxResults: '50', startAt: '0', jql: 'ORDER BY updated DESC' })
+    expect(issues?.query).toMatchObject({ maxResults: '100', startAt: '0', jql: 'ORDER BY updated DESC' })
   })
 
   test('stops at the cap and says that the board holds more', async () => {
@@ -523,6 +544,7 @@ describe('a Jira board source', () => {
       writeState: BOARD_WRITE_STATE,
       home: HOME,
       itemId: null,
+      current: CURRENT,
       columnId: 'Doing',
     })
 
@@ -536,6 +558,7 @@ describe('a Jira board source', () => {
       writeState: BOARD_WRITE_STATE,
       home: HOME,
       itemId: null,
+      current: CURRENT,
       columnId: 'Done',
     })).rejects.toThrow("No Jira transition from ACME-7's current status reaches Done.")
     expect(transitionPosts(requests)).toHaveLength(0)
@@ -664,4 +687,62 @@ test('authored and assigned tasks use the same personal roles on a Jira project 
     await new JiraBoardSource(board.jira).search(BOARD_SOURCE, '', involvement)
     expect(board.requests.at(-1)?.query?.jql).toBe(clause)
   }
+})
+
+describe('the calls of a Jira issue', () => {
+  // WHY: the issue page read the issue, its epic, both again, then its
+  // changelog; each write read the issue again. One read now gives the page
+  // and the legal moves, and a write answers from the host's copy.
+  const change = (id: string, field: string) => ({
+    id, created: '2026-08-01T08:00:00.000+0000', author: { displayName: 'Grace' },
+    items: [{ field, fromString: 'To Do', toString: 'Done' }],
+  })
+
+  test('the detail read is one call with the newest changes and the legal transitions', async () => {
+    const { jira, requests } = fakeJira(() => ({
+      ...issuePayload(),
+      changelog: { total: 1, histories: [change('500', 'status')] },
+      transitions: TRANSITIONS,
+    }))
+    const details = await new JiraTaskProvider(jira).fetch({ provider: 'jira', cloudId: CLOUD_ID, id: '10007' })
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]?.query).toMatchObject({ expand: 'changelog,transitions' })
+    expect(details.providerMetadata?.events?.map((event) => event.id)).toEqual(['500:0'])
+    expect(details.providerMetadata?.historyCursor).toBeNull()
+    expect(details.providerMetadata?.capabilities).toMatchObject({ history: true, reactions: false })
+    expect(details.task.home).toMatchObject({ key: 'ACME-7', transitions: [{ id: '21' }, { id: '31' }, { id: '41' }] })
+  })
+
+  test('a long changelog leaves a cursor to the older changes', async () => {
+    const { jira } = fakeJira(() => ({ ...issuePayload(), changelog: { total: 150, histories: [change('500', 'status')] } }))
+    const details = await new JiraTaskProvider(jira).fetch({ provider: 'jira', cloudId: CLOUD_ID, id: '10007' })
+    expect(details.providerMetadata?.historyCursor).toBe('0')
+  })
+
+  test('an update is one PUT, answered with the written fields', async () => {
+    const { jira, requests } = fakeJira(issueAnswers())
+    const task = await new JiraTaskProvider(jira).update(HOME, { title: 'New title', priority: 'low' }, CURRENT)
+    expect(requests.map((request) => request.method ?? 'GET')).toEqual(['PUT'])
+    expect(task).toMatchObject({ title: 'New title', priority: 'low', labels: CURRENT.labels })
+  })
+
+  test('a move with the transitions of the host copy is one POST, answered with the status it reached', async () => {
+    const { jira, requests } = fakeJira(issueAnswers())
+    const current = { ...CURRENT, home: { ...HOME, transitions: TRANSITIONS } }
+    const moved = await new JiraTaskProvider(jira).setState(current.home, 'done', current)
+
+    expect(requests.map((request) => request.method ?? 'GET')).toEqual(['POST'])
+    expect(moved).toMatchObject({ state: { name: 'Done', category: 'done' }, stateId: '5' })
+    // The transitions belonged to the status the issue left.
+    expect(moved.home).toEqual(HOME)
+  })
+
+  test('a host copy whose transitions are stale reads them once before it moves', async () => {
+    const { jira, requests } = fakeJira(issueAnswers())
+    const current = { ...CURRENT, home: { ...HOME, transitions: [TRANSITIONS[0]] } }
+    await new JiraTaskProvider(jira).setState(current.home, 'done', current)
+    expect(requests.map((request) => request.method ?? 'GET')).toEqual(['GET', 'POST'])
+    expect(transitionPosts(requests)[0]?.body).toEqual({ transition: { id: '41' } })
+  })
 })

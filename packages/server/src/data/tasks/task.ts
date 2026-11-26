@@ -184,13 +184,38 @@ async function updateTaskNow(taskId: string, patch: IssueUpdatePatch): Promise<I
   let updated: ProviderTask
   try {
     const body = patch.body === undefined ? undefined : await publishedBody(home, patch.body)
-    updated = await taskAdapters().provider(home.provider).update(home, body === undefined ? patch : { ...patch, body })
+    updated = await taskAdapters().provider(home.provider).update(home, body === undefined ? patch : { ...patch, body }, providerTaskOf(task, home))
   } catch (error) {
     throw taskWriteError(error)
   }
   const stored = await storeProviderTask(updated)
   emitChanged(taskId)
   return stored
+}
+
+/** The host's copy as an adapter takes it, so a write answers it with the written fields. */
+function providerTaskOf(task: Issue, home: TaskHome): ProviderTask {
+  return {
+    ref: refOf(task.id),
+    kind: task.kind,
+    reference: task.reference,
+    url: task.url,
+    title: task.title,
+    body: task.body,
+    state: { ...task.state },
+    stateId: task.state.id,
+    assignees: task.assignees ? [...task.assignees] : undefined,
+    assignee: task.assignee,
+    assigneeAvatarUrl: task.assigneeAvatarUrl,
+    labels: [...task.labels],
+    priority: task.priority,
+    dueDate: task.dueDate,
+    epic: task.epic,
+    writableFields: [...task.writableFields],
+    home,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+  }
 }
 
 /** The first column of a source that has the category: where a move to a category puts a board item. */
@@ -214,6 +239,7 @@ async function moveTaskNow(taskId: string, target: IssueMoveTarget): Promise<Iss
   const items = await sourceItemsOfTask(taskId)
   const sources = await loadTaskSources(items.map((item) => item.sourceKey))
   const adapters = taskAdapters()
+  const current = providerTaskOf(task, home)
   try {
     if ('sourceKey' in target) {
       const item = items.find((candidate) => candidate.sourceKey === target.sourceKey)
@@ -221,25 +247,25 @@ async function moveTaskNow(taskId: string, target: IssueMoveTarget): Promise<Iss
       if (!item || !source) throw new Error(`${task.reference ?? 'This task'} is not in that task source.`)
       if (!source.columns.some((column) => column.id === target.columnId)) throw new Error(`${source.label} has no such column.`)
       const moved = await adapters.source(source.source.kind).move({
-        source: source.source, writeState: source.writeState, home, itemId: item.itemId, columnId: target.columnId,
+        source: source.source, writeState: source.writeState, home, itemId: item.itemId, columnId: target.columnId, current,
       })
       if (moved) await storeProviderTask(moved)
       if (source.source.kind !== 'github-repo') await storeTaskColumn(taskId, target.sourceKey, target.columnId)
     } else if ('statusId' in target) {
-      await moveToRepositoryStatus(home, target.statusId)
+      await moveToRepositoryStatus(home, target.statusId, current)
     } else if (home.provider !== 'github') {
-      if (task.state.category !== target.category) await storeProviderTask(await adapters.provider(home.provider).setState(home, target.category))
+      if (task.state.category !== target.category) await storeProviderTask(await adapters.provider(home.provider).setState(home, target.category, current))
     } else {
       const wantsDone = target.category === 'done'
       if (home.kind === 'issue' && (task.state.category === 'done') !== wantsDone) {
-        await storeProviderTask(await adapters.provider('github').setState(home, target.category))
+        await storeProviderTask(await adapters.provider('github').setState(home, target.category, current))
       }
       for (const item of items) {
         const source = sources.get(item.sourceKey)
         if (source?.source.kind !== 'github-project') continue
         const columnId = firstColumnOf(source, target.category)
         if (!columnId || columnId === item.columnId) continue
-        await adapters.source('github-project').move({ source: source.source, writeState: source.writeState, home, itemId: item.itemId, columnId })
+        await adapters.source('github-project').move({ source: source.source, writeState: source.writeState, home, itemId: item.itemId, columnId, current })
         await storeTaskColumn(taskId, item.sourceKey, columnId)
       }
     }
@@ -254,9 +280,9 @@ async function moveTaskNow(taskId: string, target: IssueMoveTarget): Promise<Iss
   return moved
 }
 
-async function moveToRepositoryStatus(home: TaskHome, statusId: string): Promise<void> {
+async function moveToRepositoryStatus(home: TaskHome, statusId: string, current: ProviderTask): Promise<void> {
   const provider = taskAdapters().provider(home.provider)
-  const moved = await provider.setNamedStatus?.(home, statusId)
+  const moved = await provider.setNamedStatus?.(home, statusId, current)
   if (!moved) throw new Error('This task does not take a repository issue status.')
   await storeProviderTask(moved)
 }

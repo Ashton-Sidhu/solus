@@ -8,7 +8,7 @@
 
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { IssueSource } from '@solus/contracts/task-sources'
+import { issueSourceKey, type IssueSource } from '@solus/contracts/task-sources'
 import type { IssueSourceOptions, IssueSourceState } from '@solus/contracts/task-types'
 import type { PersonalSettings } from '@solus/contracts/settings'
 import { hosts } from '../hosts/hosts.svelte'
@@ -125,10 +125,14 @@ export class IssueSourcesStore {
     }
     this.#pendingReads++
     try {
-      const answer = await serverConnections.apiFor(serverId)
-        .issuesSources(configured, opts.refresh ? { refresh: opts.refresh } : undefined)
+      // Source state alone: the rows come to `IssuesStore` with `issues.invalidated`.
+      const answer = await serverConnections.apiFor(serverId).issuesList({
+        sources: configured,
+        issueIds: [],
+        ...(opts.refresh && { refresh: opts.refresh }),
+      })
       if (this.#readGeneration !== generation) return
-      this.sources = answer
+      this.sources = answer.sources ?? []
       this.error = null
       this.host = serverId
     } catch (error) {
@@ -141,11 +145,19 @@ export class IssueSourcesStore {
     }
   }
 
+  /** Read the next pages of a source; the same call answers the new source
+   *  state. A failure reaches the caller, which says so. */
   async loadMore(source: IssueSource): Promise<void> {
-    const hostId = taskHostId()
-    if (!hostId) throw new Error('No connected task host.')
-    await serverConnections.apiFor(hostId).issuesLoadMore(source)
-    await this.load()
+    const serverId = taskHostId()
+    if (!serverId) throw new Error('No connected task host.')
+    const generation = ++this.#readGeneration
+    const answer = await serverConnections.apiFor(serverId).issuesList({
+      sources: this.configured, loadMore: issueSourceKey(source), issueIds: [],
+    })
+    if (this.#readGeneration !== generation) return
+    this.sources = answer.sources ?? []
+    this.error = null
+    this.host = serverId
   }
 
 

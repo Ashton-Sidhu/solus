@@ -2,7 +2,7 @@ import type { TaskInvolvement } from '@solus/contracts/task-data'
 import type { IssueSource } from '@solus/contracts/task-sources'
 import type { IssueAssigneeCandidate, IssueColumn } from '@solus/contracts/task-types'
 import { jiraStatusCategory } from '../status-category'
-import { createJiraTask, readJiraTask, transitionJiraIssue } from '../providers/jira'
+import { createJiraTask, movedJiraTask, transitionJiraIssue } from '../providers/jira'
 import {
   escapeJql,
   issueToTask,
@@ -20,6 +20,7 @@ import {
   type SourceItem,
   type SourceMove,
   type SourceRead,
+  type SourceReadHeld,
   type SourceWriteState,
   type TaskDraft,
   type TaskSourceAdapter,
@@ -27,7 +28,7 @@ import {
 
 type JiraProject = Extract<IssueSource, { kind: 'jira-project' }>
 
-const PAGE_SIZE = 50
+const PAGE_SIZE = 100
 const SEARCH_LIMIT = 100
 
 function jiraProject(source: IssueSource): JiraProject {
@@ -41,7 +42,7 @@ export class JiraProjectSource implements TaskSourceAdapter {
 
   constructor(private readonly jira: JiraTransport) {}
 
-  async read(source: IssueSource, continuation?: string): Promise<SourceRead> {
+  async read(source: IssueSource, continuation?: string, held?: SourceReadHeld): Promise<SourceRead> {
     const { cloudId, projectKey } = jiraProject(source)
     const issues: JiraIssue[] = []
     let nextPageToken: string | undefined = continuation
@@ -69,7 +70,7 @@ export class JiraProjectSource implements TaskSourceAdapter {
     const siteUrl = await this.jira.siteUrl(cloudId)
     return {
       label: projectKey,
-      columns: await this.columns(cloudId, projectKey),
+      columns: held?.columns ?? await this.columns(cloudId, projectKey),
       writeState: null,
       items: issues.slice(0, MAX_SOURCE_TASKS).map((issue) => {
         const task = issueToTask(issue, cloudId, siteUrl)
@@ -138,12 +139,12 @@ export class JiraProjectSource implements TaskSourceAdapter {
   }
 
   async move(input: SourceMove): Promise<ProviderTask> {
-    const { cloudId } = jiraProject(input.source)
+    jiraProject(input.source)
     if (input.home.provider !== 'jira') throw new Error('A Jira project can move only a Jira issue.')
     // A column of a Jira project is one status, so the move is a transition to it.
     const statusId = input.columnId
-    await transitionJiraIssue(this.jira, input.home, (to) => to.id === statusId, `status ${statusId}`)
-    return (await readJiraTask(this.jira, cloudId, input.home.key)).task
+    const to = await transitionJiraIssue(this.jira, input.home, (status) => status.id === statusId, `status ${statusId}`)
+    return movedJiraTask(input.current, to)
   }
 
   /** Solus does not write the assignee of a Jira issue, so it lists no candidates. */

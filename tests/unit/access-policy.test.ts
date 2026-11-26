@@ -127,7 +127,7 @@ describe('the host itself', () => {
     const RUNNER: Principal = { kind: 'runner', hostId: 'h1', organizationId: 'org1', ownerUserId: 'bob', deviceId: 'h1', expiresAt: 0, deviceLabel: 'Runner' }
     const report = [{ sessionId: 's1', provider: 'claude-code', projectPath: '-p', lastActivityAt: 1 }]
     await expect(assertRpcAccess('sessionRecordUpsert', RUNNER, report)).resolves.toBeUndefined()
-    for (const method of ['issuesSidebarSnapshot', 'connectionsGetServerInfo', 'configUpdate', 'shareGet'] as const) {
+    for (const method of ['issuesList', 'connectionsGetServerInfo', 'configUpdate', 'shareGet'] as const) {
       await expect(assertRpcAccess(method, RUNNER, [{}])).rejects.toThrow(/not available to a runner/)
     }
     await expect(assertRpcAccess('loadWorkRevisions', RUNNER, ['w1'], resources({ 'work:w1': 'owner' }))).rejects.toThrow(/not available to a runner/)
@@ -316,7 +316,7 @@ describe('tasks', () => {
       await expect(assertRpcAccess(method, MEMBER, ['github:I_1', 's1'], noShares)).resolves.toBeUndefined()
     }
     for (const method of ['issuesGet', 'issuesUpdate', 'issuesComment', 'issuesDelete', 'issuesLink'] as const) expect(permissionOf(method)).toBe('host.use')
-    expect(permissionOf('issuesSidebarSnapshot')).toBe('host.sessions.read')
+    expect(permissionOf('issuesList')).toBe('host.sessions.read')
   })
 
   test('a session link is the session\'s: to link or unlink takes an editor of the session, to read its tasks takes a reader', async () => {
@@ -334,7 +334,7 @@ describe('tasks', () => {
   test('a guest reads the task listing and no task: a link opens a session or a work, never the host\'s tasks', async () => {
     // WHY: a guest has no provider connection on this host. The listing gate stays
     // open so the shared session renders; each other task method is refused.
-    await expect(assertRpcAccess('issuesSidebarSnapshot', GUEST, [], resources({}))).resolves.toBeUndefined()
+    await expect(assertRpcAccess('issuesList', GUEST, [], resources({}))).resolves.toBeUndefined()
     for (const method of ['issuesGet', 'issuesAttachments', 'issuesComment', 'issuesLink'] as const) {
       await expect(assertRpcAccess(method, GUEST, ['github:I_1'], resources({}))).rejects.toThrow(/not available to a guest/)
     }

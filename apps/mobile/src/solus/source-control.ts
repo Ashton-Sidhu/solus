@@ -34,7 +34,7 @@ import {
 import { summarizeChangedFiles } from "@t3tools/shared/changedFileKind";
 import type { CheckItem } from "@solus/contracts/checks-types";
 import type { IssueComment as SolusIssueComment, IssueSummary } from "@solus/contracts/task-types";
-import type { TaskProviderData, TaskProviderEvent, TaskProviderPullRequest } from "@solus/contracts/task-data";
+import { providerDataFromMetadata, type TaskProviderData, type TaskProviderEvent, type TaskProviderPullRequest } from "@solus/contracts/task-data";
 import type { ProjectEntry } from "@solus/contracts/types";
 import { githubIssueRow, githubPullRequestRow } from "./issue-pr-rows";
 import { solus } from "./runtime";
@@ -217,9 +217,10 @@ const issueSnapshot = hostQuery(
     const readTasks = async () => {
       if (search && sources.length)
         return api.issuesSearch(sources, input.query ?? "", input.involvement);
-      if (sources.length)
-        await api.issuesSources(sources, { refresh: input.refresh ? "force" : "stale" });
-      const { tasks } = await api.issuesSidebarSnapshot();
+      // One call: naming the sources starts their reads, and the rows come with it.
+      const { tasks } = await api.issuesList(
+        sources.length ? { sources, refresh: input.refresh ? "force" : "stale" } : undefined,
+      );
       if (input.involvement && input.involvement !== "all") return [];
       const words = input.query?.trim().toLowerCase().split(/\s+/) ?? [];
       return tasks.filter((task) =>
@@ -322,6 +323,9 @@ export const solusIssueDetail = hostQuery(
     providerComments?: ReadonlyArray<IssueComment>;
     providerTaskId?: string;
     timelineOnly?: true;
+    /** GitHub's detail read carries the newest page of history: the screen
+     *  shows it with no second read, and asks only for older pages. */
+    firstActivity?: ReturnType<typeof issueProviderActivity>;
   }> => {
     const external = input.issueUrl
       ? await sourceControlApi(id).issuesResolve(input.issueUrl, { detailsOnly: true })
@@ -363,6 +367,9 @@ export const solusIssueDetail = hostQuery(
           ...(detail.providerMetadata && {
             timelineOnly: true as const,
             providerPullRequests: issueProviderPullRequests(detail.providerMetadata.pullRequests),
+            ...(detail.providerMetadata.events && {
+              firstActivity: issueProviderActivity(providerDataFromMetadata(detail.providerMetadata)),
+            }),
           }),
         }),
       linkedPullRequests: [],
@@ -720,7 +727,7 @@ export const solusIssueCandidates = hostQuery(
         };
       }
     }
-    const { tasks } = await api.issuesSidebarSnapshot();
+    const { tasks } = await api.issuesList();
     const rows = tasks.flatMap((task) => {
       const row = issueRow(task, []);
       return row &&
@@ -805,7 +812,7 @@ export async function readIssueRecord(
   const api = sourceControlApi(id);
   const taskId =
     input.taskId ??
-    (await api.issuesSidebarSnapshot()).tasks.find((task) => issueMatches(input, issueRow(task, [])))
+    (await api.issuesList()).tasks.find((task) => issueMatches(input, issueRow(task, [])))
       ?.id;
   if (!taskId) throw new Error("The task is no longer in this environment.");
   const detail = options.cached

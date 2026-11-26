@@ -45,7 +45,7 @@ const host = vi.hoisted(() => ({
   issuesGet: vi.fn(),
   issuesResolve: vi.fn(),
   issuesSearch: vi.fn(),
-  issuesSidebarSnapshot: vi.fn(),
+  issuesList: vi.fn(),
 }));
 vi.mock("./runtime", async () => {
   const { PullRequestCache, memoryPullRequestCacheDatabase } =
@@ -257,7 +257,7 @@ it("opens a provider search result by its Solus task id even if it is outside th
       _tag: "Success",
       value: { title: "Crash", body: "Steps to reproduce" },
     });
-    expect(host.issuesSidebarSnapshot).not.toHaveBeenCalled();
+    expect(host.issuesList).not.toHaveBeenCalled();
   } finally {
     registry.dispose();
   }

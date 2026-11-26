@@ -40,9 +40,26 @@ export interface TaskProviderData {
   }
   unavailableReason?: string
 }
+/** What an issue detail read also answers about the provider. The GitHub and
+ *  Jira detail reads carry the newest page of history too, so their issue page
+ *  needs no second read. */
 export type TaskProviderMetadata = Pick<
-  TaskProviderData, 'author' | 'assignees' | 'commentsTruncated' | 'reactions' | 'pullRequests'
->
+  TaskProviderData, 'author' | 'assignees' | 'commentsTruncated' | 'reactions' | 'pullRequests' | 'capabilities' | 'unavailableReason'
+> & Partial<Pick<TaskProviderData, 'events' | 'comments' | 'historyCursor'>>
+
+/** What GitHub's provider section supports. */
+export const GITHUB_PROVIDER_CAPABILITIES: TaskProviderData['capabilities'] = {
+  history: true, reactions: true, multipleAssignees: true, templates: true
+}
+
+/** The provider section from a detail read that already carries history. */
+export function providerDataFromMetadata(metadata: TaskProviderMetadata): TaskProviderData {
+  return {
+    ...metadata,
+    events: metadata.events ?? [],
+    historyCursor: metadata.historyCursor ?? null
+  }
+}
 
 export function withTaskProviderMetadata(
   timeline: TaskProviderData, metadata: TaskProviderMetadata

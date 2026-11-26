@@ -22,7 +22,7 @@ import type { WorkCommentCommand } from './comment-commands'
 import type { AgentId, AgentUsageLimits, IpcContext, PromptOptions, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, ManagedWorktree, ManagedWorktreeRemoveResult, ManagedWorktreeSize, BranchRef, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkListingMeta, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationRunPoint, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, HostCapabilities, DiscoveredServer, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, HeadlessPromptRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus, IgnoredProjectFiles, WorktreeIncludeChange, CopiedProjectFile } from './types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrFilterChoice, PrFilterField, PrInterest, PrLabel, PrListPage, PrProjectCursor, PrProjectListing, PrPendingWorkflowRuns, PrRevertResult, PrStackMergeRequest, PrStackMergeResult, PrStateAction, PrViewedFileChange, PrViewedFiles, PrWorkflowApprovalResult, PrSyncChange, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PrStack, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
 import type { IssueSource } from './task-sources'
-import type { PrepareSessionIssueRequest, PrepareSessionIssueResult, SessionExecutionHost, Issue, IssueAssigneeCandidate, IssueAttachments, IssueCommentHit, IssueCommentSearchQuery, IssueCreateInput, IssueDetails, IssueForSessionResult, IssueLinkInput, IssueLinkKind, IssueLinkTarget, IssueLinkedIssue, IssueMoveTarget, IssueSessionLink, IssueSessionRole, IssueSidebarFilter, IssueSidebarSnapshot, IssueSnapshot, IssueSourceOptions, IssueSourceState, IssueSummary, IssueUpdatePatch } from './task-types'
+import type { PrepareSessionIssueRequest, PrepareSessionIssueResult, SessionExecutionHost, Issue, IssueAssigneeCandidate, IssueAttachments, IssueCommentHit, IssueCommentSearchQuery, IssueCreateInput, IssueDetails, IssueForSessionResult, IssueLinkInput, IssueLinkKind, IssueLinkTarget, IssueLinkedIssue, IssueMoveTarget, IssueSessionLink, IssueSessionRole, IssueListRequest, IssueList, IssueSnapshot, IssueSourceOptions, IssueSourceState, IssueSummary, IssueUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from './session-pull-requests'
 import type { SessionArtifacts } from './session-artifacts'
@@ -1258,21 +1258,18 @@ export interface SolusAPI {
   getPluginCommands(workingDirectory: string, ctx?: IpcContext): Promise<PluginCommandsResult>
 
   /**
-   * The person's task sources, as this host last read them for the caller
-   * (docs/tasks.md). Tasks belong to no project: the client sends the sources
-   * from the person's settings. The call also says that the caller wants these
-   * sources: the host reads each one that is not fresh, or every one with
-   * `refresh: 'force'`, and `issues.sourcesChanged` says when a read ends. The
-   * tasks themselves come with `issuesSidebarSnapshot`.
+   * The issue list: the rows this host holds for the reader, and with `sources`
+   * the state of each of the person's sources (docs/tasks.md). Naming the
+   * sources also says the caller wants them: the host reads each one that is not
+   * fresh, and `issues.sourcesChanged` says when a read ends. `since` resumes the
+   * whole list and `issueIds` reads only those rows (`[]`: no rows).
    */
-  issuesSources(sources: IssueSource[], opts?: { refresh?: 'stale' | 'force' }): Promise<IssueSourceState[]>
+  issuesList(request?: IssueListRequest): Promise<IssueList>
   /** What the caller can choose as a task source. */
-  issuesLoadMore(source: IssueSource): Promise<void>
   issuesSourceOptions(): Promise<IssueSourceOptions>
   /** Ask the provider for the tasks of these sources that match `query`.
    *  The only way to reach a task that a truncated source did not list. */
   issuesSearch(sources: IssueSource[], query: string, involvement?: TaskInvolvement): Promise<IssueSummary[]>
-  issuesSidebarSnapshot(filter?: IssueSidebarFilter): Promise<IssueSidebarSnapshot>
   /** The tasks whose comments hold every word of a query (docs/plans/unified-search.md §7). */
   issuesSearchComments(query: IssueCommentSearchQuery): Promise<IssueCommentHit[]>
   /** Read one task from its provider, with its comments and its attachments on

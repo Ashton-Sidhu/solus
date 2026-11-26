@@ -115,7 +115,7 @@ async function repairHarness(titleAnswers: Map<string, string | null | Error>) {
   const calls: string[] = []
   const world = await createTasksWorld()
   world.connections.registerPrimary('local', {
-    issuesSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
+    issuesList: async () => ({ tasks: [], sessionsByTask: {} }),
     ensureBackgroundSessionTitle: async (sessionId: string) => {
       calls.push(`ensure:${sessionId}`)
       const answer = titleAnswers.get(sessionId) ?? null

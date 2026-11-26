@@ -3,8 +3,8 @@ import type {
   Issue as TaskRecord,
   IssueDetails,
   IssueLink,
-  IssueSidebarFilter,
-  IssueSidebarSnapshot,
+  IssueListRequest,
+  IssueList,
   IssueSummary,
 } from '@solus/contracts/task-types'
 import {
@@ -46,7 +46,7 @@ describe('renderer task hydration', () => {
     // A row that spoke for the body would empty the open task page on each
     // refresh. A full record still clears an epic it no longer has.
     const world = await createTasksWorld()
-    world.connections.registerPrimary('local', { issuesSidebarSnapshot: async () => snapshotOf([issueRow()]) })
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([issueRow()]) })
     const store = new world.IssuesStore()
     await store.ensureLoaded()
 
@@ -75,7 +75,7 @@ describe('renderer task hydration', () => {
     // request discovery, whose effect issued the read.
     const world = await createTasksWorld()
     const row = () => issueRow(TASK, { labels: ['bug'], pr: { number: 5, url: 'https://github.com/acme/app/pull/5' } })
-    world.connections.registerPrimary('local', { issuesSidebarSnapshot: async () => snapshotOf([row()]) })
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([row()]) })
     const store = new world.IssuesStore()
     await store.ensureLoaded()
     const task = store.get(TASK)
@@ -103,7 +103,7 @@ describe('renderer task hydration', () => {
     // a read sees the result of it.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow()]),
+      issuesList: async () => snapshotOf([issueRow()]),
       issuesGet: async () => detailsOf(issueRecord(TASK, { title: 'Read from the provider' }), {
         comments: [{ id: 'comment-1', issueId: TASK, body: 'Landed', createdAt: 1 }],
       }),
@@ -126,7 +126,7 @@ describe('renderer task hydration', () => {
     // WHY: `get` mints a task for a deep link or a session link. Until a host
     // describes it, a surface must not draw its empty defaults as a real task.
     const world = await createTasksWorld()
-    world.connections.registerPrimary('local', { issuesSidebarSnapshot: async () => snapshotOf([]) })
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([]) })
     const store = new world.IssuesStore()
     await store.ensureLoaded()
 
@@ -145,7 +145,7 @@ describe('renderer task hydration', () => {
     // an issue, or for a key that no host described.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow(), draftRow('github:DI_1')]),
+      issuesList: async () => snapshotOf([issueRow(), draftRow('github:DI_1')]),
     })
     const store = new world.IssuesStore()
     await store.ensureLoaded()
@@ -160,7 +160,7 @@ describe('renderer task hydration', () => {
     // that field. A control for a field the provider drops would lose input.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow(TASK, { writableFields: ['title', 'labels'] })]),
+      issuesList: async () => snapshotOf([issueRow(TASK, { writableFields: ['title', 'labels'] })]),
     })
     const store = new world.IssuesStore()
     await store.ensureLoaded()
@@ -176,7 +176,7 @@ describe('renderer task hydration', () => {
     const world = await createTasksWorld()
     const calls: unknown[] = []
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow()]),
+      issuesList: async () => snapshotOf([issueRow()]),
       issuesListAssigneeCandidates: async (target: unknown) => {
         calls.push(target)
         return [{ login: 'octocat', avatarUrl: 'https://avatars.test/octocat' }]
@@ -207,7 +207,7 @@ describe('renderer task hydration', () => {
     // sidebar row, to the referrer instead of the task the work belongs to.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf(
+      issuesList: async () => snapshotOf(
         [issueRow('github:I_referrer'), issueRow('github:I_owner')],
         {
           'github:I_referrer': [sessionLink('shared-session', { role: 'referenced', linkedAt: 2 })],
@@ -230,14 +230,14 @@ describe('renderer task hydration', () => {
     const world = await createTasksWorld()
     const created: Array<{ serverId: string; input: unknown }> = []
     world.connections.registerPrimary('workshop', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow()]),
+      issuesList: async () => snapshotOf([issueRow()]),
       issuesCreate: async (input: unknown) => {
         created.push({ serverId: 'workshop', input })
         return issueRecord('github:I_created_workshop')
       },
     })
     world.connections.registerHost('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([]),
+      issuesList: async () => snapshotOf([]),
       issuesCreate: async (input: unknown) => {
         created.push({ serverId: 'local', input })
         return issueRecord('github:I_created_local')
@@ -260,7 +260,7 @@ describe('renderer task hydration', () => {
     // does not exist, so the list must not show a row for it.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([]),
+      issuesList: async () => snapshotOf([]),
       issuesCreate: async () => { throw new Error('This project has no task source.') },
     })
     const store = new world.IssuesStore()
@@ -275,7 +275,7 @@ describe('renderer task hydration', () => {
     // "Agent running", so a task whose agent stopped hours ago still showed a
     // live tint. A link says a session exists; only the host knows if it works.
     const world = await createTasksWorld()
-    world.connections.registerPrimary('local', { issuesSidebarSnapshot: async () => snapshotOf([issueRow()]) })
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([issueRow()]) })
     const store = new world.IssuesStore()
     await store.ensureLoaded()
     const link = { sessionId: 'session-1', executionServerId: null }
@@ -315,7 +315,7 @@ describe('renderer task hydration', () => {
     const world = await createTasksWorld()
     const detailReads: string[] = []
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow('github:I_visible'), issueRow('github:I_hidden')]),
+      issuesList: async () => snapshotOf([issueRow('github:I_visible'), issueRow('github:I_hidden')]),
       issuesGet: async (taskId: string) => {
         detailReads.push(taskId)
         return detailsOf(issueRecord(taskId))
@@ -345,7 +345,7 @@ describe('renderer task hydration', () => {
     const reads: Array<{ id: string; cached: boolean }> = []
     const statusOptions = { columns: [], canSetStatus: true }
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow('github:I_open')]),
+      issuesList: async () => snapshotOf([issueRow('github:I_open')]),
       issuesGet: async (taskId: string, read?: { cached?: true }) => {
         reads.push({ id: taskId, cached: read?.cached === true })
         return read?.cached ? detailsOf(issueRecord(taskId)) : { ...detailsOf(issueRecord(taskId)), statusOptions }
@@ -380,7 +380,7 @@ describe('renderer task hydration', () => {
       issueRow('github:I_untouched'),
     ]
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async (filter?: IssueSidebarFilter) => {
+      issuesList: async (filter?: IssueListRequest) => {
         sidebarReads.push(filter?.issueIds)
         const tasks = filter?.issueIds ? rows.filter((row) => filter.issueIds?.includes(row.id)) : rows
         return snapshotOf(tasks, Object.fromEntries(tasks.map((row) => [row.id, [sessionLink(`${row.id}-session`)]])))
@@ -418,7 +418,7 @@ describe('renderer task hydration', () => {
     let detailReads = 0
     const details = Promise.withResolvers<IssueDetails>()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow()]),
+      issuesList: async () => snapshotOf([issueRow()]),
       issuesGet: () => {
         detailReads++
         return details.promise
@@ -444,14 +444,14 @@ describe('renderer task hydration', () => {
     const asked: string[] = []
     world.attachmentOnlyHosts.add('cloud')
     world.connections.registerPrimary('cloud', {
-      issuesSidebarSnapshot: async () => snapshotOf([]),
+      issuesList: async () => snapshotOf([]),
       issuesGet: async () => {
         asked.push('cloud')
         throw new Error('The Solus API does not read tasks.')
       },
     })
     world.connections.registerHost('workshop', {
-      issuesSidebarSnapshot: async () => snapshotOf([]),
+      issuesList: async () => snapshotOf([]),
       issuesGet: async (id: string) => {
         asked.push('workshop')
         return detailsOf(issueRecord(id, { title: 'Direct issue' }))
@@ -471,7 +471,7 @@ describe('renderer task hydration', () => {
     // stayed pending would show a loading state that never ends.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([]),
+      issuesList: async () => snapshotOf([]),
       issuesGet: async () => { throw new Error('Not Found') },
     })
     const store = new world.IssuesStore()
@@ -486,14 +486,14 @@ describe('reading tasks from more than one host', () => {
     // read is in flight. The completed lifecycle on that host must reach the
     // first stable sidebar instead of waiting for later typing or task activity.
     const world = await createTasksWorld()
-    const localSnapshot = Promise.withResolvers<IssueSidebarSnapshot>()
-    const remoteSnapshot = Promise.withResolvers<IssueSidebarSnapshot>()
-    world.connections.registerPrimary('local', { issuesSidebarSnapshot: () => localSnapshot.promise })
+    const localSnapshot = Promise.withResolvers<IssueList>()
+    const remoteSnapshot = Promise.withResolvers<IssueList>()
+    world.connections.registerPrimary('local', { issuesList: () => localSnapshot.promise })
     const store = new world.IssuesStore()
     const firstLoad = store.ensureLoaded()
     await settle()
 
-    world.connectHost('remote', { issuesSidebarSnapshot: () => remoteSnapshot.promise })
+    world.connectHost('remote', { issuesList: () => remoteSnapshot.promise })
     localSnapshot.resolve(snapshotOf([]))
     await settle()
 
@@ -513,11 +513,11 @@ describe('reading tasks from more than one host', () => {
   test('shows a healthy host before a slow connected host answers', async () => {
     // WHY: one slow machine must not hold every other machine's tasks back.
     const world = await createTasksWorld()
-    const slow = Promise.withResolvers<IssueSidebarSnapshot>()
+    const slow = Promise.withResolvers<IssueList>()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('healthy-session')] }),
+      issuesList: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('healthy-session')] }),
     })
-    world.connections.registerHost('slow', { issuesSidebarSnapshot: () => slow.promise })
+    world.connections.registerHost('slow', { issuesList: () => slow.promise })
     const store = new world.IssuesStore()
     const load = store.load()
     await settle()
@@ -537,15 +537,15 @@ describe('reading tasks from more than one host', () => {
     const world = await createTasksWorld()
     let localReads = 0
     let remoteReads = 0
-    const remoteSnapshot = Promise.withResolvers<IssueSidebarSnapshot>()
+    const remoteSnapshot = Promise.withResolvers<IssueList>()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => {
+      issuesList: async () => {
         localReads++
         return snapshotOf([issueRow('github:I_local')], { 'github:I_local': [sessionLink('local-session')] })
       },
     })
     world.connections.registerHost('remote', {
-      issuesSidebarSnapshot: () => {
+      issuesList: () => {
         remoteReads++
         return remoteSnapshot.promise
       },
@@ -575,9 +575,9 @@ describe('reading tasks from more than one host', () => {
     // sidebar keeps its skeleton for as long as the first host is down.
     const { HostUnreachableError } = await import('@solus/client-core/rpc-error')
     const world = await createTasksWorld()
-    const local = Promise.withResolvers<IssueSidebarSnapshot>()
-    world.connections.registerPrimary('local', { issuesSidebarSnapshot: () => local.promise })
-    world.connections.registerHost('remote', { issuesSidebarSnapshot: () => new Promise<IssueSidebarSnapshot>(() => {}) })
+    const local = Promise.withResolvers<IssueList>()
+    world.connections.registerPrimary('local', { issuesList: () => local.promise })
+    world.connections.registerHost('remote', { issuesList: () => new Promise<IssueList>(() => {}) })
     world.connections.emitReadiness('remote', 'checking')
     const store = new world.IssuesStore()
     void store.load()
@@ -594,8 +594,8 @@ describe('reading tasks from more than one host', () => {
   test('a host that fails its read is reported and does not empty the other hosts', async () => {
     // WHY: losing one machine must not read as "the sidebar lost my tasks".
     const world = await createTasksWorld()
-    world.connections.registerPrimary('local', { issuesSidebarSnapshot: async () => snapshotOf([issueRow()]) })
-    world.connections.registerHost('broken', { issuesSidebarSnapshot: async () => { throw new Error('database is locked') } })
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([issueRow()]) })
+    world.connections.registerHost('broken', { issuesList: async () => { throw new Error('database is locked') } })
     const store = new world.IssuesStore()
     await store.ensureLoaded()
 
@@ -614,13 +614,13 @@ describe('reading tasks from more than one host', () => {
     let remoteReads = 0
     let remoteTasks = [issueRow('github:I_kept'), issueRow('github:I_gone')]
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => {
+      issuesList: async () => {
         localReads++
         return snapshotOf([issueRow('github:I_local')])
       },
     })
     world.connections.registerHost('remote', {
-      issuesSidebarSnapshot: async () => {
+      issuesList: async () => {
         remoteReads++
         return snapshotOf(remoteTasks)
       },
@@ -644,13 +644,13 @@ describe('reading tasks from more than one host', () => {
     // holds; a task it names and leaves out has gone, and a task it does not
     // name keeps its row. A host that gives no revision is read whole, as before.
     const world = await createTasksWorld()
-    const reads: Array<IssueSidebarFilter | undefined> = []
-    let answer: IssueSidebarSnapshot = {
+    const reads: Array<IssueListRequest | undefined> = []
+    let answer: IssueList = {
       ...snapshotOf([issueRow('github:I_kept'), issueRow('github:I_edited'), issueRow('github:I_gone')]),
       revision: 'boot.1.reader',
     }
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async (filter?: IssueSidebarFilter) => {
+      issuesList: async (filter?: IssueListRequest) => {
         reads.push(filter)
         return answer
       },
@@ -699,14 +699,14 @@ describe('reading tasks from more than one host', () => {
     const updatedOn: string[] = []
     const shared = issueRow('github:I_shared')
     world.connections.registerPrimary('first', {
-      issuesSidebarSnapshot: async () => snapshotOf([{ ...shared, title: 'As the first host read it' }], { 'github:I_shared': [sessionLink('first-session', { linkedAt: 1 })] }),
+      issuesList: async () => snapshotOf([{ ...shared, title: 'As the first host read it' }], { 'github:I_shared': [sessionLink('first-session', { linkedAt: 1 })] }),
       issuesUpdate: async () => {
         updatedOn.push('first')
         return issueRecord('github:I_shared')
       },
     })
     world.connections.registerHost('second', {
-      issuesSidebarSnapshot: async () => snapshotOf([{ ...shared, title: 'As the second host read it' }], { 'github:I_shared': [sessionLink('second-session', { linkedAt: 2 })] }),
+      issuesList: async () => snapshotOf([{ ...shared, title: 'As the second host read it' }], { 'github:I_shared': [sessionLink('second-session', { linkedAt: 2 })] }),
       issuesUpdate: async () => {
         updatedOn.push('second')
         return issueRecord('github:I_shared')
@@ -729,10 +729,10 @@ describe('reading tasks from more than one host', () => {
     // WHY: which host reads a task must not depend on which answered first, or
     // the reader would change from one load to the next.
     const world = await createTasksWorld()
-    const preferred = Promise.withResolvers<IssueSidebarSnapshot>()
-    world.connections.registerPrimary('local', { issuesSidebarSnapshot: () => preferred.promise })
+    const preferred = Promise.withResolvers<IssueList>()
+    world.connections.registerPrimary('local', { issuesList: () => preferred.promise })
     world.connections.registerHost('mirror', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('mirror-session', { linkedAt: 1 })] }),
+      issuesList: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('mirror-session', { linkedAt: 1 })] }),
     })
     const store = new world.IssuesStore()
     const load = store.load()
@@ -753,8 +753,8 @@ describe('reading tasks from more than one host', () => {
     const world = await createTasksWorld()
     let firstRows = [issueRow()]
     let secondRows = [issueRow()]
-    world.connections.registerPrimary('first', { issuesSidebarSnapshot: async () => snapshotOf(firstRows) })
-    world.connections.registerHost('second', { issuesSidebarSnapshot: async () => snapshotOf(secondRows) })
+    world.connections.registerPrimary('first', { issuesList: async () => snapshotOf(firstRows) })
+    world.connections.registerHost('second', { issuesList: async () => snapshotOf(secondRows) })
     const store = new world.IssuesStore()
     await store.ensureLoaded()
     expect(store.get(TASK).serverId).toBe('first')
@@ -776,8 +776,8 @@ describe('reading tasks from more than one host', () => {
     // WHY: restored sessions must never render between independently timed task
     // and link reads. The host response is the renderer's atomic boundary.
     const world = await createTasksWorld()
-    const snapshot = Promise.withResolvers<IssueSidebarSnapshot>()
-    world.connections.registerPrimary('local', { issuesSidebarSnapshot: () => snapshot.promise })
+    const snapshot = Promise.withResolvers<IssueList>()
+    world.connections.registerPrimary('local', { issuesList: () => snapshot.promise })
     const store = new world.IssuesStore()
     const hydration = store.ensureLoaded()
     await settle()
@@ -808,9 +808,9 @@ describe('reading tasks from more than one host', () => {
     // and the loose session until the link request completes.
     const world = await createTasksWorld()
     let snapshotRequest = 0
-    const refreshSnapshot = Promise.withResolvers<IssueSidebarSnapshot>()
+    const refreshSnapshot = Promise.withResolvers<IssueList>()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: () => snapshotRequest++ === 0 ? Promise.resolve(snapshotOf([])) : refreshSnapshot.promise,
+      issuesList: () => snapshotRequest++ === 0 ? Promise.resolve(snapshotOf([])) : refreshSnapshot.promise,
     })
     const store = new world.IssuesStore()
     await store.ensureLoaded()
@@ -835,13 +835,13 @@ describe('attachments from a host that does not read the task', () => {
   async function twoHosts(cloudFirst = false) {
     const world = await createTasksWorld()
     const answers = {
-      workshop: snapshotOf([issueRow()], { [TASK]: [sessionLink('workshop-run', { linkedAt: 1 })] }) as IssueSidebarSnapshot,
-      cloud: snapshotOf([], { [TASK]: [sessionLink('cloud-run', { linkedAt: 2 })] }) as IssueSidebarSnapshot,
+      workshop: snapshotOf([issueRow()], { [TASK]: [sessionLink('workshop-run', { linkedAt: 1 })] }) as IssueList,
+      cloud: snapshotOf([], { [TASK]: [sessionLink('cloud-run', { linkedAt: 2 })] }) as IssueList,
     }
     const reads = { workshop: 0, cloud: 0 }
     const unlinkedOn: string[] = []
     const api = (name: 'workshop' | 'cloud') => ({
-      issuesSidebarSnapshot: async () => {
+      issuesList: async () => {
         reads[name]++
         return answers[name]
       },
@@ -1020,7 +1020,7 @@ describe('attachments from a host that does not read the task', () => {
 describe('writes go to the provider first', () => {
   async function oneTask(api: object, row: IssueSummary = issueRow()) {
     const world = await createTasksWorld()
-    world.connections.registerPrimary('local', { issuesSidebarSnapshot: async () => snapshotOf([row]), ...api })
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([row]), ...api })
     const store = new world.IssuesStore()
     await store.ensureLoaded()
     return { world, store, task: store.get(row.id) }
@@ -1177,7 +1177,7 @@ describe('pull request links', () => {
       linkedAt: 1,
     }]
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow()]),
+      issuesList: async () => snapshotOf([issueRow()]),
       issuesGet: async () => detailsOf(issueRecord()),
       issuesLink: async () => ({ links: links.map((link) => ({ ...link })), activity: [] }),
     })
@@ -1202,7 +1202,7 @@ describe('pull request links', () => {
     // linked PR must still render before branch discovery runs again.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => ({
+      issuesList: async () => ({
         ...snapshotOf([issueRow()]),
         prLinkListsByTask: {
           [TASK]: [
@@ -1229,7 +1229,7 @@ describe('pull request links', () => {
     // any host answered the link lists.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow(TASK, { pr: { number: 12, url: 'https://github.com/acme/app/pull/12' } })]),
+      issuesList: async () => snapshotOf([issueRow(TASK, { pr: { number: 12, url: 'https://github.com/acme/app/pull/12' } })]),
     })
     const store = new world.IssuesStore()
     await store.ensureLoaded()
@@ -1248,7 +1248,7 @@ describe('session bindings', () => {
     let calls = 0
     world.connections.registerPrimary('local', {
       issuesForSession: async () => null,
-      issuesSidebarSnapshot: async () => {
+      issuesList: async () => {
         calls++
         return snapshotOf([])
       },
@@ -1269,7 +1269,7 @@ describe('session bindings', () => {
     let calls = 0
     world.connections.registerPrimary('local', {
       issuesForSession: async () => { throw new Error('host unavailable') },
-      issuesSidebarSnapshot: async () => calls++ === 0
+      issuesList: async () => calls++ === 0
         ? snapshotOf([])
         : snapshotOf([issueRow('github:I_parent'), issueRow('github:I_child')], { 'github:I_child': [sessionLink('resumed-session')] }),
     })
@@ -1288,7 +1288,7 @@ describe('session bindings', () => {
     let snapshots = 0
     world.connections.registerPrimary('local', {
       issuesForSession: async () => ({ task: issueRecord('github:I_owner'), attempts: [] }),
-      issuesSidebarSnapshot: async () => {
+      issuesList: async () => {
         snapshots++
         return snapshotOf([])
       },
@@ -1311,7 +1311,7 @@ describe('session bindings', () => {
     let release!: () => void
     const gate = new Promise<void>((done) => { release = done })
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([]),
+      issuesList: async () => snapshotOf([]),
       issuesForSession: async () => {
         taskReads++
         if (taskReads === 1) await gate
@@ -1337,7 +1337,7 @@ describe('session bindings', () => {
     const world = await createTasksWorld()
     let taskReads = 0
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('selected-session')] }),
+      issuesList: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('selected-session')] }),
       issuesForSession: async () => {
         taskReads++
         return {
@@ -1361,7 +1361,7 @@ describe('session bindings', () => {
     // on the task as soon as the focused read lands, not after the next snapshot.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('selected-session')] }),
+      issuesList: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('selected-session')] }),
       issuesForSession: async () => ({
         task: issueRecord(),
         attempts: [
@@ -1388,7 +1388,7 @@ describe('session bindings', () => {
     const world = await createTasksWorld()
     world.attachmentOnlyHosts.add('cloud')
     world.connections.registerPrimary('cloud', {
-      issuesSidebarSnapshot: async () => snapshotOf([]),
+      issuesList: async () => snapshotOf([]),
       issuesForSession: async () => ({ task: issueRecord(), attempts: [sessionLink('cloud-run')] }),
     })
     const store = new world.IssuesStore()
@@ -1405,7 +1405,7 @@ describe('session bindings', () => {
     // sessions. A session that just initialized must appear there on the same
     // frame rather than leaving the row idle until a follow-up RPC completes.
     const world = await createTasksWorld()
-    world.connections.registerPrimary('local', { issuesSidebarSnapshot: async () => snapshotOf([issueRow()]) })
+    world.connections.registerPrimary('local', { issuesList: async () => snapshotOf([issueRow()]) })
     const store = new world.IssuesStore()
     await store.ensureLoaded()
 
@@ -1423,7 +1423,7 @@ describe('session bindings', () => {
     // new session now, as it does for the first session of a task.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('earlier-session', { linkedAt: 1 })] }),
+      issuesList: async () => snapshotOf([issueRow()], { [TASK]: [sessionLink('earlier-session', { linkedAt: 1 })] }),
     })
     const store = new world.IssuesStore()
     await store.ensureLoaded()
@@ -1441,7 +1441,7 @@ describe('session bindings', () => {
     const world = await createTasksWorld()
     const filedOn: string[] = []
     const api = (name: string) => ({
-      issuesSidebarSnapshot: async () => snapshotOf(name === 'workshop' ? [issueRow()] : []),
+      issuesList: async () => snapshotOf(name === 'workshop' ? [issueRow()] : []),
       issuesLinkSession: async () => { filedOn.push(name) },
     })
     world.attachmentOnlyHosts.add('cloud')
@@ -1466,7 +1466,7 @@ describe('deleting draft items', () => {
     const world = await createTasksWorld()
     const draft = 'github:DI_1'
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([draftRow(draft)]),
+      issuesList: async () => snapshotOf([draftRow(draft)]),
       issuesGet: async () => detailsOf({ ...draftRow(draft), body: '' }),
     })
     const store = new world.IssuesStore()
@@ -1492,7 +1492,7 @@ describe('deleting draft items', () => {
     let maximumActiveDeletes = 0
     const deletedIds: string[] = []
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf(drafts),
+      issuesList: async () => snapshotOf(drafts),
       issuesDelete: async (taskId: string) => {
         activeDeletes++
         maximumActiveDeletes = Math.max(maximumActiveDeletes, activeDeletes)
@@ -1519,7 +1519,7 @@ describe('deleting draft items', () => {
     const world = await createTasksWorld()
     const draft = 'github:DI_1'
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([draftRow(draft)]),
+      issuesList: async () => snapshotOf([draftRow(draft)]),
       issuesDelete: async () => {},
     })
     const store = new world.IssuesStore()
@@ -1539,7 +1539,7 @@ describe('deleting draft items', () => {
     // task still exists, so it must come back to the list with the error.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([draftRow('github:DI_1'), draftRow('github:DI_2')]),
+      issuesList: async () => snapshotOf([draftRow('github:DI_1'), draftRow('github:DI_2')]),
       issuesDelete: async (taskId: string) => {
         if (taskId === 'github:DI_2') throw new Error('GitHub did not remove the item')
       },
@@ -1564,8 +1564,9 @@ describe('provider search', () => {
     world.setSources([repo])
     const searches: Array<[unknown, string]> = []
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow()]),
-      issuesSources: async () => [sourceState(REPO_SOURCE_KEY)],
+      issuesList: async (request?: { sources?: unknown }) => request?.sources
+        ? { ...snapshotOf([]), sources: [sourceState(REPO_SOURCE_KEY)] }
+        : snapshotOf([issueRow()]),
       issuesSearch: async (sources: unknown, query: string) => {
         searches.push([sources, query])
         return [issueRow(TASK, { title: 'Listed, with a newer title' }), issueRow('github:I_old', { title: 'An old payment bug' })]
@@ -1592,9 +1593,9 @@ describe('provider search', () => {
     // WHY: the task host searches, and another host can read the same task.
     // The search answer must not move the task's writes to another machine.
     const world = await createTasksWorld()
-    world.connections.registerPrimary('first', { issuesSidebarSnapshot: async () => snapshotOf([issueRow()]) })
+    world.connections.registerPrimary('first', { issuesList: async () => snapshotOf([issueRow()]) })
     world.connections.registerHost('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([]),
+      issuesList: async () => snapshotOf([]),
       issuesSearch: async () => [issueRow()],
     })
     const store = new world.IssuesStore()
@@ -1617,7 +1618,7 @@ describe('conversation-card reverse links', () => {
     const stale = Promise.withResolvers<typeof linked>()
     let reads = 0
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([]),
+      issuesList: async () => snapshotOf([]),
       issuesLinkedTo: async () => {
         reads++
         return reads === 1 ? linked : stale.promise
@@ -1648,7 +1649,7 @@ describe('conversation-card reverse links', () => {
     const world = await createTasksWorld()
     const target = { kind: 'work' as const, targetScope: '', targetKey: 'work-1' }
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([issueRow(TASK, { category: 'active' })]),
+      issuesList: async () => snapshotOf([issueRow(TASK, { category: 'active' })]),
       issuesLinkedTo: async () => [],
       issuesLink: async () => ({ links: [], activity: [] }),
     })
@@ -1670,7 +1671,7 @@ describe('which tasks the store lists', () => {
     // label that one task uses is a label the person can give another.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([
+      issuesList: async () => snapshotOf([
         issueRow('github:I_repo', { labels: ['bug'] }),
         issueRow('jira:cloud-1:10001', { providerId: 'jira', reference: 'SOL-1', labels: ['backend', 'bug'] }),
       ]),
@@ -1686,7 +1687,7 @@ describe('which tasks the store lists', () => {
     // provider state. An active task and an open task are both still work.
     const world = await createTasksWorld()
     world.connections.registerPrimary('local', {
-      issuesSidebarSnapshot: async () => snapshotOf([
+      issuesList: async () => snapshotOf([
         issueRow('github:I_open'),
         issueRow('github:I_active', { category: 'active' }),
         issueRow('github:I_done', { category: 'done', state: { name: 'Closed', category: 'done' } }),

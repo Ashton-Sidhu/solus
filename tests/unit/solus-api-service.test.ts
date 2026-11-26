@@ -35,7 +35,7 @@ test('the data service boots alone, serves HTTP, and exposes no execution or rep
   // The service holds the attachments of tasks and no task: GitHub or Jira is read on a host that has the project.
   expect(service!.server.hasHandler('issuesAttachments')).toBe(true)
   expect(service!.server.hasHandler('issuesLink')).toBe(true)
-  for (const method of ['issuesGet', 'issuesCreate', 'issuesUpdate', 'issuesMove', 'issuesDelete', 'issuesComment', 'issuesSources'] as const) {
+  for (const method of ['issuesGet', 'issuesCreate', 'issuesUpdate', 'issuesMove', 'issuesDelete', 'issuesComment', 'issuesSourceOptions'] as const) {
     expect({ method, served: service!.server.hasHandler(method) }).toEqual({ method, served: false })
   }
   expect(service!.server.hasHandler('workspaceProjectAdd')).toBe(true)
