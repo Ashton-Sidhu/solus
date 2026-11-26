@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { LinkedThreadTarget } from "@t3tools/client-runtime/linked-thread";
 import { TranscriptModel } from "@solus-mobile/features/conversation/lib/transcript-model";
+import { keptOnHostText } from "@solus-mobile/features/threads/cloud-history";
 import { Atom } from "effect/reactivity";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { hostQueryScopeAtom } from "../state/host-query-scope";
@@ -47,6 +48,11 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
   const provider = useSyncExternalStore(
     solus.cloudSessions.changes.subscribe,
     () => solus.cloudSessions.recordFor(threadId)?.provider,
+  );
+  // The organization keeps its sessions on their hosts: Solus Cloud has no record and no copy of this one.
+  const keptOnHost = useSyncExternalStore(
+    solus.cloudSessions.changes.subscribe,
+    () => solus.cloudSessions.isKeptOnHost(threadId),
   );
   const [attempt, setAttempt] = useState(0);
   const [copy, setCopy] = useState<{
@@ -167,7 +173,9 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
       record.error ??
       (meta?.phase.kind === "error" ? meta.phase.message : meta?.history.error) ??
       mirror?.error ??
-      (!host && (!cloud || !provider) && (!via || (!parentSessionId && !isLinked)) ? "Connect to the host to read this session." : null),
+      (!host && (!cloud || !provider) && (!via || (!parentSessionId && !isLinked))
+        ? keptOnHost ? keptOnHostText() : "Connect to the host to read this session."
+        : null),
     retry: () => {
       if (store) {
         if (meta?.history.error) void loadEarlier();

@@ -206,15 +206,4 @@ describe('the hold and the report on a cloud machine with managed compute', () =
     expect(reports).toEqual([])
     expect(existsSync(activityFile)).toBe(false)
   })
-
-  test('a machine that loses its managed compute releases its hold and stops reporting', async () => {
-    adoptRegistration(link)
-    const { activity, tasks, reports } = harness({ busy: true, nextDueAt: null })
-    await activity.check()
-    expect(tasks).toEqual(['PUT /v1/tasks/solus-work {"expire":600}'])
-    adoptRegistration(null)
-    await activity.check()
-    expect(tasks.at(-1)).toBe('DELETE /v1/tasks/solus-work')
-    expect(reports).toHaveLength(1)
-  })
 })

@@ -105,13 +105,13 @@ export function localOwnerClient(host: HostAddress, persona: CloudPersona): LabC
  * local connection (`uplinkRegister`). The host links its new registration. Answers the
  * host's status.
  *
- * With `cloudMachine`, the ticket is an organization link code and the operator of a
- * new server gives it with the machine's own HTTPS address
- * (plans/034-one-cloud-machine-kind.md §3): the registration names the organization, so
- * the server is a cloud machine from then on. It has no owner, and it trusts the local
- * connection no more.
+ * With `cloudMachine`, the ticket is an organization link code that the operator of a
+ * new server gives it (plans/034-one-cloud-machine-kind.md §3): the registration names
+ * the organization, so the server is a cloud machine from then on. It has no owner, and
+ * it trusts the local connection no more. With `address`, the machine is reached at
+ * that HTTPS address; with none, it gets a tunnel, as a personal host does.
  */
-export async function registerHost(stack: LocalCloudStack, host: HostAddress, owner: SignedIn, cloudMachine?: { organizationId: string; address: string }): Promise<UplinkStatus> {
+export async function registerHost(stack: LocalCloudStack, host: HostAddress, owner: SignedIn, cloudMachine?: { organizationId: string; address?: string }): Promise<UplinkStatus> {
   const accountToken = await owner.oauth.accessToken({ kind: 'account' })
   if (!accountToken) throw new Error(`${owner.persona.name} got no account token`)
   const ticketRequest: EnrollmentTicketRequest = cloudMachine ? { organizationId: cloudMachine.organizationId } : {}
@@ -127,7 +127,7 @@ export async function registerHost(stack: LocalCloudStack, host: HostAddress, ow
   if (!dialed.ok) throw new Error(`The local owner could not connect: ${JSON.stringify(dialed)}`)
   try {
     const request: HostRegistrationRequest = { ticket: ticket.ticket, directoryUrl: stack.origin }
-    if (cloudMachine) request.address = cloudMachine.address
+    if (cloudMachine?.address) request.address = cloudMachine.address
     return await local.rpc('uplinkRegister', request)
   } finally {
     local.close()

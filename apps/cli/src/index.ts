@@ -7,7 +7,7 @@ import { dirname, join } from 'path'
 import { createAdminHeaders, readSigningKey } from './lib/admin-auth'
 import { parseMachineAddress, readCloudMachineRecord } from './lib/cloud-machine'
 import { connectHost, connectSelfTest, connectStatus, disconnectHost } from './lib/connect'
-import { assertAddressHasOrganization, describeCloudMachine, describeConnection, describeSelfTest, onboard, type OnboardingDeps } from './lib/onboarding'
+import { describeCloudMachine, describeConnection, describeSelfTest, onboard, type OnboardingDeps } from './lib/onboarding'
 import { followFile, readLastLines } from './lib/logs'
 import { setUpProvider } from './lib/provider-login'
 import { isInteractive, terminalPrompter } from './lib/prompts'
@@ -41,7 +41,7 @@ interface StartOptions extends CommonOptions {
 interface SetupOptions extends CommonOptions {
   /** A link code from Solus; connects the server once the service is healthy. */
   link?: string
-  /** This machine's own HTTPS address: with an organization code or choice, the server becomes a cloud host. */
+  /** This machine's own HTTPS address: the internet reaches the server there, with no tunnel. */
   address?: string
   /** The account plane to sign in to when no code names one; the default is Solus Cloud. */
   cloudUrl?: string
@@ -145,7 +145,8 @@ ${DESKTOP_USAGE}`)
 
 Usage:
   solus setup [--data-dir PATH] [--link CODE] [--address URL] [--cloud-url URL]
-                     --address: the HTTPS address of this machine, for a cloud host of an organization
+                     --link: a code from Solus; it decides whether this is your own machine or a cloud host of an organization
+                     --address: the HTTPS address of this machine; without it the server gets a Cloudflare tunnel
   solus start [--data-dir PATH] [--host HOST] [--port PORT] [--remote-access off|private|any]
   solus status [--data-dir PATH]
   solus service <start|stop|restart|uninstall|status> [--data-dir PATH]
@@ -161,6 +162,7 @@ Usage:
   solus host deny <check-code> [--data-dir PATH]
   solus pair [--data-dir PATH] [--tailscale] [--tailscale-serve-port N]
   solus connect [--data-dir PATH] [--code CODE] [--address URL] [--cloud-url URL] [--no-open]
+                     On a registered server, --address changes how the internet reaches it
   solus connect status [--data-dir PATH] [--json]
   solus connect unlink [--data-dir PATH]
   solus auth session create --json [--device-label LABEL] [--data-dir PATH]
@@ -175,13 +177,12 @@ Usage:
 /**
  * One command from a fresh install to a ready server
  * (plans/034-one-cloud-machine-kind.md): start the service, then connect it — a link
- * code decides by itself, and with `--address` an organization code makes the server a
- * cloud host; a terminal asks how the server will be used and offers provider
+ * code decides by itself what the server is, and `--address` says where the internet
+ * reaches it; a terminal asks how the server will be used and offers provider
  * sign-in; without either, the pairing details are printed. Running it again resumes:
  * the service install is idempotent and a linked server is not linked twice.
  */
 async function setup(opts: SetupOptions): Promise<void> {
-  assertAddressHasOrganization(opts, isInteractive())
   const paths = runtimePaths(opts.dataDir)
   await runSetup(paths, (line) => console.log(line))
   console.log('')
@@ -279,14 +280,13 @@ async function connect(args: string[]): Promise<void> {
     const uplink = await disconnectHost(dataDir)
     console.log(uplink.link.linked
       ? describeConnection(await connectStatus(dataDir)).join('\n')
-      : 'Solus: not linked. The internet no longer reaches this server; it stays registered to your account. Remove it on the Devices page to end that.')
+      : 'Solus: not linked. The internet no longer reaches this server; it stays registered to your account. Remove it on the Devices page to end that. To link it again, run `solus connect` for a tunnel, or `solus connect --address URL` for its own HTTPS address.')
     return
   }
   if (subcommand && !subcommand.startsWith('-')) {
     throw new Error('Unknown connect command. Expected: solus connect, status, or unlink')
   }
   const opts = parseConnectOptions(args)
-  if (opts.address && isDesktopCli()) throw new Error('`--address` makes a standalone Solus server a cloud host of an organization. The server of the desktop app is a personal computer always: run `solus connect` without `--address`.')
   await withOnboarding(runtimePaths(opts.dataDir), (deps) => onboard({ dataDir: opts.dataDir, cloudUrl: opts.cloudUrl, link: opts.code, address: opts.address, noOpen: opts.noOpen, mode: 'connect', isDesktopApp: isDesktopCli() }, deps))
 }
 

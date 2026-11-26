@@ -23,6 +23,19 @@ let records: typeof import('@solus/server/data/sessions/session-records')
 let dbModule: typeof import('@solus/server/db')
 let hostUser: typeof import('@solus/server/host/host-user')
 let settings: typeof import('@solus/server/host/settings')
+let policy: typeof import('@solus/server/host/policy/host-policy-store')
+
+/** The policy of org1 as this host knows it, beside an org2 that sets no limit; null when the host has received no policy. */
+function organizationPolicy(limits: { sessionCloudSync?: boolean } | null): void {
+  const organization = (organizationId: string, sessionLimits: { sessionCloudSync?: boolean }) => ({
+    organizationId, name: organizationId, shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true },
+    policy: { schemaVersion: 1 as const, organization: { name: organizationId }, sessions: { limits: sessionLimits } }, hostPolicy: null,
+  })
+  policy.useHostPolicyStore(new policy.HostPolicyStore({ mdm: null, standing: () => limits && {
+    hostId: 'host-1', kind: 'personal', owner: null, hostOwnerOrganizationId: null, refreshedAt: 1,
+    organizations: [organization('org1', limits), organization('org2', {})],
+  } }))
+}
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -36,9 +49,12 @@ beforeAll(async () => {
   dbModule = await import('@solus/server/db')
   hostUser = await import('@solus/server/host/host-user')
   settings = await import('@solus/server/host/settings')
+  policy = await import('@solus/server/host/policy/host-policy-store')
+  organizationPolicy({})
 })
 
 afterAll(async () => {
+  organizationPolicy(null)
   await resetTestDatabase()
   dbModule.closeDb()
   rmSync(dataDir, { recursive: true, force: true })
@@ -206,8 +222,8 @@ describe('transcript mirror', () => {
       expect(await producer.flushNow('mine')).toBe(0)
       expect(queue.deliveryDestinations()).toEqual([])
       expect(rememberedPositions('mine')).toEqual([0])
-      // The switch does not gate a published session: publication is its gate.
-      expect(await TranscriptMirrorModule.mirrorDestination('s1')).toEqual({ organizationId: 'org1', actorUserId: '' })
+      // The switch is one setting for the host: a published session sends nothing either.
+      expect(await TranscriptMirrorModule.mirrorDestination('s1')).toBeNull()
       producer.dispose()
     } finally {
       settings.setHostConfig({ sessionCloudSync: true })
@@ -246,6 +262,63 @@ describe('transcript mirror', () => {
     // A failed result keeps the head a client shows on the card, and nothing more of its body.
     expect(messageAt(2)).toMatchObject({ role: 'tool_result', content: '', status: 'error', errorHead: 'API_KEY=hunter2', contentBytes: 15 })
     producer.dispose()
+  })
+
+  test('a session of an organization that does not save its sessions sends no row; when the organization saves them again, every row goes', async () => {
+    // WHY: `sessionCloudSync: false` in the policy of an organization means that no
+    // conversation of its work is in Solus Cloud. Publication alone does not send it.
+    await session('kept', 'published')
+    organizationPolicy({ sessionCloudSync: false })
+    const producer = mirror()
+    try {
+      transcripts.set('kept', [{ role: 'user', content: 'the secret plan', timestamp: 1 }, message('the answer')])
+      expect(await TranscriptMirrorModule.mirrorDestination('kept')).toBeNull()
+      producer.touch('kept', { provider: 'claude-code', projectPath: '-repo' })
+      expect(await producer.flushNow('kept')).toBe(0)
+      expect(queue.deliveryDestinations()).toEqual([])
+      expect(rememberedPositions('kept')).toEqual([])
+
+      organizationPolicy({})
+      producer.touch('kept', { provider: 'claude-code' })
+      await producer.flushNow('kept')
+      expect(drainLog().map((item) => 'position' in item.payload ? item.payload.position : null)).toEqual([0, 1])
+    } finally {
+      organizationPolicy({})
+      producer.dispose()
+    }
+  })
+
+  test('the host switch stops the rows of a published session too', async () => {
+    // WHY: "Save sessions to Solus Cloud" is one setting. A person who turns it off on
+    // their host sends no conversation from that host, an organization session included.
+    await session('switch-off', 'published')
+    const producer = mirror()
+    settings.setHostConfig({ sessionCloudSync: false })
+    try {
+      transcripts.set('switch-off', [message('stays here')])
+      producer.touch('switch-off', { provider: 'claude-code' })
+      expect(await producer.flushNow('switch-off')).toBe(0)
+      expect(queue.deliveryDestinations()).toEqual([])
+    } finally {
+      settings.setHostConfig({ sessionCloudSync: true })
+      producer.dispose()
+    }
+  })
+
+  test('a host that does not know the policy of the organization sends no row', async () => {
+    // WHY: the host cannot infer that the organization saves its sessions in the cloud.
+    await session('unknown-policy', 'published')
+    organizationPolicy(null)
+    const producer = mirror()
+    try {
+      transcripts.set('unknown-policy', [{ role: 'user', content: 'do not send this', timestamp: 1 }, message('an answer')])
+      producer.touch('unknown-policy', { provider: 'claude-code' })
+      expect(await producer.flushNow('unknown-policy')).toBe(0)
+      expect(queue.deliveryDestinations()).toEqual([])
+    } finally {
+      organizationPolicy({})
+      producer.dispose()
+    }
   })
 
   test('a published session\'s activity is queued once, under its session id; a Local or unpublished session\'s is not', async () => {

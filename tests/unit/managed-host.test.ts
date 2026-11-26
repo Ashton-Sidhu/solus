@@ -11,7 +11,7 @@ import { dialHostSocket } from '@solus/client-core/host-socket'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const machine = await import('@solus/server/host/machine-kind')
-const hostLinkEnv = await import('@solus/server/host/host-link-env')
+const bootLinkCode = await import('@solus/server/host/boot-link-code')
 const { isTrustedRequesterAddress } = await import('@solus/server/transport/trusted-requesters')
 const { isLanDiscoveryDisabled } = await import('@solus/server/transport/lan-discovery')
 const { assertRpcAccess, RpcAccessError } = await import('@solus/server/admission/access-policy')
@@ -25,9 +25,9 @@ const { projectsVisibleTo } = await import('@solus/server/transport/handlers/set
 const { projectsRootFor } = await import('@solus/server/workspace')
 const { setupProjectsRoot } = await import('@solus/server/workspace')
 
-// plans/034-one-cloud-machine-kind.md §2, docs/plans/managed-hosts.md §1: on a cloud
+// plans/034-one-cloud-machine-kind.md §2, §3, docs/plans/managed-hosts.md §1: on a cloud
 // machine nothing is trusted by network position, pairing does not exist, the link is
-// system-owned, and the link tokens in the environment never reach a child process. A
+// system-owned, and the link code in the environment never reaches a child process. A
 // machine is a cloud machine because its registration names the organization it
 // works for; no switch says so.
 describe('cloud machine', () => {
@@ -40,42 +40,49 @@ describe('cloud machine', () => {
     process.env.SOLUS_DATA_DIR = dataDir
     machine.resetMachineKindForTests()
     machine.adoptRegistration({ organizationId: 'org_1' })
-    hostLinkEnv.resetHostLinkEnvForTests()
+    bootLinkCode.resetBootLinkCodeForTests()
     auth.resetAuthStateForTests()
   })
 
   afterEach(() => {
     auth.resetAuthStateForTests()
-    for (const key of ['SOLUS_HOST_LINK', 'SOLUS_PROJECTS_ROOT']) {
+    for (const key of ['SOLUS_LINK_CODE', 'SOLUS_MACHINE_ADDRESS', 'SOLUS_PROJECTS_ROOT']) {
       if (originalEnv[key] === undefined) delete process.env[key]
       else process.env[key] = originalEnv[key]
     }
     machine.resetMachineKindForTests()
-    hostLinkEnv.resetHostLinkEnvForTests()
+    bootLinkCode.resetBootLinkCodeForTests()
     rmSync(dataDir, { recursive: true, force: true })
     if (originalDataDir === undefined) delete process.env.SOLUS_DATA_DIR
     else process.env.SOLUS_DATA_DIR = originalDataDir
   })
 
-  const envLink = {
-    registration: { hostId: 'abcdefghijklmnop', issuer: 'https://app.example.test', jwksUrl: 'https://app.example.test/api/auth/jwks', directoryUrl: 'https://app.example.test', generation: 1 },
-    tunnel: { hostname: 'h-abcdefghijklmnop.example.test', proxiedPort: 34118 },
-    credentialTicket: 'hct_secret',
-  }
-
-  test('the environment link is read once and its one-time ticket leaves process.env on first read', () => {
-    // WHY: agent processes inherit process.env; the ticket must not (§2).
-    process.env.SOLUS_HOST_LINK = JSON.stringify(envLink)
-    expect(hostLinkEnv.readHostLinkEnv()).toEqual(envLink)
-    expect(process.env.SOLUS_HOST_LINK).toBeUndefined()
+  test('the link code and the machine address are read once, and both leave process.env on that first read', () => {
+    // WHY: agent processes inherit process.env; the one-use ticket must not reach them (§3).
+    process.env.SOLUS_LINK_CODE = '  org_ticket@app.example.test '
+    process.env.SOLUS_MACHINE_ADDRESS = ' https://vm.example.test '
+    expect(bootLinkCode.readBootLinkCode()).toEqual({ code: 'org_ticket@app.example.test', address: 'https://vm.example.test' })
+    expect(process.env.SOLUS_LINK_CODE).toBeUndefined()
+    expect(process.env.SOLUS_MACHINE_ADDRESS).toBeUndefined()
     // The second read answers from memory, not from the (now empty) environment.
-    expect(hostLinkEnv.readHostLinkEnv()).toEqual(envLink)
+    expect(bootLinkCode.readBootLinkCode()).toEqual({ code: 'org_ticket@app.example.test', address: 'https://vm.example.test' })
   })
 
-  test('an environment link that is not one is dropped, not stored', () => {
-    process.env.SOLUS_HOST_LINK = '{"registration":{"hostId":"x"}}'
-    expect(hostLinkEnv.readHostLinkEnv()).toBeNull()
-    expect(process.env.SOLUS_HOST_LINK).toBeUndefined()
+  test('a code with no address is a machine whose address the control plane has, or that gets a tunnel', () => {
+    process.env.SOLUS_LINK_CODE = 'org_ticket@app.example.test'
+    process.env.SOLUS_MACHINE_ADDRESS = '   '
+    expect(bootLinkCode.readBootLinkCode()).toEqual({ code: 'org_ticket@app.example.test', address: null })
+    expect(process.env.SOLUS_MACHINE_ADDRESS).toBeUndefined()
+  })
+
+  test('a machine that a person sets up has no code: an address alone enrolls nothing, and still leaves the environment', () => {
+    delete process.env.SOLUS_LINK_CODE
+    process.env.SOLUS_MACHINE_ADDRESS = 'https://vm.example.test'
+    expect(bootLinkCode.readBootLinkCode()).toBeNull()
+    expect(process.env.SOLUS_MACHINE_ADDRESS).toBeUndefined()
+    // A code that appears later in the environment is not read: the boot decided once.
+    process.env.SOLUS_LINK_CODE = 'org_late@app.example.test'
+    expect(bootLinkCode.readBootLinkCode()).toBeNull()
   })
 
   test('nobody is a trusted requester: not loopback, not the LAN, whatever the setting says', async () => {

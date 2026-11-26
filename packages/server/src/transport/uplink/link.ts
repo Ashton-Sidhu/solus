@@ -8,7 +8,6 @@ import {
   linkHostResponseSchema,
   uplinkDesiredStateSchema,
   uplinkErrorBodySchema,
-  type HostLinkEnv,
   type HostLinkResponse,
   type HostLinkStatus,
   type HostRegistration,
@@ -31,10 +30,11 @@ const log = createLogger('main', 'uplink-link')
 
 /**
  * The host's link (docs/adr/0001-standard-authentication.md §2.2 rule 9): it exposes a
- * registered host to the internet, and does nothing else. A personal host is reached
- * through cloudflared: linking provisions the tunnel and starts the connector; unlinking
- * stops the connector and removes the tunnel. A cloud machine is reached at its own
- * address (plans/034-one-cloud-machine-kind.md §3): its link has no tunnel and no connector. Nothing depends on the link: the host's identity, key,
+ * registered host to the internet, and does nothing else. There are two ways
+ * (plans/034-one-cloud-machine-kind.md §3), for a personal host and a cloud machine
+ * alike. A host with its own HTTPS address is reached there: its link has no tunnel and
+ * no connector. Any other host is reached through cloudflared: linking provisions the
+ * tunnel and starts the connector; unlinking stops the connector and removes the tunnel. Nothing depends on the link: the host's identity, key,
  * delegations, account reads, organizations, and directory entry belong to its
  * registration (`host/host-registration.ts`), and the link calls the control plane
  * with the registration's control token.
@@ -56,10 +56,12 @@ const persistedLinkSchema = z.object({
   hostId: z.string().min(1),
   desired: uplinkDesiredStateSchema,
   tunnel: hostTunnelSchema,
+  /** `direct`: the host is reached at its own address, with no connector. Absent is a tunnel. */
+  reach: z.enum(['tunnel', 'direct']).optional(),
   /** Whether the webhook forwarder holds requests while this host is offline (docs/plans/webhooks.md §2.3); Solus cloud stores it. */
   holdWebhooks: z.boolean().optional(),
 }).strict()
-/** The tunnel's connector token: infrastructure, not identity. Absent for a directly reached link (a cloud machine). */
+/** The tunnel's connector token: infrastructure, not identity. Absent for a link that is reached directly. */
 const tokensSchema = z.object({
   connectorToken: z.string().min(1).optional(),
   /** The webhook forwarder secret of this link (docs/plans/webhooks.md §2.5); absent from a control plane without the forwarder. */
@@ -85,8 +87,6 @@ export interface UplinkLinkDeps {
   /** What `status()` now answers, after every link, unlink, or connector observation. */
   onStatusChanged?: () => void
   fetchImpl?: FetchLike
-  /** A provisioned machine (managed-hosts.md §2): the link the control plane put in the environment; null on a machine a person links. */
-  provisionedLink?: () => HostLinkEnv | null
   /** The link came online: the tunnel registered a connection, or a directly reached link started. The host asks for a webhook drain then. */
   onOnline?: (reason: WebhookDrainReason) => void
 }
@@ -127,15 +127,26 @@ export class UplinkLinkManager {
     const state: UplinkLinkState = this.observedError
       ? { observed: this.observed, error: this.observedError }
       : { observed: this.observed }
-    return { linked: true, tunnel, state }
+    return this.persisted?.reach === 'direct' ? { linked: true, tunnel, reach: 'direct', state } : { linked: true, tunnel, state }
   }
 
-  /** Turns the link on: Solus cloud provisions a personal host's tunnel, and the connector starts; a cloud machine gets its own address back. Nothing else changes. */
-  async link(): Promise<HostLinkStatus> {
+  /** Whether the current link is reached at the host's own address, with no tunnel. */
+  isReachedDirectly(): boolean {
+    return this.persisted?.desired === 'linked' && this.persisted.reach === 'direct'
+  }
+
+  /**
+   * Turns the link on. Solus cloud answers the host's own address when it has one, and
+   * else provisions a tunnel, whose connector starts. `address` sets or changes the
+   * address of a host that is linked already or not. Nothing else changes.
+   */
+  async link(address?: string): Promise<HostLinkStatus> {
     const registration = this.deps.registration()
     if (!registration) throw new UplinkLinkError('not-registered', 'Sign in to your Solus account on this host first, so it is registered.')
-    if (this.persisted?.desired === 'linked') return this.status()
-    if (this.persisted) {
+    // A new address replaces the link that stands, once Solus cloud took it: a refused address leaves that link as it was.
+    const replaced = this.persisted?.desired === 'linked'
+    if (replaced && !address) return this.status()
+    if (this.persisted && !replaced) {
       // An unlink the control plane has not confirmed yet: finish it first.
       await this.completeUnlink()
       if (this.persisted) throw new UplinkLinkError('control-plane-unreachable', 'The previous link is still being removed. Try again in a moment.')
@@ -144,6 +155,7 @@ export class UplinkLinkManager {
       throw new UplinkLinkError('link-rejected', 'The tunnel listener is not running on this host; restart Solus and try again.')
     }
     const body: LinkHostRequest = { proxiedPort: this.deps.proxiedPort() }
+    if (address) body.address = address
     const response = await this.request(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/link`, {
       method: 'POST',
       headers: { authorization: `Bearer ${await this.controlToken()}`, 'content-type': 'application/json', accept: 'application/json' },
@@ -154,6 +166,8 @@ export class UplinkLinkManager {
       throw new UplinkLinkError('link-rejected', linkRejectionMessage(response.status, detail.data?.error, detail.data?.message))
     }
     const linked = linkHostResponseSchema.parse(await response.json())
+    // The connector of the link that the new one replaces has nothing to serve now.
+    if (replaced) await this.deps.connector.stop()
     this.storeLink(registration.hostId, linked.tunnel, linked.connectorToken, linked.forwarderSecret)
     return this.status()
   }
@@ -225,8 +239,8 @@ export class UplinkLinkManager {
 
   /**
    * Boot, after the registration's check (`HostRegistrar.resume`), with what Solus cloud
-   * said about the host: finish an interrupted unlink, adopt a provisioned machine's
-   * link, or start the connector of a link Solus cloud still has. Runs again when a boot
+   * said about the host: finish an interrupted unlink, link a cloud machine that has
+   * no link, or start the reach of a link Solus cloud still has. Runs again when a boot
    * check Solus cloud did not answer is answered later (`isRetrying`).
    */
   async resume(remote: HostLinkResponse | null, isRetrying = false): Promise<void> {
@@ -235,26 +249,16 @@ export class UplinkLinkManager {
     } catch (err) {
       log.warn('uplink_resume_failed', { error: err instanceof Error ? err.message : String(err) })
       const error = isRetrying
-        ? 'The tunnel could not start. Solus tries again when it reaches Solus cloud.'
-        : 'The tunnel could not start. Restart Solus to try again.'
+        ? 'The link could not start. Solus tries again when it reaches Solus cloud.'
+        : 'The link could not start. Restart Solus to try again.'
       this.setObservation({ observed: 'error', error })
     }
   }
 
   private async resumeLink(remote: HostLinkResponse | null): Promise<void> {
     const registration = this.deps.registration()
-    // A provisioned machine is reached at the address its environment names: no tunnel, no connector.
-    const env = this.deps.provisionedLink?.()
-    if (env && registration?.hostId === env.registration.hostId) {
-      if (this.persisted?.desired !== 'linked' || this.persisted.hostId !== registration.hostId || JSON.stringify(this.persisted.tunnel) !== JSON.stringify(env.tunnel)) {
-        this.storeLink(registration.hostId, env.tunnel, undefined)
-      } else {
-        this.startReach(undefined)
-      }
-      return
-    }
     if (!this.persisted) {
-      // A cloud machine whose first link did not finish asks again: the control plane holds its address.
+      // A cloud machine has no person to turn its link on, so one that is not linked asks again.
       if (registration?.organizationId) await this.link()
       return
     }
@@ -275,14 +279,14 @@ export class UplinkLinkManager {
       return
     }
     if (remote) this.adoptWebhookFacts(remote)
-    this.startStoredLink(this.persisted.tunnel, registration.organizationId !== undefined)
+    this.startStoredLink(this.persisted.tunnel, this.persisted.reach === 'direct')
   }
 
   /** Starts the reach of a link that Solus cloud still has, or says why this host cannot serve it. */
-  private startStoredLink(tunnel: HostTunnel, isCloudMachine: boolean): void {
-    const connectorToken = this.loadTokens()?.connectorToken
-    // A cloud machine is reached at its own address: it has no connector, so no token.
-    if (!connectorToken && !isCloudMachine) {
+  private startStoredLink(tunnel: HostTunnel, isDirect: boolean): void {
+    const connectorToken = isDirect ? undefined : this.loadTokens()?.connectorToken
+    // A host that is reached at its own address has no connector, so no token.
+    if (!connectorToken && !isDirect) {
       this.setObservation({ observed: 'error', error: 'The tunnel credential is missing; turn the link off and on again.' })
       return
     }
@@ -335,7 +339,9 @@ export class UplinkLinkManager {
 
   private storeLink(hostId: string, tunnel: HostTunnel, connectorToken: string | undefined, forwarderSecret?: string, holdWebhooks?: boolean): void {
     secretStore().saveJson(TOKENS_KEY, tokensElectronPath(), { connectorToken, forwarderSecret })
-    this.setPersisted(holdWebhooks === undefined ? { version: 2, hostId, desired: 'linked', tunnel } : { version: 2, hostId, desired: 'linked', tunnel, holdWebhooks })
+    const link: PersistedLink = { version: 2, hostId, desired: 'linked', tunnel, reach: connectorToken ? 'tunnel' : 'direct' }
+    if (holdWebhooks !== undefined) link.holdWebhooks = holdWebhooks
+    this.setPersisted(link)
     this.setObservation({ observed: 'offline' })
     this.startReach(connectorToken)
     log.info('uplink_linked', { hostId, hostname: tunnel.hostname })
@@ -416,7 +422,8 @@ export class UplinkLinkManager {
 /**
  * Registers the host and links it when this is its first registration (ADR 0001 §2.2
  * rule 9): a person who links a device to Solus cloud reaches it from every device they
- * sign in on, with no second step, and a cloud machine is reached at its address at once. A host registered already keeps the link its owner
+ * sign in on, with no second step. The link is at the address the request gave, or a
+ * tunnel when it gave none. A host registered already keeps the link its owner
  * chose, so an unlink stays an unlink. A link that fails leaves the registration, and
  * the link's status says why.
  */
@@ -439,6 +446,7 @@ function linkRejectionMessage(status: number, code: string | undefined, message:
     case 'tunnel_not_configured': return 'Solus cloud is not set up for tunnels yet.'
     case 'tunnel_account_limit': return 'Solus cloud cannot allocate another tunnel right now.'
     case 'tunnel_provisioning_failed': return `Solus cloud could not set up the tunnel${message ? `: ${message}` : ''}.`
+    case 'machine_address_invalid': return 'The address of this machine is not valid. Give an `https://` address with no path, for example `--address https://machine.example.com`.'
     default: return `Solus cloud refused the link (${status}).`
   }
 }

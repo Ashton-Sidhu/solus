@@ -35,6 +35,7 @@ import { isSolusApiId, solusApiId, type HostRules } from '@solus/contracts/uplin
 import type { HostRoute } from '@solus/contracts/host-routes'
 import { untrack } from 'svelte'
 import { requestInputFocus } from '../../lib/inputFocus'
+import { savesSessionsToCloud } from '../../lib/organization-filter'
 import { toasts } from '../../lib/toasts'
 import { accountStore } from '../account/account.store.svelte'
 import { accountDocuments } from '../account/account-sync.store.svelte'
@@ -284,6 +285,12 @@ class ServersStore {
       hostRules: workspace.hostRules,
       isActive: workspace.organizationId === this.activeOrganizationId,
     }))
+  }
+
+  /** Whether the organization saves its sessions in Solus Cloud (`savesSessionsToCloud`); follows `workspaces`. */
+  savesSessionsToCloud(organizationId: string): boolean {
+    void this.workspaces
+    return savesSessionsToCloud(organizationId)
   }
 
   /** The name of the organization this window works in; null with none. */

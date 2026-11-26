@@ -8,18 +8,27 @@ import type { HostRegistration, MachineKind } from '@solus/contracts/uplink'
  * desktop app's host, and a standalone server that a person pairs or links. The kind
  * decides the security and data rules: a cloud machine is nobody's machine, so it has
  * no pairing, no trusted network position, no owner, and no Local work.
+ *
+ * A cloud machine stays one. Its data is its organization's, so the kind does not go
+ * back to `personal` when its registration ends: the boot adopts what the data
+ * directory remembers (`readStoredCloudMachine`), and a registration that ends while
+ * the process runs changes nothing here.
  */
 
 /** The organization id every unassigned record on a host carries (organization-scope §3). */
 export const LOCAL_ORGANIZATION_ID = 'local'
 
+/** What makes a machine a cloud machine: its one organization, and who operates its compute. */
+export type CloudMachineFacts = Pick<HostRegistration, 'organizationId' | 'hasManagedCompute'>
+
 let cloudOrganization: string | null = null
 let managedCompute = false
 
-/** The boot, and every later registration change, name the machine's registration. */
-export function adoptRegistration(registration: Pick<HostRegistration, 'organizationId' | 'hasManagedCompute'> | null): void {
-  cloudOrganization = registration?.organizationId ?? null
-  managedCompute = cloudOrganization !== null && registration?.hasManagedCompute === true
+/** The boot, and every later registration change, name the machine's registration, or what the data directory remembers of it. */
+export function adoptRegistration(registration: CloudMachineFacts | null): void {
+  if (!registration?.organizationId) return
+  cloudOrganization = registration.organizationId
+  managedCompute = registration.hasManagedCompute === true
 }
 
 export function machineKind(): MachineKind {

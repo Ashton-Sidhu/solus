@@ -134,17 +134,34 @@ test('hosts that do not answer share one toast, raised again only for a new host
 })
 
 describe('which homes a search reads', () => {
+  // A cloud machine works for one organization, which the directory names.
+  const saved = [
+    { id: 'personal-vm', uplink: { hostId: 'h-personal', directoryUrl: 'x', kind: 'personal' as const } },
+    { id: 'org-vm', uplink: { hostId: 'h-org', directoryUrl: 'x', kind: 'cloud' as const, organizationIds: ['org1'] } },
+  ]
+
   test('this machine, then the person\'s other machines, then the workspace service; never an organization\'s machine', () => {
     // WHY: an organization's sessions are read from its workspace service,
     // which answers while the machine that ran them is off. Asking that machine
     // too would list every one of them twice.
-    const saved = [
-      { id: 'personal-vm', uplink: { hostId: 'h-personal', directoryUrl: 'x', kind: 'personal' as const } },
-      { id: 'org-vm', uplink: { hostId: 'h-org', directoryUrl: 'x', kind: 'cloud' as const } },
-    ]
     expect(searchServerIds([SERVICE, 'org-vm', 'personal-vm', 'local'], 'local', saved)).toEqual(['local', 'personal-vm', SERVICE])
     // On web there is no machine of the client's own.
     expect(searchServerIds([SERVICE, 'personal-vm'], null, saved)).toEqual(['personal-vm', SERVICE])
+  })
+
+  test('an organization that keeps its sessions on their hosts: its cloud machine is asked, and its workspace service is not', () => {
+    // WHY: Solus Cloud has no conversation of these sessions, so the workspace
+    // service cannot find a word in them. The machine that ran them is the only
+    // home that can. The service of an organization that saves is still asked.
+    const otherService = solusApiId('org2')
+    const savesSessionsToCloud = (organizationId: string) => organizationId !== 'org1'
+    expect(searchServerIds([SERVICE, otherService, 'org-vm', 'personal-vm', 'local'], 'local', saved, savesSessionsToCloud))
+      .toEqual(['local', 'org-vm', 'personal-vm', otherService])
+  })
+
+  test('a cloud machine is asked while this client has no connection to the workspace service of its organization', () => {
+    // WHY: no other home answers for its sessions then.
+    expect(searchServerIds(['org-vm', 'local'], 'local', saved)).toEqual(['local', 'org-vm'])
   })
 })
 
@@ -290,6 +307,24 @@ describe('ConversationSearch', () => {
     // Nothing connected holds it: the row is the service's record, read-only.
     expect(parked.session.serverId).toBe(SERVICE)
     expect(parked.messageId).toBe(7)
+  })
+
+  test('a session of an organization that keeps its sessions on their hosts is found on its cloud machine, and opens there', async () => {
+    // WHY: the workspace service has no conversation of such a session. A hit
+    // from the machine has the passage, and its message id is a position in the
+    // index of that machine, so the preview opens on the match.
+    const asked: string[] = []
+    const answers = {
+      'org-vm': async () => { asked.push('org-vm'); return found([{ sessionId: 'kept', ts: 1 }]) },
+      [SERVICE]: async () => { asked.push(SERVICE); return found([{ sessionId: 'kept', ts: 1, runnerHostId: 'h-org' }]) },
+    }
+    const cloudMachine = [{ id: 'org-vm', uplink: { hostId: 'h-org', directoryUrl: 'x', kind: 'cloud' as const, organizationIds: ['org1'] } }]
+    const search = new ConversationSearch({ ...homes(answers), searchServerIds: () => searchServerIds(Object.keys(answers), null, cloudMachine, () => false) }, 0)
+    search.search('canary', null)
+    await settle()
+
+    expect(asked).toEqual(['org-vm'])
+    expect(search.results.map((result) => [result.session.sessionId, result.session.serverId, result.messageId])).toEqual([['kept', 'org-vm', 7]])
   })
 
   test('a home still reading its sessions for the first time marks the answer as incomplete', async () => {

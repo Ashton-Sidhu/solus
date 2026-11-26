@@ -556,8 +556,11 @@ export interface SolusAPI {
    * organization registers this machine as a cloud machine of it. Local owner only.
    */
   uplinkRegister(args: HostRegistrationRequest): Promise<UplinkStatus>
-  /** Turn the link on: the internet reaches a personal host through cloudflared, and a cloud machine at its own address (rule 9). Nothing else changes. */
-  uplinkLink(): Promise<UplinkStatus>
+  /**
+   * Turn the link on (rule 9): the internet reaches the host at `address` when one is
+   * given or kept, and through cloudflared when not. Nothing else changes.
+   */
+  uplinkLink(address?: string): Promise<UplinkStatus>
   /** Turn the tunnel off. The registration, its delegations, and its organizations stay. */
   uplinkUnlink(): Promise<UplinkStatus>
   uplinkStatus(): Promise<UplinkStatus>

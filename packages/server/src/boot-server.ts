@@ -47,7 +47,7 @@ import { AccessTokenVerifier, type TokenVerdict } from './admission/access-token
 import { CloudflaredConnector, resolveCloudflaredBinary } from './transport/uplink/connector'
 import { createHostSelfTest } from './transport/uplink/self-test'
 import { readStoredTunnel, registerAndLink, UplinkLinkManager, type WebhookDrainReason } from './transport/uplink/link'
-import { HostRegistrar, HostRegistrationError, readStoredRegistration } from './host/host-registration'
+import { HostRegistrar, HostRegistrationError, enrollAtBoot, readStoredCloudMachine, readStoredRegistration } from './host/host-registration'
 import { createWebhookServices } from './execution/webhooks/webhook-runtime'
 import { createWebhookService } from './execution/webhooks/webhook-service'
 import { onWebhookChanged, onWebhookDelivery } from './execution/webhooks/webhook-events'
@@ -184,7 +184,7 @@ import { isLoopbackHost, resolveEffectiveServerOptions } from './transport/bind-
 import { isTrustedRequesterAddress } from './transport/trusted-requesters'
 import { remoteAddressAdmission } from './transport/private-network-access'
 import type { RemoteAccessMode } from '@solus/contracts/host-api'
-import { readHostLinkEnv } from './host/host-link-env'
+import { readBootLinkCode } from './host/boot-link-code'
 import { attachWebSocketTransport, isHostSocketPath } from './transport/websocket'
 import { ResponseReceiptBudget } from './transport/response-receipt-cache'
 import { ClientEventRegistry } from './transport/events/client-event-registry'
@@ -400,10 +400,23 @@ export const DEFAULT_TUNNEL_LISTENER_PORT = parseInt(process.env.SOLUS_TUNNEL_PO
 
 const systemErrorSchema = z.object({ code: z.string().optional() })
 
-/** The registration this machine starts with: the environment's, which is read once and stripped, else the one stored on disk. */
-function adoptStartupRegistration(): void {
-  const provisioned = readHostLinkEnv()
-  adoptRegistration(provisioned ? provisioned.registration : readStoredRegistration())
+/**
+ * The registration this machine starts with: the one it makes now with the link code in
+ * its environment, else the one stored on disk. Answers a registration only when this
+ * boot made it.
+ */
+async function adoptStartupRegistration(): Promise<HostRegistration | null> {
+  // The link code leaves the environment first, whatever happens next.
+  const code = readBootLinkCode()
+  // The Solus API service is no machine: it registers nowhere.
+  if (isApiMode()) return null
+  // A data directory that was a cloud machine's stays one, also with no registration.
+  adoptRegistration(readStoredCloudMachine())
+  const enrolled = code
+    ? await enrollAtBoot({ code, machine: { installationId: getInstallationId(), label: hostDisplayName(), os: hostOperatingSystem() }, holdsWork: hasSessionRecords })
+    : null
+  adoptRegistration(enrolled ?? readStoredRegistration())
+  return enrolled
 }
 
 /** What this process is to its clients: a person's machine, a cloud machine of an organization, or the Solus API service. */
@@ -516,11 +529,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const phaseDone = (phase: 'db_opened' | 'host_handlers_registered' | 'domain_handlers_registered' | 'update_services_ready'): void => {
     log.info('server_boot_phase', { phase, elapsedMs: Math.round(performance.now() - bootStartedAt) })
   }
-  // Before the database, the listeners, or any child process: a provisioned
-  // machine's link leaves the environment first (managed-hosts.md §1, §2), and the
-  // registration — that one, or the one stored since — says whether this is a cloud
-  // machine, which decides that no credential-free door opens on it.
-  adoptStartupRegistration()
+  // Before the listeners or any child process: a machine with a link
+  // code in its environment enrolls with it (plans/034-one-cloud-machine-kind.md §3),
+  // and the registration — that one, or the one stored before — says whether this is
+  // a cloud machine, which decides that no credential-free door opens on it.
+  const enrolledAtBoot = await adoptStartupRegistration()
   // And the workspace service refuses to start half-configured (cloud-service-model.md §15).
   applyApiMode()
   const apiMode = isApiMode()
@@ -1826,7 +1839,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     owner: () => hostOrganizations.owner(),
     onRegistrationChanged: followRegistration,
     onStatusChanged: broadcastUplinkStatus,
-    provisionedLink: readHostLinkEnv,
+    isDesktopApp: () => detectInstallKind() === 'desktop',
     holdsWork: async () => {
       // The index may still find sessions on this disk; an answer now could be wrong.
       if (sessionRecordsIndexing()) throw new HostRegistrationError('register-rejected', 'This server is still reading its session history. Try again in a moment.')
@@ -1845,7 +1858,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // The connector registers after `uplinkLink` has answered: the Access tab's
     // status line follows this instead of waiting for a reload.
     onStatusChanged: broadcastUplinkStatus,
-    provisionedLink: readHostLinkEnv,
     onOnline: (reason) => drainWebhooks(reason),
   })
   followRegistration(registrar.current())
@@ -2367,7 +2379,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   if (!apiMode) {
     tunnelPort = await bindTunnelListener(tunnelHttp, readStoredTunnel()?.proxiedPort ?? DEFAULT_TUNNEL_LISTENER_PORT)
     // A policy that turns the tunnel off keeps a stored link from resuming (plans/030 §6.7).
-    void registrar.resumeUntilAnswered((remote, isRetrying) => hostPolicies().hostSetting('cloudTunnel')?.value === false ? Promise.resolve() : uplinkManager.resume(remote, isRetrying)).catch((err) => {
+    void registrar.resumeUntilAnswered(async (remote, isRetrying) => {
+      // A policy that turns the tunnel off does not stop a link at the host's own address, which has no tunnel.
+      if (hostPolicies().hostSetting('cloudTunnel')?.value === false && !uplinkManager.isReachedDirectly()) return
+      await uplinkManager.resume(remote, isRetrying)
+      // A personal host that enrolled at this boot is linked as one that a person registers is: at its first registration.
+      // A cloud machine with no link asks by itself (`UplinkLinkManager.resume`).
+      if (enrolledAtBoot && !enrolledAtBoot.organizationId && !uplinkManager.currentTunnel()) {
+        await uplinkManager.link().catch((error) => uplinkManager.noteLinkFailure(error instanceof Error ? error.message : String(error)))
+      }
+    }).catch((err) => {
       log.warn('uplink_resume_failed', { error: err instanceof Error ? err.message : String(err) })
     }).finally(() => {
       runnerDelivery?.start()
@@ -2535,7 +2556,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     selfTest: createHostSelfTest({
       installationId: getInstallationId,
       status: uplinkStatus,
-      isReachedDirectly: () => readHostLinkEnv() !== null,
+      isReachedDirectly: () => uplinkManager.isReachedDirectly(),
       isTunnelTurnedOffByPolicy: () => hostPolicies().hostSetting('cloudTunnel')?.value === false,
       boundPort: () => tunnelPort,
       connector: () => uplinkConnector.inspect(),

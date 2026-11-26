@@ -233,6 +233,16 @@ host's read-only transcript pages for paired machines or remote child sessions.
 Connect uses a separate device pairing through a known machine where possible
 and the existing add-environment form when a code is needed.
 
+An organization policy can turn off "Save sessions to Solus Cloud"
+(`sessions.limits.sessionCloudSync: false`). The account directory gives that
+answer to the phone (`AccountSession.savesSessionsToCloud`). The machines are
+then the one source of the organization's sessions: the session list has no
+row from the organization's Solus API (`CloudSessions`), and the linked session
+sheet does not read a cloud copy. With no machine to read from, the sheet shows
+"Solus Cloud has no copy of this session. It is stored only on the machine that
+ran it." in T3's failure card. No T3 file is changed for this. T3 Code has no
+such policy.
+
 The environment page of a host that this phone owns (`canReadPairings`) adds the
 read-only section "Machines it reaches" below the pairing code. It lists each
 machine once: the host's pairings with their health, then its introductions

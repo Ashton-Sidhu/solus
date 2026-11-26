@@ -54,6 +54,8 @@ const asMessages = (page: SessionHistoryPage): Message[] => page.messages.map((r
 function harness(opts: {
   pages?: Record<string, SessionHistoryPage | Error>; cloud?: SessionCloudHead | null; diff?: SessionTurnDiff | Error
   apiServerId?: string | null; isCloudSyncOn?: boolean
+  /** False: the organization of the session keeps its sessions on their hosts. */
+  savesSessionsToCloud?: boolean
   /** The Solus API's own page route, in place of `pages`: the read then goes through `readSessionCloudPage`. */
   loadSessionPage?: (request: SessionHistoryPageRequest) => Promise<SessionHistoryPage>
 } = {}) {
@@ -76,6 +78,7 @@ function harness(opts: {
     cloudHeadFor: () => cloud,
     hostTurnsFor: () => SessionHostTurns.none,
     isCloudSyncOn: () => opts.isCloudSyncOn,
+    savesSessionsToCloud: () => opts.savesSessionsToCloud ?? true,
     watchRows: (apiServerId, sessionId, onNewerRows) => {
       const key = `${apiServerId} ${sessionId}`
       watchers.set(key, onNewerRows)
@@ -178,6 +181,32 @@ describe('opening the cloud copy', () => {
     await store.reload('tab-1')
     expect(reads).toEqual([`${API}:newest`, `${API}:newest`])
     expect(store.stateFor(session, 'laptop', false).view).toEqual({ kind: 'ready' })
+  })
+})
+
+describe('an organization that does not save its sessions in Solus Cloud', () => {
+  test('a session whose host is away says that Solus Cloud has no copy, and the Solus API is not asked', async () => {
+    // WHY: the hosts of such an organization send no conversation to Solus Cloud.
+    // The setting gives the answer, so a read is a request for nothing and its
+    // spinner is a state that is not true.
+    const { store, session, reads, watchers } = harness({ savesSessionsToCloud: false })
+    expect(store.stateFor(session, 'studio', true)).toEqual({ view: { kind: 'sync-off' }, shouldRead: false })
+    await store.open('tab-1')
+    expect(reads).toEqual([])
+    expect(watchers.size).toBe(0)
+    expect(store.shows(session.id)).toBe(false)
+    expect(store.stateFor(session, 'studio', true).view).toEqual({ kind: 'sync-off' })
+  })
+
+  test('the answer is the same with no Solus API connection: a sign-in gives no copy', () => {
+    const { store, session } = harness({ savesSessionsToCloud: false, cloud: null, apiServerId: null })
+    expect(store.stateFor(session, 'studio', true)).toEqual({ view: { kind: 'sync-off' }, shouldRead: false })
+  })
+
+  test('a host that holds the session shows its own conversation, with no state', () => {
+    // WHY: the setting says where the copy is not. It says nothing of a machine that is on.
+    const { store, session } = harness({ savesSessionsToCloud: false, cloud: null })
+    expect(store.stateFor(session, 'studio', false)).toEqual({ view: null, shouldRead: false })
   })
 })
 

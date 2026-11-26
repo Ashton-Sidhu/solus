@@ -14,6 +14,8 @@ import {
   type SessionCloudReadView,
   type SessionTurnDiffView,
 } from '@solus/client-core/session-cloud-read'
+import { readsSessionsFromSolusApi } from '@solus/client-core/session-home'
+import { LOCAL_ORGANIZATION_ID } from '../../lib/organization-filter'
 import { hasSessionStarted } from '../../lib/sessionUtils'
 import { hostSettingsStore } from '../app/host-settings.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
@@ -83,6 +85,8 @@ export interface CloudTranscriptDeps {
   hostTurnsFor(sessionId: string): SessionHostTurns
   /** The cloud sync setting of the run host, when this client read it and it decides whether the mirror has the session. */
   isCloudSyncOn(session: Session, runServerId: string): boolean | undefined
+  /** False when the organization of the session keeps its sessions on their hosts: Solus Cloud has no copy of it, and the Solus API is not asked. */
+  savesSessionsToCloud(session: Session): boolean
   readPage(apiServerId: string, request: { sessionId: string; provider: AgentId; before?: string }): Promise<SessionHistoryPage>
   readDiff(apiServerId: string, sessionId: string, turnIndex: number): Promise<SessionTurnDiff>
   /** Hear when the mirror gets rows or a turn diff of a session (`session.transcriptChanged`). Answers the stop. */
@@ -146,6 +150,8 @@ export class CloudTranscriptStore {
       runTurn: this.deps.hostTurnsFor(session.id).of(runServerId),
       cloud: this.deps.cloudHeadFor(session.id),
     })
+    // No host shows the session, and its organization keeps its sessions on their hosts: there is no copy to read.
+    if (source !== null && !copy && !this.deps.savesSessionsToCloud(session)) return { view: { kind: 'sync-off' }, shouldRead: false }
     const isLive = session.status !== 'idle' && session.status !== 'completed'
     const hasLiveRows = isLive || (!!copy && (session.messages.at(-1)?.timestamp ?? 0) > copy.newestRowAt)
     return {
@@ -162,6 +168,7 @@ export class CloudTranscriptStore {
   async open(tabId: string): Promise<void> {
     const session = this.deps.sessionFor(tabId)
     if (!session || this.copies.has(session.id) || session.messages.length > 0) return
+    if (!this.deps.savesSessionsToCloud(session)) return
     const apiServerId = this.deps.apiServerFor(session)
     if (!apiServerId) return
     const copy = new CloudTranscript(apiServerId)
@@ -251,6 +258,10 @@ export function workspaceCloudTranscriptDeps(workspace: WorkspaceContext): Cloud
     hostTurnsFor: (sessionId) => sessionListStore.hostTurnsFor(sessionId),
     // The mirror holds an organization session whatever this setting says.
     isCloudSyncOn: (session, runServerId) => recordHomeOf(session) ? undefined : hostSettingsStore.states.get(runServerId)?.sessionCloudSync,
+    savesSessionsToCloud: (session) => {
+      const { organizationId } = session
+      return !organizationId || organizationId === LOCAL_ORGANIZATION_ID || readsSessionsFromSolusApi(organizationId, serversStore)
+    },
     readPage: (apiServerId, request) => readSessionCloudPage(serverConnections.apiFor(apiServerId), request),
     readDiff: (apiServerId, sessionId, turnIndex) => serverConnections.apiFor(apiServerId).sessionTurnDiff(sessionId, turnIndex),
     watchRows: (apiServerId, sessionId, onNewerRows) => serverConnections.eventsFor(apiServerId).subscribe('session.transcriptChanged', (event) => {

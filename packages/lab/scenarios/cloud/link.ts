@@ -1,15 +1,22 @@
+import { randomBytes } from 'node:crypto'
 import { cloudModeScenario, type CloudHost } from '../../src/cloud-mode'
 import { accountMcpServer, directory, localRpc, ownedRegisteredHost, pullAndRead, uplinkStatus, type AccountMcp } from '../../src/cloud-fixtures'
 import { hostClient } from '../../src/cloud-sign-in'
 import type { LabClient } from '../../src/client'
 
 /**
- * Link only adds the tunnel (docs/adr/0001-standard-authentication.md §2.2 rule 9).
+ * Link only adds the reach (docs/adr/0001-standard-authentication.md §2.2 rule 9).
  * The new registration links the host; after unlink and after a second link, the
  * registration (host id and generation), the person's delegations, and an account
  * read through them stay the same. Only the directory route comes and goes. In development the stub tunnel's route
  * is the host's own proxied listener on loopback (solus-cloud `stubTunnelRoute`), so
  * the Lab dials it.
+ *
+ * A link with an address makes the host reached at that address, with no tunnel
+ * (plans/034-one-cloud-machine-kind.md §3). An unlink makes Solus cloud forget the
+ * address, so the next link with no address is a tunnel again. The address is one that
+ * nothing serves: the Lab runs no proxy in front of a host, so it reads the route and
+ * does not dial it.
  */
 
 /** The delegation events of the host's log, as one string, to compare across the link. */
@@ -81,4 +88,17 @@ export default cloudModeScenario('link: registration links; the tunnel comes and
   ctx.check('uplinkStatus: linked', linked.link.linked)
   await routeWorks('linked again')
   await identity('linked again', registered)
+
+  ctx.step('alice gives the linked host its own address: the link is that address, with no tunnel')
+  const address = `https://lab-host-${randomBytes(4).toString('hex')}.lab.invalid`
+  const direct = await localRpc(host, persona, 'uplinkLink', address)
+  ctx.check('uplinkStatus: linked at the address', direct.link.linked && direct.link.tunnel.hostname === new URL(address).host, JSON.stringify(direct.link))
+  ctx.check('the directory route is the address', JSON.stringify((await routeOf())?.map((route) => route.url)) === JSON.stringify([address]), JSON.stringify(await routeOf()))
+  await identity('linked at an address', registered)
+
+  ctx.step('alice unlinks the host and links it with no address: Solus cloud forgot the address')
+  await localRpc(host, persona, 'uplinkUnlink')
+  const tunnelled = await localRpc(host, persona, 'uplinkLink')
+  ctx.check('uplinkStatus: linked, and not at the address', tunnelled.link.linked && tunnelled.link.tunnel.hostname !== new URL(address).host, JSON.stringify(tunnelled.link))
+  await routeWorks('linked with no address')
 })

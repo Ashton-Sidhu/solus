@@ -100,6 +100,8 @@ export function initializeRuntime(
   // The known hosts changed: a host the list or the directory named now, or dropped.
   let knownHostsKey = ''
   const stopCatalog = hostCatalog.onChange(() => {
+    // The directory can change whether an organization saves its sessions in Solus Cloud: its rows then move to their new source.
+    sessionListStore.readChangedSources()
     if (!knownHostsAreAuthoritative()) return
     const key = hostCatalog.hosts().map((host) => host.id).join('\n')
     if (key === knownHostsKey) return

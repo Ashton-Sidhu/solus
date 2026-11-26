@@ -226,6 +226,8 @@ function limitRows(work: WorkPolicy): PolicyRuleRow[] {
   if (insights) rows.push({ label: 'Sync all Insights', value: onOff(insights.value.syncAll), source: policySourceLabel(insights.source) })
   const webhooks = work.limit('webhooks')
   if (webhooks) rows.push({ label: 'Unverified webhooks', value: webhooks.value.allowUnverified ? 'Allowed' : 'Not allowed', source: policySourceLabel(webhooks.source) })
+  const cloud = work.limit('sessionCloudSync')
+  if (cloud) rows.push({ label: 'Save sessions to Solus Cloud', value: onOff(cloud.value), source: policySourceLabel(cloud.source) })
   return rows
 }
 

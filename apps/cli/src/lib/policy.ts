@@ -60,6 +60,7 @@ export function describePolicy(document: PolicyDocument): string[] {
   for (const [provider, models] of Object.entries(limits?.models ?? {})) {
     if (models) limitLines.push(`  Allowed models for ${provider}: ${models.join(', ')}`)
   }
+  if (limits?.sessionCloudSync !== undefined) limitLines.push(`  Save sessions to Solus Cloud: ${limits.sessionCloudSync ? 'yes' : 'no, each conversation stays on its host'}`)
   if (limits?.insights) limitLines.push(`  Send all Insights of organization sessions: ${limits.insights.syncAll ? 'yes' : 'no'}`)
   if (limits?.webhooks) limitLines.push(`  Unverified webhooks can start work: ${limits.webhooks.allowUnverified ? 'yes' : 'no'}`)
   lines.push(limitLines.length ? 'Session limits:' : 'Session limits: none.', ...limitLines)

@@ -123,7 +123,9 @@ export const providerLaunchPinSchema = z.object({
 export type ProviderLaunchPin = z.infer<typeof providerLaunchPinSchema>
 
 export const sessionLimitsSchema = z.object({
-  /** false forbids cloud upload and fetch of the full session repository. */
+  /** false: no conversation of a session leaves its host. No transcript row, no
+   *  turn diff, no Insights text, and no session repository goes to Solus Cloud,
+   *  and a client reads these sessions from their hosts (docs/session-cloud-copy.md). */
   sessionCloudSync: z.boolean().optional(),
   maxPermissionMode: z.enum(PERMISSION_MODES).optional(),
   providers: z.object({

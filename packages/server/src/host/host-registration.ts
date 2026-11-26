@@ -4,15 +4,13 @@ import { z } from 'zod'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import {
   enrollHostResponseSchema,
-  hostClientId,
-  hostCredentialResponseSchema,
   hostLinkResponseSchema,
   hostRegistrationSchema,
+  isOrganizationTicket,
+  parseLinkCode,
   tokenEndpoint,
   uplinkErrorBodySchema,
   type EnrollHostRequest,
-  type HostCredentialRequest,
-  type HostLinkEnv,
   type HostLinkResponse,
   type HostOwnerIdentity,
   type HostRegistration,
@@ -22,6 +20,8 @@ import {
 import type { FetchLike } from '../admission/access-tokens'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
+import type { BootLinkCode } from './boot-link-code'
+import type { CloudMachineFacts } from './machine-kind'
 import {
   HostCredentialError,
   forgetHostKey,
@@ -48,6 +48,13 @@ const log = createLogger('main', 'host-registration')
  */
 
 const REGISTRATION_FILE = 'host-registration.json'
+/** What the data directory remembers of a cloud machine after its registration ended. Never removed. */
+const CLOUD_MACHINE_FILE = 'cloud-machine.json'
+/** A boot enrollment that Solus cloud did not answer is tried again after this, then after twice the wait each time. */
+const BOOT_ENROLL_RETRY_FIRST_MS = 5_000
+const BOOT_ENROLL_RETRY_MAX_MS = 60_000
+/** The organization of a cloud machine whose record cannot be read: it matches no real one, so nobody starts work until an operator repairs the directory. */
+const UNREADABLE_CLOUD_ORGANIZATION = 'unreadable-cloud-machine-record'
 const REQUEST_TIMEOUT_MS = 10_000
 /** A boot check Solus cloud did not answer is asked again after this, then after twice the wait each time. */
 const RESUME_RETRY_FIRST_MS = 30_000
@@ -60,6 +67,25 @@ const persistedRegistrationSchema = z.object({
 }).strict()
 type PersistedRegistration = z.infer<typeof persistedRegistrationSchema>
 
+const cloudMachineSchema = z.object({
+  version: z.literal(1),
+  organizationId: z.string().min(1),
+  hasManagedCompute: z.boolean().optional(),
+}).strict()
+
+/** The facts of this machine that every enrollment sends. */
+interface MachineFacts {
+  installationId: string
+  label: string
+  os: HostOperatingSystem | undefined
+}
+
+/** What an enrollment gives: the registration record, and the host's OAuth client with the key it made. */
+interface Enrollment {
+  registration: HostRegistration
+  key: { clientId: string; privateJwk: PrivateJwk }
+}
+
 export interface HostRegistrarDeps {
   installationId: () => string
   hostLabel: () => string
@@ -70,14 +96,14 @@ export interface HostRegistrarDeps {
   onRegistrationChanged?: (registration: HostRegistration | null) => void
   /** What `status()` answers changed. */
   onStatusChanged?: () => void
-  /** A provisioned machine (managed-hosts.md §2): the registration the control plane put in the environment; null on a machine a person registers. */
-  provisionedLink?: () => HostLinkEnv | null
   /**
    * Whether this host holds work already: session records of the person who ran it. A
    * cloud machine starts with new data (plans/034-one-cloud-machine-kind.md §3), so an
    * organization code is refused on a host that does.
    */
   holdsWork?: () => Promise<boolean>
+  /** This server is the desktop app's own: a person's computer always, which takes no organization ticket. */
+  isDesktopApp?: () => boolean
   fetchImpl?: FetchLike
   /** Runs `run` after `delayMs` and answers how to cancel it; a test drives the boot retries with its own. */
   schedule?: (run: () => Promise<void>, delayMs: number) => () => void
@@ -171,8 +197,8 @@ export class HostRegistrar {
   /**
    * Registers this host with a ticket its owner's client got with its own account
    * token (rule 8). No tunnel is made. A host registered already ignores a personal
-   * ticket: two clients that both saw an unregistered host register it once. A request
-   * with an address is an organization code, which makes this machine a cloud machine
+   * ticket: two clients that both saw an unregistered host register it once. An
+   * organization ticket makes this machine a cloud machine
    * (plans/034-one-cloud-machine-kind.md §3): it is refused on a host that is registered
    * or that holds work, before the one-use ticket is sent.
    */
@@ -186,44 +212,27 @@ export class HostRegistrar {
 
   private async registerNow(request: HostRegistrationRequest): Promise<HostRegistrationStatus> {
     const isRegistered = this.persisted !== null && this.credential() !== null
-    if (request.address) {
+    assertTicketFitsDataDirectory(request.ticket)
+    if (isOrganizationTicket(request.ticket)) {
+      if (this.deps.isDesktopApp?.()) throw new HostRegistrationError('register-rejected', 'The server of the desktop app is a personal computer always. An organization code makes a standalone Solus server a cloud host.')
       if (isRegistered) throw new HostRegistrationError('register-rejected', 'This server is registered already. A cloud machine starts with new data: use a new data directory.')
-      if (await this.deps.holdsWork?.()) throw new HostRegistrationError('register-rejected', 'This server holds sessions already. A cloud machine starts with new data: use a new data directory.')
+      if (!readStoredCloudMachine() && await this.deps.holdsWork?.()) throw new HostRegistrationError('register-rejected', 'This server holds sessions already. A cloud machine starts with new data: use a new data directory.')
     } else if (isRegistered) {
       return this.status()
     }
-    const directoryUrl = normalizeOrigin(request.directoryUrl)
+    const facts: MachineFacts = { installationId: this.deps.installationId(), label: this.deps.hostLabel(), os: this.deps.os() }
     // Each registration has a new key: registering again rotates it, and the old one proves nothing.
-    const key = await generateHostKey()
-    const body: EnrollHostRequest = {
-      ticket: request.ticket,
-      installationId: this.deps.installationId(),
-      label: this.deps.hostLabel(),
-      os: this.deps.os(),
-      ...(request.address ? { address: request.address } : {}),
-      publicJwk: key.publicJwk,
-    }
-    const response = await this.request(`${directoryUrl}/v1/hosts/enroll`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!response.ok) {
-      const detail = uplinkErrorBodySchema.safeParse(await response.json().catch(() => ({})))
-      throw new HostRegistrationError('register-rejected', registerRejectionMessage(response.status, detail.data?.error))
-    }
-    const enrolled = enrollHostResponseSchema.parse(await response.json())
-    this.store({
-      registration: enrolled.registration,
-      key: { clientId: enrolled.oauthClient.clientId, privateJwk: key.privateJwk },
-    }, 'host_registered')
+    const enrollment = await enroll(request, facts, (await generateHostKey()).privateJwk, this.deps.fetchImpl)
+    storeEnrollment(enrollment)
+    this.setPersisted({ version: 1, registration: enrollment.registration })
+    log.info('host_registered', { hostId: enrollment.registration.hostId, generation: enrollment.registration.generation })
     return this.status()
   }
 
   /**
-   * Boot: a provisioned machine adopts the registration its environment carries; any
-   * other checks its stored one with its control token (plan H4). Answers what Solus
-   * cloud said about the host, so the link can follow it; null when it could not ask.
+   * Boot: the host checks its stored registration with its control token (plan H4).
+   * Answers what Solus cloud said about the host, so the link can follow it; null when
+   * it could not ask.
    */
   async resume(): Promise<HostLinkResponse | null> {
     return (await this.attemptResume()).remote
@@ -281,10 +290,6 @@ export class HostRegistrar {
    */
   private async attemptResume(): Promise<ResumeAttempt> {
     try {
-      const env = this.deps.provisionedLink?.()
-      if (env && (!this.persisted || env.registration.generation > this.persisted.registration.generation)) {
-        await this.adoptProvisioned(env)
-      }
       const remote = await this.check()
       return { remote, isUnanswered: remote === null && this.credential() !== null }
     } catch (error) {
@@ -328,53 +333,7 @@ export class HostRegistrar {
     return record
   }
 
-  /**
-   * A provisioned host's first boot of a registration (managed-hosts.md §2, ADR 0001
-   * §3.4): it makes its key, keeps it, and registers the public half with the one-time
-   * ticket its boot carries. A boot that runs again before the answer came sends the
-   * same key, which the control plane accepts. Only then is the registration stored.
-   */
-  private async adoptProvisioned(env: HostLinkEnv): Promise<void> {
-    const { registration } = env
-    const clientId = hostClientId(registration.hostId)
-    const kept = loadHostKey()
-    const privateJwk = kept && kept.generation === registration.generation && kept.clientId === clientId ? kept.privateJwk : (await generateHostKey()).privateJwk
-    saveHostKey({ clientId, generation: registration.generation, privateJwk })
-    const body: HostCredentialRequest = { credentialTicket: env.credentialTicket, publicJwk: publicJwkOf(privateJwk) }
-    const response = await this.request(`${normalizeOrigin(registration.directoryUrl)}/v1/hosts/${registration.hostId}/credential`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (response.status >= 500) {
-      throw new HostRegistrationError('control-plane-unreachable', `Solus cloud could not take this machine's key (${response.status}).`)
-    }
-    if (!response.ok) {
-      log.warn('provisioned_credential_refused', { hostId: registration.hostId, status: response.status })
-      throw new HostRegistrationError('register-rejected', `Solus cloud refused this machine's key (${response.status}).`)
-    }
-    const registered = hostCredentialResponseSchema.parse(await response.json())
-    this.store({ registration, key: { clientId: registered.oauthClient.clientId, privateJwk } }, 'provisioned_registration_adopted')
-  }
-
-  /** What every registration ends with: the key to the secret store, the record to disk. */
-  private store(
-    input: { registration: HostRegistration; key: { clientId: string; privateJwk: PrivateJwk } },
-    event: 'host_registered' | 'provisioned_registration_adopted',
-  ): void {
-    const { registration } = input
-    // The host will trust this issuer's keys, call this directory with its own
-    // token, and deliver organization records to this API: only a private-network
-    // origin may be plain http.
-    for (const url of [registration.issuer, registration.jwksUrl, registration.directoryUrl, ...(registration.apiUrl ? [registration.apiUrl] : [])]) {
-      if (!isSecureOrigin(url)) throw new HostRegistrationError('register-rejected', `Solus cloud named an insecure address (${url}); the host was not registered.`)
-    }
-    saveHostKey({ clientId: input.key.clientId, generation: registration.generation, privateJwk: input.key.privateJwk })
-    this.setPersisted({ version: 1, registration })
-    log.info(event, { hostId: registration.hostId, generation: registration.generation })
-  }
-
-  /** Solus cloud refused the stored registration: the host is not registered (a deleted host is personal again). */
+  /** Solus cloud refused the stored registration: the host is not registered. A cloud machine stays a cloud machine (`machine-kind.ts`). */
   private forget(): void {
     if (!this.persisted) return
     log.warn('host_registration_refused', { hostId: this.persisted.registration.hostId })
@@ -398,13 +357,119 @@ export class HostRegistrar {
   }
 }
 
+/**
+ * One enrollment (`POST /v1/hosts/enroll`): the ticket, what this machine is, and the
+ * public half of the key it made. Every machine joins this way: a person's own
+ * computer, a cloud machine that an operator runs, and one that a compute provider
+ * made (plans/034-one-cloud-machine-kind.md §3). A refusal is `register-rejected`;
+ * a control plane that did not answer, or answered a server error, is
+ * `control-plane-unreachable`, so the caller may try the same ticket again.
+ */
+async function enroll(request: HostRegistrationRequest, machine: MachineFacts, privateJwk: PrivateJwk, fetchImpl: FetchLike = fetch): Promise<Enrollment> {
+  const body: EnrollHostRequest = {
+    ticket: request.ticket,
+    installationId: machine.installationId,
+    label: machine.label,
+    os: machine.os,
+    publicJwk: publicJwkOf(privateJwk),
+  }
+  if (request.address) body.address = request.address
+  const response = await fetchImpl(`${normalizeOrigin(request.directoryUrl)}/v1/hosts/enroll`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  }).catch((err) => {
+    throw new HostRegistrationError('control-plane-unreachable', `Solus cloud is not reachable: ${err instanceof Error ? err.message : String(err)}`)
+  })
+  if (response.status >= 500) throw new HostRegistrationError('control-plane-unreachable', `Solus cloud could not register this host (${response.status}).`)
+  if (!response.ok) {
+    const detail = uplinkErrorBodySchema.safeParse(await response.json().catch(() => ({})))
+    throw new HostRegistrationError('register-rejected', registerRejectionMessage(response.status, detail.data?.error))
+  }
+  const enrolled = enrollHostResponseSchema.parse(await response.json())
+  return { registration: enrolled.registration, key: { clientId: enrolled.oauthClient.clientId, privateJwk } }
+}
+
+/**
+ * What every enrollment ends with, before the registration record is written: the
+ * addresses are checked, the key goes to the secret store, and a cloud machine's data
+ * directory remembers its organization.
+ */
+function storeEnrollment(enrollment: Enrollment): void {
+  const { registration } = enrollment
+  // The host will trust this issuer's keys, call this directory with its own
+  // token, and deliver organization records to this API: only a private-network
+  // origin may be plain http.
+  for (const url of [registration.issuer, registration.jwksUrl, registration.directoryUrl, ...(registration.apiUrl ? [registration.apiUrl] : [])]) {
+    if (!isSecureOrigin(url)) throw new HostRegistrationError('register-rejected', `Solus cloud named an insecure address (${url}); the host was not registered.`)
+  }
+  const remembered = readStoredCloudMachine()
+  if (remembered && remembered.organizationId !== registration.organizationId) {
+    throw new HostRegistrationError('register-rejected', 'This data directory belongs to a cloud machine of another organization. Use a new data directory.')
+  }
+  saveHostKey({ clientId: enrollment.key.clientId, generation: registration.generation, privateJwk: enrollment.key.privateJwk })
+  if (registration.organizationId) writeCloudMachine({ organizationId: registration.organizationId, hasManagedCompute: registration.hasManagedCompute })
+}
+
+/** A data directory of a cloud machine takes no personal ticket: its data is its organization's. Checked before the one-use ticket is sent. */
+function assertTicketFitsDataDirectory(ticket: string): void {
+  if (readStoredCloudMachine() && !isOrganizationTicket(ticket)) {
+    throw new HostRegistrationError('register-rejected', 'This data directory belongs to a cloud machine. A personal link needs a new data directory.')
+  }
+}
+
+/**
+ * A machine with a link code in its environment enrolls here, before the server opens
+ * a listener (plans/034-one-cloud-machine-kind.md §3): the control plane made it
+ * through a compute provider, or a script starts it. So the process
+ * knows what it is before any door exists, and a cloud machine never has a
+ * credential-free door, also for a moment.
+ *
+ * A machine that is registered already keeps its registration: the code of an earlier
+ * boot stays in a provider's boot input. Solus cloud not answering is tried again for
+ * as long as it takes; a refusal ends the boot, and the provider shows the failure.
+ * Answers the new registration, or null when nothing was to do.
+ */
+export async function enrollAtBoot(input: { code: BootLinkCode; machine: MachineFacts; holdsWork?: () => Promise<boolean>; fetchImpl?: FetchLike; wait?: (delayMs: number) => Promise<void> }): Promise<HostRegistration | null> {
+  const stored = readPersistedRegistration()?.registration
+  // The same test as `HostRegistrar.credential`: a key of another generation proves nothing.
+  if (stored && loadHostKey()?.generation === stored.generation) return null
+  if (!input.code.code.includes('@')) throw new HostRegistrationError('register-rejected', 'The link code in the environment does not name its Solus cloud.')
+  // The fallback origin is never used: the code names its own.
+  const request: HostRegistrationRequest = parseLinkCode(input.code.code, 'https://invalid.invalid')
+  if (input.code.address) request.address = input.code.address
+  assertTicketFitsDataDirectory(request.ticket)
+  // The same rule as for a person's organization code: a cloud machine starts with new data.
+  if (isOrganizationTicket(request.ticket) && !readStoredCloudMachine() && await input.holdsWork?.()) {
+    throw new HostRegistrationError('register-rejected', 'This server holds sessions already. A cloud machine starts with new data: use a new data directory.')
+  }
+  const wait = input.wait ?? ((delayMs: number) => new Promise<void>((resolve) => { setTimeout(resolve, delayMs) }))
+  // One key for every attempt: Solus cloud answers a ticket again for the key that it registered with it.
+  const { privateJwk } = await generateHostKey()
+  for (let delayMs = BOOT_ENROLL_RETRY_FIRST_MS; ; delayMs = Math.min(delayMs * 2, BOOT_ENROLL_RETRY_MAX_MS)) {
+    try {
+      const enrollment = await enroll(request, input.machine, privateJwk, input.fetchImpl)
+      storeEnrollment(enrollment)
+      writePersistedRegistration({ version: 1, registration: enrollment.registration })
+      log.info('host_enrolled_at_boot', { hostId: enrollment.registration.hostId, generation: enrollment.registration.generation, organizationId: enrollment.registration.organizationId ?? null })
+      return enrollment.registration
+    } catch (error) {
+      if (!(error instanceof HostRegistrationError) || error.code !== 'control-plane-unreachable') throw error
+      log.warn('host_boot_enrollment_retry_scheduled', { delayMs, error: error.message })
+      await wait(delayMs)
+    }
+  }
+}
+
 function registerRejectionMessage(status: number, code: string | undefined): string {
   switch (code) {
     case 'invalid_ticket': return 'The registration ticket is invalid or has expired. Try again.'
     case 'not_a_member': return 'The account that made the code is no longer a member of that organization.'
     case 'personal_hosts_not_allowed': return 'That organization does not allow personal computers.'
     case 'refused_by_host_policy': return 'That organization does not allow cloud machines.'
-    case 'machine_address_invalid': return 'An organization code needs the HTTPS address of this machine: run `solus setup --link CODE --address https://…`. A personal code takes no address.'
+    case 'machine_address_invalid': return 'The address of this machine is not valid. Give an `https://` address with no path, for example `--address https://machine.example.com`.'
+    case 'tunnel_not_configured': return 'This Solus cloud has no tunnels. Give the HTTPS address of this machine with `--address`.'
     default: return `Solus cloud refused to register this host (${status}).`
   }
 }
@@ -431,6 +496,34 @@ function registrationFile(): string {
 /** The registration stored on disk, read before the registrar exists: what the boot needs to know about this machine before it listens. */
 export function readStoredRegistration(): HostRegistration | null {
   return readPersistedRegistration()?.registration ?? null
+}
+
+/**
+ * What this data directory remembers of the cloud machine it is or was: its one
+ * organization. Written at each enrollment of a cloud machine and never removed, so a
+ * machine whose registration ended does not become a personal machine with its
+ * organization's data on it (plans/034-one-cloud-machine-kind.md §2).
+ */
+export function readStoredCloudMachine(): CloudMachineFacts | null {
+  const file = join(solusDir(), CLOUD_MACHINE_FILE)
+  if (!existsSync(file)) return null
+  try {
+    const parsed = cloudMachineSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')))
+    if (parsed.success) return { organizationId: parsed.data.organizationId, hasManagedCompute: parsed.data.hasManagedCompute }
+    log.warn('cloud_machine_file_unreadable', { issues: parsed.error.issues.map((issue) => issue.path.join('.')) })
+  } catch (err) {
+    log.warn('cloud_machine_file_unreadable', { error: err instanceof Error ? err.message : String(err) })
+  }
+  // A file that exists but cannot be read still says "a cloud machine": no door opens on a guess.
+  return { organizationId: UNREADABLE_CLOUD_ORGANIZATION }
+}
+
+function writeCloudMachine(facts: { organizationId: string; hasManagedCompute: boolean | undefined }): void {
+  const dir = solusDir()
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  const record: z.infer<typeof cloudMachineSchema> = { version: 1, organizationId: facts.organizationId }
+  if (facts.hasManagedCompute) record.hasManagedCompute = true
+  writeFileSync(join(dir, CLOUD_MACHINE_FILE), JSON.stringify(record, null, 2), { mode: 0o600 })
 }
 
 function readPersistedRegistration(): PersistedRegistration | null {

@@ -5,8 +5,9 @@ import type { KnownHost } from '@solus/client-core/known-host'
 import { hostCatalog } from '@solus/client-core/host-catalog'
 import { stampSessionMetas } from '@solus/client-core/session-meta'
 import { connectedRunnerFor } from '@solus/client-core/session-runner'
+import { answersForOwnSessions, readsSessionsFromSolusApi, type SessionHomeConnections } from '@solus/client-core/session-home'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
-import { isSolusApiId } from '@solus/contracts/uplink'
+import { isSolusApiId, organizationIdOfSolusApiId } from '@solus/contracts/uplink'
 import { isRepositoryKey } from '@solus/contracts/repository-key'
 import type { AgentId, SessionMeta, SessionRecordListFilter, SessionSearchResult } from '@solus/contracts/types'
 import { isChat } from '@solus/contracts/chat'
@@ -14,6 +15,7 @@ import { localProjectParts } from '@solus/client-core/project-identity'
 import { CHATS_GROUP_KEY, projectsStore } from '../../../../contexts/projects/projects.store.svelte'
 import { hosts } from '../../../../contexts/hosts/hosts.svelte'
 import { serversStore } from '../../../../contexts/connections/servers.store.svelte'
+import { savesSessionsToCloud } from '../../../../lib/organization-filter'
 import { toasts } from '../../../../lib/toasts'
 import { activeSince, type PickerFilters } from './picker-filters'
 import { listsRecords, listsSessions, listsTasks, type PickerResultType } from './picker-result-types'
@@ -23,8 +25,8 @@ import { isAbsoluteHostPath } from '@solus/contracts/host-path'
 
 /** The homes a search reads. */
 export interface ConversationSearchHosts<Api = Pick<HostApi, 'sessionRecordSearch'>> {
-  /** In reading order: this machine, the person's other machines, then the
-   *  organization's workspace service. */
+  /** In reading order: this machine, the other machines that answer for their
+   *  own sessions, then each workspace service that is a source of sessions. */
   searchServerIds(): string[]
   apiFor(serverId: string): Api
   /** The connected known host a record's runner host id names, or null. */
@@ -32,26 +34,40 @@ export interface ConversationSearchHosts<Api = Pick<HostApi, 'sessionRecordSearc
 }
 
 /**
- * The homes a search reads, from the hosts the app is already talking to.
- * An organization's machine is not asked: the workspace service keeps the
- * record and the mirrored transcript of every session one runs, and it answers
- * when the machine is off. Every other machine keeps its own sessions.
+ * The homes a search reads, from the hosts the app is already talking to
+ * (`client-core/session-home.ts`). A personal machine keeps its own sessions.
+ * A cloud machine of an organization that saves its sessions in Solus Cloud is
+ * not asked: the workspace service keeps the record and the mirrored transcript
+ * of every session it runs, and it answers when the machine is off. When the
+ * organization keeps its sessions on their hosts, the cloud machine is asked
+ * and the workspace service is not: it has no conversation of them.
  */
 export function searchServerIds(
   serverIds: readonly string[],
   localServerId: string | null,
   known: readonly Pick<KnownHost, 'id' | 'uplink'>[],
+  savesSessionsToCloud: (organizationId: string) => boolean = () => true,
 ): string[] {
-  const organizationMachines = organizationMachineIds(known)
-  const machines = serverIds.filter((id) => !isSolusApiId(id) && !organizationMachines.has(id))
+  const organizationOfCloudMachine = cloudMachineOrganizations(known)
+  const connections: SessionHomeConnections = {
+    serverIds: () => [...serverIds],
+    isCloudHost: (serverId) => organizationOfCloudMachine.has(serverId),
+    savesSessionsToCloud,
+  }
+  const machines = serverIds.filter((id) => !isSolusApiId(id)
+    && answersForOwnSessions({ serverId: id, organizationId: organizationOfCloudMachine.get(id) ?? null }, connections))
   const ordered = localServerId && machines.includes(localServerId)
     ? [localServerId, ...machines.filter((id) => id !== localServerId)]
     : machines
-  return [...ordered, ...serverIds.filter((id) => isSolusApiId(id))]
+  const services = serverIds.filter((id) => {
+    const organizationId = organizationIdOfSolusApiId(id)
+    return organizationId !== null && readsSessionsFromSolusApi(organizationId, connections)
+  })
+  return [...ordered, ...services]
 }
 
 const registryHosts: ConversationSearchHosts<Pick<HostApi, 'sessionRecordSearch' | 'sessionRecordList'>> = {
-  searchServerIds: () => searchServerIds(serverConnections.serverIds(), serverConnections.localServerId(), hostCatalog.hosts()),
+  searchServerIds: () => searchServerIds(serverConnections.serverIds(), serverConnections.localServerId(), hostCatalog.hosts(), savesSessionsToCloud),
   apiFor: (serverId) => serverConnections.apiFor(serverId),
   connectedRunnerFor: (runnerHostId) => connectedRunnerFor(runnerHostId),
 }
@@ -67,9 +83,9 @@ export type HostScope = { projectRoot: string } | { repositoryKey: string }
 /** A host's scope for a project, or null when the host holds none of it and is not asked. */
 export type ScopeOnHost = (serverId: string, projectKey: string) => HostScope | null
 
-/** The organizations' machines: their sessions are read from the workspace service. */
-function organizationMachineIds(known: readonly Pick<KnownHost, 'id' | 'uplink'>[]): Set<string> {
-  return new Set(known.filter((server) => server.uplink?.kind === 'cloud').map((server) => server.id))
+/** Each cloud machine with the one organization that it works for; null when the directory did not name it. */
+function cloudMachineOrganizations(known: readonly Pick<KnownHost, 'id' | 'uplink'>[]): Map<string, string | null> {
+  return new Map(known.filter((server) => server.uplink?.kind === 'cloud').map((server) => [server.id, server.uplink?.organizationIds?.[0] ?? null]))
 }
 
 /**

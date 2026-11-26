@@ -631,9 +631,10 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
 /**
  * The one-time assignment of an unassigned row (organization-scope §3, R10):
  * `local` becomes `organizationId`, once, started or not; with `published` and
- * `admittedAt`, the row also takes the admission the Solus API accepted, as an
- * attached machine decides for a session a watch claimed Local first. The owner
- * never changes. Answers the session's home as it now stands, whether this call
+ * `admittedAt`, the row also takes the admission the Solus API accepted, as a
+ * cloud machine decides for a session whose row something made first: a watch
+ * that claimed it Local, or a member's client that made it in the organization
+ * and not published. The owner never changes. Answers the session's home as it now stands, whether this call
  * assigned it or it already belonged to that organization; null when the row is
  * another organization's or does not exist.
  */
@@ -647,7 +648,10 @@ export function assignSessionOrganization(sessionId: string, organizationId: str
         UPDATE ${session} SET organization_id = ${organizationId},
           publication = ${options.published ? 'published' : sql`publication`},
           admitted_at = COALESCE(admitted_at, ${options.admittedAt ?? null})
-        WHERE session_id = ${sessionId} AND organization_id = ${LOCAL_ORGANIZATION_ID}
+        WHERE session_id = ${sessionId} AND (
+          organization_id = ${LOCAL_ORGANIZATION_ID}
+          OR (${options.published ? 1 : 0} = 1 AND organization_id = ${organizationId} AND publication <> 'published')
+        )
       `)
       if (updated.changes > 0) await db.run(sql`
         UPDATE ${sessionExecutions} SET organization_id = ${organizationId}

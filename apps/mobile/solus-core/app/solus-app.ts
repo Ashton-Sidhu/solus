@@ -241,7 +241,10 @@ export class SolusApp {
       savedHostFor: (accountHostId) => this.registry.hosts().find((host) => host.uplink?.hostId === accountHostId)?.id ?? null,
       isReady: (hostId) => this.connections.state(hostId)?.readiness === 'ready',
       hostIds: () => this.registry.hosts().map((host) => host.id),
+      savesSessionsToCloud: (organizationId) => this.account.savesSessionsToCloud(organizationId),
     })
+    // The directory says whether an organization saves its sessions to Solus Cloud: a new answer changes what the cloud lists.
+    this.registry.changes.subscribe(() => this.cloudSessions.followSessionSource())
     this.cloudHistory = new CloudHistory(this.cloudSessions)
     // A host that connects or drops changes which cloud rows show and who runs a turn.
     this.connections.changes.subscribe(() => { if (this.cloudSessions.recordCount > 0) this.cloudSessions.changes.notify() })

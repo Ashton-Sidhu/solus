@@ -115,7 +115,7 @@ run `solus` afterwards.
 
 | Command | Purpose |
 |---|---|
-| `solus setup` | Install/start the background service, check health, then connect it: in a terminal, choose direct pairing, a personal account link, or a cloud host of an organization (with `--address URL`, the HTTPS address of this machine), and optionally sign in a provider; without a terminal, print pairing details. `--link CODE` links with a code from Solus and asks nothing; an organization code also needs `--address URL` |
+| `solus setup` | Install/start the background service, check health, then connect it: in a terminal, choose direct pairing, a personal account link, or a cloud host of an organization, and optionally sign in a provider; without a terminal, print pairing details. `--link CODE` links with a code from Solus and asks nothing: a personal code makes a personal host, an organization code makes a cloud host. `--address URL` is optional for both: the internet reaches the host at that HTTPS address; without it the host gets a Cloudflare tunnel |
 | `solus start` | Run in the foreground (`--host`, `--port`, `--data-dir`) |
 | `solus status` | Show installed/running versions, service state, and provider versions |
 | `solus service start`, `stop`, `restart` | Control the background service |
@@ -123,7 +123,7 @@ run `solus` afterwards.
 | `solus service uninstall` | Remove background startup; keep user data |
 | `solus logs` | Follow the server log (`--lines N`) |
 | `solus pair` | Create another temporary client pairing link |
-| `solus connect`, `connect status`, `connect unlink` | The linking steps of `solus setup` for a running server (`--code CODE` uses a link code; `--address URL` with an organization code makes a cloud host); show kind, organization, control plane, Solus API, delivery, and a test of the connection ([troubleshooting](docs/host-connection-troubleshooting.md)); unlink a personal host. A cloud host is removed by an organization owner in the console |
+| `solus connect`, `connect status`, `connect unlink` | The linking steps of `solus setup` for a running server (`--code CODE` uses a link code; `--address URL` is the HTTPS address of the machine, and on a registered personal host it replaces the tunnel); show kind, organization, control plane, Solus API, the address or the tunnel, delivery, and a test of the connection ([troubleshooting](docs/host-connection-troubleshooting.md)); unlink a personal host, after which `solus connect` with no address makes a tunnel again. A cloud host is removed by an organization owner in the console |
 | `solus update` | Check and update the running host through its shared update service |
 
 Versions live under `~/.local/share/solus/versions`; `current` selects the active

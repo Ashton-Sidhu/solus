@@ -12,8 +12,9 @@ import { hostClient, localOwnerClient, registerHost, type SignedIn } from '../..
  * Organization work against the real cloud (plans/034-one-cloud-machine-kind.md §2, §3;
  * plans/009-organization-vms.md §4, §5; docs/plans/cloud-service-model.md §16): an
  * operator starts a new server with an organization link code that alice, a member,
- * made, and with the machine's own address. The registration names her organization,
- * so the server is a cloud machine: nobody owns it, and it trusts nobody by position.
+ * made, and with the machine's own address, so the machine is reached there and gets
+ * no tunnel. The registration names her organization, so the server is a cloud
+ * machine: nobody owns it, and it trusts nobody by position.
  * alice dials it as a member; the ticket door trades her host token for an
  * organization delegation. Her new session is admitted on the Solus API before the
  * mock agent starts, and the agent's real `create_work` tool writes through that
@@ -74,7 +75,7 @@ export default cloudModeScenario('organization work: a cloud machine runs an org
   const registration = status.registration.registered ? status.registration.registration : null
   ctx.check('the registration names her organization, and the cloud does not operate the compute', registration?.organizationId === lab && registration.hasManagedCompute !== true, JSON.stringify(registration && { organizationId: registration.organizationId, hasManagedCompute: registration.hasManagedCompute }))
   ctx.check('the registration names the Solus API the cloud runs', registration?.apiUrl === ctx.stack.solusApi.url, `${registration?.apiUrl} vs ${ctx.stack.solusApi.url}`)
-  ctx.check('the machine is reached at its own address at once', status.link.linked, JSON.stringify(status.link))
+  ctx.check('the machine is reached at its own address at once', status.link.linked && status.link.tunnel.hostname === new URL(address).host, JSON.stringify(status.link))
   if (!registration) return
   const hostId = registration.hostId
   ctx.defer('alice removes the machine from her organization', async () => {
