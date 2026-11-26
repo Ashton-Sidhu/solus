@@ -86,7 +86,7 @@ function hostOf(person: keyof typeof homes) {
   const scope = { identity: {} as never, personKey: person }
   const open = (who: keyof typeof homes = person) => withActingScope({ ...scope, personKey: who }, () =>
     history.loadSessionPage({ sessionId: SESSION, provider: 'claude-code', projectPath: PROJECT, turnLimit: 5, knownHistoryBlocks: [] }))
-  return { runtime, history, open, prewarm: new HistoryPrewarm(runtime), scope }
+  return { runtime, backend, history, open, prewarm: new HistoryPrewarm(runtime), scope }
 }
 
 const contents = (page: { messages: { content: string }[] }) => page.messages.map((message) => message.content)
@@ -129,9 +129,32 @@ test('a cached page never answers a person whose provider home has another file 
   expect(contents(await host.open('alice'))).toEqual(['question', 'alice reply'])
 })
 
-test('a session with a run is not read ahead', async () => {
+/** The host runs a turn in the fixture session. */
+function startRun(host: ReturnType<typeof hostOf>, running = true): void {
+  if (running) (host.runtime.activeSessions as Map<string, unknown>).set(SESSION, {})
+  else (host.runtime.activeSessions as Map<string, unknown>).delete(SESSION)
+  host.backend.isSessionRunning = () => running
+}
+
+test('a running session is read ahead too, and its page answers the open until the run writes again', async () => {
   const host = hostOf('alice')
-  ;(host.runtime.activeRunRequests as Map<string, unknown>).set(SESSION, {})
+  startRun(host)
   await withActingScope(host.scope, () => host.prewarm.warm([SESSION]))
-  expect(parses).toBe(0)
+  expect(parses).toBe(2)
+  // A person opens a running session the most: the open needs no parse while the transcript is unchanged.
+  expect(contents(await host.open())).toEqual(['question', 'alice reply'])
+  expect(parses).toBe(2)
+  appendFileSync(transcriptOf('alice'), line('user', 'next', 3))
+  expect(contents(await host.open())).toContain('next')
+  expect(parses).toBe(3)
+})
+
+test('a page read during a run never answers after the run ends', async () => {
+  const host = hostOf('alice')
+  startRun(host)
+  await withActingScope(host.scope, () => host.prewarm.warm([SESSION]))
+  // The newest page of a running session has no fork controls; a resting one has them.
+  startRun(host, false)
+  await host.open()
+  expect(parses).toBe(3)
 })

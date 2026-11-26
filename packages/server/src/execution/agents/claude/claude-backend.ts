@@ -580,13 +580,16 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     let messageCount = 0
     try {
       if (!filePath) return { messages: [], before: null }
-      const running = this.isSessionRunning(sessionId)
-      if (!cachePage || running) {
+      // The newest page of a running session has no fork controls.
+      const runningPage = this.isSessionRunning(sessionId) && before === undefined
+      if (!cachePage) {
         const page = await loadClaudeHistoryPage(filePath, turnLimit, before)
         messageCount = page.messages.length
-        return { ...page, messages: claudeForkResponses(page.messages, running && before === undefined) }
+        return { ...page, messages: claudeForkResponses(page.messages, runningPage) }
       }
-      const key = JSON.stringify([filePath, turnLimit, before])
+      // A run only appends to the file, and each write changes its revision: a page stays
+      // correct for one revision while the session runs too. The run is part of the key.
+      const key = JSON.stringify([filePath, turnLimit, before, runningPage])
       const revision = await historyFileRevision(filePath)
       revisionMs = performance.now() - locatedAt
       const cached = await this.historyPages.readShared(key, revision)
@@ -597,8 +600,9 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       }
       const result = await this.historyPages.reading(key, revision, (async () => {
         const page = await loadClaudeHistoryPage(filePath, turnLimit, before)
-        const result = { ...page, messages: claudeForkResponses(page.messages, this.isSessionRunning(sessionId) && before === undefined) }
-        if (revision && !this.isSessionRunning(sessionId) && revision === await historyFileRevision(filePath)) this.historyPages.save(key, revision, result)
+        const result = { ...page, messages: claudeForkResponses(page.messages, runningPage) }
+        const stillRunningPage = this.isSessionRunning(sessionId) && before === undefined
+        if (revision && stillRunningPage === runningPage && revision === await historyFileRevision(filePath)) this.historyPages.save(key, revision, result)
         return result
       })())
       messageCount = result.messages.length

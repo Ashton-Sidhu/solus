@@ -38,8 +38,12 @@ opens the session.
 ahead:
 
 - When the host answers `sessionDirectoryOpen`, it reads the first page of the
-  10 most recent sessions, 2 at a time, after the answer. It skips a session
-  with a run.
+  10 most recent sessions, 2 at a time, after the answer. A running session is
+  read too. A run only appends to its transcript, and each write changes the
+  file's revision, so its page answers an open until the run writes again. The
+  Claude cache key holds whether the page is the newest page of a run, because
+  that page has no fork controls. A running Codex session is not cached: Codex
+  caches a page only when every turn in it has ended.
 - When a turn ends (`completed`, `failed`, or `interrupted`), it reads that
   session's first page again after 1 s.
 - It reads each session with the first-page turn limits that clients send: 5
