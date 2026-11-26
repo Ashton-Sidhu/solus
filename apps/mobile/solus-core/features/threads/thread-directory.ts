@@ -397,6 +397,7 @@ export class ThreadDirectory {
       if (!isCurrent()) return
       let openingFacts = previous?.opening
       if (page) {
+        markStart(`directory_answer:${page.records.length}`)
         openingFacts = { pins: page.pins, codebases: page.codebases, automations: page.automations }
         const present = directoryOpeningRows(page)
         const value: HostThreads = {

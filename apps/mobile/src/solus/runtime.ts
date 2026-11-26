@@ -241,6 +241,7 @@ export function startSolus() {
         if (followsShell) solus.shells.sync(host.id);
         if (state?.readiness === "ready" && state.sessionGeneration !== generation) {
           generation = state.sessionGeneration;
+          markStart("host_ready");
           const decided = generation;
           const hasShell = readsSessionShell(connection.facts);
           // The choice of path waits for the host's capabilities once, on a connection that has not read them.

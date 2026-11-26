@@ -5,6 +5,7 @@ import "vite-plus/test/config";
 
 const reactTests = [
   "src/solus/ConversationCards.test.tsx",
+  "src/features/home/first-layout-items.test.tsx",
   "src/features/threads/CloudMachineCard.test.tsx",
   "src/features/browser/LocalPreviewRouteScreen.test.tsx",
   "src/features/threads/ThreadGuestShareSheet.test.tsx",
