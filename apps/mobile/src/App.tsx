@@ -101,6 +101,8 @@ import {
 import { pruneNewTaskFlowStates } from "./features/threads/new-task-flow-state";
 import { pruneNewTaskBranchCheckouts } from "./features/threads/NewTaskDraftRouteScreen";
 import { installAppUpdateChecks } from "./features/updates/app-updates";
+import { appSignInLinkOf } from "@solus-mobile/features/settings/app-sign-in";
+import { AppSignInCoordinator } from "./solus/AppSignInSheet";
 
 import "../global.css";
 
@@ -132,8 +134,12 @@ function getAppStateFromPath(path: string, options: Parameters<typeof getStateFr
 const appLinking = {
   prefixes: [Linking.createURL("/"), "solus://", "solus-dev://", "solus-preview://"],
   config: { initialRouteName: "Home" },
-  filter: (url: string) => shouldHandleAppLink(url, hasCloudPublicConfig()),
-  getInitialURL: async () => (await Linking.getInitialURL()) ?? (await launchWorkspaceURL()),
+  // An approve-app link opens a sheet over the current screen (`AppSignInCoordinator`), not a route.
+  filter: (url: string) => !appSignInLinkOf(url) && shouldHandleAppLink(url, hasCloudPublicConfig()),
+  getInitialURL: async () => {
+    const url = await Linking.getInitialURL();
+    return url && !appSignInLinkOf(url) ? url : await launchWorkspaceURL();
+  },
   getActionFromState: (
     state: Parameters<typeof getActionFromState>[0],
     options: Parameters<typeof getActionFromState>[1],
@@ -293,6 +299,7 @@ function AppContent() {
                 />
                 <Dialog.Host />
                 <ConnectDeviceApprovalCoordinator />
+                <AppSignInCoordinator />
                 <ThreadArrangementHost />
                 <ProjectChipIconRasterizer />
               </NativeLayoutMetricsProvider>

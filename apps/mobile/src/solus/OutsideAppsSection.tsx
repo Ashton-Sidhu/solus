@@ -45,14 +45,19 @@ export function OutsideAppsSection(props: { readonly hostId: string; readonly ho
         title="Use Solus in other apps"
         footer={
           isOwner
-            ? "Apps that run in the cloud reach this host at its public address and sign in with a pairing code. Set up apps that run on a computer from Solus on that computer."
-            : "Apps that run in the cloud reach this host at its public address and sign in with a pairing code. The app acts as you. The host's owner sees and revokes it."
+            ? "Apps that run in the cloud reach this host at its public address and sign in with a pairing code, or you approve the sign-in here with its check code. Set up apps that run on a computer from Solus on that computer."
+            : "Apps that run in the cloud reach this host at its public address and sign in with a pairing code, or you approve the sign-in here with its check code. The app acts as you. The host's owner sees and revokes it."
         }
       >
         <SettingsRow
           icon="square.grid.2x2"
           label="Connect an app"
           onPress={() => setIsConnecting(true)}
+        />
+        <SettingsRow
+          icon="checkmark.circle"
+          label="Approve a sign-in"
+          onPress={() => solus.appSignIns.enterCode(hostId)}
         />
       </SettingsSection>
       {isConnecting ? (
