@@ -1,4 +1,4 @@
-import { AppWindow, KeyRound, Radar, Unplug } from '@lucide/svelte'
+import { AppWindow, KeyRound, Radar, ShieldCheck, Unplug } from '@lucide/svelte'
 import type { Command } from '../command-palette/lib/commands'
 import { connectionsNav } from '../connections/connections-nav.svelte'
 import { pairCodeRequest } from '../connections/lib/access-tab-requests.svelte'
@@ -13,7 +13,8 @@ import { discoverStore } from './discover.store.svelte'
  * fleet and scans. "Show pairing code" opens this device's host on its Access
  * tab with a code made (docs/plans/add-machine-card.md). "Use Solus in other
  * apps" opens its dialog for this device's host, else the Run on host
- * (plans/035 §10). `showHosts` opens Settings › Hosts in the shell that asks.
+ * (plans/035 §10). "Approve an app sign-in" opens that dialog on its approve
+ * view, for the code an app's sign-in page shows (§0.5). `showHosts` opens Settings › Hosts in the shell that asks.
  */
 export function fleetPaletteCommands(showHosts: () => void): Command[] {
   return [
@@ -65,6 +66,18 @@ export function fleetPaletteCommands(showHosts: () => void): Command[] {
       run: () => {
         const serverId = (hosts.device ?? hosts.runOn)?.id
         if (serverId) outsideAppsDialog.open(serverId)
+        else showHosts()
+      },
+    },
+    {
+      id: 'approve-app-sign-in',
+      label: 'Approve an app sign-in',
+      group: 'Servers',
+      icon: ShieldCheck,
+      keywords: ['approve', 'sign-in', 'sign in', 'check code', 'mcp', 'outside app', 'oauth', 'login'],
+      run: () => {
+        const serverId = (hosts.device ?? hosts.runOn)?.id
+        if (serverId) outsideAppsDialog.open(serverId, { view: 'approve' })
         else showHosts()
       },
     },

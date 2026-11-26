@@ -36,7 +36,7 @@
 
   const action = $derived(guide ? outsideAppAction(guide, mcpUrl) : null);
   const message = $derived(guide?.handoff.kind === "copy-message" ? guide.handoff.message(mcpUrl) : null);
-  const qr = $derived(action ? connectQr(action, mcpUrl) : null);
+  const qr = $derived(guide && action ? connectQr(guide, action, mcpUrl) : null);
 
   function openLink(link: string) {
     void openOutsideApp({ link, appLink: null }, opener);
@@ -69,10 +69,15 @@
           <p class="text-chrome-dense text-(--solus-text-tertiary)">{guide.note}</p>
         {/if}
       </div>
-      {#if qr?.kind === "qr"}
+      {#if qr?.kind === "app-link"}
         <div class="flex items-center gap-3">
           <OutsideAppsQr value={qr.link} label={`QR code that opens ${guide.name}`} />
           <p class="text-chrome-dense text-(--solus-text-secondary)">Scan to open {guide.name} on your phone</p>
+        </div>
+      {:else if qr?.kind === "address"}
+        <div class="flex items-center gap-3">
+          <OutsideAppsQr value={qr.link} label="QR code of the MCP address" />
+          <p class="text-chrome-dense text-(--solus-text-secondary)">Scan to get the address on your phone</p>
         </div>
       {:else if qr?.kind === "loopback"}
         <p class="text-chrome-dense text-(--solus-text-tertiary)">Another device cannot open a localhost address. Copy it for use on this computer.</p>

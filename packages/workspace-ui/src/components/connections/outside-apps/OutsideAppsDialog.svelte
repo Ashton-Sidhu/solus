@@ -1,8 +1,10 @@
 <script lang="ts">
   /** "Use Solus in other apps · {host}" (plans/035 §10, after T3 Code's "Use in
    *  another app"): a gate until the host can serve the app's address, then the
-   *  steps App → Access → Connect. The palette, the host's Access tab, and the
-   *  host menu open it for one host; `OutsideAppsDialogHost` mounts it. */
+   *  steps App → Access → Connect. "Approve a sign-in" is its other view, from
+   *  the first step, the palette, or a sign-in link; it needs no address, so it
+   *  skips the gate. The palette, the host's Access tab, and the host menu open
+   *  it for one host; `OutsideAppsDialogHost` mounts it. */
   import { onMount, tick } from "svelte";
   import { AppWindow as AppWindowIcon, SquareTerminal as TerminalIcon, X as CloseIcon } from "@lucide/svelte";
   import type { AppAccess } from "@solus/contracts/host-api";
@@ -16,6 +18,7 @@
   import { DEFAULT_OUTSIDE_APP_ACCESS, OUTSIDE_APP_ACCESS_LEVELS, outsideAppChoices } from "../lib/outside-apps";
   import { gateAddressKind, resolveOutsideAppGate } from "../lib/outside-apps-gate";
   import { hostLabel, isHostComputer, outsideAppsDialog } from "./outside-apps-dialog.svelte";
+  import OutsideAppsApprove from "./OutsideAppsApprove.svelte";
   import OutsideAppsConnect from "./OutsideAppsConnect.svelte";
   import OutsideAppsGate from "./OutsideAppsGate.svelte";
 
@@ -61,6 +64,7 @@
   }));
   const needsSelfTest = $derived(gate.kind === "checking" && gate.needsSelfTest);
   const appName = $derived(guide?.name ?? "the app");
+  const isApproving = $derived(outsideAppsDialog.view === "approve");
 
   // The host forgets a finished test when its link changes; the gate asks for a new one then.
   $effect(() => {
@@ -68,7 +72,8 @@
   });
 
   onMount(() => {
-    void focusPanel();
+    // The approve view puts focus on its own code field.
+    if (!isApproving) void focusPanel();
   });
 
   // A modal: shortcuts behind it stay quiet while it is open.
@@ -84,6 +89,11 @@
   function goTo(index: number) {
     step = index;
     void focusPanel();
+  }
+
+  function showConnect() {
+    outsideAppsDialog.show("connect");
+    goTo(0);
   }
 
   function pick(id: string) {
@@ -124,7 +134,7 @@
           <CloseIcon size={16} />
         </Button>
       </div>
-      {#if gate.kind === "open"}
+      {#if gate.kind === "open" && !isApproving}
         <ol class="flex items-center gap-1" aria-label="Steps">
           {#each STEPS as label, index (label)}
             <li class="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -148,7 +158,11 @@
     </header>
 
     <div bind:this={panelEl} class="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-      {#if gate.kind !== "open"}
+      {#if isApproving}
+        {#key outsideAppsDialog.signInRequestId}
+          <OutsideAppsApprove {serverId} {hostName} signInRequestId={outsideAppsDialog.signInRequestId} />
+        {/key}
+      {:else if gate.kind !== "open"}
         <OutsideAppsGate {serverId} {hostName} {gate} />
       {:else if step === 0}
         <section class="flex flex-col gap-3">
@@ -208,10 +222,17 @@
       {/if}
     </div>
 
-    {#if gate.kind === "open" || step > 0}
+    {#if isApproving}
+      <footer class="flex items-center justify-between gap-2 border-t border-border px-6 py-3.5">
+        <Button variant="ghost" size="sm" onclick={showConnect}>Connect an app</Button>
+        <Button size="sm" variant="outline" onclick={() => outsideAppsDialog.close()}>Done</Button>
+      </footer>
+    {:else}
       <footer class="flex items-center justify-between gap-2 border-t border-border px-6 py-3.5">
         <div>
-          {#if gate.kind === "open" && step === 2}
+          {#if step === 0}
+            <Button variant="ghost" size="sm" onclick={() => outsideAppsDialog.show("approve")}>Approve a sign-in</Button>
+          {:else if gate.kind === "open" && step === 2}
             <Button variant="ghost" size="sm" onclick={manageAccess}>Manage access</Button>
           {/if}
         </div>

@@ -6,8 +6,12 @@ import { hosts } from '../../../contexts/hosts/hosts.svelte'
 import { requestInputFocus } from '../../../lib/inputFocus'
 import { toasts } from '../../../lib/toasts'
 import { claudeMcpAddCommand, copiedMcpAddress } from '../lib/outside-apps'
+import { serverIdForAppSignIn, UNKNOWN_HOST_TEXT, type AppSignInLinkTarget } from '../lib/app-sign-in'
 import { TURN_ON_POLL_MS, TURN_ON_TIME_LIMIT_MS } from '../lib/outside-apps-gate'
 import type { CopiedValueKind } from '../lib/outside-apps-share'
+
+/** The dialog's two views: connect an app (the gate, then App → Access → Connect), or approve an app's sign-in. */
+export type OutsideAppsView = 'connect' | 'approve'
 
 /**
  * "Use Solus in other apps" (plans/035 §10): which host its one dialog is open
@@ -15,27 +19,55 @@ import type { CopiedValueKind } from '../lib/outside-apps-share'
  * Access tab, and the host menu open it; each client mounts it once
  * (`OutsideAppsDialogHost`). The address and the pairing code are in
  * `connectionsStore`; the registration, the link, and the host's test are in
- * `uplinkStore`.
+ * `uplinkStore`. "Approve a sign-in" needs no address, so it skips the gate.
  */
 class OutsideAppsDialog {
   /** The host the dialog is open for; null when it is closed. */
   serverId = $state<string | null>(null)
+  view = $state<OutsideAppsView>('connect')
+  /** The sign-in a link named: the approve view reads it at once instead of asking for a code. */
+  signInRequestId = $state<string | null>(null)
   /** "Turn on" was pressed, and the dialog reads the address until it appears or the time limit passes. */
   isTurningOn = $state(false)
   /** A value to copy by hand: the clipboard did not take it. Shown over the dialog, and after the host menu's copy. */
   copyFallback = $state<{ kind: CopiedValueKind; value: string } | null>(null)
   #pollTimer: ReturnType<typeof setInterval> | null = null
 
-  open(serverId: string): void {
+  open(serverId: string, { view = 'connect', signInRequestId = null }: { view?: OutsideAppsView; signInRequestId?: string | null } = {}): void {
     this.#stopWaiting()
     this.serverId = serverId
+    this.view = view
+    this.signInRequestId = signInRequestId
     void this.check(serverId)
+  }
+
+  /** Changes the view of the open dialog; the request a link named applies only to the first approve view. */
+  show(view: OutsideAppsView): void {
+    this.view = view
+    this.signInRequestId = null
+  }
+
+  /** The client's host for a link's installation id, or null when this client has no connection to it. */
+  serverIdForSignIn(hostId: string): string | null {
+    return serverIdForAppSignIn(hostId, serversStore.servers)
+  }
+
+  /** Opens the sign-in that a `solus://approve-app` link or the web client's query names, on the host it names. */
+  openSignInLink(target: AppSignInLinkTarget): void {
+    const serverId = this.serverIdForSignIn(target.hostId)
+    if (serverId === null) {
+      toasts.error(UNKNOWN_HOST_TEXT)
+      return
+    }
+    this.open(serverId, { view: 'approve', signInRequestId: target.requestId })
   }
 
   /** `refocus`: false when the person goes on to another page ("Manage access"). */
   close({ refocus = true }: { refocus?: boolean } = {}): void {
     this.#stopWaiting()
     this.serverId = null
+    this.view = 'connect'
+    this.signInRequestId = null
     this.copyFallback = null
     // Typing is the natural next step once the dialog is gone.
     if (refocus) requestInputFocus()

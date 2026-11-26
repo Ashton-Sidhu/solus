@@ -5,6 +5,8 @@
   import { onMount, untrack } from "svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
   import OutsideAppsDialogHost from "@solus/workspace-ui/components/connections/outside-apps/OutsideAppsDialogHost.svelte";
+  import { outsideAppsDialog } from "@solus/workspace-ui/components/connections/outside-apps/outside-apps-dialog.svelte";
+  import { appSignInFromSearch, searchWithoutAppSignIn } from "@solus/workspace-ui/components/connections/lib/app-sign-in";
   import BackgroundSessionAnnouncer from "@solus/workspace-ui/components/notifications/BackgroundSessionAnnouncer.svelte";
   import { Download as DownloadSimpleIcon } from "@lucide/svelte";
   import { setPopoverLayer } from "@solus/workspace-ui/components/popoverLayer.svelte";
@@ -215,6 +217,16 @@
     },
   });
   serversStore.init();
+
+  // `?approveApp=<requestId>&host=<hostId>`: an app's sign-in link in the form a
+  // browser can open (it cannot take `solus://approve-app`). Shown once, then
+  // taken off the address so a reload does not open it again.
+  onMount(() => {
+    const target = appSignInFromSearch(location.search);
+    if (!target) return;
+    history.replaceState(history.state, "", `${location.pathname}${searchWithoutAppSignIn(location.search)}${location.hash}`);
+    outsideAppsDialog.openSignInLink(target);
+  });
 
   let commandPaletteOpen = $state(false);
   let hasMountedShareDialog = $state(false);

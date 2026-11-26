@@ -1,10 +1,11 @@
 import { pairQrSvgPath, type PairQrSvgPath } from './qrcode'
+import type { OutsideAppGuide } from '@solus/contracts/outside-apps'
 import type { OutsideAppAction } from './outside-apps'
 
 /**
  * What "Use Solus in other apps" shows a phone or a person when it cannot hand
- * a value over by itself: a QR code of an app's link (after T3 Code's share
- * UX), and the value to copy by hand when the clipboard does not work.
+ * a value over by itself: a QR code of an app's link or of the address (after
+ * T3 Code's share UX), and the value to copy by hand when the clipboard does not work.
  */
 
 /** The values a person copies, by the title of the dialog that shows one by hand. */
@@ -27,19 +28,25 @@ export function isLoopbackUrl(value: string): boolean {
 }
 
 /**
- * The QR code on the Connect step: the link the primary action opens, for an
- * app whose handoff opens one with the address in it (`open`, or
- * `copy-message` with an app link). A phone cannot reach a loopback address,
- * so a link to one gets no QR: `loopback` says so instead. Null for a handoff
- * that copies the address and opens a page, and for commands.
+ * The QR code on the Connect step:
+ * - `app-link`: the link the primary action opens, for an app whose handoff
+ *   opens one with the address in it (`open`, or `copy-message` with an app link);
+ * - `address`: the MCP address itself, for an app whose handoff copies the
+ *   address (ChatGPT), so a person who sets the app up on a phone gets the
+ *   address there.
+ * Only an app that runs in the cloud (`needsPublicUrl`) gets a QR: a phone
+ * cannot set up an app on a computer, such as Cursor. A phone cannot reach a
+ * loopback address either, so a link to one gets no QR: `loopback` says so
+ * instead. Null for every other handoff and for commands.
  */
-export type ConnectQr = { kind: 'qr'; link: string } | { kind: 'loopback' } | null
+export type ConnectQr = { kind: 'app-link'; link: string } | { kind: 'address'; link: string } | { kind: 'loopback' } | null
 
-export function connectQr(action: OutsideAppAction, mcpUrl: string): ConnectQr {
-  if (action.kind !== 'open') return null
-  const link = action.copy === null ? action.link : action.appLink
+export function connectQr(guide: Pick<OutsideAppGuide, 'handoff' | 'needsPublicUrl'>, action: OutsideAppAction, mcpUrl: string): ConnectQr {
+  if (action.kind !== 'open' || !guide.needsPublicUrl) return null
+  const link = guide.handoff.kind === 'copy-url' ? mcpUrl : action.copy === null ? action.link : action.appLink
   if (link === null) return null
-  return isLoopbackUrl(mcpUrl) ? { kind: 'loopback' } : { kind: 'qr', link }
+  if (isLoopbackUrl(mcpUrl)) return { kind: 'loopback' }
+  return guide.handoff.kind === 'copy-url' ? { kind: 'address', link } : { kind: 'app-link', link }
 }
 
 /** The QR code in the copy-by-hand dialog: a link or an address that another device can open; none for a message or a code. */

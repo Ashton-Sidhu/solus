@@ -32,27 +32,37 @@ describe('a loopback address', () => {
 })
 
 describe('the QR code on the Connect step', () => {
+  function qrFor(app: OutsideAppGuide, mcpUrl: string) {
+    return connectQr(app, outsideAppAction(app, mcpUrl), mcpUrl)
+  }
+
   test('opens the app\'s add form for an app whose handoff opens a link', () => {
     const action = outsideAppAction(guide('claude'), PUBLIC)
-    expect(connectQr(action, PUBLIC)).toEqual({ kind: 'qr', link: action.kind === 'open' ? action.link : '' })
-    expect(connectQr(outsideAppAction(guide('poke'), PUBLIC), PUBLIC)).toMatchObject({ kind: 'qr' })
+    expect(connectQr(guide('claude'), action, PUBLIC)).toEqual({ kind: 'app-link', link: action.kind === 'open' ? action.link : '' })
+    expect(qrFor(guide('poke'), PUBLIC)).toMatchObject({ kind: 'app-link' })
   })
 
   test('for a copy-message app, opens the app with the message', () => {
     const action = outsideAppAction(guide('grok-bot'), PUBLIC)
     if (action.kind !== 'open') throw new Error('expected open')
-    expect(connectQr(action, PUBLIC)).toEqual({ kind: 'qr', link: action.appLink ?? '' })
+    expect(connectQr(guide('grok-bot'), action, PUBLIC)).toEqual({ kind: 'app-link', link: action.appLink ?? '' })
   })
 
-  test('none for an app whose page needs the copied address, or for commands', () => {
-    expect(connectQr(outsideAppAction(guide('chatgpt'), PUBLIC), PUBLIC)).toBeNull()
-    expect(connectQr(outsideAppAction(guide('cursor'), LOCAL), LOCAL)).toBeNull()
-    expect(connectQr(outsideAppAction(guide('claude-code'), LOCAL), LOCAL)).toBeNull()
+  test('for a cloud app whose page needs the copied address, gives the address to a phone', () => {
+    // ChatGPT's page takes a pasted address: a person setting it up on a phone scans it.
+    expect(qrFor(guide('chatgpt'), PUBLIC)).toEqual({ kind: 'address', link: PUBLIC })
   })
 
-  test('never for a link to a loopback address, which another device cannot open', () => {
-    const local = { ...guide('poke'), needsPublicUrl: false }
-    expect(connectQr(outsideAppAction(local, LOCAL), LOCAL)).toEqual({ kind: 'loopback' })
+  test('none for an app that runs on a computer, whatever its handoff, or for commands', () => {
+    // A phone cannot set up Cursor, even when Cursor gets the public address.
+    expect(qrFor(guide('cursor'), PUBLIC)).toBeNull()
+    expect(qrFor({ ...guide('cursor'), handoff: { kind: 'open', link: (url) => `cursor://install?url=${url}` } }, PUBLIC)).toBeNull()
+    expect(qrFor(guide('claude-code'), LOCAL)).toBeNull()
+  })
+
+  test('never for a loopback address, which another device cannot open', () => {
+    expect(qrFor(guide('poke'), LOCAL)).toEqual({ kind: 'loopback' })
+    expect(qrFor(guide('chatgpt'), LOCAL)).toEqual({ kind: 'loopback' })
   })
 })
 
