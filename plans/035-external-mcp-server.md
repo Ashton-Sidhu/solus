@@ -40,6 +40,20 @@ Maintainer decisions, 2026-11-26: organizations choose which apps their members 
 
 No account-plane change was needed: T3 Code approves with its account through its hosted web app, which is already a signed-in client of the host.
 
+### 0.4 Connecting an app, as in T3 Code (built)
+
+Maintainer request, 2026-11-26: bring over T3 Code's connect UX. T3 Code writes no other app's config; its "automatic connection" is the MCP server it gives each agent it starts, which Solus already does (§4).
+
+1. **One dialog** (`components/connections/outside-apps/`), opened from the command palette, the Access tab, and the fleet map's host menu. A gate comes first (`lib/outside-apps-gate.ts`). It uses `connectionsAppEndpoint`, `uplinkStatus`, and `hostSelfTest`, and needs no new RPC. **Turn on** (`uplinkLink`) shows only to a local owner of a personal host. An app on the host's own computer skips the gate. The steps are App, Access, and Connect. Mobile has the same flow in a sheet (`OutsideAppConnectSheet.tsx`, `outside-app-gate.ts`), for cloud apps only, and with no **Turn on**.
+2. **Pairing codes name their access** (`connectionsCreateAppPairingCode({ access })`). The consent page gives that access, whatever level the page sends. A code shows a countdown in each client.
+3. **Catalog.** Muse, Instinct, OpenClaw, and Hermes Agent were added, with a `note` for each guide. Where Muse and Instinct sign-ins return is not known, so `outsideAppOf` names them `other`.
+4. **Consent page.** It names the app and where its access goes. It has **Deny** (RFC 6749 §4.1.2.1), a 700 ms arm delay, `frame-ancestors 'none'`, and a framed-page check. Registration accepts only https, loopback http, or a private-use scheme without a fragment.
+5. **One-click approval.** In a browser where this host's web client keeps a credential at the same origin, the page offers **Approve as {name}**. The credential goes as a bearer through `Doors.admitBearer`, with the same permission and approver rule as `connectionsCreateAppPairingCode`. No cookie is involved, and the routes answer no preflight. The reasons are in `signedInApprover` (`mcp-oauth.ts`).
+6. **Share.** Clients show a QR code for an app link, and a dialog with the value when the clipboard fails. The host menu has **Copy MCP address**.
+7. **`solus mcp`** prints the addresses and the setup commands. `solus mcp code --access` makes a code over the local socket.
+
+Not brought over: T3 Code's peer links (agents on one machine using threads on another), and its hosted approval page. One-click approval and member pairing codes cover the need of that page.
+
 ## 1. Problem
 
 Solus gives its tools to each harness in a different way:

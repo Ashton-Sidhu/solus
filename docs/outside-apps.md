@@ -22,6 +22,8 @@ Every person who uses the host can connect an app: the owner, and each member of
    - **Pairing code.** Type the code from step 4. The code gives the access that was chosen when it was made.
    - **Approve in the Solus app.** The host owner sees the request on desktop, web, and mobile. Check that its code is the same as the code on the sign-in page. The access is the one chosen on the sign-in page.
 
+   - **Approve as {name}.** When this browser is signed in to the host's web client at the same address, the page offers to approve as you, with the access chosen on the page. No code is needed.
+
    **Deny** sends the app away with no access. Approve only a sign-in that you just started.
 
 Through the public address, and on a cloud machine, only a pairing code approves an app.
@@ -46,6 +48,10 @@ claude mcp login solus
 ```
 
 When the clipboard is not available, Solus shows the value in a dialog, with a QR code for an address that another device can open.
+
+### On a host with no screen
+
+On the host, `solus mcp` prints the MCP addresses and the commands that add Solus to Claude Code and Codex. `solus mcp code --access read|write|full` prints a one-time pairing code for the owner (the default access is write). On a machine with no browser, add `--no-browser` to `claude mcp login`. It prints the sign-in address: open it in a browser on another computer, then paste back the address that browser goes to.
 
 ## Who the app acts as
 
