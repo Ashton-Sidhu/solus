@@ -68,7 +68,7 @@ An organization can choose the apps its members may connect: in Settings → Pol
 
 | Access | The app can |
 |---|---|
-| Read | Read works, projects, codebases, tasks, automations, sessions, the links of a session, pull requests and their checks, and the results of messages the app sent. |
+| Read | Read works, projects, codebases, tasks, automations, sessions, the links of a session, pull requests and their checks, your other hosts, and the results of messages the app sent. |
 | Read and write | Also create and change records, start, message, and stop sessions, and rerun checks. |
 | Full | Also use tools that ask for approval inside Solus, such as changing a work, running an automation, linking items to a session, and changing, reviewing, or merging a pull request. |
 
@@ -81,6 +81,7 @@ The app is not inside a Solus session, so it names what a tool acts on:
 - **A session.** `link`, `unlink`, and `list_links` take `session_id`. Get ids from `search_sessions` or `start_sessions`.
 - **A project.** The pull request tools take `project`, a project from `list_projects`, and use that project's code host. `repository` must be the project's repository.
 - **The results of its messages.** A session that the app starts or messages sends no report to the app. The app waits for the result in the same call with `wait_seconds`, or reads it later with `read_session_exchange` and the exchange id. Only the app that sent a message reads its exchange.
+- **Your other hosts.** `list_hosts` lists the hosts that you reach from this host. `list_agent_targets` with `host` shows the models and projects of one of them, and `start_sessions` with `host` starts work there. The app then uses `send_session`, `read_session`, `stop_session`, and `read_session_exchange` on that session, as on a session on this host. The app reaches the same hosts as an agent that works for you here: the host owner reaches their own hosts, and a member reaches only through their organization. Only the app that started a session on another host can message or stop it from here, and only that app reads its results. The other host shows that you started the session. The session starts in the permission mode that it gets on this host, and the other host also applies its own policy.
 
 Tools that act as the calling session (for example the browser, devices, checkouts, secrets, and opening a pull request from a checkout) are only for agents inside Solus.
 
