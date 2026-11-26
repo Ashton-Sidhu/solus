@@ -4,6 +4,7 @@ import { getHostConfig } from '../../../host/settings'
 import type { AgentId, NormalizedEvent } from '@solus/contracts/types'
 import { downscalePng } from './bounded-png'
 import { compactToolSchema } from './compact-tool-schema'
+import type { ToolAccess } from './tool-access'
 
 export interface AgentToolResult {
   ok: boolean
@@ -73,6 +74,8 @@ export interface AgentTool<TFields extends ZodFieldMap = ZodFieldMap> {
   passthroughInput?: boolean
   /** Refuse extra input fields before parsing can discard a retired argument. */
   strictInput?: boolean
+  /** Who may call a tool that is made for one run (an integration's or an app's). A Solus tool's rule is in `TOOL_ACCESS`. */
+  access?: ToolAccess
   execute(
     input: z.output<z.ZodObject<TFields>>,
     context: AgentToolContext,

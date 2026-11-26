@@ -6,6 +6,7 @@ import { appAccessModeSchema, appPlatformKindSchema, appVisitorRoleSchema } from
 import { appSignalActionSchema, appSignalNameSchema, type AppCallView, type AppCaller, type AppOperation, type AppSummary } from '@solus/contracts/apps'
 import type { AppModelCallView } from '@solus/contracts/app-models'
 import { integrationToolName } from '@solus/contracts/integration-types'
+import { HOST_USE } from '@solus/contracts/permissions'
 import { actorFor, type Actor } from '../../../admission/actor'
 import { INTERNAL_PRINCIPAL } from '../../../admission/principal'
 import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
@@ -620,6 +621,8 @@ export async function appOperationAgentTools(actor: Actor, taken: ReadonlySet<st
         inputFields: fields ?? {},
         alwaysLoad: false,
         requiresApproval: false,
+        // As appCall.
+        access: { permission: HOST_USE },
         execute: async (input, context) => {
           try {
             const value = await service.callOperation(app.id, operation.name, input, { kind: 'agent', sessionId: context.sessionId() ?? null }, authority)
