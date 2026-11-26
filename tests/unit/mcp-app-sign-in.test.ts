@@ -4,14 +4,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { JSDOM } from 'jsdom'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { DatabaseSync } from './helpers/bun-sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const auth = await import('@solus/server/admission/auth')
-const { createAppPairingCode, installAppAccessChecks, resetAppSignInForTests } = await import('@solus/server/admission/app-sign-in')
-const { outsideAppOf } = await import('@solus/contracts/outside-apps')
+const { createAppPairingCode, installAppAccessChecks, registerClient, resetAppSignInForTests } = await import('@solus/server/admission/app-sign-in')
+const { OUTSIDE_APP_GUIDES, outsideAppOf } = await import('@solus/contracts/outside-apps')
 const { PairApprovals } = await import('@solus/server/admission/pair-approvals')
 const { serveMcpOAuth } = await import('@solus/server/transport/mcp-oauth')
 const { serveMcp } = await import('@solus/server/transport/mcp-endpoint')
@@ -55,14 +56,38 @@ function oauth(path: string, init: RequestInit & { json?: object; form?: Record<
   return serveMcpOAuth(new Request(`${ORIGIN}${path}`, { ...init, headers, body: requestBody }), { viaTunnel: options.viaTunnel ?? false, remoteAddress, hostName: 'Studio Mac', pairApprovals: options.pairApprovals })
 }
 
-async function register(): Promise<string> {
-  const response = await oauth('/oauth/mcp/register', { method: 'POST', json: { client_name: 'Claude Desktop', redirect_uris: [REDIRECT] } })
+async function register(redirect = REDIRECT): Promise<string> {
+  const response = await oauth('/oauth/mcp/register', { method: 'POST', json: { client_name: 'Claude Desktop', redirect_uris: [redirect] } })
   expect(response.status).toBe(201)
   return z.object({ client_id: z.string() }).parse(await response.json()).client_id
 }
 
-function authorizeParams(clientId: string) {
-  return { response_type: 'code', client_id: clientId, redirect_uri: REDIRECT, code_challenge: challenge, code_challenge_method: 'S256', state: 'st-1' }
+function authorizeParams(clientId: string, redirect = REDIRECT) {
+  return { response_type: 'code', client_id: clientId, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: 'S256', state: 'st-1' }
+}
+
+async function consentHtml(clientId: string, redirect = REDIRECT, options: { viaTunnel?: boolean; pairApprovals?: InstanceType<typeof PairApprovals> } = {}): Promise<string> {
+  const page = await oauth(`/oauth/mcp/authorize?${new URLSearchParams(authorizeParams(clientId, redirect))}`, {}, options)
+  expect(page.status).toBe(200)
+  return page.text()
+}
+
+/** The address the page's Deny button sends the browser to. */
+function deniedAddress(html: string): string {
+  const match = /const denied=("(?:[^"\\]|\\.)*")/.exec(html)
+  if (!match?.[1]) throw new Error('The page has no Deny address')
+  return z.string().parse(JSON.parse(match[1]))
+}
+
+/** The consent page in a browser, with its script running, framed in another page when `framed`. */
+function consentInBrowser(html: string, framed = false) {
+  const browser = new JSDOM('<!doctype html><iframe></iframe>', { url: `${ORIGIN}/oauth/mcp/authorize`, runScripts: 'outside-only' })
+  const window = framed ? browser.window.document.querySelector('iframe')!.contentWindow! : browser.window
+  const page = new JSDOM(html).window.document
+  // Markup set this way runs no script; the page's script runs once, below.
+  window.document.body.innerHTML = page.body.innerHTML
+  window.eval(page.querySelector('script')!.textContent!)
+  return { document: window.document, window, close: () => browser.window.close() }
 }
 
 async function tokenFor(clientId: string, redirect: string): Promise<Response> {
@@ -97,8 +122,11 @@ describe('signing in an outside app', () => {
     const page = await oauth(`/oauth/mcp/authorize?${new URLSearchParams(authorizeParams(clientId))}`)
     expect(page.status).toBe(200)
     const html = await page.text()
-    expect(html).toContain('Claude Desktop wants to use Solus')
-    expect(html).toContain('Studio Mac')
+    expect(html).toContain('<h1>Connect Claude Desktop</h1>')
+    expect(html).toContain('Claude Desktop wants to use Solus on <strong>Studio Mac</strong>.')
+    // The name is the app's own claim, and the page says so.
+    expect(html).toContain('name set by the app')
+    expect(html).toContain('Only approve a sign-in you just started.')
     // A client this host did not register, or a redirect it did not register, gets no page.
     expect((await oauth(`/oauth/mcp/authorize?${new URLSearchParams({ ...authorizeParams(clientId), redirect_uri: 'https://evil.example/cb' })}`)).status).toBe(400)
   })
@@ -154,6 +182,135 @@ describe('signing in an outside app', () => {
     expect(form.status).toBe(403)
     const crossSite = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), access: 'full' }, headers: { origin: 'https://evil.example' } }, { pairApprovals: new PairApprovals() })
     expect(crossSite.status).toBe(403)
+  })
+})
+
+// WHY: the consent page is where a person gives an app their access. It must
+// say where that access goes, let the person say no, and resist a page that
+// frames it or a click aimed at another window (plans/035 §10).
+describe('the consent page', () => {
+  test('says the access stays on this computer for a loopback redirect, and that anyone who runs a web app gets it otherwise', async () => {
+    const local = await consentHtml(await register())
+    expect(local).toContain('<strong>127.0.0.1:33418</strong> <span class="muted">on the computer that opened this page</span>')
+    expect(local).not.toContain('Whoever runs it gets this access.')
+    const web = 'https://claude.ai/api/mcp/auth_callback'
+    const remote = await consentHtml(await register(web), web)
+    expect(remote).toContain('<strong>claude.ai</strong> <span class="muted">· Whoever runs it gets this access.</span>')
+    expect(remote).not.toContain('on the computer that opened this page')
+  })
+
+  test('Deny sends the browser to the registered redirect address with access_denied and the state', async () => {
+    const denied = new URL(deniedAddress(await consentHtml(await register())))
+    expect(`${denied.origin}${denied.pathname}`).toBe(REDIRECT)
+    expect(Object.fromEntries(denied.searchParams)).toEqual({ error: 'access_denied', state: 'st-1' })
+    // No code goes with a denial, and a redirect address the client did not register gets no page to deny from.
+    const clientId = await register()
+    const other = await oauth(`/oauth/mcp/authorize?${new URLSearchParams({ ...authorizeParams(clientId), redirect_uri: 'http://127.0.0.1:9/elsewhere' })}`)
+    expect(other.status).toBe(400)
+  })
+
+  test('no other site may frame the page, and a framed page shows no buttons', async () => {
+    const clientId = await register()
+    const page = await oauth(`/oauth/mcp/authorize?${new URLSearchParams(authorizeParams(clientId))}`)
+    expect(page.headers.get('x-frame-options')).toBe('DENY')
+    expect(page.headers.get('content-security-policy')).toBe("frame-ancestors 'none'")
+    const invalid = await oauth('/oauth/mcp/authorize?client_id=x')
+    expect(invalid.headers.get('content-security-policy')).toBe("frame-ancestors 'none'")
+    // A browser that ignores both headers still runs the page's own check.
+    const framed = consentInBrowser(await page.text(), true).document
+    expect(framed.querySelectorAll('button')).toHaveLength(0)
+    expect(framed.querySelector('#framed:not([hidden]) h1')?.textContent).toBe('Open this page in its own window')
+  })
+
+  test('Approve stays off for 700 ms after the page shows and after the window comes back', async () => {
+    const html = await consentHtml(await register(), REDIRECT, { pairApprovals: new PairApprovals() })
+    const { window, close } = consentInBrowser(html)
+    const approveButtons = () => ['ask', 'usePairing'].map((id) => window.document.querySelector<HTMLButtonElement>(`#${id}`)!.disabled)
+    expect(approveButtons()).toEqual([true, true])
+    // Deny is never held back.
+    expect(window.document.querySelector<HTMLButtonElement>('#deny')!.disabled).toBe(false)
+    await Bun.sleep(800)
+    expect(approveButtons()).toEqual([false, false])
+    window.dispatchEvent(new window.Event('focus'))
+    expect(approveButtons()).toEqual([true, true])
+    await Bun.sleep(800)
+    window.document.dispatchEvent(new window.Event('visibilitychange'))
+    expect(approveButtons()).toEqual([true, true])
+    close()
+  })
+
+  test('the access choice shows only where approval in the Solus app is offered: a pairing code names its own', async () => {
+    const clientId = await register()
+    const inApp = await consentHtml(clientId, REDIRECT, { pairApprovals: new PairApprovals() })
+    expect(inApp).toContain('name="access"')
+    expect(inApp).toContain('the choice above applies only to approval in the Solus app')
+    const tunnel = await consentHtml(clientId, REDIRECT, { pairApprovals: new PairApprovals(), viaTunnel: true })
+    expect(tunnel).not.toContain('name="access"')
+    expect(tunnel).toContain('The code gives the access chosen when it was made.')
+    // The page sends no access with a pairing code, and approval in the app must name one.
+    const withCode = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(clientId), pairing_code: createAppPairingCode(OWNER, 'read').code } })
+    expect(withCode.status).toBe(200)
+    expect((await oauth('/oauth/mcp/approve', { method: 'POST', json: authorizeParams(clientId) }, { pairApprovals: new PairApprovals() })).status).toBe(400)
+  })
+
+  test('an app may register only a redirect address that cannot run in the browser or carry the code in the open', async () => {
+    const refused = [
+      'javascript:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'file:///etc/passwd',
+      'vbscript:msgbox(1)',
+      'blob:https://claude.ai/0a1b',
+      'http://evil.example/cb',
+      'http://192.168.1.4:8080/cb',
+      'https://claude.ai/cb#code',
+    ]
+    for (const redirect of refused) {
+      const response = await oauth('/oauth/mcp/register', { method: 'POST', json: { client_name: 'App', redirect_uris: [redirect] } })
+      expect({ redirect, status: response.status }).toEqual({ redirect, status: 400 })
+    }
+    for (const redirect of ['https://claude.ai/api/mcp/auth_callback', 'http://localhost:4567/cb', 'http://[::1]:4567/cb', 'cursor://anysphere.cursor-retrieval/oauth/callback']) await register(redirect)
+    // A client id is a signed copy of what the app sent: one signed before these rules is checked again.
+    const old = registerClient('Old app', ['http://evil.example/cb'])
+    expect((await oauth(`/oauth/mcp/authorize?${new URLSearchParams(authorizeParams(old, 'http://evil.example/cb'))}`)).status).toBe(400)
+    const approved = await oauth('/oauth/mcp/approve', { method: 'POST', json: { ...authorizeParams(old, 'http://evil.example/cb'), pairing_code: createAppPairingCode(OWNER, 'write').code } })
+    expect(approved.status).toBe(400)
+  })
+})
+
+// WHY: a person picks the app to connect in Solus, and each guide must hand
+// over Solus (never another product's name) and say the limits the person
+// will meet in that app.
+describe('the outside app catalog', () => {
+  const guide = (id: string) => {
+    const found = OUTSIDE_APP_GUIDES.find((entry) => entry.id === id)
+    if (!found) throw new Error(`No guide ${id}`)
+    return found
+  }
+  const url = 'https://box.solus.dev/mcp'
+
+  test('each guide carries the note its app needs', () => {
+    expect(guide('claude').note).toBe('The Free plan allows one custom connector.')
+    expect(guide('grok-bot').note).toBe('Shared with all your Grok Bots.')
+    expect(guide('hermes-agent').note).toBe('On a remote host, paste the final address back when asked.')
+  })
+
+  test('Muse and Instinct run in the cloud and get a message; OpenClaw and Hermes Agent run on a computer and get commands', () => {
+    for (const id of ['muse', 'instinct']) {
+      const cloud = guide(id)
+      expect(cloud).toMatchObject({ app: id, needsPublicUrl: true })
+      if (cloud.handoff.kind !== 'copy-message') throw new Error(`${id} copies a message`)
+      expect(cloud.handoff.message(url)).toContain(url)
+      expect(cloud.handoff.link).toStartWith('https://')
+    }
+    for (const id of ['openclaw', 'hermes-agent']) {
+      const local = guide(id)
+      expect(local).toMatchObject({ app: 'local', needsPublicUrl: false })
+      if (local.handoff.kind !== 'commands') throw new Error(`${id} has commands`)
+      const commands = local.handoff.commands(url).join('\n')
+      expect(commands).toContain(`--url ${url}`)
+      expect(commands).toContain(' solus')
+    }
+    expect(JSON.stringify(OUTSIDE_APP_GUIDES.map((entry) => [entry.steps, entry.note]))).not.toMatch(/t3/i)
   })
 })
 

@@ -111,6 +111,14 @@ export function approvedRedirect(request: AuthorizationRequest, approver: AppApp
   return url.toString()
 }
 
+/** The address the app's browser goes back to when the person denies the sign-in (RFC 6749 §4.1.2.1). */
+export function deniedRedirect(request: Pick<AuthorizationRequest, 'redirectUri' | 'state'>): string {
+  const url = new URL(request.redirectUri)
+  url.searchParams.set('error', 'access_denied')
+  if (request.state !== null) url.searchParams.set('state', request.state)
+  return url.toString()
+}
+
 /** Ends the code in a redirect nobody followed. */
 export function withdrawRedirect(redirect: string): void {
   const code = new URL(redirect).searchParams.get('code')

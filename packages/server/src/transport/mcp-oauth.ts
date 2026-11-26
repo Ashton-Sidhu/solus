@@ -1,12 +1,13 @@
 import { randomInt } from 'node:crypto'
 import { z } from 'zod'
 import { formatCheckCode } from '@solus/contracts/add-machine'
-import type { AppAccess } from '@solus/contracts/host-api'
+import { isLoopbackHost } from '@solus/contracts/outside-apps'
 import { issueAppToken, revokeAppToken } from '../admission/auth'
 import {
   appAccessChecks,
   appOfClient,
   approvedRedirect,
+  deniedRedirect,
   redeemCode,
   registerClient,
   registeredClient,
@@ -43,7 +44,8 @@ const authorizeSchema = z.object({
   state: z.string().max(1024).optional(),
 })
 const approveSchema = authorizeSchema.extend({
-  access: accessSchema,
+  /** The access chosen on the page; only approval in the Solus app uses it, as a pairing code names its own. */
+  access: accessSchema.optional(),
   pairing_code: z.string().max(16).optional(),
 })
 const waitSchema = z.object({ requestId: z.string().min(1), waitToken: z.string().min(1) })
@@ -86,21 +88,37 @@ export function authorizationServerMetadata(request: Request): Response {
   })
 }
 
-/** A redirect address an app may use: not a page that runs in the browser that holds the code. */
-function allowedRedirect(uri: string): boolean {
+/** Schemes that run or read something in the browser that holds the code, or that no app receives a code at. */
+const REFUSED_SCHEMES: ReadonlySet<string> = new Set(['javascript:', 'data:', 'file:', 'blob:', 'vbscript:', 'about:', 'filesystem:', 'ftp:', 'ws:', 'wss:'])
+
+/**
+ * A redirect address an app may use, and the only kind the consent page sends
+ * the browser to: https, http on this computer, or a private-use scheme of an
+ * app on this computer (RFC 8252 §7.1, as Cursor's `cursor:`). Plain http to
+ * another computer would carry the code in the open. No fragment (RFC 6749 §3.1.2).
+ */
+export function allowedRedirect(uri: string): boolean {
   if (!URL.canParse(uri)) return false
-  return !['javascript:', 'data:', 'file:', 'blob:', 'vbscript:'].includes(new URL(uri).protocol)
+  const url = new URL(uri)
+  if (url.hash) return false
+  if (url.protocol === 'https:') return true
+  if (url.protocol === 'http:') return isLoopbackHost(url.hostname)
+  return !REFUSED_SCHEMES.has(url.protocol)
 }
 
 function oauthError(error: string, description: string, status = 400): Response {
   return Response.json({ error, error_description: description }, { status })
 }
 
-/** The sign-in a request describes, when its client is registered here and names one of its redirect addresses. */
-function signInOf(params: z.infer<typeof authorizeSchema>, access: AppAccess): AuthorizationRequest | null {
+/**
+ * The sign-in a request describes, when its client is registered here and names
+ * one of its redirect addresses. A client id is a signed copy of what the app
+ * sent, so one made before a redirect rule changed is checked again here.
+ */
+function signInOf(params: z.infer<typeof authorizeSchema>): Omit<AuthorizationRequest, 'access'> | null {
   const client = registeredClient(params.client_id)
-  if (!client || !client.redirectUris.includes(params.redirect_uri)) return null
-  return { clientId: params.client_id, appName: client.name, app: appOfClient(client), redirectUri: params.redirect_uri, codeChallenge: params.code_challenge, state: params.state ?? null, access }
+  if (!client || !client.redirectUris.includes(params.redirect_uri) || !allowedRedirect(params.redirect_uri)) return null
+  return { clientId: params.client_id, appName: client.name, app: appOfClient(client), redirectUri: params.redirect_uri, codeChallenge: params.code_challenge, state: params.state ?? null }
 }
 
 /** A request's body, parsed by its route's schema: JSON, or a form as OAuth's token and revoke routes take. Null when it does not parse. */
@@ -127,7 +145,7 @@ function fromConsentPage(request: Request): boolean {
 
 async function register(request: Request): Promise<Response> {
   const parsed = await parsedBody(request, registerSchema)
-  if (!parsed || !parsed.redirect_uris.every(allowedRedirect)) return oauthError('invalid_redirect_uri', 'Send redirect_uris as absolute addresses an app can receive a code at.')
+  if (!parsed || !parsed.redirect_uris.every(allowedRedirect)) return oauthError('invalid_redirect_uri', 'Send redirect_uris as https addresses, http addresses on this computer, or an app scheme, without a fragment.')
   const name = parsed.client_name ?? 'MCP app'
   return Response.json({
     client_id: registerClient(name, parsed.redirect_uris),
@@ -141,15 +159,15 @@ async function register(request: Request): Promise<Response> {
 
 function authorize(request: Request, options: McpOAuthOptions): Response {
   const params = authorizeSchema.safeParse(Object.fromEntries(new URL(request.url).searchParams))
-  const signIn = params.success ? signInOf(params.data, 'write') : null
+  const signIn = params.success ? signInOf(params.data) : null
   if (!params.success || !signIn) return consentError('This sign-in link is not valid. Start the connection again from the app.')
-  const html = consentPage(signIn.appName, options.hostName, params.data, !options.viaTunnel && !!options.pairApprovals)
-  return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY' } })
+  const html = consentPage(signIn, options.hostName, params.data, !options.viaTunnel && !!options.pairApprovals)
+  return new Response(html, { headers: PAGE_HEADERS })
 }
 
 async function approve(request: Request, options: McpOAuthOptions): Promise<Response> {
   const parsed = await parsedBody(request, approveSchema)
-  const signIn = parsed ? signInOf(parsed, parsed.access) : null
+  const signIn = parsed ? signInOf(parsed) : null
   if (!parsed || !signIn) return Response.json({ error: 'This sign-in is not valid.' }, { status: 400 })
   if (parsed.pairing_code !== undefined) {
     if (!codeAttempts.allow(options.remoteAddress)) return Response.json({ error: 'Too many attempts. Wait a minute.' }, { status: 429 })
@@ -163,15 +181,17 @@ async function approve(request: Request, options: McpOAuthOptions): Promise<Resp
   }
   // Pairing is local authorization: through the public tunnel, only the owner's pairing code approves.
   if (options.viaTunnel || !options.pairApprovals) return Response.json({ error: 'Use a pairing code from Solus.' }, { status: 403 })
+  if (!parsed.access) return Response.json({ error: 'Choose the access to give.' }, { status: 400 })
+  const access = parsed.access
   // Approval in the Solus app is the owner's.
   const denied = appAccessChecks().appDenial(signIn.app, { kind: 'owner' })
   if (denied) return Response.json({ error: denied }, { status: 403 })
   const checkCode = formatCheckCode((n) => randomInt(n))
   const started = options.pairApprovals.start({
-    deviceLabel: `${signIn.appName} (MCP app, ${signIn.access} access)`,
+    deviceLabel: `${signIn.appName} (MCP app, ${access} access)`,
     checkCode,
     fromAddress: options.remoteAddress,
-    grant: { issue: () => approvedRedirect(signIn, { kind: 'owner' }), withdraw: withdrawRedirect },
+    grant: { issue: () => approvedRedirect({ ...signIn, access }, { kind: 'owner' }), withdraw: withdrawRedirect },
   })
   if (!started) return Response.json({ error: 'Too many open requests. Try again later.' }, { status: 429 })
   return Response.json({ requestId: started.request.requestId, waitToken: started.waitToken, checkCode, expiresAt: started.request.expiresAt })
@@ -221,8 +241,21 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)
 }
 
+/** A value for an inline script: JSON that cannot close the script element. */
+function scriptValue(value: string | z.infer<typeof authorizeSchema>): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c')
+}
+
+/** No other site may show these pages in a frame, where a click aimed at its own page could land on Approve. */
+const PAGE_HEADERS = {
+  'content-type': 'text/html; charset=utf-8',
+  'cache-control': 'no-store',
+  'x-frame-options': 'DENY',
+  'content-security-policy': "frame-ancestors 'none'",
+}
+
 function consentError(message: string): Response {
-  return new Response(page('Solus', `<h1>Cannot connect</h1><p>${escapeHtml(message)}</p>`, ''), { status: 400, headers: { 'content-type': 'text/html; charset=utf-8' } })
+  return new Response(page('Solus', `<h1>Cannot connect</h1><p>${escapeHtml(message)}</p>`, ''), { status: 400, headers: PAGE_HEADERS })
 }
 
 function page(title: string, main: string, script: string): string {
@@ -232,40 +265,77 @@ function page(title: string, main: string, script: string): string {
 @media (prefers-color-scheme:dark){:root{--bg:#0c0a09;--fg:#f5f5f4;--muted:#a8a29e;--card:#1c1917;--border:#292524;--accent:#fb923c;--accent-fg:#1c1917}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,sans-serif;display:grid;place-items:center;min-height:100vh;padding:16px}
 main{width:100%;max-width:440px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px}
-h1{font-size:18px;margin:0 0 8px}p{margin:0 0 16px;color:var(--muted)}label{display:flex;gap:8px;align-items:flex-start;padding:8px 0;cursor:pointer}
-label span{display:block}label small{color:var(--muted)}fieldset{border:0;padding:0;margin:0 0 16px}
+h1{font-size:18px;margin:0 0 8px}p{margin:0 0 16px;color:var(--muted)}p strong{color:var(--fg)}label{display:flex;gap:8px;align-items:flex-start;padding:8px 0;cursor:pointer}
+label span{display:block}label small{color:var(--muted)}fieldset{border:0;padding:0;margin:0 0 8px}legend,label.field{display:block;font-weight:600;padding:0;margin-bottom:4px;cursor:default}
+dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 16px;margin:0 0 8px;font-size:14px}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
+.muted{color:var(--muted);font-weight:400}.note{font-size:13px;margin:4px 0 16px}
 button{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--fg);font:inherit;cursor:pointer;margin-top:8px}
 button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}button:disabled{opacity:.6;cursor:default}
 input[type=text]{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg);font:inherit;letter-spacing:.1em;text-transform:uppercase}
 .code{font:600 22px/1 ui-monospace,monospace;letter-spacing:.15em;text-align:center;padding:12px;border:1px dashed var(--border);border-radius:8px;margin:8px 0 12px}
-.hidden{position:absolute;left:-9999px}.status{min-height:1.5em;margin-top:12px;color:var(--muted)}.or{text-align:center;color:var(--muted);margin:12px 0 4px;font-size:13px}
+.status{min-height:1.5em;margin-top:12px;color:var(--muted)}.or{text-align:center;color:var(--muted);margin:12px 0 4px;font-size:13px}
 </style></head><body><main>${main}</main>${script ? `<script>${script}</script>` : ''}</body></html>`
 }
 
-function consentPage(appName: string, hostName: string, params: z.infer<typeof authorizeSchema>, canAskInApp: boolean): string {
-  const app = escapeHtml(appName)
-  const main = `<h1>${app} wants to use Solus</h1>
-<p>It will reach the tools of <strong>${escapeHtml(hostName)}</strong> as you. You can revoke it in Settings → Connections.</p>
-<fieldset><legend class="hidden">Access</legend>
+/** Where the app's sign-in goes, as the person reads it: the host of a web address, else the app's scheme. */
+function redirectPlace(redirectUri: string) {
+  const url = new URL(redirectUri)
+  const web = url.protocol === 'http:' || url.protocol === 'https:'
+  return { label: web ? url.host : `${url.protocol}${url.host ? `//${url.host}` : ''}`, onThisComputer: web && isLoopbackHost(url.hostname) }
+}
+
+/** How long Approve stays off after the page shows or comes back to the front, so a click aimed at another window cannot land on it. */
+const ARM_DELAY_MS = 700
+
+function consentPage(signIn: Omit<AuthorizationRequest, 'access'>, hostName: string, params: z.infer<typeof authorizeSchema>, canAskInApp: boolean): string {
+  const app = escapeHtml(signIn.appName)
+  const place = redirectPlace(signIn.redirectUri)
+  const main = `<div id="consent">
+<h1>Connect ${app}</h1>
+<p>${app} wants to use Solus on <strong>${escapeHtml(hostName)}</strong>.</p>
+<dl>
+<dt>App</dt><dd>${app} <span class="muted">· name set by the app</span></dd>
+<dt>Access goes to</dt><dd><strong>${escapeHtml(place.label)}</strong> <span class="muted">${place.onThisComputer ? 'on the computer that opened this page' : '· Whoever runs it gets this access.'}</span></dd>
+</dl>
+<p class="note">Only approve a sign-in you just started.</p>
+${canAskInApp ? `<fieldset><legend>What it may do</legend>
 <label><input type="radio" name="access" value="read"><span>Read<small><br>See works, projects, tasks, automations, and sessions.</small></span></label>
 <label><input type="radio" name="access" value="write" checked><span>Read and write<small><br>Also start sessions and change records.</small></span></label>
 <label><input type="radio" name="access" value="full"><span>Full<small><br>Also run tools that ask for approval in Solus.</small></span></label>
 </fieldset>
-${canAskInApp ? `<button class="primary" id="ask">Approve in the Solus app</button><div id="check" hidden><p>Approve the request in Solus. Check that it shows this code:</p><div class="code" id="checkCode"></div></div><div class="or">or</div>` : ''}
-<input type="text" id="pairing" placeholder="Pairing code" autocomplete="one-time-code" maxlength="9">
-<button${canAskInApp ? '' : ' class="primary"'} id="usePairing">Use pairing code</button>
-<p class="status" id="status" role="status"></p>`
-  const script = `const request=${JSON.stringify(params).replace(/</g, '\\u003c')};
-const status=document.getElementById('status');
+<button class="primary" id="ask" disabled>Approve in the Solus app</button><div id="check" hidden><p>Approve the request in Solus. Check that it shows this code:</p><div class="code" id="checkCode"></div></div><div class="or">or</div>` : ''}
+<label class="field" for="pairing">Pairing code</label>
+<input type="text" id="pairing" placeholder="Pairing code" autocomplete="one-time-code" maxlength="9" aria-describedby="pairingHelp">
+<p class="note" id="pairingHelp">Get one from Use Solus in other apps in Solus: the host's Access tab, or the command palette. The code gives the access chosen when it was made${canAskInApp ? ', so the choice above applies only to approval in the Solus app' : ''}.</p>
+<button${canAskInApp ? '' : ' class="primary"'} id="usePairing" disabled>Use pairing code</button>
+<button id="deny">Deny</button>
+<p class="status" id="status" role="status"></p>
+</div>
+<div id="framed" hidden><h1>Open this page in its own window</h1><p>Solus does not approve a sign-in inside another page.</p></div>`
+  // The browser goes only to the redirect address this host checked (allowedRedirect): a redirect
+  // that names another place is not followed. Deny sends the app's own error back (RFC 6749 §4.1.2.1).
+  const script = `const request=${scriptValue(params)};
+const denied=${scriptValue(deniedRedirect(signIn))};
+const $=(id)=>document.getElementById(id);
+if(window.top!==window.self){$('consent').remove();$('framed').hidden=false}else{
+const status=$('status');const target=new URL(request.redirect_uri);
+const follow=(redirect)=>{let url=null;try{url=new URL(redirect)}catch{}
+if(!url||url.protocol!==target.protocol||url.host!==target.host||url.pathname!==target.pathname){status.textContent='Solus returned an address this page will not open.';return false}
+location.replace(url.href);return true};
 const access=()=>document.querySelector('input[name=access]:checked').value;
-const post=(path,data)=>fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)}).then(async(r)=>({ok:r.ok,body:await r.json()}));
-const go=(redirect)=>{status.textContent='Approved. Returning to the app…';location.href=redirect};
-document.getElementById('usePairing').onclick=async()=>{const code=document.getElementById('pairing').value;if(!code){status.textContent='Make a pairing code in Solus: Settings → Connections.';return}
-const r=await post('/oauth/mcp/approve',{...request,access:access(),pairing_code:code});if(r.ok)go(r.body.redirect);else status.textContent=r.body.error};
-const ask=document.getElementById('ask');if(ask)ask.onclick=async()=>{ask.disabled=true;const r=await post('/oauth/mcp/approve',{...request,access:access()});
-if(!r.ok){status.textContent=r.body.error;ask.disabled=false;return}
-document.getElementById('check').hidden=false;document.getElementById('checkCode').textContent=r.body.checkCode;status.textContent='Waiting for approval in Solus…';
+const post=(path,data)=>fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)}).then(async(r)=>({ok:r.ok,body:await r.json()})).catch(()=>({ok:false,body:{error:'Could not reach this host. Try again.'}}));
+const go=(redirect)=>{if(follow(redirect))status.textContent='Approved. Returning to the app…'};
+const ask=$('ask');const usePairing=$('usePairing');const busy=new Set();let armed=false;let timer=0;
+const sync=()=>{for(const button of [ask,usePairing])if(button)button.disabled=!armed||busy.has(button)};
+const arm=()=>{armed=false;sync();clearTimeout(timer);timer=setTimeout(()=>{armed=true;sync()},${ARM_DELAY_MS})};
+addEventListener('focus',arm);document.addEventListener('visibilitychange',arm);arm();
+$('deny').onclick=()=>{if(follow(denied))status.textContent='Denied. Returning to the app…'};
+usePairing.onclick=async()=>{if(!armed||busy.has(usePairing))return;const code=$('pairing').value;if(!code){status.textContent='Enter a pairing code from Use Solus in other apps.';return}
+busy.add(usePairing);sync();const r=await post('/oauth/mcp/approve',{...request,pairing_code:code});busy.delete(usePairing);sync();if(r.ok)go(r.body.redirect);else status.textContent=r.body.error};
+if(ask)ask.onclick=async()=>{if(!armed||busy.has(ask))return;busy.add(ask);sync();const r=await post('/oauth/mcp/approve',{...request,access:access()});
+if(!r.ok){status.textContent=r.body.error;busy.delete(ask);sync();return}
+$('check').hidden=false;$('checkCode').textContent=r.body.checkCode;status.textContent='Waiting for approval in Solus…';
 for(;;){const w=await post('/oauth/mcp/approve/wait',{requestId:r.body.requestId,waitToken:r.body.waitToken});
-if(w.body.status==='approved')return go(w.body.redirect);if(w.body.status!=='pending'){status.textContent=w.body.status==='denied'?'The request was denied.':'The request expired. Try again.';ask.disabled=false;return}}};`
-  return page(`Connect ${appName} to Solus`, main, script)
+if(w.body.status==='approved')return go(w.body.redirect);if(w.body.status!=='pending'){status.textContent=w.body.status==='denied'?'The request was denied.':'The request expired. Try again.';busy.delete(ask);sync();return}}}}`
+  return page(`Connect ${signIn.appName} to Solus`, main, script)
 }
