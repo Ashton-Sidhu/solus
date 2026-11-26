@@ -134,7 +134,7 @@ describe('apps an organization allows', () => {
   test('a rule marks the apps it does not name, and both guides of apps on the computer follow `local`', () => {
     const choices = choicesFor({ limits: { apps: { allowed: ['claude', 'local'] } } })
     const denied = choices.filter((choice) => choice.denial).map((choice) => choice.guide.id)
-    expect(denied).toEqual(['chatgpt', 'grok-bot', 'poke', 'cursor'])
+    expect(denied).toEqual(['chatgpt', 'grok-bot', 'poke', 'muse', 'instinct', 'cursor'])
     expect(choices.find((choice) => choice.guide.id === 'poke')?.denial).toBe('Acme does not allow Poke to use Solus.')
   })
 })

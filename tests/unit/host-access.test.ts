@@ -184,7 +184,7 @@ describe('connecting an outside app from the phone', () => {
   const guide = (id: string) => PHONE_APP_GUIDES.find((entry) => entry.id === id)!
 
   test('the phone offers the cloud apps, not the apps that run on a computer', () => {
-    expect(PHONE_APP_GUIDES.map((entry) => entry.id)).toEqual(['claude', 'chatgpt', 'grok-bot', 'poke'])
+    expect(PHONE_APP_GUIDES.map((entry) => entry.id)).toEqual(['claude', 'chatgpt', 'grok-bot', 'poke', 'muse', 'instinct'])
   })
 
   test('each app gets the address the way it takes it', () => {
