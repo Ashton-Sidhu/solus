@@ -228,12 +228,18 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const { sessionId } = request
     const description = server.handle('describeSession', [sessionId], handlerCtx)
     const watch = hasRun(sessionId) ? null : server.handle('watchSession', [{ sessionId, attachRuntime: true }], handlerCtx)
-    // A failed page read leaves these unread; the client opens the session again.
+    // A failed page read leaves these unread; `abandon` removes the watch.
     void description.catch(() => {})
     void watch?.catch(() => {})
-    return async (page: SessionHistoryPage): Promise<SessionHistoryPage> => {
-      const [openingDescription, resumedWatch] = await Promise.all([description, watch])
-      return resumedWatch ? { ...page, openingDescription, resumedWatch } : { ...page, openingDescription }
+    return {
+      complete: async (page: SessionHistoryPage): Promise<SessionHistoryPage> => {
+        const [openingDescription, resumedWatch] = await Promise.all([description, watch])
+        return resumedWatch ? { ...page, openingDescription, resumedWatch } : { ...page, openingDescription }
+      },
+      abandon: async (): Promise<void> => {
+        if (!watch || !await watch.then(() => true, () => false)) return
+        await server.handle('unwatchSession', [sessionId], handlerCtx).catch(() => {})
+      },
     }
   }
 
@@ -267,67 +273,76 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }).parse(input)
     const mirrored = isApiMode()
     const opening = openSessionBesidePage(request, mirrored, handlerCtx)
-    const resumeWatch = (page: SessionHistoryPage) => opening ? opening(page) : watchIfCurrent(request, mirrored, page, handlerCtx)
-    const profileStartedAt = performance.now()
-    const cursor = readActivityPageCursor(request.before)
-    const readProfile: HistoryReadProfile = { lineageMs: 0, providerMs: 0, sendersMs: 0 }
-    const source = await readHistoryThroughEntry(async before => {
-      if (mirrored) return readTranscriptPage(recordScopeOf(handlerCtx.principal), request.sessionId, request.turnLimit, before)
-      return await forkHistory(handlerCtx, request.sessionId, request.turnLimit, before)
-        ?? sessionRuntime.history.loadSessionPage({ ...request, before }, readProfile)
-    }, cursor.before, request.throughEntryId)
-    const historyReadyAt = performance.now()
-    const activity = await sessionActivityOf(handlerCtx, request.sessionId, pageWindow(source, cursor.at))
-    const activityReadAt = performance.now()
-    // Preview measurements can change without an edit to a provider row.
-    const hasRender = request.replyLayout && source.messages.some(row => row.role === 'assistant' && /(?:`{3,}|~{3,})[ \t]*html\b/i.test(row.content))
-    const key = !hasRender && request.knownHistoryBlocks && manifests.sourceKey(
-      (mirrored ? 'mirror' : request.provider) + (request.replyLayout ? ':layout' : '') + (request.promptFiles ? ':files' : '') + (request.turnItems ? ':items' : ''), request.sessionId, !!request.deferArtifactHtml, cursor.at, source, activity)
-    if (key && request.knownHistoryBlocks) {
-      const resumed = manifests.resume(key, request.knownHistoryBlocks)
-      if (resumed) {
-        recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: 0 })
-        return resumeWatch(resumed)
+    const resumeWatch = (page: SessionHistoryPage) => opening ? opening.complete(page) : watchIfCurrent(request, mirrored, page, handlerCtx)
+    const readPage = async (): Promise<SessionHistoryPage> => {
+      const profileStartedAt = performance.now()
+      const cursor = readActivityPageCursor(request.before)
+      const readProfile: HistoryReadProfile = { lineageMs: 0, providerMs: 0, sendersMs: 0 }
+      const source = await readHistoryThroughEntry(async before => {
+        if (mirrored) return readTranscriptPage(recordScopeOf(handlerCtx.principal), request.sessionId, request.turnLimit, before)
+        return await forkHistory(handlerCtx, request.sessionId, request.turnLimit, before)
+          ?? sessionRuntime.history.loadSessionPage({ ...request, before }, readProfile)
+      }, cursor.before, request.throughEntryId)
+      const historyReadyAt = performance.now()
+      const activity = await sessionActivityOf(handlerCtx, request.sessionId, pageWindow(source, cursor.at))
+      const activityReadAt = performance.now()
+      // Preview measurements can change without an edit to a provider row.
+      const hasRender = request.replyLayout && source.messages.some(row => row.role === 'assistant' && /(?:`{3,}|~{3,})[ \t]*html\b/i.test(row.content))
+      const key = !hasRender && request.knownHistoryBlocks && manifests.sourceKey(
+        (mirrored ? 'mirror' : request.provider) + (request.replyLayout ? ':layout' : '') + (request.promptFiles ? ':files' : '') + (request.turnItems ? ':items' : ''), request.sessionId, !!request.deferArtifactHtml, cursor.at, source, activity)
+      if (key && request.knownHistoryBlocks) {
+        const resumed = manifests.resume(key, request.knownHistoryBlocks)
+        if (resumed) {
+          recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: 0 })
+          return resumeWatch(resumed)
+        }
       }
+      const blocksCheckedAt = performance.now()
+      const projection = { promptImagesMs: 0, projectionMs: 0 }
+      const page = mirrored ? source : projectHostPage(source, projection)
+      const projectedAt = performance.now()
+      const { messages, before } = mergePageActivity(page, activity, cursor.at)
+      const activityReadyAt = performance.now()
+      recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: messages.length })
+      log.info('session_history_page_loaded', {
+        sessionId: request.sessionId, provider: request.provider, messageCount: messages.length,
+        olderPage: !!request.before, hasMore: page.before !== null, durationMs: Date.now() - startedAt,
+      })
+      const current = withExchangeProgress(messages, exchangeProgress)
+      const full = {
+        messages: deferSessionToolInputs(request.deferArtifactHtml ? deferSavedArtifactHtml(current) : current),
+        before,
+      }
+      if (request.promptFiles) full.messages = projectPromptFiles(full.messages)
+      if (hasRender) full.messages = await withReplyHtmlLayouts(full.messages)
+      if (request.replyLayout) full.messages = await withArtifactLayouts(full.messages)
+      if (request.turnItems) full.messages = withTurnItemBodies(full.messages)
+      const result = request.knownHistoryBlocks ? resumeHistoryPage(full, request.knownHistoryBlocks) : full
+      if (key) manifests.remember(key, result, full.messages)
+      const preparedAt = performance.now()
+      const bytes = isDebugEnabled() ? serializedBytes(result) : undefined
+      log.info('session_history_response_profile', {
+        sessionId: request.sessionId, provider: request.provider, olderPage: !!request.before,
+        messageCount: result.messages.length, bytes,
+        historyMs: historyReadyAt - profileStartedAt,
+        ...readProfile,
+        activityReadMs: activityReadAt - historyReadyAt,
+        blockCheckMs: blocksCheckedAt - activityReadAt,
+        ...projection,
+        activityMergeMs: activityReadyAt - projectedAt,
+        preparationMs: preparedAt - activityReadyAt,
+        sizeMeasurementMs: performance.now() - preparedAt,
+        durationMs: preparedAt - profileStartedAt,
+      })
+      return resumeWatch(result)
     }
-    const blocksCheckedAt = performance.now()
-    const projection = { promptImagesMs: 0, projectionMs: 0 }
-    const page = mirrored ? source : projectHostPage(source, projection)
-    const projectedAt = performance.now()
-    const { messages, before } = mergePageActivity(page, activity, cursor.at)
-    const activityReadyAt = performance.now()
-    recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: messages.length })
-    log.info('session_history_page_loaded', {
-      sessionId: request.sessionId, provider: request.provider, messageCount: messages.length,
-      olderPage: !!request.before, hasMore: page.before !== null, durationMs: Date.now() - startedAt,
-    })
-    const current = withExchangeProgress(messages, exchangeProgress)
-    const full = {
-      messages: deferSessionToolInputs(request.deferArtifactHtml ? deferSavedArtifactHtml(current) : current),
-      before,
+    try {
+      return await readPage()
+    } catch (error) {
+      // The client shows the error and opens the session again; until then it must not get this session's events.
+      await opening?.abandon()
+      throw error
     }
-    if (request.promptFiles) full.messages = projectPromptFiles(full.messages)
-    if (hasRender) full.messages = await withReplyHtmlLayouts(full.messages)
-    if (request.replyLayout) full.messages = await withArtifactLayouts(full.messages)
-    if (request.turnItems) full.messages = withTurnItemBodies(full.messages)
-    const result = request.knownHistoryBlocks ? resumeHistoryPage(full, request.knownHistoryBlocks) : full
-    if (key) manifests.remember(key, result, full.messages)
-    const preparedAt = performance.now()
-    const bytes = isDebugEnabled() ? serializedBytes(result) : undefined
-    log.info('session_history_response_profile', {
-      sessionId: request.sessionId, provider: request.provider, olderPage: !!request.before,
-      messageCount: result.messages.length, bytes,
-      historyMs: historyReadyAt - profileStartedAt,
-      ...readProfile,
-      activityReadMs: activityReadAt - historyReadyAt,
-      blockCheckMs: blocksCheckedAt - activityReadAt,
-      ...projection,
-      activityMergeMs: activityReadyAt - projectedAt,
-      preparationMs: preparedAt - activityReadyAt,
-      sizeMeasurementMs: performance.now() - preparedAt,
-      durationMs: preparedAt - profileStartedAt,
-    })
-    return resumeWatch(result)
   })
 
   server.register('loadSessionSubagent', async ([input]) => {

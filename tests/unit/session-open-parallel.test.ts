@@ -42,6 +42,8 @@ const opening = { sessionId: 'resting', provider: 'claude-code' as const, turnLi
 function hostWithSlowPage() {
   const started: string[] = []
   let releasePage!: (page: ProviderHistoryPage) => void
+  let failPage!: (error: Error) => void
+  const unwatched: string[] = []
   const activeRunRequests = new Map<string, unknown>()
   const server = new serverModule.SolusServer()
   historyHandlers.registerHistoryHandlers(server, {
@@ -51,7 +53,7 @@ function hostWithSlowPage() {
       history: {
         loadSessionPage: () => {
           started.push('page')
-          return new Promise<ProviderHistoryPage>((resolve) => { releasePage = resolve })
+          return new Promise<ProviderHistoryPage>((resolve, reject) => { releasePage = resolve; failPage = reject })
         },
         describeSession: async () => {
           started.push('describe')
@@ -69,12 +71,16 @@ function hostWithSlowPage() {
     started.push('watch')
     return { runtime: null }
   })
+  server.register('unwatchSession', ([sessionId], caller) => {
+    expect(caller.clientId).toBe(ctx.clientId)
+    unwatched.push(sessionId)
+  })
   const steps = async () => {
     // Let every step that does not wait for the page begin.
     for (let tick = 0; tick < 20; tick++) await new Promise((resolve) => setImmediate(resolve))
     return [...started].sort()
   }
-  return { server, started, steps, activeRunRequests, release: (page: ProviderHistoryPage) => releasePage(page) }
+  return { server, started, unwatched, steps, activeRunRequests, release: (page: ProviderHistoryPage) => releasePage(page), fail: (error: Error) => failPage(error) }
 }
 
 test('an opening read describes and watches the session while its page is read', async () => {
@@ -108,4 +114,14 @@ test('a jump of an opening read to an entry neither describes nor watches', asyn
   const page = await opened
   expect(page.openingDescription).toBeUndefined()
   expect(page.resumedWatch).toBeUndefined()
+})
+
+test('an opening read whose page fails removes the watch it started', async () => {
+  const host = hostWithSlowPage()
+  const opened = host.server.handle('loadSessionPage', [opening], ctx)
+  expect(await host.steps()).toEqual(['describe', 'page', 'watch'])
+  host.fail(new Error('provider file unreadable'))
+  await expect(opened).rejects.toThrow('provider file unreadable')
+  // The client shows an error and opens the session again; it must not keep receiving its events meanwhile.
+  expect(host.unwatched).toEqual(['resting'])
 })
