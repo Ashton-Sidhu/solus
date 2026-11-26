@@ -253,5 +253,120 @@
       "contextWindows": [258000],
       "defaultContextWindow": 258000
     }
+  },
+  "antigravity": {
+    "gemini-4-hydrogen": {
+      "label": "Gemini 4 Hydrogen",
+      "isDefault": true,
+      "reasoningLevels": ["low", "medium", "high", "xhigh"],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [1048576],
+      "defaultContextWindow": 1048576
+    },
+    "gemini-3.8-flash": {
+      "label": "Gemini 3.8 Flash",
+      "reasoningLevels": ["low", "medium", "high"],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [1048576],
+      "defaultContextWindow": 1048576
+    },
+    "claude-opus-4-6-thinking": {
+      "label": "Claude Opus 4.6 (Thinking)",
+      "reasoningLevels": [],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [1000000],
+      "defaultContextWindow": 1000000
+    },
+    "claude-sonnet-4-6": {
+      "label": "Claude Sonnet 4.6 (Thinking)",
+      "reasoningLevels": [],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [1000000],
+      "defaultContextWindow": 1000000
+    },
+    "gpt-oss-120b-medium": {
+      "label": "GPT-OSS 120B (Medium)",
+      "reasoningLevels": [],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": false,
+      "contextWindows": [131072],
+      "defaultContextWindow": 131072
+    },
+    "gemini-3.7-flash-high": {
+      "label": "Gemini 3.7 Flash (High)",
+      "isLegacy": true,
+      "reasoningLevels": [],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [1048576],
+      "defaultContextWindow": 1048576
+    },
+    "gemini-3.7-flash-medium": {
+      "label": "Gemini 3.7 Flash (Medium)",
+      "isLegacy": true,
+      "reasoningLevels": [],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": false,
+      "contextWindows": [1048576],
+      "defaultContextWindow": 1048576
+    },
+    "gemini-3.7-flash-low": {
+      "label": "Gemini 3.7 Flash (Low)",
+      "isLegacy": true,
+      "reasoningLevels": [],
+      "defaultReasoningEffort": "low",
+      "supportsFastMode": false,
+      "contextWindows": [1048576],
+      "defaultContextWindow": 1048576
+    },
+    "gemini-3.6-flash-high": {
+      "label": "Gemini 3.6 Flash (High)",
+      "isLegacy": true,
+      "reasoningLevels": [],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [1048576],
+      "defaultContextWindow": 1048576
+    },
+    "gemini-3.6-flash-medium": {
+      "label": "Gemini 3.6 Flash (Medium)",
+      "isLegacy": true,
+      "reasoningLevels": [],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": false,
+      "contextWindows": [1048576],
+      "defaultContextWindow": 1048576
+    },
+    "gemini-3.6-flash-low": {
+      "label": "Gemini 3.6 Flash (Low)",
+      "isLegacy": true,
+      "reasoningLevels": [],
+      "defaultReasoningEffort": "low",
+      "supportsFastMode": false,
+      "contextWindows": [1048576],
+      "defaultContextWindow": 1048576
+    },
+    "gemini-pro-agent": {
+      "label": "Gemini 3.1 Pro (High)",
+      "isLegacy": true,
+      "reasoningLevels": [],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": false,
+      "contextWindows": [1048576],
+      "defaultContextWindow": 1048576
+    },
+    "gemini-3.1-pro-low": {
+      "label": "Gemini 3.1 Pro (Low)",
+      "isLegacy": true,
+      "reasoningLevels": [],
+      "defaultReasoningEffort": "low",
+      "supportsFastMode": false,
+      "contextWindows": [1048576],
+      "defaultContextWindow": 1048576
+    }
   }
 }
