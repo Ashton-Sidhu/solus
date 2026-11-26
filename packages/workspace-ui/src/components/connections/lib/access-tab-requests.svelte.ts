@@ -1,5 +1,5 @@
 /**
- * A request from outside a host's Access tab to do one thing there, held
+ * A request from outside Settings › Sharing & access to do one thing there, held
  * outside the tab as `mcpPageRequest` is, so the tab takes it when it mounts
  * or while it is open.
  */

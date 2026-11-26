@@ -166,7 +166,7 @@
   }
 
   function showCodeOnTarget() {
-    if (selected?.serverId) shell.openResource({ kind: "connections", serverId: selected.serverId, tab: "access", pair: true });
+    if (selected?.serverId) shell.openResource({ kind: "connections", serverId: selected.serverId, pair: true });
   }
 
   function addLabel(): string {

@@ -93,7 +93,7 @@ describe('provider host routing', () => {
   })
 })
 
-describe('paired devices on the Access tab', () => {
+describe('paired devices on Sharing & access', () => {
   test('a refused read of the pairings says why, and the rest of the tab still loads', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,
@@ -139,7 +139,7 @@ describe('paired devices on the Access tab', () => {
   })
 })
 
-describe('outside apps on the Access tab', () => {
+describe('outside apps on Sharing & access', () => {
   function useState() {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,

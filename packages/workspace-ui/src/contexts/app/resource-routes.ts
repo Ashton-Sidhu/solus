@@ -3,6 +3,7 @@ import type { Via } from '@solus/contracts/analytics-events'
 import type { PullRequestOpenTarget, WorkspaceContext } from '../workspace/workspace.context.svelte'
 import { connectionsNav, type HostPageTab } from '../../components/connections/connections-nav.svelte'
 import { pairCodeRequest } from '../../components/connections/lib/access-tab-requests.svelte'
+import { sharingAccessRoute } from '../../components/connections/lib/sharing-access'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
 import { toasts } from '../../lib/toasts'
@@ -76,10 +77,14 @@ export function openResourceInWorkspace(session: WorkspaceContext, route: Resour
       session.openApp(route.serverId, route.slug)
       return
     case 'connections':
+      // A pairing code is made on Settings › Sharing & access, as in T3 Code.
+      if (route.serverId && route.pair) {
+        pairCodeRequest.ask(route.serverId)
+        session.router.navigate(sharingAccessRoute(route.serverId), { replace: false })
+        return
+      }
       session.showSettings('api-access')
-      if (!route.serverId) return
-      if (route.pair) pairCodeRequest.ask(route.serverId)
-      connectionsNav.open(route.serverId, route.pair ? 'access' : route.tab)
+      if (route.serverId) connectionsNav.open(route.serverId, route.tab)
       return
   }
 }

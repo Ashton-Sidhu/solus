@@ -7,7 +7,7 @@ export function sharingAccessRoute(serverId: string): RouteRef<'settings'> {
 }
 
 /**
- * Opens Sharing & access for a host from Settings → Hosts: the host's Access tab
+ * Opens Sharing & access for a host from Settings → Hosts: the host's Overview
  * and its menu. It replaces the page, as a change of settings tab does, and
  * closes the host page, so Hosts opens on its list when the person comes back.
  */

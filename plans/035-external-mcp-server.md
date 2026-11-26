@@ -44,7 +44,7 @@ No account-plane change was needed: T3 Code approves with its account through it
 
 Maintainer request, 2026-11-26: bring over T3 Code's connect UX. T3 Code writes no other app's config; its "automatic connection" is the MCP server it gives each agent it starts, which Solus already does (§4).
 
-1. **One dialog** (`components/connections/outside-apps/`), opened from the command palette, the Access tab, and the fleet map's host menu. A gate comes first (`lib/outside-apps-gate.ts`). It uses `connectionsAppEndpoint`, `uplinkStatus`, and `hostSelfTest`, and needs no new RPC. **Turn on** (`uplinkLink`) shows only to a local owner of a personal host. An app on the host's own computer skips the gate. The steps are App, Access, and Connect. Mobile has the same flow in a sheet (`OutsideAppConnectSheet.tsx`, `outside-app-gate.ts`), for cloud apps only, and with no **Turn on**.
+1. **One dialog** (`components/connections/outside-apps/`), opened from the command palette, Settings → Sharing & access, and the fleet map's host menu. A gate comes first (`lib/outside-apps-gate.ts`). It uses `connectionsAppEndpoint`, `uplinkStatus`, and `hostSelfTest`, and needs no new RPC. **Turn on** (`uplinkLink`) shows only to a local owner of a personal host. An app on the host's own computer skips the gate. The steps are App, Access, and Connect. Mobile has the same flow in a sheet (`OutsideAppConnectSheet.tsx`, `outside-app-gate.ts`), for cloud apps only, and with no **Turn on**.
 2. **Pairing codes name their access** (`connectionsCreateAppPairingCode({ access })`). The consent page gives that access, whatever level the page sends. A code shows a countdown in each client.
 3. **Catalog.** Muse, Instinct, OpenClaw, and Hermes Agent were added, with a `note` for each guide. Where Muse and Instinct sign-ins return is not known, so `outsideAppOf` names them `other`.
 4. **Consent page.** It names the app and where its access goes. It has **Deny** (RFC 6749 §4.1.2.1), a 700 ms arm delay, `frame-ancestors 'none'`, and a framed-page check. Registration accepts only https, loopback http, or a private-use scheme without a fragment.
@@ -52,7 +52,7 @@ Maintainer request, 2026-11-26: bring over T3 Code's connect UX. T3 Code writes 
 6. **Share.** Clients show a QR code for an app link, and a dialog with the value when the clipboard fails. The host menu has **Copy MCP address**.
 7. **`solus mcp`** prints the addresses and the setup commands. `solus mcp code --access` makes a code over the local socket.
 
-8. **Sharing & access** (2026-11-26). As T3 Code's top-level page Settings → Sharing & access (`/settings/access?machine=`), Solus has the settings page `sharing` (`settings/sharing/<host id>`, in the Connections group after Hosts). It has a host picker (the host of the current session, else this device's host; `settings/lib/settings-hosts.ts`) and shows `HostDetailAccess` for that host (`connections/SharingAccessPage.svelte`), so the page and the host's Access tab never differ. The Access tab keeps its content and links to the page. The host menu on Settings → Hosts has **Sharing & access** beside **Copy MCP address** (`fleet/lib/host-menu.ts`), and the palette has **Sharing & access**. Mobile is separate work.
+8. **Sharing & access** (2026-11-26). As T3 Code's top-level page Settings → Sharing & access (`/settings/access?machine=`), Solus has the settings page `sharing` (`settings/sharing/<host id>`, in the Connections group after Hosts). It has a host picker (the host of the current session, else this device's host; `settings/lib/settings-hosts.ts`) and shows `HostDetailAccess` for that host (`connections/SharingAccessPage.svelte`), and the host page has no Access tab any more (maintainer decision, 2026-11-26): its links (the Overview's registration row, the pairing code command, and the Add machine card's pairing link) open the page. The host menu on Settings → Hosts has **Sharing & access** beside **Copy MCP address** (`fleet/lib/host-menu.ts`), and the palette has **Sharing & access**. Mobile is separate work.
 
 T3 Code's peer links (agents on one machine using threads on another) came later, in §0.6. Its hosted approval page has an equivalent in §0.5.
 
@@ -338,7 +338,7 @@ Other apps use their own connector screens with the same URL.
   - the MCP URL and a copy button;
   - the `claude mcp add` command;
   - a **Make pairing code** button, with the code and when it expires.
-- The connected apps are in **Paired devices** on the same page, with their level and a **Revoke** button. On desktop and web, both are on a host's Access tab (`OutsideAppsSection.svelte`, `HostDetailAccess.svelte`).
+- The connected apps are in **Paired devices** on the same page, with their level and a **Revoke** button. On desktop and web, both are on Settings → Sharing & access (`OutsideAppsSection.svelte`, `HostDetailAccess.svelte`).
 - The command palette command **Use Solus in other apps** opens the same page.
 - Revoke deletes the grant on the host. The next call with its token gets `401`.
 

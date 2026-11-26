@@ -15,8 +15,8 @@ export type OutsideAppsView = 'connect' | 'approve'
 
 /**
  * "Use Solus in other apps" (plans/035 §10): which host its one dialog is open
- * for, and the commands that read what its gate needs. The palette, the host's
- * Access tab, and the host menu open it; each client mounts it once
+ * for, and the commands that read what its gate needs. The palette, Sharing &
+ * access, and the host menu open it; each client mounts it once
  * (`OutsideAppsDialogHost`). The address and the pairing code are in
  * `connectionsStore`; the registration, the link, and the host's test are in
  * `uplinkStore`. "Approve a sign-in" needs no address, so it skips the gate.

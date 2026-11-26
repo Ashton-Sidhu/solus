@@ -1,7 +1,7 @@
 <script lang="ts">
   /** The pairing act, as rows inside a `SettingsSection`: an invitation to
    *  generate a code, and then the live code with its QR and direct links.
-   *  Shown on a host's Access tab to the host's local owner. */
+   *  Shown on Settings › Sharing & access to the host's local owner. */
   import {
     RefreshCw as ArrowsClockwiseIcon,
     Check as CheckIcon,

@@ -1,5 +1,5 @@
 <script lang="ts">
-  /** "Use Solus in other apps" on a host's Access tab (plans/035 §10). The steps
+  /** "Use Solus in other apps" on Settings › Sharing & access (plans/035 §10). The steps
    *  are in one dialog (`OutsideAppsDialog`), which the palette and the host menu
    *  open too. Every person who uses the host sees it, and an app they approve
    *  acts as them. The apps that signed in are in the paired devices list, with

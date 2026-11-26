@@ -10,6 +10,7 @@ import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/u
 import { addOverSshPaletteCommand } from "@solus/workspace-ui/components/servers/lib/add-over-ssh-commands";
 import { addWslDistroPaletteCommands } from "@solus/workspace-ui/components/servers/lib/add-wsl-distro-commands";
 import { fleetPaletteCommands } from "@solus/workspace-ui/components/fleet/fleet-commands";
+import { sharingAccessRoute } from "@solus/workspace-ui/components/connections/lib/sharing-access";
 import { deviceCommands } from "@solus/workspace-ui/components/devices/lib/device-entry";
 import { sidebarViewCommand } from "@solus/workspace-ui/components/session/lib/sidebar-view-command";
 import { codebaseCommands, mcpCommands, settingsOwnerCommands, sharingAccessCommands, webhookCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
@@ -68,7 +69,7 @@ export function webPaletteCommands(deps: WebPaletteDeps): Command[] {
   ...updateAllPaletteCommands(),
   addOverSshPaletteCommand(),
   ...addWslDistroPaletteCommands(() => session.showSettings("api-access", "palette")),
-  ...fleetPaletteCommands(() => session.showSettings("api-access", "palette")),
+  ...fleetPaletteCommands(() => session.showSettings("api-access", "palette"), (serverId) => session.router.navigate(sharingAccessRoute(serverId), { replace: false })),
   {
     id: "open-project",
     label: "Open project…",

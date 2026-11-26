@@ -1,6 +1,6 @@
 <script lang="ts">
   /** Mounts "Use Solus in other apps" once for the client. The dialog loads when
-   *  something first opens it: the palette, the host's Access tab, or the host
+   *  something first opens it: the palette, Sharing & access, or the host
    *  menu. The copy-by-hand dialog shows over it, and after the host menu's copy. */
   import { outsideAppsDialog } from "./outside-apps-dialog.svelte";
 </script>

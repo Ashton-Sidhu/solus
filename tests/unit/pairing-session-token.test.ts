@@ -113,7 +113,7 @@ describe('a paired device', () => {
   })
 })
 
-describe('the Access tab on the host', () => {
+describe('Sharing & access for the host', () => {
   const originalDataDir = process.env.SOLUS_DATA_DIR
   let dataDir: string
 

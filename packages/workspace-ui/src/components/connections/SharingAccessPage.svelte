@@ -1,7 +1,7 @@
 <script lang="ts">
-  /** Settings → Sharing & access, as in T3 Code: the Access tab of one host,
-   *  for the host chosen in the page's host picker. It is the same content as
-   *  Settings → Hosts → the host → Access, so the two never differ. */
+  /** Settings → Sharing & access, as in T3 Code: the access of one host (its
+   *  outside apps, paired devices, and pair codes), for the host chosen in the
+   *  page's host picker. The host page has no copy of it. */
   import { untrack } from "svelte";
   import { connectionsStore } from "../../contexts";
   import HostDetailAccess from "./HostDetailAccess.svelte";

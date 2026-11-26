@@ -85,7 +85,7 @@
     </h3>
     <div class="flex flex-col gap-1 text-workspace-chrome text-(--solus-text-secondary)">
       <p>{hostName} gets a public https address through Solus Cloud, with no router setup.</p>
-      <p>Only apps you approve can use it. You can turn it off on the Access tab.</p>
+      <p>Only apps you approve can use it. You can turn it off in Settings › Sharing & access.</p>
     </div>
     {#if gate.error}
       <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{gate.error}</p>

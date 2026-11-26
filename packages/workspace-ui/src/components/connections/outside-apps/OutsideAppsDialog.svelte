@@ -3,7 +3,7 @@
    *  another app"): a gate until the host can serve the app's address, then the
    *  steps App → Access → Connect. "Approve a sign-in" is its other view, from
    *  the first step, the palette, or a sign-in link; it needs no address, so it
-   *  skips the gate. The palette, the host's Access tab, and the host menu open
+   *  skips the gate. The palette, Sharing & access, and the host menu open
    *  it for one host; `OutsideAppsDialogHost` mounts it. */
   import { onMount, tick } from "svelte";
   import { AppWindow as AppWindowIcon, SquareTerminal as TerminalIcon, X as CloseIcon } from "@lucide/svelte";

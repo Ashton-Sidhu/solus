@@ -10,7 +10,6 @@ Every person who uses the host can connect an app: the owner, and each member of
 
    Other entry points open the same dialog or page:
    - the command palette: **Use Solus in other apps** (search for "mcp", "connector", or an app name) and **Approve an app sign-in** open the dialog for this device's host; **Sharing & access** opens the page;
-   - **Connect an app** on the host's **Access** tab (Settings → Hosts → the host → Access). The tab shows the same content as the page, with a link to **Sharing & access** for that host;
    - the host's menu on Settings → Hosts (right-click a host on the map or in the list, or press the menu key): **Use Solus in other apps…**, **Copy MCP address**, and **Sharing & access**;
    - on mobile, the host page.
 2. **Which app?** Choose Claude, ChatGPT, Grok Bot, Poke, Muse, Instinct, Cursor, Claude Code, Codex, OpenClaw, or Hermes Agent. For another app, choose **Something else…**. An app that your organization does not allow is marked and cannot be chosen. Mobile shows only the apps that run in the cloud, because a phone cannot run commands or open Cursor.
@@ -89,7 +88,7 @@ Tools that act as the calling session (for example the browser, devices, checkou
 
 ## Revoke an app
 
-Connected apps are listed with their access and when each one last connected: on desktop and web with the paired devices in **Settings → Sharing & access** (and on the host's **Access** tab, which shows the same content), on mobile under **Connected apps**. **Revoke** ends one app's access at once. **Revoke all apps** ends the access of every app, after you confirm. An app that is not used for thirty days must sign in again.
+Connected apps are listed with their access and when each one last connected: on desktop and web with the paired devices in **Settings → Sharing & access**, on mobile under **Connected apps**. **Revoke** ends one app's access at once. **Revoke all apps** ends the access of every app, after you confirm. An app that is not used for thirty days must sign in again.
 
 ## Limits
 

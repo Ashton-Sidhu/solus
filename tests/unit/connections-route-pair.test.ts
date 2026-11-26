@@ -18,21 +18,22 @@ const { connectionsNav } = await import('@solus/workspace-ui/components/connecti
 const { pairCodeRequest } = await import('@solus/workspace-ui/components/connections/lib/access-tab-requests.svelte')
 const { toQuestionRequest } = await import('@solus/workspace-ui/contexts/workspace/session.utils')
 
-function workspace(): { session: WorkspaceContext; settings: string[] } {
+function workspace(): { session: WorkspaceContext; settings: string[]; navigations: unknown[] } {
   const settings: string[] = []
-  const shell = { showSettings: (tab: string) => { settings.push(tab) } }
-  // SAFETY: the connections route reads only showSettings from the workspace.
-  return { session: shell as unknown as WorkspaceContext, settings }
+  const navigations: unknown[] = []
+  const shell = { showSettings: (tab: string) => { settings.push(tab) }, router: { navigate: (ref: unknown) => { navigations.push(ref) } } }
+  // SAFETY: the connections route reads only showSettings and router.navigate from the workspace.
+  return { session: shell as unknown as WorkspaceContext, settings, navigations }
 }
 
 describe('the connections route', () => {
-  test('with pair, it opens the host on Access and asks that host for a code once', () => {
+  test('with pair, it opens Sharing & access for the host and asks that host for a code once', () => {
     // WHY: "Show the code on <name>" must land where the code is, with the code already made.
-    const { session, settings } = workspace()
+    // The code is on Settings › Sharing & access; the host page has no Access tab, as in T3 Code.
+    const { session, settings, navigations } = workspace()
     openResourceInWorkspace(session, { kind: 'connections', serverId: 'studio', pair: true })
-    expect(settings).toEqual(['api-access'])
-    expect(connectionsNav.hostId).toBe('studio')
-    expect(connectionsNav.tab).toBe('access')
+    expect(settings).toEqual([])
+    expect(navigations).toEqual([{ name: 'settings', params: { tab: 'sharing', host: 'studio' } }])
     expect(pairCodeRequest.take('mac')).toBe(false)
     expect(pairCodeRequest.take('studio')).toBe(true)
     expect(pairCodeRequest.take('studio')).toBe(false)

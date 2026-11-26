@@ -14,9 +14,9 @@ import { discoverStore } from './discover.store.svelte'
  * tab with a code made (docs/plans/add-machine-card.md). "Use Solus in other
  * apps" opens its dialog for this device's host, else the Run on host
  * (plans/035 §10). "Approve an app sign-in" opens that dialog on its approve
- * view, for the code an app's sign-in page shows (§0.5). `showHosts` opens Settings › Hosts in the shell that asks.
+ * view, for the code an app's sign-in page shows (§0.5). `showHosts` opens Settings › Hosts in the shell that asks, `showSharingAccess` Settings › Sharing & access for a host.
  */
-export function fleetPaletteCommands(showHosts: () => void): Command[] {
+export function fleetPaletteCommands(showHosts: () => void, showSharingAccess: (serverId: string) => void): Command[] {
   return [
     {
       id: 'add-server',
@@ -50,11 +50,9 @@ export function fleetPaletteCommands(showHosts: () => void): Command[] {
       run: () => {
         // On web, the device is the host the page is served by.
         const serverId = (hosts.device ?? hosts.runOn)?.id
-        if (serverId) {
-          pairCodeRequest.ask(serverId)
-          connectionsNav.open(serverId, 'access')
-        }
-        showHosts()
+        if (!serverId) return showHosts()
+        pairCodeRequest.ask(serverId)
+        showSharingAccess(serverId)
       },
     },
     {

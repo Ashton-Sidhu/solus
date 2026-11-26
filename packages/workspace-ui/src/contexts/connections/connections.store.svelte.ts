@@ -86,7 +86,7 @@ export class ConnectionsStore {
 
   /**
    * Reads one host's server settings now and every five seconds, until the returned
-   * stop. The host's Access tab and Settings → Sharing & access hold it while they show.
+   * stop. Settings → Sharing & access holds it while it shows.
    */
   watchServerMetadata(serverId: string): () => void {
     void this.refreshServerMetadata(serverId)

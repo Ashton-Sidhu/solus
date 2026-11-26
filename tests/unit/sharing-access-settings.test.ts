@@ -6,7 +6,7 @@ import { chosenSettingsHostId, settingsHostOrder } from '@solus/workspace-ui/com
 
 // Settings → Sharing & access, as in T3 Code (plans/035 §0.4). What a person
 // would notice going wrong: the page opens on a host they are not working on, a
-// link to one host's page opens another, the Access tab or the host menu loses
+// link to one host's page opens another, the host page or the host menu loses
 // its way to the page, or the menu stops copying the MCP address.
 
 // The palette's settings commands import page requests that hold `$state`.
@@ -66,11 +66,14 @@ describe('the link to Sharing & access', () => {
     expect(closedHostPages).toEqual(['back'])
   })
 
-  test('the host Access tab keeps a link to the page', () => {
+  test('the host page has no Access tab: its content is only on Sharing & access, and its Overview links there', () => {
+    // WHY: T3 Code keeps sharing and access on one page; two copies of it drift apart.
     const hostDetail = readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src/components/connections/HostDetail.svelte'), 'utf8')
-    const accessTab = hostDetail.slice(hostDetail.indexOf('<Tabs.Content value="access"'), hostDetail.indexOf('</Tabs.Content>', hostDetail.indexOf('<Tabs.Content value="access"')))
-    expect(accessTab).toContain('openSharingAccess(workspace.router, host.id)')
-    expect(accessTab).toContain('<HostDetailAccess serverId={host.id} />')
+    expect(hostDetail).not.toContain('value="access"')
+    expect(hostDetail).not.toContain('HostDetailAccess')
+    expect(hostDetail).toContain('next === "access" ? openSharingAccess(workspace.router, host.id)')
+    const page = readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src/components/connections/SharingAccessPage.svelte'), 'utf8')
+    expect(page).toContain('<HostDetailAccess')
   })
 })
 

@@ -4,6 +4,7 @@ import type { ProjectRef } from "@solus/workspace-ui/contexts/projects/project-c
 
 import { hosts, serversStore } from "@solus/workspace-ui/contexts";
 import { fleetPaletteCommands } from "@solus/workspace-ui/components/fleet/fleet-commands";
+import { sharingAccessRoute } from "@solus/workspace-ui/components/connections/lib/sharing-access";
 import { updatesStore } from "@solus/workspace-ui/contexts/updates/updates.store.svelte";
 
 import { toasts } from "@solus/workspace-ui/lib/toasts";
@@ -443,7 +444,7 @@ export function installDesktopKeybindings(
     );
   });
   // The same commands the palette runs.
-  const [addMachine, findHosts] = fleetPaletteCommands(() => session.showSettings("api-access", "keybinding"));
+  const [addMachine, findHosts] = fleetPaletteCommands(() => session.showSettings("api-access", "keybinding"), (serverId) => session.router.navigate(sharingAccessRoute(serverId), { replace: false }));
   useKeybinding("global.add-server", () => addMachine?.run?.());
   useKeybinding(
     "global.switch-organization",
