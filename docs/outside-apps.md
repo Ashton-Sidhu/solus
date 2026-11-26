@@ -11,8 +11,8 @@ Every person who uses the host can connect an app: the owner, and each member of
    Other entry points open the same page:
    - the command palette: **Use Solus in other apps** (search for "mcp", "connector", or an app name) opens it for this device's host, **Approve an app sign-in** opens it on **Approve a sign-in**, and **Sharing & access** opens it;
    - the host's menu on Settings → Hosts (right-click a host on the map or in the list, or press the menu key): **Use Solus in other apps…**, **Copy MCP address**, and **Sharing & access**;
-   - on mobile, the host page.
-2. **Choose the app.** The left column has the apps that run in the cloud: Claude, ChatGPT, Grok Bot, Poke, Muse, and Instinct. The right column has the apps that run on a computer: Cursor, Claude Code, Codex, OpenClaw, and Hermes Agent, and last **Another MCP app**. Each row shows **Connect**, or **✓ Connected** for an app that signed in. An app that your organization does not allow shows **Not allowed**. Mobile shows only the apps that run in the cloud, because a phone cannot run commands or open Cursor.
+   - on mobile, **Settings → Sharing & access**, and the host page.
+2. **Choose the app.** The left column has the apps that run in the cloud: Claude, ChatGPT, Grok Bot, Poke, Muse, and Instinct. The right column has the apps that run on a computer: Cursor, Claude Code, Codex, OpenClaw, and Hermes Agent, and last **Another MCP app**. Each row shows **Connect**, or **✓ Connected** for an app that signed in. An app that your organization does not allow shows **Not allowed**. Mobile shows only the apps that run in the cloud, because a phone cannot run commands or open Cursor. On mobile, **Connect** opens one sheet, **Connect an app**, with the access, the code, and the button that opens the app. When the host has no internet address, the same sheet first asks for one.
 3. **Connect.** Select a row. It opens in place, and its button becomes **Cancel** (or press Escape).
    - A cloud app, and Cursor: choose what the app can do (Read, Read and write, the default, or Full; see [Access](#access)). The main button opens the app with the address filled in, or copies the address or a message and then opens the app. Cursor installs Solus from one link. The code card shows a pairing code for that access and its time left ("9:12 left"); a new access level gets a new code. Under it, Solus waits for the app to sign in. **Set up another way** shows the address, the message, the steps for that app, and a link to the app's help.
    - An app that runs on a command line: Solus shows the commands to run where the app runs, with **Copy commands**. The app opens its sign-in page; approve it there.
@@ -20,16 +20,16 @@ Every person who uses the host can connect an app: the owner, and each member of
    - A connected app: when it connected, when it was last used, and its access, with **Connect again** and **Disconnect**. The host cannot change the access of a connected app: to change it, connect the app again at the new level, then disconnect the old connection.
 
    Sign-ins that match no app of the directory are listed under it, each with **Disconnect**. **Disconnect all apps** ends every app's access at once. Only the host's owner sees which apps signed in.
-5. The app opens a sign-in page on the host. The page names the app, and the place where its access goes. When the app is on the computer that opened the page, the page says so. Approve the app in one of these ways:
-   - **Approve in Solus.** Choose the access, then approve as yourself in a Solus client where you are signed in. This works for the owner and for members, also through the public address. The page shows a code and a QR code, and waits ten minutes:
+4. The app opens a sign-in page on the host. The page names the app, the place where its access goes, and what it can do. When the app is on the computer that opened the page, the page says so. The page asks first for the **Code from Solus**, or approves with one click when this browser is signed in to the host. The other ways are under **No code?**. Approve the app in one of these ways:
+   - **Pairing code.** Type the code from the code card. The code gives the access that was chosen when it was made.
+   - **Approve as {name}.** When this browser is signed in to the host's web client at the same address, the page approves as you with one click, with the access chosen on the page.
+   - **Approve in Solus** (under **No code?**). Choose the access, then approve as yourself in a Solus client where you are signed in. This works for the owner and for members, also through the public address. The page shows a code and a QR code, and waits ten minutes:
      - On your phone, scan the QR code with the camera. The Solus app opens the sign-in.
-     - On desktop or web, select **Approve a sign-in** at the top of **Use Solus from your other apps** (or use the command palette command **Approve an app sign-in**) and type the code.
+     - On desktop, web, or mobile, select **Approve a sign-in** at the top of the apps (or use the command palette command **Approve an app sign-in**) and type the code.
      - When the host serves its web client at the page's address, **Open Solus on the web** opens the sign-in there.
 
      Solus shows the app, where its access goes, the access, and the time left. **Approve** or **Deny**. Then go back to the app.
-   - **Approve as {name}.** When this browser is signed in to the host's web client at the same address, the page approves as you with one click, with the access chosen on the page.
-   - **Pairing code.** Type the code from the code card. The code gives the access that was chosen when it was made.
-   - **Ask the host owner.** On the host's own network, the owner sees the request on desktop, web, and mobile. Check that its code is the same as the code on the sign-in page.
+   - **Ask the host owner** (under **No code?**). On the host's own network, the owner sees the request on desktop, web, and mobile. Check that its code is the same as the code on the sign-in page.
 
    **Deny** sends the app away with no access. Approve only a sign-in that you just started.
 
@@ -214,7 +214,7 @@ Tools that act as the calling session (for example the browser, devices, checkou
 
 ## Revoke an app
 
-Connected apps are listed with their access and when each one last connected: on desktop and web with the paired devices in **Settings → Sharing & access**, on mobile under **Connected apps**. **Revoke** ends one app's access at once. **Revoke all apps** ends the access of every app, after you confirm. An app that is not used for thirty days must sign in again.
+A connected app shows **✓ Connected** in the directory on **Settings → Sharing & access**, on desktop, web, and mobile. Open its row to see its access and when it last connected. **Disconnect** ends its access at once. On desktop and web, **Disconnect all apps** ends the access of every app, after you confirm. An app that is not used for thirty days must sign in again.
 
 ## Limits
 
