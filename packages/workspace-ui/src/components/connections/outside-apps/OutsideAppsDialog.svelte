@@ -6,7 +6,7 @@
    *  skips the gate. The palette, Sharing & access, and the host menu open
    *  it for one host; `OutsideAppsDialogHost` mounts it. */
   import { onMount, tick } from "svelte";
-  import { AppWindow as AppWindowIcon, SquareTerminal as TerminalIcon, X as CloseIcon } from "@lucide/svelte";
+  import { X as CloseIcon } from "@lucide/svelte";
   import type { AppAccess } from "@solus/contracts/host-api";
   import { LOCAL_POLICY_ORGANIZATION_ID } from "@solus/contracts/policy";
   import { connectionsStore, getWorkspaceContext, uplinkStore } from "../../../contexts";
@@ -18,6 +18,7 @@
   import { DEFAULT_OUTSIDE_APP_ACCESS, OUTSIDE_APP_ACCESS_LEVELS, outsideAppChoices } from "../lib/outside-apps";
   import { gateAddressKind, resolveOutsideAppGate } from "../lib/outside-apps-gate";
   import { hostLabel, isHostComputer, outsideAppsDialog } from "./outside-apps-dialog.svelte";
+  import { outsideAppLogo } from "./outside-app-logos";
   import OutsideAppsApprove from "./OutsideAppsApprove.svelte";
   import OutsideAppsConnect from "./OutsideAppsConnect.svelte";
   import OutsideAppsGate from "./OutsideAppsGate.svelte";
@@ -166,22 +167,27 @@
       {:else if step === 0}
         <section class="flex flex-col gap-3">
           <h3 id="outside-apps-choose" class="text-workspace-chrome font-medium">Which app?</h3>
-          <div role="group" aria-labelledby="outside-apps-choose" class="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">
+          <!-- As T3 Code's picker: each app's logo above its name, four to a row when there is room. -->
+          <div role="group" aria-labelledby="outside-apps-choose" class="@container grid grid-cols-3 gap-1.5 @min-[26rem]:grid-cols-4">
             {#each choices as choice (choice.guide.id)}
-              {@const AppIcon = choice.guide.handoff.kind === "commands" ? TerminalIcon : AppWindowIcon}
+              {@const logo = outsideAppLogo(choice.guide.id)}
               <button
                 type="button"
                 aria-pressed={choice.guide.id === choiceId}
                 disabled={!!choice.denial}
                 title={choice.denial ?? undefined}
                 onclick={() => pick(choice.guide.id)}
-                class="flex min-w-0 items-center gap-2 overflow-hidden rounded-lg border border-border px-2.5 py-2 text-left outline-none transition-colors hover:bg-(--solus-surface-hover) focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:hover:bg-transparent aria-pressed:border-primary aria-pressed:bg-primary/8 pointer-coarse:min-h-11"
+                class="flex min-w-0 flex-col items-center gap-2 overflow-hidden rounded-xl border border-transparent px-1 pt-3 pb-2.5 outline-none transition-colors hover:bg-(--solus-surface-hover) focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent aria-pressed:border-primary aria-pressed:bg-primary/8 pointer-coarse:min-h-11"
               >
-                <AppIcon size={16} class={["shrink-0", choice.denial ? "text-(--solus-text-tertiary)" : "text-foreground"]} />
-                <span class="flex min-w-0 flex-col">
-                  <span class={["truncate text-workspace-chrome", choice.denial ? "text-(--solus-text-tertiary)" : "text-(--solus-text-primary)"]}>{choice.guide.name}</span>
+                {#if logo}
+                  <img src={logo.src} alt="" draggable="false" class={["size-10 shrink-0 rounded-[0.625rem] object-cover ring-1 ring-black/10 dark:ring-white/12", logo.onDark && "bg-neutral-900 p-2"]} />
+                {:else}
+                  <span aria-hidden="true" class="flex size-10 shrink-0 items-center justify-center rounded-[0.625rem] bg-(--solus-surface-hover) text-workspace-chrome font-medium text-(--solus-text-secondary) ring-1 ring-black/10 dark:ring-white/12">{choice.guide.name.slice(0, 1)}</span>
+                {/if}
+                <span class="flex max-w-full min-w-0 flex-col items-center">
+                  <span class="max-w-full truncate text-chrome-dense font-medium text-(--solus-text-primary)">{choice.guide.name}</span>
                   {#if choice.denial}
-                    <span class="truncate text-chrome-dense text-(--solus-text-tertiary)">Not allowed</span>
+                    <span class="max-w-full truncate text-chrome-dense text-(--solus-text-tertiary)">Not allowed</span>
                   {/if}
                 </span>
               </button>

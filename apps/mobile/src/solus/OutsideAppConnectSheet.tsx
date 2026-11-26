@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Linking, Pressable, ScrollView, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import { useListened } from "@solus-mobile/app/app-context";
@@ -34,6 +34,7 @@ import { Sheet } from "../components/ui/Sheet";
 import { Toast } from "../components/ui/Toast";
 import { cn } from "../lib/cn";
 import { HostOperationError } from "./host-operation-error";
+import { outsideAppLogo } from "./outside-app-logos";
 import { solus } from "./runtime";
 
 /**
@@ -235,6 +236,13 @@ function GateScreen(props: {
   );
 }
 
+/** An app's logo in a small rounded tile, as T3 Code's picker shows it. */
+function AppLogo(props: { readonly guideId: string }) {
+  const logo = outsideAppLogo(props.guideId);
+  if (!logo) return null;
+  return <Image source={logo} accessibilityIgnoresInvertColors style={{ width: 28, height: 28, borderRadius: 8 }} />;
+}
+
 /** The cloud apps of the catalog, and any other app that adds a remote MCP server. */
 function AppStep(props: { readonly onChoose: (choice: Choice) => void }) {
   return (
@@ -242,7 +250,7 @@ function AppStep(props: { readonly onChoose: (choice: Choice) => void }) {
       <ListSection title="Which app?">
         {PHONE_APP_GUIDES.map((guide, index) => (
           <View key={guide.id} className={cn(index > 0 && "border-t border-border-subtle")}>
-            <ListRow label={guide.name} onPress={() => props.onChoose(guide)} />
+            <ListRow label={guide.name} leading={<AppLogo guideId={guide.id} />} onPress={() => props.onChoose(guide)} />
           </View>
         ))}
       </ListSection>
