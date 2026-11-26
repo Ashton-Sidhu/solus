@@ -1,4 +1,3 @@
-import type { WatchSessionResult } from '@solus/contracts/types'
 import type { HostApi } from './host-api'
 import type { SessionHistoryPage, SessionHistoryPageRequest } from '@solus/contracts/session-history'
 
@@ -31,14 +30,23 @@ export function sameHistoryPage(left: SessionHistoryPage, right: SessionHistoryP
 
 interface HistoryResumeOptions {
   cachedTurnLimit?(page: SessionHistoryPage): number
-  onResumedWatch?(watch: WatchSessionResult): void
+  /** The connection-scoped answer of an `openSession` request: the description, and the watch the host joined. */
+  onOpened?(opened: Pick<SessionHistoryPage, 'openingDescription' | 'resumedWatch'>): void
 }
 
 export async function loadSessionHistoryPage(
   api: HistoryApi, request: SessionHistoryPageRequest, readCache?: CachedHistory, cacheWaitMs = 0,
   options?: HistoryResumeOptions,
 ): Promise<SessionHistoryPage> {
-  if (!readCache) return api.loadSessionPage(request)
+  // The opening facts belong to this connection: they never stay on the page.
+  const read = async (pageRequest: SessionHistoryPageRequest): Promise<SessionHistoryPage> => {
+    const answer = await api.loadSessionPage(pageRequest)
+    if (!pageRequest.openSession) return answer
+    const { resumedWatch, openingDescription, ...page } = answer
+    options?.onOpened?.({ resumedWatch, openingDescription })
+    return page
+  }
+  if (!readCache) return read(request)
   // Bound how long block negotiation can delay the network. A saved page can
   // still paint independently if the disk misses the deadline.
   let deadline: ReturnType<typeof setTimeout> | undefined
@@ -55,18 +63,12 @@ export async function loadSessionHistoryPage(
   }
   if (savedRows !== cached?.messages.length) offsets.clear()
   const window = cached && options?.cachedTurnLimit ? { ...request, turnLimit: options.cachedTurnLimit(cached) } : request
-  const watchRevision = options?.onResumedWatch && savedRows === cached?.messages.length && offsets.size <= 128
-    ? cached?.historyRevision : undefined
-  const { resumedWatch, ...page } = await api.loadSessionPage({
-    ...window, knownHistoryBlocks: [...offsets.keys()].slice(0, 128),
-    ...(watchRevision && { watchIfHistoryRevision: watchRevision }),
-  })
-  if (resumedWatch && watchRevision && watchRevision === page.historyRevision) options?.onResumedWatch?.(resumedWatch)
+  const page = await read({ ...window, knownHistoryBlocks: [...offsets.keys()].slice(0, 128) })
   if (cached && savedRows === cached.messages.length && !page.messages.length &&
       page.historyBlocks?.every(block => block.reused) && sameHistoryManifest(cached, page)) {
     return page.historyRevision && page.historyRevision !== cached.historyRevision ? { ...cached, historyRevision: page.historyRevision } : cached
   }
-  return restoreHistoryBlocks(page, cached, offsets) ?? api.loadSessionPage(window)
+  return restoreHistoryBlocks(page, cached, offsets) ?? read(window)
 }
 
 /** A missing or invalid block means the host must send the complete page. */
