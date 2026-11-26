@@ -202,9 +202,12 @@ export class SessionSync {
         const bundleFiles: string[] = []
         for (const [index, entry] of manifest.turns.entries()) {
           if (entry.bundle?.kind === 'too-large' || entry.bundle?.kind === 'failed') throw new SessionSyncError('code-restore', 'The session code bundle is unavailable.')
-          if (entry.bundle?.kind !== 'written') continue
+          if (entry.bundle?.kind !== 'written' && entry.bundle?.kind !== 'stored') continue
           const file = join(scratch, `code-${index}.bundle`)
-          await staged.appendFiles(head, [`code/${index}.bundle`], file)
+          // Version 1 keeps the bundle in `main`; version 2 keeps it under its code ref.
+          if (entry.bundle.kind === 'written') await staged.appendFiles(head, [`code/${index}.bundle`], file)
+          else if (await staged.hasCodeBundle(entry.bundle.sha256)) await staged.writeCodeBundle(entry.bundle.sha256, file)
+          else throw new SessionSyncError('code-restore', 'A session code bundle is missing.')
           bundleFiles.push(file)
         }
         const previousCheckout = this.rt.sessionCheckouts.getGitContext(sessionId)
@@ -267,9 +270,10 @@ export class SessionSync {
       await this.deps.repositories.named(finalRepository, signal).fetchBundle(fetched.repositoryPath, wasRefused)
       getDb().prepare('INSERT INTO session_storage (session_id, repository, head, turn_count) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET head = excluded.head, turn_count = excluded.turn_count')
         .run(sessionId, finalRepository, head, manifest.turns.length)
-      // A fetched cloud head is already pushed.
+      // A fetched cloud head is already pushed, with all the bytes of its history.
       if (fetched.source === 'cloud') {
-        getDb().prepare('UPDATE session_storage SET pushed_head = ?, reported_head = ?, push_refused_head = NULL, push_error = NULL WHERE session_id = ?').run(head, head, sessionId)
+        const pushedBytes = await this.deps.repositories.named(finalRepository, signal).newObjectBytes(null, head)
+        getDb().prepare('UPDATE session_storage SET pushed_head = ?, reported_head = ?, pushed_bytes = ?, push_refused_head = NULL, push_error = NULL WHERE session_id = ?').run(head, head, pushedBytes, sessionId)
       }
       if (gitCheckout) this.rt.sessionCheckouts.setSessionGitEnvironment(sessionId, cwd, gitCheckout)
       this.workingDirectories.set(sessionId, cwd)

@@ -216,7 +216,7 @@ import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from '
 import { registerSessionRepositoryHandlers } from './transport/handlers/session-repository-handlers'
 import { SessionSync, SessionSyncError } from './execution/sessions/session-sync'
 import { fetchSessionBundle } from './execution/sessions/session-bundle-source'
-import { chooseSessionRepositorySource, fetchSessionArtifacts, type SessionReadAccess } from './execution/sessions/session-artifacts-source'
+import { chooseSessionRepositorySource, fetchSessionArtifacts, type SessionCodeReadUrl, type SessionReadAccess } from './execution/sessions/session-artifacts-source'
 import { sessionCloudSyncDecision } from './host/policy/host-policy-store'
 import { insightsAccountOf } from './admission/actor'
 import { getSessionRecord, hasSessionRecords, sessionIdsLastActiveBetween, sessionRecordsIndexing } from './data/sessions/session-records'
@@ -1725,9 +1725,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         const answer = await sessionRemoteAccess!.remote(readSessionId, sessionCloudIdentity(localRecord, person.id.accountId), 'read')
         return answer.status === 'ready' ? answer.remote : null
       } : undefined)
+      const codeUrl: SessionCodeReadUrl = async (code, readActor) => {
+        const person = insightsAccountOf(readActor)
+        if (!sessionRemoteAccess || person?.id.kind !== 'account') return null
+        const localRecord = await getSessionRecord(ANY_ORGANIZATION, code.sessionId)
+        const answer = await sessionRemoteAccess.codeUrl({ ...code, access: 'read' }, sessionCloudIdentity(localRecord, person.id.accountId))
+        return answer.status === 'ready' ? answer.url : null
+      }
       return chooseSessionRepositorySource(decision.allowed && readAccess
         // A refused local head is not in the cloud history. With no `have`, the cloud source does not answer `diverged`.
-        ? cloudRequest => fetchSessionArtifacts(readAccess, localPath, { ...cloudRequest, have: sessionPusher?.refusedHead(sessionId) ? null : cloudRequest.have }) : null,
+        ? cloudRequest => fetchSessionArtifacts(readAccess, codeUrl, localPath, { ...cloudRequest, have: sessionPusher?.refusedHead(sessionId) ? null : cloudRequest.have }) : null,
       async (hostRequest) => {
         if (!sourceHostId && !decision.allowed && decision.reason === 'person-not-signed-in') throw new SessionSyncError('not-signed-in', 'Sign in or connect to the last run host.')
         if (!sourceHostId) throw new SessionSyncError('no-repository', 'No session repository is available.')

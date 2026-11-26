@@ -6,7 +6,11 @@ import { GitRepository } from './git-repository'
 export type CheckedPushResult =
   | { status: 'accepted'; head: string }
   | { status: 'refused'; head: string | null }
-  | { status: 'failed'; reason: 'transport' | 'timeout' }
+  /** `remoteMessage`: the lines of a refused push that the remote wrote, with no line that holds the token. */
+  | { status: 'failed'; reason: 'transport' | 'timeout'; remoteMessage?: string }
+
+/** The most text of a refused push that `checkedPush` answers. */
+const REMOTE_MESSAGE_CHARS = 4_096
 
 export interface GitRemoteOptions {
   gitDir: string
@@ -78,14 +82,18 @@ esac
       const head = await this.remoteHead()
       if (head === commit) return { status: 'accepted', head: commit }
       if (head !== expectedHead) return { status: 'refused', head }
+      const lines: string[] = []
+      const token = this.env.SOLUS_GIT_TOKEN
       try {
-        await this.repository.git(['push', `--force-with-lease=refs/heads/main:${expectedHead ?? ''}`, this.options.remote, `${commit}:refs/heads/main`])
+        await this.repository.git(['push', `--force-with-lease=refs/heads/main:${expectedHead ?? ''}`, this.options.remote, `${commit}:refs/heads/main`], {
+          onDiagnosticLine: (line) => { if (!token || !line.includes(token)) lines.push(line) },
+        })
       } catch {
         if (this.deadline.aborted) return { status: 'failed', reason: 'timeout' }
         const afterFailure = await this.remoteHead()
         if (afterFailure === commit) return { status: 'accepted', head: commit }
         if (afterFailure !== expectedHead) return { status: 'refused', head: afterFailure }
-        return { status: 'failed', reason: 'transport' }
+        return { status: 'failed', reason: 'transport', remoteMessage: lines.join('\n').slice(-REMOTE_MESSAGE_CHARS) }
       }
       const confirmed = await this.remoteHead()
       if (confirmed === commit) return { status: 'accepted', head: commit }

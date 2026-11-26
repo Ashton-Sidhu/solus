@@ -17,7 +17,7 @@ export interface SessionStorageRow {
   head: string | null
   /** The number of turn commits at `head`. */
   turnCount: number
-  /** The cloud head that refused the push of this host; null when none did. */
+  /** The cloud head that refused the push of this host, or the local commit that Solus Cloud refused for good; null when neither. */
   pushRefusedHead: string | null
 }
 

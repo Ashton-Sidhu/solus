@@ -134,3 +134,18 @@ test('a failed Artifacts read names the repository file, not a feature', async (
   const access = new ArtifactsRepositoryProvider('a'.repeat(32), 'test', 'account-token', undefined, failing)
   await expect(access.readFile(`session-${'b'.repeat(48)}`, 'c'.repeat(40), 'manifest.json')).rejects.toThrow('The Artifacts repository file could not be read.')
 })
+
+// WHY: Artifacts gives its permanent refusals only as text. The pusher must read that text,
+// or it retries a push that the remote can never accept.
+test('a refused push answers the text that the remote wrote', async () => {
+  const f = fixture()
+  const commit = f.commit()
+  execFileSync('git', ['--git-dir', f.remote, 'config', 'receive.maxInputSize', '1'])
+  const client = await GitRemote.open({ gitDir: f.local, remote: f.url, timeoutMs: 10_000 })
+  try {
+    const result = await client.checkedPush(commit, null)
+    expect(result).toMatchObject({ status: 'failed', reason: 'transport' })
+    expect(result.status === 'failed' ? result.remoteMessage : '').toContain('pack exceeds maximum allowed size')
+    expect(await client.remoteHead()).toBeNull()
+  } finally { await client.close() }
+})

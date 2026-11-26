@@ -19,6 +19,8 @@ export interface SessionCloudIdentity {
 export interface SessionRemoteAccess {
   remote(sessionId: string, identity: SessionCloudIdentity, access: 'read' | 'write'): Promise<SessionRemoteResult>
   report(request: SessionRepositoryHeadRequest, identity: SessionCloudIdentity): Promise<'accepted' | 'unavailable' | 'conflict'>
+  /** A short-lived signed URL of one code bundle: `PUT` its bytes with a Content-Length to write, `GET` to read. */
+  codeUrl(request: { sessionId: string; sha256: string; bytes: number; access: 'read' | 'write' }, identity: SessionCloudIdentity): Promise<{ status: 'ready'; url: string } | { status: 'unavailable' }>
 }
 
 /** The API names the repository. The host only selects the person's delegation. */
@@ -58,5 +60,10 @@ export class DelegatedSessionRemoteAccess implements SessionRemoteAccess {
     if (!response.ok) throw new Error(`Session repository head request failed (${response.status}).`)
     sessionRepositoryHeadResponseSchema.parse(await response.json())
     return 'accepted'
+  }
+
+  // Part 2 replaces this.
+  async codeUrl(_request: Parameters<SessionRemoteAccess['codeUrl']>[0], _identity: SessionCloudIdentity): Promise<{ status: 'ready'; url: string } | { status: 'unavailable' }> {
+    return { status: 'unavailable' }
   }
 }

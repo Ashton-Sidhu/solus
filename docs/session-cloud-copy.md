@@ -35,6 +35,7 @@ nothing of that organization's work.
 | Insights texts of a turn: prompt, system prompt, response, thoughts | Sent | Not sent |
 | Insights numbers of a turn: model, cost, times | By the Insights rules | By the Insights rules |
 | The session repository, for a session that continues on a different host | Sent, when session storage is on in Solus Cloud | Not sent |
+| The code bundles of the session repository, in object storage | Sent with the repository | Not sent |
 | The record of an organization session: title, description, project, host, times | Sent | Sent. The Solus API admits each organization session before its agent starts. |
 | Share rows of an organization session | Sent | Sent when a share changes |
 
@@ -42,6 +43,21 @@ The title and the description of a session are written from its first prompt.
 Thus, with the setting off, the correct statement to a customer is "Solus Cloud
 stores no conversation of your sessions". Do not say that nothing from a prompt
 reaches Solus Cloud.
+
+## Limits of the cloud copy of a session repository
+
+The format is in `docs/plans/session-storage.md`.
+
+- A host sends only a repository whose first manifest is version 2. A session
+  that began on an older release stays on its host. Another host gets it only
+  from that host.
+- A host sends one commit at a time, and the code bundles of a commit before
+  the commit.
+- A host stops the push of a session when Solus Cloud refuses it for good, or
+  when the session passes 900 MiB. The host records the reason in
+  `session_storage.push_error`, for example "This session is too large for the
+  cloud copy." No client shows this reason yet. The session stays on its host,
+  and another host can still get it from that host.
 
 ## What a reader gets
 
