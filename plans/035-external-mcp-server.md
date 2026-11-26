@@ -1,6 +1,6 @@
 # External MCP server
 
-Status: phases 1 to 4 and the docs built; phase 5 needs a product decision (§0.3). Reference: T3 Code at `pingdotgg/t3code` commit `60375a56` (`apps/server/src/mcp/`). User page: `docs/outside-apps.md`.
+Status: built, with the app allow-list and member approval (§0.3). Reference: T3 Code at `pingdotgg/t3code` commit `60375a56` (`apps/server/src/mcp/`). User page: `docs/outside-apps.md`.
 
 ## 0. What was built, and where it differs from the design
 
@@ -21,21 +21,22 @@ Status: phases 1 to 4 and the docs built; phase 5 needs a product decision (§0.
 1. **Tokens.** A Claude run gets a token for the run. A Codex session keeps one token across its runs, because Codex may keep a loaded thread's MCP config; between runs the token reaches no tools. There is no `ActiveRun` registry: the run that holds the token gives its tools, context, and approval (`RunToolBinding`).
 2. **Approval.** Claude still asks through `canUseTool`, for each Solus tool that is not in `allowedTools`; this works the same over HTTP. Codex's approval comes from the endpoint, with the card the dynamic tools used. Both Solus servers set `default_tools_approval_mode = "approve"`: without it, Codex under the `never` policy (full access, plan) refuses every Solus call, as a real Codex 0.171 turn showed. The adapter also accepts any approval request Codex still sends for the Solus servers. `effect` was not added to the rule: `requiresApproval` stays the approval flag.
 3. **Call ids.** §9.1 was not needed. The Claude CLI stamps `claudecode/toolUseId` on calls to an HTTP MCP server too (a real Haiku turn showed it for both tools). Codex names no item, so a call takes the `mcpToolCall` item that Codex started for that tool and those arguments (`SolusCallItems`).
-4. **Outside app approval.** The consent page starts the pair approval that a device uses (`PairApprovals` takes the grant it hands out), so the request already shows on desktop, web, and mobile. Through the public tunnel, only a pairing code approves: pairing is local authorization. A cloud machine has no app sign-in.
-5. **App grants.** A grant is a `host_device` row of kind `app:read`, `app:write`, or `app:full`, so it is listed, revoked, and kept with the paired devices with no migration. It acts as the host owner (`via: 'local'`), bounded by its access. Tokens live while used within thirty days; there is no refresh token.
+4. **Outside app approval.** The consent page starts the pair approval that a device uses (`PairApprovals` takes the grant it hands out), so the owner sees the request on desktop, web, and mobile. Through the public tunnel, and on a cloud machine, only a pairing code approves.
+5. **App grants.** A grant is a `host_device` row of kind `app`, with its app, access, and approver in columns (migration 0013), so it is listed, revoked, and kept with the paired devices. It acts as its approver (§0.3), bounded by its access. Tokens live while used within thirty days; there is no refresh token.
 6. **Tools for outside apps.** The first list (`APP_TOOLS`) has only tools that work with no calling session: works, project and codebase reads, tasks except create, automations except create, and `list_agent_targets`, `search_sessions`, `read_session`, `start_sessions`, `stop_session`, `organize_session`. The `session_id` arguments, the requester key (§8), and the pull request, link, `send_session`, and `read_session_exchange` tools are not built yet.
 7. **Provider of an app's call.** An outside app has no harness. Its calls record `claude-code` where a tool records a provider.
 8. **Sessions that an app starts.** `createSession` with no parent now works for the tool call's person (`toolCallActor` in `prompt-dispatch.ts`), not the host. This also applies to a parentless session that a harness turn starts.
 
-### 0.3 Phase 5: approval by a signed-in person
+### 0.3 Which apps, and as whom (built)
 
-No account-plane change is needed. T3 Code approves with its account by sending the person to its hosted web app, which is already signed in to the host as a client session; the host only checks that the session may manage access (`apps/server/src/auth/McpOAuth.ts:430`). Solus already shows an app's approval request in every client connected to the host, app.solus.sh included. What is left:
+Maintainer decisions, 2026-11-26: organizations choose which apps their members may connect, and every app is allowed by default; a person picks an app from a list of known apps, as in T3 Code.
 
-1. **Who may approve.** `hostsPairApprovalDecide` needs `host.local.reach`, so only the local owner decides. An app request could be decided by any person with `host.use` on the host. T3 Code has one owner, so it has no such rule.
-2. **The grant names the person who approved it.** The app then acts as that person, not as the owner. This needs the approver's principal on the grant (a `host_device` column, by migration), and a check on each `/mcp` call that the person still has access to the host.
-3. **Through the tunnel,** the consent page links to app.solus.sh, where the person approves.
+1. **Known apps.** `packages/contracts/src/outside-apps.ts` lists the apps a person picks from, with how to set each up (`OUTSIDE_APP_GUIDES`). The host knows a signing-in app by where its OAuth redirect returns (`outsideAppOf`): a known host or scheme, `local` for a loopback address (Claude Code, Codex, and any CLI), or `other`. A client whose redirects name different apps is `other`.
+2. **Organization allow-list.** `sessions.limits.apps.allowed` in a policy names the allowed apps; not set allows every app (`WorkPolicy.appDenial`). The host checks it when the app is approved, when the code is spent, and on every call, for the approver's work: the member's organization, or local work for the owner (where only an MDM policy applies).
+3. **As whom.** An app acts as the person who approved it (`approved_by` on the grant, migration 0013). The owner approves in the Solus app or with a pairing code. A member makes a pairing code in their own client (`connectionsCreateAppPairingCode` needs only `host.use`); the code carries them. In-app approval stays the owner's, so no member sees another person's request. On each call of a member's app, the host renews the member's delegated token at most every five minutes; when it cannot, the app is refused.
+4. **Cloud machines** take outside apps. There, a member's pairing code is the only approval.
 
-This lets organization members connect apps. It is a product decision: today only the owner of a personal host connects apps.
+No account-plane change was needed: T3 Code approves with its account through its hosted web app, which is already a signed-in client of the host.
 
 ## 1. Problem
 

@@ -15,10 +15,16 @@ Apps outside Solus, such as Claude Desktop, Cursor, or Claude Code and Codex in 
    ```
 
 3. The app opens a sign-in page. Choose the access, then approve the app in one of two ways:
-   - **Approve in the Solus app.** Solus shows the request on desktop, web, and mobile. Check that its code is the same as the code on the sign-in page.
+   - **Approve in the Solus app.** The host owner sees the request on desktop, web, and mobile. Check that its code is the same as the code on the sign-in page.
    - **Use a pairing code.** Make one with **Make pairing code**. A code works once and lasts ten minutes.
 
-Through the public address, only a pairing code approves an app.
+The section lists known apps (Claude, ChatGPT, Grok Bot, Poke, Cursor, Claude Code, Codex) with how to add Solus to each.
+
+Through the public address, and on a cloud machine, only a pairing code approves an app.
+
+## Who the app acts as
+
+The app acts as the person who approved it. The host owner approves in the Solus app or with a pairing code. A member of an organization that uses the host makes a pairing code in their own Solus client; their app then acts as them, with their access. A member's app stops within five minutes after the member loses access to the host.
 
 ## Access
 
@@ -38,5 +44,5 @@ Connected apps are listed with their access: on desktop and web with the paired 
 
 ## Limits
 
-- A cloud machine does not take outside apps. It has no pairing, so nothing can approve one.
-- Only the host owner approves an app. Approval with a Solus account, for organization members, is not available yet.
+- An organization can choose which apps its members may connect: in its policy, **Outside apps** under the session limits. With no choice, every app may connect. An app the policy does not allow cannot sign in, and an app approved before stops working.
+- Solus knows an app by where its sign-in returns. An app on your own computer, such as Claude Code or Codex, is one of **Apps on your computer**. An app Solus does not know is one of **Other apps**.
