@@ -49,6 +49,8 @@ The frame is the page: it is as wide as the conversation, the side pane, or the 
 - the line length of prose, for example `max-width: 70ch` on a paragraph
 - an SVG diagram: give it a `max-width` equal to its `viewBox` width. An SVG with `width: 100%` scales its text with the frame, so in a wide column its text grows far larger than the page text.
 
+The frame is borderless and aligned with the text around it: give `html`, `body`, and the outermost element no background colour (this overrides a style preference for a page background), no horizontal padding, and no outer card, border, or banner title.
+
 A box with its own background gets at least 16px padding and `var(--radius)` corners. Use flexible layouts, wrapping controls, and `min-width: 0`, not `screen.width`. Stack panels in a narrow frame. Provide labels, visible keyboard focus, and keyboard alternatives for dragging. Pair colour with labels or shapes.
 
 ### Diagrams
