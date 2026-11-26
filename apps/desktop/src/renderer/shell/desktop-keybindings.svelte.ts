@@ -432,7 +432,7 @@ export function installDesktopKeybindings(
   );
   useKeybinding(
     "global.open-task",
-    () => actions.openCommandPalette({ id: "go-to-task", title: "Open task" }),
+    () => actions.openCommandPalette({ id: "go-to-task", title: "Open issue" }),
     { enabled: () => paletteAvailable },
   );
   useKeybinding("global.permission-menu", () => {

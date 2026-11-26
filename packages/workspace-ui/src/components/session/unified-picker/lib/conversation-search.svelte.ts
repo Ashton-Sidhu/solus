@@ -307,7 +307,7 @@ export class RecentSessions {
 /** The homes a comment search reads: the connected hosts that keep tasks. */
 export interface TaskCommentHosts {
   serverIds(): string[]
-  apiFor(serverId: string): Pick<HostApi, 'tasksSearchComments'>
+  apiFor(serverId: string): Pick<HostApi, 'issuesSearchComments'>
 }
 
 const taskHosts: TaskCommentHosts = {
@@ -359,10 +359,10 @@ export class TaskCommentSearch {
       const scope = projectKey ? this.scopeOnHost(serverId, projectKey) : undefined
       if (scope === null) return []
       const scopedKey = !scope ? undefined : 'repositoryKey' in scope ? scope.repositoryKey : scope.projectRoot
-      return this.hosts.apiFor(serverId).tasksSearchComments({ query, projectKey: scopedKey }).catch(() => [])
+      return this.hosts.apiFor(serverId).issuesSearchComments({ query, projectKey: scopedKey }).catch(() => [])
     }))
     if (requestId !== this.requestId) return
-    this.passages = new Map(perHost.flat().map((hit) => [hit.taskId, hit.snippet]))
+    this.passages = new Map(perHost.flat().map((hit) => [hit.issueId, hit.snippet]))
   }
 }
 

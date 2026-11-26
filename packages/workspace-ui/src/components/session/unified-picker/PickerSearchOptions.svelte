@@ -139,7 +139,7 @@
       value={filters.status}
       onValueChange={(value) => onFilters({ ...filters, status: value as PickerStatusFilter })}
     >
-      <DropdownMenu.GroupHeading>Task status</DropdownMenu.GroupHeading>
+      <DropdownMenu.GroupHeading>Issue status</DropdownMenu.GroupHeading>
       {#each Object.entries(PICKER_STATUS_LABELS) as [value, label] (value)}
         <DropdownMenu.RadioItem {value}><span class="flex-1">{label}</span></DropdownMenu.RadioItem>
       {/each}

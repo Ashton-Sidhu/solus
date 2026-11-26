@@ -49,6 +49,8 @@ The frame is the page: it is as wide as the conversation, the side pane, or the 
 - the line length of prose, for example `max-width: 70ch` on a paragraph
 - an SVG diagram: give it a `max-width` equal to its `viewBox` width. An SVG with `width: 100%` scales its text with the frame, so in a wide column its text grows far larger than the page text.
 
+The frame is borderless and aligned with the text around it: give `html`, `body`, and the outermost element no background colour (this overrides a style preference for a page background), no horizontal padding, and no outer card, border, or banner title.
+
 A box with its own background gets at least 16px padding and `var(--radius)` corners. Use flexible layouts, wrapping controls, and `min-width: 0`, not `screen.width`. Stack panels in a narrow frame. Provide labels, visible keyboard focus, and keyboard alternatives for dragging. Pair colour with labels or shapes.
 
 ### Diagrams
@@ -83,7 +85,7 @@ After every change, preview again. Do not show a page that you changed after its
 
 The reader sees the page as part of your reply: do not announce it or restate it. Explain the result briefly, and state limits such as sample data or inputs that reset on reload.
 
-**Revise a saved work:** read it with `read_work` (use `find_works` if the ID is unknown) for its current content and `content_version`. Change it, then call `update_work` with the same `work_id` and that `expected_content_version`. On a conflict, read it again and apply the change to the latest content; if edits overlap in meaning, ask which to keep. Keep the existing design unless the user asks for a new one.
+**Revise a saved work:** read it with `read_work` (use `list_works` if the ID is unknown) for its current content and `content_version`. Change it, then call `update_work` with the same `work_id` and that `expected_content_version`. On a conflict, read it again and apply the change to the latest content; if edits overlap in meaning, ask which to keep. Keep the existing design unless the user asks for a new one.
 
 **Documents:** to put an interactive visual in a document, save the artifact first and put its embed token on its own line in the document. Keep live `work://embed` links and rendered fences in a document. Use image generation for raster images. Google-linked works are read-only in Solus.
 

@@ -51,7 +51,7 @@
   import { needsLabel } from "../presence/lib/actor-name";
   import SessionNameInput from "../session/SessionNameInput.svelte";
   import DotMatrix from "../ui/DotMatrix.svelte";
-  import { taskStatusFor, type SidebarTask } from "../session/lib/task-list";
+  import { sidebarStatusFor, type SidebarSession } from "../session/lib/sidebar-rows";
   import {
     breadcrumbLeafLabels,
     breadcrumbTaskGroups,
@@ -112,7 +112,7 @@
   // A draft is in no list, so its task crumb is the record it names — nothing
   // when it names none — and its session crumb has no siblings to offer.
   const draftTaskId = $derived(draft ? existingTaskId(draft.task) : null);
-  const task = $derived(draft ? null : sidebarStore.taskForTab(tabId));
+  const task = $derived(draft ? null : sidebarStore.rowForTab(tabId));
   // The task the crumb names: the one the draft is aimed at, or the one the
   // session is linked to. A task has no row of its own.
   const crumbTaskId = $derived(draft ? draftTaskId : (task?.linkedTask?.taskId ?? null));
@@ -145,7 +145,7 @@
   );
   // The crumb names the codebase of a session in one this client knows, as its sidebar row does.
   const crumbLabel = $derived((codebaseId ? codebasesStore.codebaseOf(codebaseId)?.name : undefined) ?? projectLabel);
-  const tasksInProject = $derived(sidebarStore.tasksForProject(projectGroupKey));
+  const tasksInProject = $derived(sidebarStore.rowsForProject(projectGroupKey));
   const filteredTasksInProject = $derived(
     tasksInProject.filter((item) =>
       breadcrumbTaskMatches(item.title, taskQuery),
@@ -176,7 +176,7 @@
   const leafLabels = $derived(
     breadcrumbLeafLabels(
       draft
-        ? ((draftTaskId ? session.tasksStore.peek(draftTaskId)?.title : null) ?? null)
+        ? ((draftTaskId ? session.issuesStore.peek(draftTaskId)?.title : null) ?? null)
         : (task?.linkedTask?.title ?? null),
       current?.label ?? "Session",
       draftMode,
@@ -191,7 +191,7 @@
   const taskSyncFailed = $derived(
     taskSyncOps.some((op) => op.state === "failed"),
   );
-  const currentStatus = $derived(taskStatusFor(current?.attention ?? null));
+  const currentStatus = $derived(sidebarStatusFor(current?.attention ?? null));
   const currentLive = $derived(current ? sidebarStore.liveFactsOf(current, current.attention) : {});
   const statusIcon = $derived(getAttentionMark(current?.attention ?? null, currentLive));
   const currentStatusColor = $derived(statusColor(currentStatus));
@@ -248,7 +248,7 @@
     | null
   >(null);
 
-  function openRowContextMenu(event: MouseEvent, item: SidebarTask) {
+  function openRowContextMenu(event: MouseEvent, item: SidebarSession) {
     event.preventDefault();
     event.stopPropagation();
     menu = null;
@@ -279,11 +279,11 @@
   /** Picking a session on a draft files the draft under that session's task
    *  rather than navigating away — the draft is what is being aimed, and its
    *  prompt comes with it. */
-  function selectTask(next: SidebarTask) {
+  function selectTask(next: SidebarSession) {
     menu = null;
     if (draft) {
       draft.task = next.linkedTask
-        ? { kind: "existing", taskId: next.linkedTask.taskId }
+        ? { kind: "existing", issueId: next.linkedTask.taskId }
         : { kind: "none" };
     } else {
       void sidebarStore.selectTask(next);
@@ -313,7 +313,7 @@
   /** Closing the row you are standing on moves you elsewhere, so the menu that
    *  described the old location has to go with it. Closing any other row leaves
    *  the menu open — you came here to tidy up, and one close is rarely one. */
-  function closeTask(item: SidebarTask) {
+  function closeRow(item: SidebarSession) {
     if (item.key === task?.key) menu = null;
     sidebarStore.removeRow(item);
     requestInputFocus();
@@ -321,7 +321,7 @@
 
   /** Completing from the band clears the mounted conversation too, the same
    *  way the sidebar checkmark and the row's close control do. */
-  async function completeTask(item: SidebarTask) {
+  async function completeTask(item: SidebarSession) {
     try {
       await sidebarStore.completeTask(item);
     } catch (error) {
@@ -351,7 +351,7 @@
       draft.moveTo(openFolder(draft.run.location, { serverId: host, path: nextPath }));
       void session.environment.refresh(host, nextPath);
     } else {
-      const mostUrgent = sidebarStore.allTasks.find(
+      const mostUrgent = sidebarStore.allRows.find(
         (item) => item.key === leadTaskKey,
       );
       if (mostUrgent) void sidebarStore.selectTask(mostUrgent);
@@ -393,7 +393,7 @@
 </script>
 
 <!-- One task row, shared by the open and completed sections of the picker. -->
-{#snippet taskRow(item: SidebarTask)}
+{#snippet taskRow(item: SidebarSession)}
   {@const note = statusNote(item.status)}
   <div class="group/row relative">
     <Command.Item
@@ -423,7 +423,7 @@
       class={ROW_CLOSE}
       title="Archive session"
       aria-label="Archive {item.title}"
-      onclick={() => closeTask(item)}
+      onclick={() => closeRow(item)}
     >
       <XIcon size={14} weight="bold" />
     </button>
@@ -587,9 +587,9 @@
                         ? 'bg-red-500'
                         : 'bg-amber-500'}"
                       title={taskSyncFailed
-                        ? "Some task updates failed to sync"
-                        : `${taskSyncOps.length} task update${taskSyncOps.length === 1 ? "" : "s"} waiting to sync`}
-                      aria-label="Task updates waiting to sync"
+                        ? "Some issue updates failed to sync"
+                        : `${taskSyncOps.length} issue update${taskSyncOps.length === 1 ? "" : "s"} waiting to sync`}
+                      aria-label="Issue updates waiting to sync"
                     ></span>
                   {/if}
                 </button>
@@ -603,7 +603,7 @@
                   <Command.Root shouldFilter={false}>
                     <MenuSearch
                       bind:value={taskQuery}
-                      placeholder="Search tasks in {projectLabel}"
+                      placeholder="Search sessions in {projectLabel}"
                     />
                     <Command.List
                       class="max-h-[min(24rem,calc(100vh-8rem))] overflow-y-auto p-[0.3125rem]"
@@ -612,7 +612,7 @@
                         <div
                           class="px-3 py-6 text-center text-xs text-muted-foreground"
                         >
-                          No tasks match
+                          No sessions match
                         </div>
                       {/if}
 
@@ -787,7 +787,7 @@
                   {@const status =
                     child.tabId === tabId
                       ? null
-                      : taskStatusFor(child.attention)}
+                      : sidebarStatusFor(child.attention)}
                   {@const note = status ? statusNote(status) : null}
                   <div class="group/row relative">
                     <button
@@ -918,7 +918,7 @@
     {@const menuAt = { x: contextMenu.x, y: contextMenu.y }}
     <!-- Completion belongs to a session's own row, as in the sidebar. -->
     {@const menuSessionRow = menuChild.tabId
-      ? sidebarStore.taskForTab(menuChild.tabId)
+      ? sidebarStore.rowForTab(menuChild.tabId)
       : null}
     {#await import("../session/SessionContextMenu.svelte") then { default: SessionContextMenu }}
       <SessionContextMenu

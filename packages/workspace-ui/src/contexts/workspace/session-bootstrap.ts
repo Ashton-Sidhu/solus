@@ -581,7 +581,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   void afterPaint().then(async () => {
     if (ctx.sessionFor(snapTab.tabId) !== session) return
     const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId, level: 'details', force: false }).catch(() => null)
-    const taskHydration = ctx.tasksStore.ensureSessionBinding(session.id, projectHome(snapTab).serverId).catch(() => null)
+    const taskHydration = ctx.issuesStore.ensureSessionBinding(session.id, projectHome(snapTab).serverId).catch(() => null)
     await Promise.all([environmentRefresh, taskHydration])
   })
 

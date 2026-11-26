@@ -40,7 +40,7 @@ export const SCOPE_LABELS = {
   'document-modal': 'Document modal',
   automations: 'Automations',
   insights: 'Insights',
-  tasks: 'Tasks',
+  tasks: 'Issues',
   prs: 'Pull requests',
   notifications: 'Notifications',
   'plan-action-bar': 'Plan review',

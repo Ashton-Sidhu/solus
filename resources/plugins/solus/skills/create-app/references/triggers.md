@@ -38,7 +38,7 @@ webhooks: {
 
 A deploy makes a webhook for each declaration. Solus checks the signature before the mutation runs, drops a second delivery with the same `replayKey`, and keeps a log of deliveries. The mutation gets `{ headers, query, body }`: header names are lower case, and `body` is JSON when the request was JSON. Answer fast: store the event, or start a workflow, and return.
 
-The app's Manage page shows each webhook's URL and its signing secret. Tell the user to copy both into the other service. When the other service gives its own secret, the user sets it in Settings → Webhooks. The verification schemes are the ones of `create_webhook`: `hmac`, `public_key`, `token`, `jwt`, `standard_webhooks`, and `none` with a reason.
+The app's Manage page shows each webhook's URL and its signing secret. Tell the user to copy both into the other service. When the other service gives its own secret, the user sets it in Settings → Webhooks. The verification schemes are the ones of `manage_webhooks`: `hmac`, `public_key`, `token`, `jwt`, `standard_webhooks`, and `none` with a reason.
 
 ## Signals
 

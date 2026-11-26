@@ -84,7 +84,7 @@ describe('rooms', () => {
     // WHY: a teammate's row must say "In Fix login, agent running" on a client
     // that never opened that session, so the host, not the sidebar, names it.
     const describeSession = (sessionId: string): SessionActivity | null => sessionId === 's1'
-      ? { sessionId, title: 'Fix login', taskId: 't1', state: 'running', activeTurn: activeTurnFor(actorFor(BOB), 'claude-code') }
+      ? { sessionId, title: 'Fix login', issueId: 't1', state: 'running', activeTurn: activeTurnFor(actorFor(BOB), 'claude-code') }
       : null
     const presence = new PresenceManager({ describeSession, schedule: manualClock().schedule })
     presence.join('c-bob', BOB, 'Solus cloud')
@@ -93,7 +93,7 @@ describe('rooms', () => {
     presence.setFocus('c-owner', { kind: 'session', sessionId: 's2' })
     presence.setComposing('c-bob', 's2', true)
     const [bob, owner] = (await presence.hostSnapshot()).participants
-    expect(bob?.activity).toMatchObject({ title: 'Fix login', taskId: 't1', state: 'running', activeTurn: { author: { displayName: 'Bob' } } })
+    expect(bob?.activity).toMatchObject({ title: 'Fix login', issueId: 't1', state: 'running', activeTurn: { author: { displayName: 'Bob' } } })
     expect(bob?.isComposing).toBe(false)
     expect(owner?.activity).toBeUndefined()
     presence.setComposing('c-bob', 's1', true)

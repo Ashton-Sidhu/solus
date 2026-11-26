@@ -464,14 +464,12 @@ describe('the agent write policy', () => {
     // which the Claude SDK cannot turn into JSON Schema; the listing must not need them.
     const tools = await import('@solus/server/execution/agents/tools/config-tools')
     const { createSdkMcpServer, tool } = await import('@anthropic-ai/claude-agent-sdk')
-    const { adaptCodexTools } = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
     const agentTool = tools.updateConfigAgentTool
     const server = createSdkMcpServer({ name: 'solus', tools: [tool(agentTool.name, agentTool.description, agentTool.inputFields, async () => ({ content: [] }))] })
     // SAFETY: the SDK's in-process server is an MCP `McpServer`; its request handler map is how a client's tools/list reaches it.
     const handlers = (server as unknown as { instance: { server: { _requestHandlers: Map<string, (request: object, extra: object) => Promise<{ tools: Array<{ inputSchema: { properties: object } }> }>> } } }).instance.server._requestHandlers
     const listed = await handlers.get('tools/list')!({ method: 'tools/list', params: {} }, {})
     expect(Object.keys(listed.tools[0]!.inputSchema.properties).sort()).toEqual(['device', 'deviceManager', 'host', 'personal', 'profile'])
-    expect(() => adaptCodexTools([agentTool])).not.toThrow()
 
     expect((await runTool(tools.readConfigAgentTool, { schema: 'personal' }, context)).text).toContain('extraInstructions')
     expect((await runTool(tools.readConfigAgentTool, { schema: 'deviceManager' }, context)).text).toContain('sshHosts')
@@ -485,7 +483,6 @@ describe('the agent write policy', () => {
     for (const [section, meaning] of [
       ['personal', 'The order that the next-tab and previous-tab keys follow'], // personal.tabGroupMode
       ['personal', 'the maximum of earlier conversation it takes, in tokens'], // personal.handoffHistoryTokens
-      ['personal', 'What agents can do to the status of a task'], // personal.agentTaskLifecyclePolicy
       ['host', 'By project path on this host'], // host.reviewWarmingByProject
       ['deviceManager', 'shows next to the conversation of that agent'], // deviceManager.autoShowAgentDevices
       ['device', 'Shortcut overrides by binding id'], // device.keybindings

@@ -8,7 +8,7 @@ import {
   jiraStatusCategory,
   taskCategory,
 } from '@solus/server/data/tasks/status-category'
-import { TASKS_AUTH_ERROR_PREFIX } from '@solus/contracts/task-types'
+import { ISSUES_AUTH_ERROR_PREFIX } from '@solus/contracts/task-types'
 
 // WHY: the status category is the one fact that agent rules and mixed views
 // read from a provider's own words. A wrong category makes a session move a
@@ -79,7 +79,7 @@ describe('what a failed provider call means for the connection', () => {
   })
 
   test('a failed write carries the connect marker only for a connection problem', () => {
-    expect(taskWriteError(new Error('GitHub is not connected')).message.startsWith(TASKS_AUTH_ERROR_PREFIX)).toBe(true)
+    expect(taskWriteError(new Error('GitHub is not connected')).message.startsWith(ISSUES_AUTH_ERROR_PREFIX)).toBe(true)
     expect(taskWriteError(new Error('Validation Failed')).message).toBe('Validation Failed')
   })
 })

@@ -42,12 +42,6 @@ const REASONING_VALUES = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultr
 
 // ─── Schemas (raw Zod fields, reused by every tool definition) ───
 
-const listAutomationsFields = {} as const
-
-const automationIdFields = {
-  automation_id: z.string().describe('The id of the automation (from list_automations).'),
-}
-
 // One flat trigger object covering every time-based trigger. Only the fields
 // relevant to `type` are read (see toTrigger); the rest are ignored.
 const triggerSchema = z
@@ -61,35 +55,32 @@ const triggerSchema = z
   })
   .describe('Trigger for the automation. Omit for a manual (run-now-only) automation. Scheduled triggers fire only while Solus is open.')
 
-const createAutomationFields = {
-  name: z.string().describe('A short, human-readable name for the automation.'),
-  prompt: z.string().describe('The instruction submitted to the agent when the automation runs.'),
-  cwd: z.string().optional().describe('Exact working directory for the run. When omitted, defaults to the active project root.'),
-  use_worktree: z.boolean().optional().describe('When true, create an isolated worktree from the project root for each run. Defaults to false.'),
-  agent_provider: z.enum(SESSION_AGENT_IDS).optional().describe("Which agent runs the automation: 'claude-code' (default), 'codex', or 'antigravity'."),
-  model_id: z.string().nullable().optional().describe('Model id to run with. Omit or null for the default model.'),
-  reasoning_effort: z.enum(REASONING_VALUES).optional().describe("Reasoning effort for runs. Defaults to 'medium'."),
-  enabled: z.boolean().optional().describe('Whether the automation is enabled. Defaults to true.'),
-  trigger: triggerSchema.optional(),
+const READ_ACTIONS = ['list', 'read', 'runs'] as const
+const MANAGE_ACTIONS = ['create', 'update', 'delete', 'run'] as const
+export type AutomationToolAction = (typeof READ_ACTIONS)[number] | (typeof MANAGE_ACTIONS)[number]
+
+const readFields = {
+  action: z.enum(READ_ACTIONS),
+  automation_id: z.string().optional().describe('read and runs: required.'),
+  run_id: z.string().optional().describe('runs: only this run.'),
 }
 
-const updateAutomationFields = {
-  archived: z.boolean().optional().describe("Archive to stop future checks and keep history until the host retention period expires. False restores it as paused."),
-  automation_id: z.string().describe('The id of the automation to update.'),
-  name: z.string().optional(),
-  prompt: z.string().optional(),
-  cwd: z.string().optional(),
-  use_worktree: z.boolean().optional(),
-  agent_provider: z.enum(SESSION_AGENT_IDS).optional(),
-  model_id: z.string().nullable().optional(),
-  reasoning_effort: z.enum(REASONING_VALUES).optional(),
-  enabled: z.boolean().optional(),
-  trigger: triggerSchema.optional(),
-}
-
-const listRunsFields = {
-  automation_id: z.string().describe('The id of the automation.'),
-  run_id: z.string().optional().describe('Read only this run (from run_automation or list_automation_runs).'),
+/** The fields of manage_automations, with its action limited to `actions`. */
+function manageFields(actions: readonly [AutomationToolAction, ...AutomationToolAction[]]) {
+  return {
+    action: z.enum(actions),
+    automation_id: z.string().optional().describe('Required, except for create.'),
+    name: z.string().optional().describe('create: required. A short, human-readable name.'),
+    prompt: z.string().optional().describe('create: required. The instruction the agent gets at each run.'),
+    cwd: z.string().optional().describe('Exact working directory for the run. create: defaults to the active project root.'),
+    use_worktree: z.boolean().optional().describe('True: each run makes an isolated worktree from cwd. Defaults to false.'),
+    agent_provider: z.enum(SESSION_AGENT_IDS).optional().describe("Which agent runs it: 'claude-code' (default), 'codex', or 'antigravity'."),
+    model_id: z.string().nullable().optional().describe('Omit or null for the default model.'),
+    reasoning_effort: z.enum(REASONING_VALUES).optional().describe("Defaults to 'medium'."),
+    enabled: z.boolean().optional().describe('Defaults to true.'),
+    archived: z.boolean().optional().describe('update: true stops future checks and keeps history until the host retention period expires. False restores it as paused.'),
+    trigger: triggerSchema.optional(),
+  }
 }
 
 interface AutomationToolArgs {
@@ -109,16 +100,10 @@ interface AutomationToolArgs {
 
 // ─── Descriptions ───
 
-const CREATE_DESC =
-  'Create a new automation — the way recurring, scheduled, and "remind me to…" work that runs in its own session is set up in Solus. To wait for a result and then continue in this conversation ("tell me when CI finishes", "watch CI and fix failures"), run the wait as a background command instead; its result wakes this conversation. Interpret “in 30 minutes” as a once trigger and “every 30 minutes” as an interval trigger. Creating a scheduled automation is sufficient: do not call run_automation as well unless the user asked for an immediate check. A saved prompt run against an agent with a frozen agent, model, and reasoning level. Runs execute unattended with auto-approved permissions. An explicit `cwd` is used unchanged; when omitted, it defaults to the active project root. Set `use_worktree: true` only when each run must create an isolated worktree from that cwd. Provide a `trigger` to schedule it (one-time, interval, or cron) — scheduled runs fire only while Solus is open and catch up a missed fire on the next launch. Omit `trigger` for a manual automation you start with run_automation. Returns the new automation id.'
-const LIST_DESC =
-  'List all automations with their id, name, enabled state, and last run status. Call this to discover an automation_id.'
-const READ_DESC = 'Read the full definition of one automation by id.'
-const UPDATE_DESC = 'Update fields of an existing automation (any subset). Unspecified fields are left unchanged. Pause or resume with enabled alone. To stop future checks and archive, set archived: true. Cadence and history are kept until the host retention period expires. A check already queued or running can still finish.'
-const DELETE_DESC = 'Permanently delete an automation and its run history.'
-const RUN_DESC =
-  'Trigger an automation to run now. Returns a run_id immediately; the run executes in the background. Use list_automation_runs with automation_id and run_id for status and the session_id, then read_session for agent output.'
-const LIST_RUNS_DESC = 'List automation runs newest first, with status, timing, session_id, and errors, including failures before a session starts. Optionally filter by run_id. Use read_session with session_id for agent output.'
+const MANAGE_DESC =
+  'Change automations — the way recurring, scheduled, and "remind me to…" work that runs in its own session is set up in Solus. create: a saved prompt with a frozen agent, model, and reasoning level; returns the new automation id. Runs execute unattended with auto-approved permissions. To wait for a result and then continue in this conversation ("tell me when CI finishes", "watch CI and fix failures"), run the wait as a background command instead; its result wakes this conversation. Interpret “in 30 minutes” as a once trigger and “every 30 minutes” as an interval trigger. Creating a scheduled automation is sufficient: do not also run it unless the user asked for an immediate check. An explicit `cwd` is used unchanged. Set `use_worktree: true` only when each run must create an isolated worktree from that cwd. Provide a `trigger` to schedule it (one-time, interval, or cron); scheduled runs fire only while Solus is open and catch up a missed fire on the next launch. update: any subset; unspecified fields stay. Pause or resume with enabled alone; archive with archived: true. A check already queued or running can still finish. delete: the automation and its run history, permanently. run: start it now; returns a run_id at once, and the run continues in the background. Use read_automations runs for its status and session_id, then read_session for agent output.'
+const READ_DESC =
+  'Read automations. list: every automation with its id, name, state, and last run status. read: the full definition of one. runs: its runs newest first, with status, timing, session_id, and errors, including failures before a session starts. Use read_session with a session_id for agent output.'
 
 // ─── Helpers ───
 
@@ -193,7 +178,7 @@ export interface AutomationToolCtx {
   sessionId: string | undefined
 }
 
-/** Fired when create_automation/update_automation persists, so the calling
+/** Fired when manage_automations create or update persists, so the calling
  *  chat thread can render an automation card (see claude/codex backends). */
 export type OnAutomationSaved = (automation: Automation) => void
 
@@ -217,7 +202,7 @@ function foreignAutomationLink(sessionId: string | undefined, automationId: stri
 
 /** The honest answer for a write against an automation that lives elsewhere. */
 function foreignAutomationError(operation: string, automationId: string): string {
-  return `Automation ${automationId} lives on the task's host (this session was dispatched), and ${operation} cannot reach it from here. Manage it from the task's host, or note the request in a comment_task.`
+  return `Automation ${automationId} lives on the issue's host (this session was dispatched), and ${operation} cannot reach it from here. Manage it from the issue's host, or note the request in a comment_issue.`
 }
 
 /** The person whose turn calls the tool, as the run admitted them; the host's own work outside a turn. */
@@ -236,12 +221,12 @@ function mayReach(id: string, verb: ResourceVerb): boolean {
 }
 
 export async function executeAutomationTool(
-  name: string,
+  action: AutomationToolAction,
   args: AutomationToolArgs,
   deps: AutomationToolDeps = {},
 ): Promise<AutomationToolResult> {
   try {
-    if (name === 'list_automations') {
+    if (action === 'list') {
       const automations = await listAutomations(toolActor())
       if (automations.length === 0) return { ok: true, text: 'No automations exist yet.' }
       const lines = automations.map(
@@ -250,9 +235,9 @@ export async function executeAutomationTool(
       return { ok: true, text: `Automations:\n${lines.join('\n')}` }
     }
 
-    if (name === 'read_automation') {
+    if (action === 'read') {
       const id = String(args.automation_id ?? '')
-      if (!id) return { ok: false, text: 'read_automation requires an automation_id.' }
+      if (!id) return { ok: false, text: 'read needs an automation_id.' }
       const a = mayReach(id, 'read') ? await loadAutomation(id) : null
       if (!a) {
         // A dispatched session's task may link an automation whose row lives
@@ -269,16 +254,16 @@ export async function executeAutomationTool(
       return { ok: true, text: JSON.stringify(a, null, 2) }
     }
 
-    if (name === 'create_automation') {
+    if (action === 'create') {
       const name_ = args.name?.trim() ?? ''
       const prompt = args.prompt ?? ''
-      if (!name_) return { ok: false, text: 'create_automation requires a name.' }
-      if (!prompt.trim()) return { ok: false, text: 'create_automation requires a non-empty prompt.' }
+      if (!name_) return { ok: false, text: 'create needs a name.' }
+      if (!prompt.trim()) return { ok: false, text: 'create needs a non-empty prompt.' }
 
       // An explicit cwd is a user choice and must survive unchanged. Only the
       // omitted default collapses the calling session back to its project root.
       const cwd = resolveAutomationCwd(args.cwd, deps.ctx?.cwd)
-      const action: AutomationAction = {
+      const automationAction: AutomationAction = {
         prompt,
         // The run executes on the automation's chosen agent — defaults to the
         // caller's provider so "automate what I just did" runs on the same agent,
@@ -288,17 +273,17 @@ export async function executeAutomationTool(
         reasoningEffort: reasoning(args.reasoning_effort, 'medium'),
         cwd,
       }
-      if (args.use_worktree === true) action.useWorktree = true
+      if (args.use_worktree === true) automationAction.useWorktree = true
       const enabled = args.enabled ?? true
       const triggerResult = toTrigger(args.trigger)
-      if (!triggerResult.ok) return { ok: false, text: `create_automation: ${triggerResult.error}` }
+      if (!triggerResult.ok) return { ok: false, text: `create: ${triggerResult.error}` }
       // The automation runs with the preferences of the person this session works for (plans/018 §6).
       const preferences = sessionSettings(deps.ctx?.sessionId)?.preferences
-      enforce(hostPolicies().forWork(deps.ctx?.sessionId ? await organizationOfSession(deps.ctx.sessionId) : LOCAL_ORGANIZATION_ID).selectionDenial(action.agentProvider, action.modelId))
-      const created = await createAutomation(name_, action, await toolAgentAttribution(deps.ctx), enabled, triggerResult.trigger, preferences)
+      enforce(hostPolicies().forWork(deps.ctx?.sessionId ? await organizationOfSession(deps.ctx.sessionId) : LOCAL_ORGANIZATION_ID).selectionDenial(automationAction.agentProvider, automationAction.modelId))
+      const created = await createAutomation(name_, automationAction, await toolAgentAttribution(deps.ctx), enabled, triggerResult.trigger, preferences)
       const when =
         created.trigger.type === 'manual'
-          ? 'Trigger it with run_automation.'
+          ? 'Start it with manage_automations run.'
           : `Scheduled (${created.trigger.type})${created.nextRunAt ? `; next run ${created.nextRunAt}` : ''}.`
       if (deps.ctx?.sessionId) {
         await linkSessionOutput(ANY_ORGANIZATION, deps.ctx.sessionId, {
@@ -317,13 +302,13 @@ export async function executeAutomationTool(
       return { ok: true, text: `Created automation "${created.name}" (id: ${created.id}). ${when}` }
     }
 
-    if (name === 'update_automation') {
+    if (action === 'update') {
       const id = String(args.automation_id ?? '')
-      if (!id) return { ok: false, text: 'update_automation requires an automation_id.' }
+      if (!id) return { ok: false, text: 'update needs an automation_id.' }
       const existing = mayReach(id, 'edit') ? await loadAutomation(id) : null
       if (!existing) {
         if (foreignAutomationLink(deps.ctx?.sessionId, id)) {
-          return { ok: false, text: foreignAutomationError('update_automation', id) }
+          return { ok: false, text: foreignAutomationError('update', id) }
         }
         return { ok: false, text: `No automation found with id "${id}".` }
       }
@@ -342,7 +327,7 @@ export async function executeAutomationTool(
       let triggerPatch: AutomationTrigger | undefined
       if (args.trigger !== undefined) {
         const triggerResult = toTrigger(args.trigger)
-        if (!triggerResult.ok) return { ok: false, text: `update_automation: ${triggerResult.error}` }
+        if (!triggerResult.ok) return { ok: false, text: `update: ${triggerResult.error}` }
         triggerPatch = triggerResult.trigger
       }
 
@@ -375,11 +360,11 @@ export async function executeAutomationTool(
       return { ok: true, text: `Updated automation "${updated?.name}".` }
     }
 
-    if (name === 'delete_automation') {
+    if (action === 'delete') {
       const id = String(args.automation_id ?? '')
-      if (!id) return { ok: false, text: 'delete_automation requires an automation_id.' }
+      if (!id) return { ok: false, text: 'delete needs an automation_id.' }
       if (foreignAutomationLink(deps.ctx?.sessionId, id)) {
-        return { ok: false, text: foreignAutomationError('delete_automation', id) }
+        return { ok: false, text: foreignAutomationError('delete', id) }
       }
       const ok = mayReach(id, 'edit') && await deleteAutomation(id)
       return ok
@@ -387,25 +372,25 @@ export async function executeAutomationTool(
         : { ok: false, text: `No automation found with id "${id}".` }
     }
 
-    if (name === 'run_automation') {
+    if (action === 'run') {
       const id = String(args.automation_id ?? '')
-      if (!id) return { ok: false, text: 'run_automation requires an automation_id.' }
+      if (!id) return { ok: false, text: 'run needs an automation_id.' }
       const a = mayReach(id, 'drive') ? await loadAutomation(id) : null
       if (!a) {
         if (foreignAutomationLink(deps.ctx?.sessionId, id)) {
-          return { ok: false, text: foreignAutomationError('run_automation', id) }
+          return { ok: false, text: foreignAutomationError('run', id) }
         }
         return { ok: false, text: `No automation found with id "${id}".` }
       }
       if (!a.enabled) return { ok: false, text: `Automation "${a.name}" is paused. Enable it before running.` }
-      if (hasActiveRun(a.id)) return { ok: false, text: `Automation "${a.name}" already has a run in progress. Wait for it to finish (list_automation_runs shows its status) or cancel it first.` }
+      if (hasActiveRun(a.id)) return { ok: false, text: `Automation "${a.name}" already has a run in progress. Wait for it to finish (read_automations runs shows its status) or cancel it first.` }
       const run = await triggerAutomationRun(a)
-      return { ok: true, text: `Started run ${run.id} for "${a.name}". It runs in the background — use list_automation_runs with automation_id "${a.id}" and run_id "${run.id}" for status and session_id, then read_session for agent output.` }
+      return { ok: true, text: `Started run ${run.id} for "${a.name}". It runs in the background: use read_automations runs with automation_id "${a.id}" and run_id "${run.id}" for status and session_id, then read_session for agent output.` }
     }
 
-    if (name === 'list_automation_runs') {
+    if (action === 'runs') {
       const id = String(args.automation_id ?? '')
-      if (!id) return { ok: false, text: 'list_automation_runs requires an automation_id.' }
+      if (!id) return { ok: false, text: 'runs needs an automation_id.' }
       if (!mayReach(id, 'read')) return { ok: false, text: `No automation found with id "${id}".` }
       if (args.run_id !== undefined) {
         const run = await loadRun(id, args.run_id)
@@ -417,9 +402,9 @@ export async function executeAutomationTool(
       return { ok: true, text: `Runs (newest first):\n${runs.map(describeRun).join('\n\n')}` }
     }
 
-    return { ok: false, text: `Unknown automation tool: ${name}` }
+    return { ok: false, text: `Unknown automation action: ${String(action)}` }
   } catch (err: any) {
-    log.error('automation_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })
+    log.error('automation_tool_failed', { action, error: err instanceof Error ? err.message : String(err) })
     return { ok: false, text: `Automation tool error: ${String(err?.message ?? err)}` }
   }
 }
@@ -435,7 +420,7 @@ function automationAgentTool(
     description,
     inputFields,
     requiresApproval,
-    execute: async (args, context) => executeAutomationTool(name, args, {
+    execute: async (args, context) => executeAutomationTool(z.enum([...READ_ACTIONS, ...MANAGE_ACTIONS]).parse(args.action), args, {
       ctx: {
         agentProvider: context.provider,
         cwd: context.cwd,
@@ -452,10 +437,8 @@ function automationAgentTool(
   }
 }
 
-export const createAutomationAgentTool = automationAgentTool('create_automation', CREATE_DESC, createAutomationFields, true)
-export const listAutomationsAgentTool = automationAgentTool('list_automations', LIST_DESC, listAutomationsFields, false)
-export const readAutomationAgentTool = automationAgentTool('read_automation', READ_DESC, automationIdFields, false)
-export const updateAutomationAgentTool = automationAgentTool('update_automation', UPDATE_DESC, updateAutomationFields, true)
-export const deleteAutomationAgentTool = automationAgentTool('delete_automation', DELETE_DESC, automationIdFields, true)
-export const runAutomationAgentTool = automationAgentTool('run_automation', RUN_DESC, automationIdFields, true)
-export const listAutomationRunsAgentTool = automationAgentTool('list_automation_runs', LIST_RUNS_DESC, listRunsFields, false)
+export const readAutomationsAgentTool = automationAgentTool('read_automations', READ_DESC, readFields, false)
+/** Every change asks for approval; reading does not, so it is a separate tool. */
+export const manageAutomationsAgentTool = automationAgentTool('manage_automations', MANAGE_DESC, manageFields(MANAGE_ACTIONS), true)
+/** An automation run may edit its automation, never create, delete, or start one. */
+export const updateAutomationAgentTool = automationAgentTool('manage_automations', 'Update an existing automation: any subset; unspecified fields stay. Pause or resume with enabled alone; archive with archived: true.', manageFields(['update']), true)

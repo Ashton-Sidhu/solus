@@ -64,7 +64,7 @@ export const commentThreads = defineTable('comment_threads', {
     // A work's or a plan's threads in review order (`readThreads`).
     { name: 'comment_threads_position', columns: ['organization_id', 'subject_kind', 'subject_id', 'subject_part', 'position', 'thread_id'] },
     // A task's comments in the order they were written (`readThreads`).
-    { name: 'comment_threads_task_order', columns: ['organization_id', 'subject_kind', 'subject_id', 'subject_part', 'created_at', 'thread_id'], where: "subject_kind = 'task'" },
+    { name: 'comment_threads_issue_order', columns: ['organization_id', 'subject_kind', 'subject_id', 'subject_part', 'created_at', 'thread_id'], where: "subject_kind = 'issue'" },
     // The comments queued for a ticket (`pendingThreads`, `hasPendingThreads`).
     { name: 'comment_threads_pending', columns: ['organization_id', 'subject_kind', 'subject_id', 'subject_part', 'created_at', 'thread_id'], where: "delivery_state = 'pending'" },
     // One row per upstream comment under its target; an import of a comment already here is a no-op.

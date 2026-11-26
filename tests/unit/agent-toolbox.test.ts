@@ -63,7 +63,6 @@ describe('Solus toolbox', () => {
   test('requires an explicit automation worktree choice', () => {
     // WHY: project-root execution is the default. An agent can request isolation,
     // but a cwd inside a worktree must never imply that choice.
-    expect(Object.keys(solusToolbox.automations.create.inputFields)).toContain('use_worktree')
-    expect(Object.keys(solusToolbox.automations.update.inputFields)).toContain('use_worktree')
+    expect(Object.keys(solusToolbox.automations.manage.inputFields)).toContain('use_worktree')
   })
 })

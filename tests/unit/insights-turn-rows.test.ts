@@ -103,7 +103,7 @@ describe('toTurnRows', () => {
   // the id only when no turn recorded one. The registry column is `task`.
   test("the task title is read from the registry's `task` column", () => {
     const rows = toTurnRows(
-      result(['trace_id', 'started_at', 'task'], [['tr_a', 5, 'Fix the tests'], ['tr_b', 6, null]]),
+      result(['trace_id', 'started_at', 'issue'], [['tr_a', 5, 'Fix the tests'], ['tr_b', 6, null]]),
     )
     expect(rows.map((row) => row.taskTitle)).toEqual(['Fix the tests', null])
   })

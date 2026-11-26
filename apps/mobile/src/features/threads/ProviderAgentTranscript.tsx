@@ -117,7 +117,8 @@ function Transcript({
           ready: state.phase === "ready" || state.page.messages.length > 0,
           paging: state.phase === "loading",
           hasOlder: !!state.page.before,
-          error: state.error ?? null,
+          historyFailed: older && state.phase === "error",
+          error: older ? null : state.error ?? null,
           retry: () => load(older),
           loadEarlier: () => load(true),
         }}

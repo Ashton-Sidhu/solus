@@ -1,7 +1,7 @@
 import { isChat } from '@solus/contracts/chat'
 import { CHAT_LABEL } from '../../../../lib/paths'
 import { isRecordResultType, listsSessions, PICKER_RESULT_LABELS, type PickerRecordResultType, type PickerResultType } from './picker-result-types'
-import type { Task } from '@solus/contracts/task-types'
+import type { Issue } from '@solus/contracts/task-types'
 import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
 import { plainSnippet } from '@solus/contracts/search-snippet'
 import type { SidebarSessionChild } from '../../../../contexts/workspace/session-sidebar.store.svelte'
@@ -74,7 +74,7 @@ export type PickerRow =
       kind: 'task'
       key: string
       entryIndex: number
-      task: Task
+      task: Issue
       sessions: SidebarSessionChild[]
       /** Under a query, why this task is listed. */
       matchedIn?: TaskMatchField
@@ -85,7 +85,7 @@ export type PickerRow =
       kind: 'session'
       key: string
       entryIndex: number
-      task: Task
+      task: Issue
       session: SidebarSessionChild
       /** Under a query, the words found in the session's messages. Absent when
        *  only its name matched. */
@@ -154,7 +154,7 @@ export function conversationProjectLabel(meta: SessionMeta): string {
  * the reference a person reads (`owner/repo#123`, `PROJ-12`); a status or a
  * project path matched every task that shared it, which was noise, not a hit.
  */
-export function taskMatchField(task: Task, search: SearchQuery, commentPassage?: string): TaskMatchField | null {
+export function taskMatchField(task: Issue, search: SearchQuery, commentPassage?: string): TaskMatchField | null {
   if (search.isEmpty) return 'title'
   if (search.matchName(task.title)) return 'title'
   if (task.body && search.holdsEveryWord(task.body)) return 'body'
@@ -168,13 +168,13 @@ export function sessionMatches(session: SidebarSessionChild, search: SearchQuery
 }
 
 export interface PickerRowsInput {
-  tasks: Task[]
+  tasks: Issue[]
   query: string
   /** Which kinds of result the picker lists. */
   resultType?: PickerResultType
   /** How each section under a query is ordered. Relevance by default. */
   sort?: PickerSort
-  sessionsFor: (task: Task) => SidebarSessionChild[]
+  sessionsFor: (task: Issue) => SidebarSessionChild[]
   /** Sessions that match the query, from every host searched, in the pages
    *  read so far. Only read under a query. */
   conversations?: readonly SessionSearchResult[]
@@ -184,7 +184,7 @@ export interface PickerRowsInput {
   /** Every session on every host. Only read with an empty query, where the
    *  ones no task claims are listed beside the tasks. */
   recentSessions?: readonly SessionMeta[]
-  /** Task id → the passage of its comment that holds the query's words. */
+  /** Issue id → the passage of its comment that holds the query's words. */
   commentPassages?: ReadonlyMap<string, string>
   /** The works, pull requests, automations and projects in the scope. */
   records?: readonly PickerRecord[]
@@ -254,7 +254,7 @@ export function pickerRowHeight(row: PickerRow): number {
 }
 
 interface KeptTask {
-  task: Task
+  task: Issue
   sessions: SidebarSessionChild[]
   matchedIn: TaskMatchField
 }
@@ -277,7 +277,7 @@ function narrowing(input: PickerRowsInput) {
 
 /** Remember whose each session is, the first task first, so a host's hit can
  *  find its task without a second pass. */
-function rememberOwners(owners: Map<string, TaskSession>, task: Task, sessions: readonly SidebarSessionChild[]): void {
+function rememberOwners(owners: Map<string, TaskSession>, task: Issue, sessions: readonly SidebarSessionChild[]): void {
   for (const session of sessions) {
     if (!session.sessionId) continue
     const key = sessionIdentity(session)
@@ -609,7 +609,7 @@ function queryList(
     writer.header({
       kind: 'header',
       key: 'header:tasks',
-      label: 'Tasks',
+      label: 'Issues',
       count: restTasks.length,
       hint: PICKER_SORT_HINTS[sort],
     })

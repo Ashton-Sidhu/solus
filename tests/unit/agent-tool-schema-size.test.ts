@@ -1,14 +1,11 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { z } from 'zod'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { DatabaseSync } from './helpers/bun-sqlite'
+import { runToolClient } from './helpers/run-tool-client'
 import budget from './agent-context-budget.json'
 import type { AgentTool, AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import { advertisedInputSchema } from '@solus/server/execution/agents/tools/agent-tool'
 import { compactToolSchema } from '@solus/server/execution/agents/tools/compact-tool-schema'
-import { adaptClaudeTools } from '@solus/server/execution/agents/claude/claude-tool-adapter'
-import { adaptCodexTools } from '@solus/server/execution/agents/codex/codex-tool-adapter'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -29,18 +26,10 @@ function toolListBytes(tools: Array<{ name: string; description?: string; inputS
   return Buffer.byteLength(JSON.stringify(tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }))))
 }
 
-/** What the Claude SDK's in-process MCP server lists, through a real MCP client. */
-async function claudeListing(tools: AgentTool[]) {
-  const { server } = adaptClaudeTools(tools, context, 'default')
-  const [serverSide, clientSide] = InMemoryTransport.createLinkedPair()
-  await server.instance.connect(serverSide)
-  const client = new Client({ name: 'test', version: '1.0.0' })
-  await client.connect(clientSide)
+/** What the host's MCP endpoint lists to every harness, through a real MCP client. */
+async function endpointListing(tools: AgentTool[]) {
+  const client = await runToolClient(tools, context)
   return { client, tools: (await client.listTools()).tools }
-}
-
-function codexListing(tools: AgentTool[]) {
-  return adaptCodexTools(tools)[0]?.tools ?? []
 }
 
 /** The schema the model read before compaction. */
@@ -68,12 +57,24 @@ describe('compactToolSchema', () => {
     })
   })
 
+  // WHY: `minLength: 1` is on about a hundred fields and tells the model
+  // nothing it would do wrong; the parse still refuses an empty string.
+  test('drops minLength 1 and nothing else of a string', () => {
+    const fields = { name: z.string().trim().min(1), code: z.string().min(2) }
+    expect(compactToolSchema(fields)).toEqual({
+      type: 'object',
+      properties: { name: { type: 'string' }, code: { type: 'string', minLength: 2 } },
+      required: ['name', 'code'],
+    })
+    expect(z.object(fields).safeParse({ name: '  ', code: 'ab' }).success).toBe(false)
+  })
+
   test('keeps descriptions, enums, required lists, and real bounds', () => {
     expect(compactToolSchema({
       mode: z.enum(['a', 'b']).describe('Which mode.'),
       size: z.number().int().min(1).max(600),
       every: z.number().int().positive().optional(),
-      name: z.string().min(1).max(80).regex(/^[a-z]+$/).optional(),
+      name: z.string().min(3).max(80).regex(/^[a-z]+$/).optional(),
       keys: z.record(z.enum(['x']), z.boolean()).optional(),
       strict: z.strictObject({ on: z.boolean().optional() }).optional(),
     })).toEqual({
@@ -82,7 +83,7 @@ describe('compactToolSchema', () => {
         mode: { type: 'string', enum: ['a', 'b'], description: 'Which mode.' },
         size: { type: 'integer', minimum: 1, maximum: 600 },
         every: { type: 'integer', exclusiveMinimum: 0 },
-        name: { type: 'string', minLength: 1, maxLength: 80, pattern: '^[a-z]+$' },
+        name: { type: 'string', minLength: 3, maxLength: 80, pattern: '^[a-z]+$' },
         keys: { type: 'object', propertyNames: { type: 'string', enum: ['x'] }, additionalProperties: { type: 'boolean' }, required: ['x'] },
         strict: { type: 'object', properties: { on: { type: 'boolean' } }, additionalProperties: false },
       },
@@ -121,21 +122,21 @@ describe('the schemas the model reads for every Solus tool', () => {
       const advertised = advertisedInputSchema(agentTool)
       expect(Object.keys(advertised.properties ?? {}), agentTool.name).toEqual(Object.keys(full.properties ?? {}))
       expect(advertised.required, agentTool.name).toEqual(full.required)
-      for (const keyword of ['"description":', '"enum":', '"minLength":', '"pattern":']) {
+      for (const keyword of ['"description":', '"enum":', '"pattern":']) {
         expect(JSON.stringify(advertised).split(keyword).length, `${agentTool.name} ${keyword}`).toBe(JSON.stringify(full).split(keyword).length)
       }
     }
   })
 
-  test('Claude and Codex get the same compact schema, and the list is smaller than the full one', async () => {
-    const { client, tools: claudeTools } = await claudeListing(toolbox)
-    const codexTools = codexListing(toolbox)
-    expect(claudeTools.map((tool) => tool.name)).toEqual(codexTools.map((tool) => tool.name))
-    for (const [index, tool] of claudeTools.entries()) {
-      expect(JSON.parse(JSON.stringify(tool.inputSchema)), tool.name).toEqual(codexTools[index]!.inputSchema)
+  test('every harness gets the compact schema, and the list is smaller than the full one', async () => {
+    const { client, tools } = await endpointListing(toolbox)
+    // A tool that is not offered to the person of the call (a cloud tool, signed out) is not listed.
+    const byName = new Map(toolbox.map((agentTool) => [agentTool.name, agentTool]))
+    for (const tool of tools) {
+      expect(JSON.parse(JSON.stringify(tool.inputSchema)), tool.name).toEqual({ ...advertisedInputSchema(byName.get(tool.name)!), type: 'object' })
     }
     const full = toolListBytes(toolbox.map((agentTool) => ({ ...agentTool, inputSchema: fullSchema(agentTool) })))
-    expect(toolListBytes(codexTools)).toBeLessThan(full)
+    expect(toolListBytes(tools)).toBeLessThan(full)
     await client.close()
   })
 
@@ -155,7 +156,7 @@ describe('the schemas the model reads for every Solus tool', () => {
       requiresApproval: false,
       execute: async (input) => { inputs.push(input); return { ok: true, text: 'ok' } },
     }
-    const { client, tools } = await claudeListing([tool])
+    const { client, tools } = await endpointListing([tool])
     expect(tools[0]!.inputSchema).toEqual({
       type: 'object',
       properties: {
@@ -174,10 +175,10 @@ describe('the schemas the model reads for every Solus tool', () => {
 
   test('sample calls to real tools still parse against their full fields', () => {
     const samples: Array<[string, object]> = [
-      ['create_automation', { name: 'Nightly', prompt: 'Check CI', model_id: null, trigger: { type: 'interval', every_minutes: 60 } }],
+      ['manage_automations', { action: 'create', name: 'Nightly', prompt: 'Check CI', model_id: null, trigger: { type: 'interval', every_minutes: 60 } }],
       ['start_sessions', { sessions: [{ prompt: 'Go', model_id: 'claude-opus-5' }, { prompt: 'Also go', agent_provider: 'codex', isolation: 'worktree' }] }],
       ['query_insights', { sql: 'select 1' }],
-      ['list_tasks', {}],
+      ['list_issues', {}],
     ]
     for (const [name, input] of samples) {
       const agentTool = toolbox.find((candidate) => candidate.name === name)
@@ -192,10 +193,11 @@ describe('the schemas the model reads for every Solus tool', () => {
 // makes it smaller should lower it, so the saving holds.
 describe('agent context budget', () => {
   test('the Solus tool list stays within the budget for each provider', async () => {
-    const { client, tools } = await claudeListing(toolbox)
+    const { client, tools } = await endpointListing(toolbox)
+    // Claude and Codex read the same list from the endpoint.
     const measured = {
       claudeToolListJsonBytes: toolListBytes(tools),
-      codexToolListJsonBytes: toolListBytes(codexListing(toolbox)),
+      codexToolListJsonBytes: toolListBytes(tools),
     }
     await client.close()
     expect(measured.claudeToolListJsonBytes).toBeLessThanOrEqual(budget.claudeToolListJsonBytes)

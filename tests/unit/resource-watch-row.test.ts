@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { resourceWatchWake, resourceWatchWakeHeader, type ResourceWatch } from '@solus/contracts/integrations/resource-watch'
 import { shownBackgroundRecords } from '@solus/client-core/background-item'
 import { resourceWatchItem, RESOURCE_WATCHES } from '@solus/client-core/resource-watch-row'
-import { hostNoticeKind } from '../../packages/workspace-ui/src/components/conversation/lib/host-notice'
+import { hostNoticeKind } from '@solus/client-core/host-notice'
 
 /**
  * A resource watch as the background work row that desktop, web, and mobile

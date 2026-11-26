@@ -643,7 +643,7 @@ export const managedHostSpecChangeResponseSchema = z.object({
 
 /**
  * `GET /v1/hosts/<hostId>/spec`: an organization owner reads a managed host's spec, for
- * the edit card of `update_cloud_machine` (plans/035-cloud-machine-tools.md §4). `size`
+ * the edit card of `update_host` (plans/035-cloud-machine-tools.md §4). `size`
  * is the catalog id; null when the machine has none recorded.
  */
 export const managedHostSpecResponseSchema = z.object({

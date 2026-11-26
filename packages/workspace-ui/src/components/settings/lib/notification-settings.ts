@@ -107,8 +107,8 @@ export const SESSION_EVENT_ROWS: NotificationSettingRow<SessionNotificationEvent
   },
   {
     id: 'task_created',
-    label: 'Task created',
-    description: 'An agent creates a task.',
+    label: 'Issue created',
+    description: 'An agent creates an issue.',
     keywords: ['task', 'created'],
   },
   {
@@ -154,7 +154,7 @@ export const APP_NOTICE_ROWS: NotificationSettingRow<AppNoticeEvent>[] = [
   {
     id: 'share_revoked',
     label: 'Sharing',
-    description: 'You lose access to a shared session, task, or work.',
+    description: 'You lose access to a shared session, issue, or work.',
     keywords: ['share', 'sharing', 'access', 'removed', 'revoked'],
   },
   {

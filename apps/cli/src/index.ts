@@ -1,4 +1,5 @@
 import { runHostCommand } from './lib/hosts'
+import { runMcpCommand } from './lib/mcp'
 import { superviseServer } from './lib/server-supervisor'
 import { spawn } from 'child_process'
 import type { ChildProcess } from 'child_process'
@@ -105,6 +106,9 @@ async function main(argv: string[]): Promise<void> {
     case 'pair':
       await pair(parsePairOptions(rest))
       return
+    case 'mcp':
+      await runMcpCommand(rest, console.log)
+      return
     case 'connect':
       await connect(rest)
       return
@@ -162,6 +166,10 @@ Usage:
   solus host approve <check-code> [--data-dir PATH]
   solus host deny <check-code> [--data-dir PATH]
   solus pair [--data-dir PATH] [--tailscale] [--tailscale-serve-port N]
+  solus mcp [--data-dir PATH]
+                     Prints the MCP addresses and the commands that connect Claude Code and Codex
+  solus mcp code [--access read|write|full] [--data-dir PATH]
+                     Prints a one-time pairing code that approves an outside app (default access: write)
   solus connect [--data-dir PATH] [--code CODE] [--address URL] [--cloud-url URL] [--no-open]
                      On a registered server, --address changes how the internet reaches it
   solus connect status [--data-dir PATH] [--json]

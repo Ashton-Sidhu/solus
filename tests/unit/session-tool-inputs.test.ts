@@ -37,7 +37,7 @@ test('a summary click returns only its selected inputs and cannot select changed
 })
 
 test('visible resource cards, subagents and active or failed tools keep their inputs', () => {
-  const tools = ['create_work', 'mcp__solus__render_artifact', 'functions.create_automation',
+  const tools = ['create_work', 'mcp__solus__render_artifact', 'mcp__solus__manage_automations', 'functions.create_automation',
     'update_automation', 'start_sessions', 'send_session', 'stop_session',
     'Task', 'Agent', 'spawnAgent', 'claude_subagent', 'codex_subagent', 'ImageGeneration']
   const messages: SessionLoadMessage[] = tools.map((toolName) => ({ role: 'tool', toolName, content: '', toolInput: '{}', timestamp: 1 }))

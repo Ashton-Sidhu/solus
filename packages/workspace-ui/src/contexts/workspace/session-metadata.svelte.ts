@@ -21,7 +21,7 @@ type SessionMetadataWorkspace = Pick<WorkspaceContext,
   | 'settings'
   | 'tabIdsForSession'
   | 'tabs'
-  | 'tasksStore'
+  | 'issuesStore'
 >
 
 /**
@@ -129,7 +129,7 @@ export class SessionMetadata {
       // borrowed host learns the generated name.
       void serverConnections.apiFor(taskServerId)
         .setSessionTitle(sessionId, event.title, event.source, event.generatedDescription, false)
-        .then(() => this.workspace.tasksStore.refreshSessionBinding(sessionId, taskServerId))
+        .then(() => this.workspace.issuesStore.refreshSessionBinding(sessionId, taskServerId))
         .catch(() => null)
     }
   }

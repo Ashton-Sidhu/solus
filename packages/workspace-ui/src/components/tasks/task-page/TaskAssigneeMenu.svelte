@@ -1,6 +1,6 @@
 <script lang="ts">
   import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
-  import type { TaskAssigneeCandidate } from "@solus/contracts/task-types";
+  import type { IssueAssigneeCandidate } from "@solus/contracts/task-types";
   import { Check as CheckIcon, User as UserIcon } from "@lucide/svelte";
   import * as Command from "../../ui/command";
   import { ListAvatar, personFrom } from "../../ui/list-page";
@@ -11,10 +11,10 @@
    *  picker in the app opens, over the host's assignable people. */
   interface Props {
     assignee?: string;
-    assignees?: TaskAssigneeCandidate[];
+    assignees?: IssueAssigneeCandidate[];
     onSelectMany?: (logins: string[]) => void;
     assigneeAvatarUrl?: string;
-    candidates: TaskAssigneeCandidate[];
+    candidates: IssueAssigneeCandidate[];
     loading: boolean;
     error: string | null;
     /** Why the provider does not take a change of the assignee. Null enables the menu. */
@@ -87,7 +87,7 @@
     sideOffset={6}
     collisionPadding={8}
     class="menu-surface z-[10002] w-[min(15rem,calc(100vw-2rem))] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
-    aria-label="Assign the task"
+    aria-label="Assign the issue"
   >
     <Command.Root shouldFilter={false}>
       <MenuSearch bind:value={query} placeholder="Search people" />

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { TaskSourceState } from '@solus/contracts/task-types'
+import type { IssueSourceState } from '@solus/contracts/task-types'
 import {
   matchesTaskQuery,
   sourcesFailure,
@@ -7,7 +7,7 @@ import {
   withProviderMatches,
 } from '@solus/workspace-ui/components/tasks/lib/tasks-page'
 
-function source(label: string, overrides: Partial<TaskSourceState> = {}): TaskSourceState {
+function source(label: string, overrides: Partial<IssueSourceState> = {}): IssueSourceState {
   return {
     sourceKey: `github-repo:acme/${label}`,
     source: { kind: 'github-repo', owner: 'acme', repo: label },
@@ -104,7 +104,7 @@ describe('what the page says when task sources cannot be read', () => {
 
     expect(failure).toMatchObject({
       kind: 'github-auth',
-      title: 'Connect GitHub to load tasks.',
+      title: 'Connect GitHub to load issues.',
       detail: 'acme/site: The GitHub connection cannot read Projects.',
     })
   })
@@ -121,12 +121,12 @@ describe('what the page says when task sources cannot be read', () => {
 
   test('a source that GitHub refused or that failed is a plain failure, with Retry', () => {
     expect(sourcesFailure([source('app', { health: 'no_access', message: 'No access.' })]))
-      .toMatchObject({ kind: 'generic', title: 'Couldn’t load tasks.' })
+      .toMatchObject({ kind: 'generic', title: 'Couldn’t load issues.' })
   })
 
   test('several failed sources are named in one sentence', () => {
     const failure = sourcesFailure([source('app', { health: 'error' }), source('site', { health: 'no_access' })])
-    expect(failure?.detail).toBe('2 task sources cannot be read: acme/app, acme/site.')
+    expect(failure?.detail).toBe('2 issue sources cannot be read: acme/app, acme/site.')
   })
 
   test('the same failure keeps its key, and a new way to fail changes it', () => {

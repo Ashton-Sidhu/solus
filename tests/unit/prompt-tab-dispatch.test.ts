@@ -61,7 +61,7 @@ function harness(opts: { worktreeBaseBranch: string | null; startTarget: Promise
     sessionFor: () => session,
     ctxFor: () => ({ session: { sessionId: session.id } }),
     config: { pendingSessionStartTarget: () => opts.startTarget },
-    tasksStore: {},
+    issuesStore: {},
     eventReducer: { handleError: () => {} },
     runHosts: {
       promptFields: () => opts.syncFields ?? {},

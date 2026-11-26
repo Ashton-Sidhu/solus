@@ -17,15 +17,15 @@ import * as receiptsSchema from '../../data/receipts/schema'
 import * as sessionsSchema from '../../data/sessions/schema'
 import * as transcriptSchema from '../../data/sessions/transcript-schema'
 import * as sharingSchema from '../../sharing/schema'
-import * as tasksSchema from '../../data/tasks/schema'
+import * as issuesSchema from '../../data/tasks/schema'
 import * as webhooksSchema from '../../data/webhooks/schema'
 import * as appsSchema from '../../data/apps/schema'
 
-export const tasks = tasksSchema.tasks.pg
-export const task_sources = tasksSchema.taskSources.pg
-export const task_source_items = tasksSchema.taskSourceItems.pg
-export const task_source_access = tasksSchema.taskSourceAccess.pg
-export const asset_publications = tasksSchema.assetPublications.pg
+export const issues = issuesSchema.issues.pg
+export const issue_sources = issuesSchema.issueSources.pg
+export const issue_source_items = issuesSchema.issueSourceItems.pg
+export const issue_source_access = issuesSchema.issueSourceAccess.pg
+export const asset_publications = issuesSchema.assetPublications.pg
 export const works = folioSchema.works.pg
 export const work_revisions = folioSchema.workRevisions.pg
 export const work_reviewers = folioSchema.workReviewers.pg

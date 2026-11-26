@@ -7,7 +7,7 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 import { FakeTaskProviders, githubDraft, githubIssue, seedTask } from './helpers/task-fixtures'
 import type { Attribution } from '@solus/contracts/user'
-import type { Task } from '@solus/contracts/task-types'
+import type { Issue } from '@solus/contracts/task-types'
 import type { PlanAnnotations, PlanComment } from '@solus/contracts/types'
 import type { CommentActor } from '@solus/contracts/comment-commands'
 
@@ -93,7 +93,7 @@ afterAll(() => {
 let issues = 0
 
 /** A GitHub issue that the provider holds and the host has a copy of. */
-async function task(title = 'Task'): Promise<Task> {
+async function task(title = 'Task'): Promise<Issue> {
   const issue = githubIssue(++issues, { title })
   providers.hold(issue)
   return seedTask(issue)
@@ -125,7 +125,7 @@ describe('ordering', () => {
     // WHY: two comments written in the same millisecond used to come back in
     // arbitrary order (task-store.test.ts flaked on it). The id breaks the tie.
     const created = await task()
-    const subject = { organizationId: 'local', kind: 'task' as const, id: created.id }
+    const subject = { organizationId: 'local', kind: 'issue' as const, id: created.id }
     const dbh = database.getDatabase()
     for (const [id, at] of [['z', 9], ['b', 2], ['a', 2]] as const) {
       await threads.insertThread(dbh, subject, { threadId: id, body: 'note', author: ALICE, createdBy: 'alice', createdAt: at })
@@ -157,12 +157,12 @@ describe('ordering', () => {
     // WHY: a redelivered outbox op inserts under the same id. A second row, or a
     // skipped position, would make the replay visible.
     const created = await task()
-    const subject = { organizationId: 'local', kind: 'task' as const, id: created.id }
+    const subject = { organizationId: 'local', kind: 'issue' as const, id: created.id }
     const dbh = database.getDatabase()
     expect(await threads.insertThread(dbh, subject, { threadId: 'a', body: 'note', author: ALICE, createdBy: 'alice', createdAt: 1 })).toBe(true)
     expect(await threads.insertThread(dbh, subject, { threadId: 'a', body: 'replayed', author: ALICE, createdBy: 'alice', createdAt: 1 })).toBe(false)
     expect((await threads.readThread(dbh, subject, 'a'))?.body).toBe('note')
-    const counter = await dbh.get<{ comment_position: number }>(sql`SELECT comment_position FROM tasks WHERE id = ${created.id}`)
+    const counter = await dbh.get<{ comment_position: number }>(sql`SELECT comment_position FROM issues WHERE id = ${created.id}`)
     expect(counter?.comment_position).toBe(1)
   })
 })
@@ -173,7 +173,7 @@ describe('who made a thread', () => {
     await tasks.commentOnTask('local', created.id, { body: 'by alice', by: ALICE })
     await tasks.commentOnTask('local', created.id, { body: 'by an agent for bob', by: { kind: 'agent', sessionId: 'a', for: BOB.kind === 'user' ? BOB.user : undefined } })
     await tasks.commentOnTask('local', created.id, { body: 'by an agent', by: AGENT })
-    const rows = await threads.readThreads(database.getDatabase(), { organizationId: 'local', kind: 'task', id: created.id })
+    const rows = await threads.readThreads(database.getDatabase(), { organizationId: 'local', kind: 'issue', id: created.id })
     expect(rows.map((thread) => thread.createdBy)).toEqual(['alice', 'bob', hostUser.hostUserKey()])
     expect(rows.map((thread) => thread.author)).toEqual([ALICE, { kind: 'agent', sessionId: 'a', for: BOB.kind === 'user' ? BOB.user : undefined }, AGENT])
   })
@@ -229,7 +229,7 @@ describe('deletion and delivery', () => {
     const [posted] = providers.comments.get(created.id)!
     const read = await tasks.getTask('local', created.id)
     expect(read.comments).toEqual([expect.objectContaining({ id, body: 'note', author: ALICE })])
-    const thread = await threads.readThread(dbh, { organizationId: 'local', kind: 'task', id: created.id }, id)
+    const thread = await threads.readThread(dbh, { organizationId: 'local', kind: 'issue', id: created.id }, id)
     expect(thread).toMatchObject({ deliveryState: 'sent', external: { scope: created.id, id: posted!.id } })
   })
 })
@@ -327,12 +327,12 @@ describe('the subject\'s lifetime', () => {
     await (await workModule.Work.byId('local', movedWork.id)).moveTo({ organizationId: 'org-a' })
     await (await workModule.Work.byId('local', deletedWork.id)).delete()
 
-    expect(await threadCount(sql`subject_kind = 'task' AND subject_id = ${deleted.id}`)).toBe(0)
-    expect(await threadCount(sql`subject_kind = 'task' AND subject_id = ${kept.id}`)).toBe(1)
+    expect(await threadCount(sql`subject_kind = 'issue' AND subject_id = ${deleted.id}`)).toBe(0)
+    expect(await threadCount(sql`subject_kind = 'issue' AND subject_id = ${kept.id}`)).toBe(1)
     expect((await workAnnotations.loadWorkAnnotations('local', movedWork.id))!.comments).toHaveLength(1)
     expect(await threadCount(sql`subject_kind = 'work' AND subject_id = ${deletedWork.id}`)).toBe(0)
     // Zero dangling threads: every task and work thread names a parent that exists.
-    expect(await threadCount(sql`subject_kind = 'task' AND NOT EXISTS (SELECT 1 FROM tasks WHERE tasks.id = comment_threads.subject_id)`)).toBe(0)
+    expect(await threadCount(sql`subject_kind = 'issue' AND NOT EXISTS (SELECT 1 FROM issues WHERE issues.id = comment_threads.subject_id)`)).toBe(0)
     expect(await threadCount(sql`subject_kind = 'work' AND NOT EXISTS (SELECT 1 FROM works WHERE works.id = comment_threads.subject_id)`)).toBe(0)
   })
 

@@ -296,7 +296,7 @@ describe('runner delivery', () => {
       const url = 'https://github.com/acme/app/pull/7'
       const linked = await linkTools.linkAgentTool.execute({ kind: 'pr', target_id: url }, inOrganizationSession())
       expect(linked.ok).toBe(true)
-      const commented = await taskTools.commentTaskAgentTool.execute({ task_id: task.id, body: 'note' }, inOrganizationSession())
+      const commented = await taskTools.commentTaskAgentTool.execute({ issue_id: task.id, body: 'note' }, inOrganizationSession())
       expect(commented).toEqual({ ok: true, text: 'Comment posted on acme/app#1 on GitHub.' })
       expect(calls).toEqual([
         ['putLink', { from: { kind: 'session', id: 'solus-org' }, to: { kind: 'pr', url } }],

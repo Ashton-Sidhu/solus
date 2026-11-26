@@ -59,16 +59,16 @@ it("does not navigate or clear after the account changes or the local save fails
   expect(state.clear).not.toHaveBeenCalled();
 });
 
-it("opens the first prompt at its final viewport height on iOS", async () => {
+it("starts closing the iOS keyboard at enqueue and opens the saved prompt without waiting for dismissal", async () => {
   const closed = Promise.withResolvers<void>();
+  const saved = Promise.withResolvers<void>();
   keyboard.isVisible.mockReturnValueOnce(true);
   keyboard.dismiss.mockReturnValueOnce(closed.promise);
   const dispatch = vi.fn();
-  const sent = submitNewTaskDraft({ dispatch }, "draft", message.text, message, async () => {});
-  await Promise.resolve();
-  expect(dispatch).not.toHaveBeenCalled();
+  const sent = submitNewTaskDraft({ dispatch }, "draft", message.text, message, () => saved.promise);
   expect(keyboard.dismiss).toHaveBeenCalledWith({ animated: false });
-  closed.resolve();
+  saved.resolve();
   expect(await sent).toBe(message.messageId);
   expect(dispatch).toHaveBeenCalledOnce();
+  closed.resolve();
 });

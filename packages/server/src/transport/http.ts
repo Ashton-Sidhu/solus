@@ -54,6 +54,8 @@ import type { WebhookReceiver } from '../execution/webhooks/receiver'
 import type { AppServiceApi } from '../apps/deployments/app-service-api'
 import { APP_SERVICE_PATH_PREFIX } from '@solus/contracts/app-deployments'
 import { couldBeForgedByWebPage, isServeRequest, requestOrigin } from './web-page-requests'
+import { serveMcp } from './mcp-endpoint'
+import { authorizationServerMetadata, protectedResourceMetadata, serveMcpOAuth } from './mcp-oauth'
 
 const log = createLogger('main', 'http')
 
@@ -198,6 +200,9 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.use('/v1/*', publicCors)
   app.use('/health', publicCors)
   app.use('/pair', publicCors)
+  // An outside app's MCP client may run in a browser: its sign-in reads these cross-origin (plans/035 §10).
+  app.use('/.well-known/oauth-*', publicCors)
+  for (const path of ['/oauth/mcp/register', '/oauth/mcp/token', '/oauth/mcp/revoke']) app.use(path, publicCors)
   app.use('/pair/*', publicCors)
   app.use('/upload', publicCors)
   app.use('/voice/transcribe', publicCors)
@@ -238,6 +243,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     if (!viaTunnel(c)) return next()
     const { pathname } = new URL(c.req.url)
     const offered = pathname.startsWith('/v1/') || pathname === '/health' || pathname.startsWith('/api/assets/') || pathname.startsWith('/api/uploads/') || pathname.startsWith('/api/device-hub/') || pathname === '/oauth/integration/callback' || pathname === '/oauth/google/callback' || pathname.startsWith('/hooks/') || pathname.startsWith(APP_SERVICE_PATH_PREFIX)
+      // An outside app reaches the tools, and signs in, at the public address (plans/035 §10).
+      || pathname === '/mcp' || pathname.startsWith('/.well-known/oauth-') || pathname.startsWith('/oauth/mcp/')
     return offered ? next() : c.notFound()
   })
   const establishDelegation = opts.establishDelegation
@@ -321,6 +328,18 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     return hookAnswer(c, result.status, result.outcome, result.body)
   })
   app.all('/hooks/*', (c) => hookAnswer(c, 404, 'not_found', { error: 'not found' }))
+  // Agent tools over MCP (plans/035): a run's harness with the run's token, or an outside app with its grant.
+  // Outside apps sign in on every host but the Solus API server. A cloud machine has no
+  // pairing, so there a member's pairing code approves; the Solus app does not.
+  const appsSignIn = opts.isApiMode !== true
+  // The standalone server and the desktop app both serve the web client from `staticDir`, at the host's own origin.
+  const servesWebClient = !!opts.staticDir && existsSync(opts.staticDir)
+  app.all('/mcp', (c) => serveMcp(c.req.raw, { appsSignIn }))
+  const appSignIn = async (c: Ctx, next: () => Promise<void>) => appsSignIn ? next() : c.notFound()
+  app.get('/.well-known/oauth-protected-resource', appSignIn, (c) => protectedResourceMetadata(c.req.raw))
+  app.get('/.well-known/oauth-protected-resource/mcp', appSignIn, (c) => protectedResourceMetadata(c.req.raw))
+  app.get('/.well-known/oauth-authorization-server', appSignIn, (c) => authorizationServerMetadata(c.req.raw))
+  app.all('/oauth/mcp/*', appSignIn, (c) => serveMcpOAuth(c.req.raw, { pairApprovals: pairingDisabled() ? undefined : opts.pairApprovals, viaTunnel: viaTunnel(c), remoteAddress: clientIp(c), hostName: currentName(), doors, servesWebClient: servesWebClient && !viaTunnel(c) }))
 
   // The service API (docs/plans/app-deploy.md §5.2): a deployed app asks for what Solus owns.
   const appService = opts.appService
@@ -408,7 +427,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
       if (!body) return c.json({ error: 'Send the request id and its wait token.' }, 400)
       const outcome = await pairApprovals.wait(body.requestId, body.waitToken, c.req.raw.signal)
       const answer: PairApprovalWait = outcome.status === 'approved'
-        ? { status: 'approved', sessionToken: outcome.sessionToken, installationId: getInstallationId(), os: hostOperatingSystem(), identityKey: hostIdentity().publicKey() }
+        ? { status: 'approved', sessionToken: outcome.granted, installationId: getInstallationId(), os: hostOperatingSystem(), identityKey: hostIdentity().publicKey() }
         : outcome
       return c.json(answer)
     })
@@ -599,7 +618,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   // Static fallback for the bundled client. serveStatic streams the requested
   // file (with traversal protection + range support); the second handler is the
   // SPA fallback that serves index.html for any unmatched client-side route.
-  if (opts.staticDir && existsSync(opts.staticDir)) {
+  if (opts.staticDir && servesWebClient) {
     const root = opts.staticDir
     // Registered after every dynamic/range route, so only the static fallback
     // reaches compression. Hono preserves streaming and skips 206 responses.

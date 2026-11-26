@@ -76,14 +76,6 @@
   {:catch}
     {@render loadError()}
   {/await}
-{:else if session.settingsTab === "tasks"}
-  {#await settingsSection("tasks")}
-    {@render loading()}
-  {:then { default: SettingsTabTasks }}
-    <SettingsTabTasks searchQuery={pageQuery} />
-  {:catch}
-    {@render loadError()}
-  {/await}
 {:else if session.settingsTab === "account"}
   {#await settingsSection("account")}
     {@render loading()}

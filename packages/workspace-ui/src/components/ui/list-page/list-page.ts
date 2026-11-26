@@ -125,7 +125,7 @@ export interface ListChurnSpec {
 
 /** Where a row's record lives — the provider it syncs with, or `local` for a
  *  native Solus record. Drives the provider-logo mark before the id. Mirrors
- *  `TaskProviderId` without importing the task model, so PRs (always GitHub)
+ *  `IssueProviderId` without importing the task model, so PRs (always GitHub)
  *  can reuse the same slot. */
 export type ListSourceId = 'github' | 'linear' | 'jira' | 'local'
 

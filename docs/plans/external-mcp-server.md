@@ -140,7 +140,7 @@ These tools can be reached from the harness turns of organization members today:
 | `update_config` | Writes host config and SSH device hosts with no check (`config-tools.ts:170-203`) | `host.admin`, `destructive` |
 | `reply_comment`, `resolve_comment` | No access check | `comment` on the work or plan |
 | `publish_work`, `pull_work_upstream` | No role check on the local path | `edit` on the work |
-| `read_task` | No check for each person (to confirm) | `read` on the task |
+| `read_issue` | No check for each person (to confirm) | `read` on the issue |
 | `create_automation`, `create_webhook` | With no session, the host user becomes the owner | Record the actor as the owner |
 | `start_sessions` | With no parent, the session runs as the host (`prompt-dispatch.ts:388-399`) | Run as the caller's person |
 
@@ -172,7 +172,7 @@ The rule: an outside app acts directly on records. Anything that needs a live en
 |---|---|---|
 | Sessions | `list_agent_targets`, `list_sessions`, `search_sessions`, `read_session`, `start_sessions`, `send_session`, `read_session_exchange`, `stop_session`, `organize_session`, `queue_session` | `t3_thread_*`, `t3_thread_launch`, `orchestrator_capabilities`, `t3_queue` |
 | Projects | `list_projects`, `read_project`, `create_project`, `clone_project`, `update_project`, `list_codebases`, `read_codebase` | `t3_project_*` |
-| Tasks | `list_tasks`, `read_task`, `create_task`, `comment_task`, `update_task_status` | issues |
+| Issues | `list_issues`, `read_issue`, `create_issue`, `comment_issue`, `update_issue_status` | issues |
 | Pull requests | `pull_request_list`, `pull_request_read`, `pull_request_create`, `pull_request_update`, `pull_request_respond`, `pull_request_review`, `pull_request_merge`, `ci_logs`, `ci_rerun`, `list_thread_pull_requests`, `link`, `unlink`, `list_links` | pullRequests |
 | Automations | `create_automation`, `list_automations`, `read_automation`, `update_automation`, `delete_automation`, `run_automation`, `list_automation_runs` | `schedule_task`, `list_scheduled_tasks`, `delete_scheduled_task`, `run_scheduled_task_now` |
 | Works | `list_works`, `read_work`, `create_work`, `update_work` | none (T3 Code has no works) |

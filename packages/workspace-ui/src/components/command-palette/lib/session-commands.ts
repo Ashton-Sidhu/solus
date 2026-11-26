@@ -3,8 +3,8 @@ import type { SessionSidebarStore } from '../../../contexts/workspace/session-si
 import type { WorkspaceContext } from '../../../contexts/workspace/workspace.context.svelte'
 import { requestInputFocus } from '../../../lib/inputFocus'
 import { applySessionSnooze, sessionPinAction, tabSessionLifecycleActions } from '../../session/lib/session-actions'
-import type { SidebarTask } from '../../session/lib/task-list'
-import { TASK_SNOOZE_CHOICES, taskSnoozeUntil } from '../../session/lib/task-snooze'
+import type { SidebarSession } from '../../session/lib/sidebar-rows'
+import { SNOOZE_CHOICES, snoozeUntilFor } from '../../session/lib/snooze'
 import type { Command } from './commands'
 
 export interface CustomSessionSnooze {
@@ -77,7 +77,7 @@ function snoozeCommand(
   sidebar: SessionSidebarStore,
   tabId: string,
   sessionId: string,
-  row: SidebarTask,
+  row: SidebarSession,
   openCustomSnooze: (snooze: CustomSessionSnooze) => void,
 ): Command {
   const { key, title } = row
@@ -101,12 +101,12 @@ function snoozeCommand(
     id: 'snooze-current-session', label: 'Snooze session…', group, icon: Moon,
     searchChildren: true,
     children: [
-      ...TASK_SNOOZE_CHOICES.map((choice) => ({
+      ...SNOOZE_CHOICES.map((choice) => ({
         id: 'snooze-current-session:' + choice.preset,
         label: 'Snooze: ' + choice.label,
         keywords: ['snooze ' + choice.label],
         group,
-        run: () => snooze(taskSnoozeUntil(choice.preset)),
+        run: () => snooze(snoozeUntilFor(choice.preset)),
       })),
       {
         id: 'snooze-current-session:custom',

@@ -338,7 +338,7 @@ export function attachWebSocketTransport(
       refuse(connection, 'UNAUTHORIZED', 'unauthorized')
       return
     }
-    admit(connection, principal.data, admitted.actingHostId !== undefined, hello.clientInstanceId ?? randomBytes(16).toString('hex'), hello.resume)
+    admit(connection, principal.data, admitted.actingHostId, hello.clientInstanceId ?? randomBytes(16).toString('hex'), hello.resume)
   }
 
   /** The principal the hello admits, or null for a refusal. The rules apply in this order. */
@@ -364,7 +364,7 @@ export function attachWebSocketTransport(
     return trusted ? { principal: CREDENTIAL_FREE_PRINCIPAL } : null
   }
 
-  function admit(connection: Connection, principal: Principal, isActingHost: boolean, instanceId: string, resume: EventResume | undefined): void {
+  function admit(connection: Connection, principal: Principal, actingHostId: string | undefined, instanceId: string, resume: EventResume | undefined): void {
     if (principal.kind === 'runner') return
     const deviceId = principal.kind === 'system' ? null : principal.deviceId
     const deviceLabel = principal.kind === 'system' ? 'Web' : principal.deviceLabel
@@ -375,10 +375,10 @@ export function attachWebSocketTransport(
 
     const id = randomBytes(8).toString('hex')
     const end = (reason: string): void => ws.close(HOST_SOCKET_CLOSE.ended, reason)
-    const session: ClientSession = { id, clientId, socket: ws, deviceId, deviceLabel, principal, isActingHost, connectedAt: connection.connectedAt, end }
+    const session: ClientSession = { id, clientId, socket: ws, deviceId, deviceLabel, principal, isActingHost: actingHostId !== undefined, connectedAt: connection.connectedAt, end }
     sessions.set(id, session)
     const lifetime = grantLifetime(principal, opts.verifyAccessToken, end, { id, clientId })
-    connection.ctx = { clientId, principal, deviceLabel, deviceId: deviceId ?? undefined, renewAccess: lifetime.renewAccess }
+    connection.ctx = { clientId, principal, deviceLabel, deviceId: deviceId ?? undefined, actingHostId, renewAccess: lifetime.renewAccess }
 
     const replay = resume && resume.epoch === eventLog.epoch ? eventLog.since(resume.seq) : null
     const recovered = replay !== null

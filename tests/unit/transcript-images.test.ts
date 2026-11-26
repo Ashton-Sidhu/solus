@@ -3,9 +3,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ClaudeTurnNormalizer } from '@solus/server/execution/agents/claude/claude-event-normalizer'
 import { parseJsonlLine } from '@solus/server/execution/agents/claude/claude-session-helpers'
-import { claudeToolResponse } from '@solus/server/execution/agents/claude/claude-tool-adapter'
+import { mcpToolResult } from '@solus/server/execution/agents/tools/agent-tool-endpoint'
 import { CodexTurnNormalizer } from '@solus/server/execution/agents/codex/codex-event-normalizer'
-import { codexToolContentItems } from '@solus/server/execution/agents/codex/codex-tool-adapter'
 import { codexItemToMessage } from '@solus/server/execution/agents/codex/codex-utils'
 import { agentToolImage } from '@solus/server/execution/agents/tools/agent-tool'
 import { agentResultOf } from '@solus/server/integrations/result-content'
@@ -113,13 +112,13 @@ describe('device_screenshot', () => {
     const text = `Screenshot. Saved as asset ${stored.id}.`
     const before = assetCount()
 
-    const claude = new ClaudeTurnNormalizer().push(claudeToolResult(claudeToolResponse({ ok: true, text, images: [image] }).content))
+    const claude = new ClaudeTurnNormalizer().push(claudeToolResult(mcpToolResult({ ok: true, text, images: [image] }).content))
     const claudeResult = claude.find((event) => event.type === 'tool_result')
     expect(claudeResult?.type === 'tool_result' && claudeResult.toolImages).toEqual([{ assetId: stored.id, mimeType: 'image/png', width: 390, height: 844 }])
 
     const codex = new CodexTurnNormalizer({ planMode: false }).push({ method: 'item/completed', params: { item: {
-      type: 'dynamicToolCall', id: 'dyn-1', namespace: 'solus', tool: 'device_screenshot', status: 'completed', arguments: {},
-      contentItems: codexToolContentItems(text, [image]), success: true,
+      type: 'mcpToolCall', id: 'mcp-1', server: 'solus', tool: 'device_screenshot', status: 'completed', arguments: {},
+      result: { content: mcpToolResult({ ok: true, text, images: [image] }).content },
     } } })
     const codexUpdate = codex.find((event) => event.type === 'tool_call_update')
     expect(codexUpdate?.type === 'tool_call_update' && codexUpdate.toolImages?.[0].assetId).toBe(stored.id)
@@ -130,7 +129,7 @@ describe('device_screenshot', () => {
 // WHY: an MCP result's images and audio reach the person for either provider,
 // live and on a reload (docs/plans/mcp-first-class.md §6).
 describe('MCP result media through the Codex path', () => {
-  test('every image, the audio player, and the left-out note come back from the dynamic tool result', async () => {
+  test('every image, the audio player, and the left-out note come back from the MCP tool result', async () => {
     const pictures = [png(4, 4, 20), png(4, 4, 21), png(4, 4, 22)]
     const result = await agentResultOf({ content: [
       ...pictures.map((bytes) => ({ type: 'image' as const, data: bytes.toString('base64'), mimeType: 'image/png' })),
@@ -138,8 +137,8 @@ describe('MCP result media through the Codex path', () => {
       { type: 'image', data: Buffer.from('not a png').toString('base64'), mimeType: 'image/png' },
     ] }, { tool: 'search' })
     const item = {
-      type: 'dynamicToolCall', id: 'dyn-media', namespace: 'solus', tool: 'linear__search', status: 'completed', arguments: {},
-      contentItems: codexToolContentItems(result.text, result.images), success: true,
+      type: 'mcpToolCall', id: 'mcp-media', server: 'solus', tool: 'linear__search', status: 'completed', arguments: {},
+      result: { content: mcpToolResult(result).content },
     }
     const update = new CodexTurnNormalizer({ planMode: false }).push({ method: 'item/completed', params: { item } })
       .find((event) => event.type === 'tool_call_update')

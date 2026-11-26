@@ -67,7 +67,7 @@ export function canStopAgentConversation(execution: SessionExecution | undefined
 
 /** The task the other session works on, as its latest report named it. */
 export function cardTaskId(ref: AgentConversationRef): string | undefined {
-  return ref.exchanges.findLast((exchange) => exchange.taskId)?.taskId
+  return ref.exchanges.findLast((exchange) => exchange.issueId)?.issueId
 }
 
 /** When a card parked on a rate limit resumes, if its provider said. */

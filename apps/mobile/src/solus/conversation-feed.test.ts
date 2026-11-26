@@ -143,6 +143,48 @@ it("updates streaming text without subscribing the entire feed to tool progress"
   expect(listeners.size).toBe(0);
 });
 
+it("keeps the upstream sender presentation for live prompts and reopened history", () => {
+  const agent = { kind: "agent", sessionId: "source" } as const;
+  const automation = { kind: "automation", automationId: "daily" } as const;
+  const watch = "Update on pull request #12 (https://github.com/org/repo/pull/12), which Solus is watching for you:\n- Every check that gates the merge passed: tests.";
+  const live = new TranscriptModel("session");
+  live.apply({ type: "user_message", text: "continue", sender: agent });
+  live.apply({ type: "user_message", text: "audit", sender: automation, via: "automation" });
+  live.apply({ type: "user_message", text: watch, via: "pull-request-watch" });
+  live.apply({ type: "user_message", text: "hello" });
+  const saved = TranscriptModel.fromHistory("session", { before: null, messages: [
+    { role: "user", content: "", timestamp: 1, sender: agent, turnItem: {
+      type: "user_message", text: "continue", createdBy: "user", creationSource: "provider", inputIntent: "turn_start",
+    } },
+    { role: "user", content: "audit", timestamp: 2, sender: automation },
+    { role: "user", content: watch, timestamp: 3 },
+    { role: "user", content: "hello", timestamp: 4 },
+  ] });
+  for (const model of [live, saved]) {
+    const feed = conversationFeed({ item: key => model.items.get(key), subscribeFeedItems: () => () => {} },
+      model.order, "session", () => null);
+    const expected = [
+      { createdBy: "agent", creationSource: "provider", senderThreadId: "source" },
+      { createdBy: "agent", scheduledTaskId: "daily" },
+      { createdBy: "agent", creationSource: "server" },
+      { createdBy: "user", creationSource: "provider" },
+    ];
+    expect(feed.get().flatMap(row => row.type === "message" ? [row.message] : [])).toMatchObject([
+      expected[0], expected[1], expected[3],
+    ]);
+    expect(feed.get()).toContainEqual(expect.objectContaining({
+      type: "activity-group",
+      activities: expect.arrayContaining([expect.objectContaining({
+        icon: "eye",
+        projectedItem: expect.objectContaining({ item: expect.objectContaining({
+          type: "notification", source: { kind: "monitor" }, summary: "#12: 1 required check passed", outcome: "completed",
+        }) }),
+      })]),
+    }));
+    expect(feed.projection(v2ThreadShell).messages).toMatchObject(expected);
+  }
+});
+
 it("renders background command notices from live and saved turns with their command result", () => {
   const text = "A background command finished after your turn ended (exit 0): bun test\n\nOutput (last part):\n# 4 passed\n* End";
   const live = new TranscriptModel("session");
@@ -669,5 +711,26 @@ it("updates the same agent row when its streamed title and final report arrive",
   expect(feed.get()).toMatchObject([{ type: "activity-group", activities: [
     { projectedItem: { item: { type: "subagent", subagentId: key, ...expected } } },
   ] }]);
+  model.apply({ type: "subagent_running", toolUseId: "call" });
+  refresh([key]);
+  expect(feed.projection(shell).subagents).toMatchObject([{ id: key, status: "running", result: null }]);
+  model.apply({ type: "background_task_settled", taskId: "task", toolUseId: "call", status: "completed" });
+  refresh([key]);
+  expect(feed.projection(shell).subagents).toMatchObject([{ id: key, status: "completed" }]);
   stop();
+});
+
+it.each(["SendMessage", "FollowUp"])("keeps %s in the work log when a reply arrives", async (toolName) => {
+  const model = TranscriptModel.fromHistory("session", { before: null, messages: [
+    { role: "tool", toolId: "call", toolName, content: "", timestamp: 1 },
+    { role: "assistant", parentToolUseId: "call", content: "Child reply", timestamp: 2 },
+  ] });
+  model.apply({ type: "subagent_report", toolUseId: "call", text: "Final report" });
+  const feed = conversationFeed({ item: key => model.items.get(key), subscribeFeedItems: () => () => {} },
+    model.order, "session", () => null);
+  const row = feed.get()[0];
+  expect(row?.type).toBe("activity-group");
+  if (row?.type !== "activity-group") throw new Error("Missing tool activity");
+  expect(row.activities[0]?.canExpand).toBe(true);
+  expect(await row.activities[0]?.loadHostDetail?.()).toMatchObject({ output: "Child reply\n\nFinal report" });
 });

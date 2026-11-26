@@ -33,6 +33,16 @@ Each host rules change names the revision that you read. If another owner saved 
 
 The page reads and writes `/v1/orgs/:organizationId/settings` on Solus Cloud (`packages/contracts/src/policy-api.ts`). `GET` is for members. `PATCH` is for owners. The statuses are the same as the policy routes: 403 for a person who is not a member or not an owner, 409 with the current settings, and 422 with the reason. Desktop sends the requests from the main process. Web sends them with the page's sign-in.
 
+## Settings → Policy
+
+The Policy page has three parts, from top to bottom:
+
+1. **On this host.** Each policy that applies on the selected host, in the order it wins: the MDM policy, then the host policy of each organization, then its organization policy. Each policy shows its rules in words. When no policy applies, the page says that you choose every setting.
+2. **Organization policies.** Only when you are signed in. The organization policy and each host policy, with their rules. An owner pushes **Edit** to change one; a member pushes **View JSON** to read it. **Host assignments** shows the host policy that each host follows.
+3. **MDM policy file.** Write a policy and download it for an MDM tool. Nothing here is saved to Solus Cloud.
+
+When you edit a policy, the editor opens on its rules. **Add rule** adds a common rule (for example the highest permission mode, the allowed agents, or remote access), and each rule has a choice and a remove button. Each change writes the JSON. **Show JSON** opens the JSON for the rules that have no building block, such as model lists and instructions. An organization policy offers no host settings.
+
 ## Settings sidebar order
 
 The settings sidebar uses the group order of T3 Code:
@@ -42,6 +52,6 @@ The settings sidebar uses the group order of T3 Code:
 3. Code: Source Control, Codebases, Tasks, Review companion.
 4. Connections: Hosts, Integrations, Webhooks. Policy is here when you are signed out.
 5. Organization, only when you are signed in: Organization, Policy.
-6. More, with no heading: Host, Telemetry, Experimental.
+6. More, with no heading: Host, Telemetry, Experimental, Account & sync.
 
-The sidebar footer shows your account, or **Sign in**. It opens Account & sync.
+Settings has no sign-in control in its sidebar. Sign in from the account footer of the session sidebar.

@@ -413,8 +413,7 @@ export interface ThreadFeedProps {
   readonly contentInsetEndAdjustment: SharedValue<number>;
   readonly keyboardOffset: number;
   readonly composerKeyboardTranslation: SharedValue<number>;
-  readonly submissionOwnsScroll?: boolean;
-  readonly keyboardLiftBehavior?: "never" | "persistent" | "whenAtEnd";
+  readonly sendingWithKeyboard?: boolean;
   readonly fitShortFeedToViewport?: boolean;
   readonly contentBottomInset?: number;
   readonly historyControls?: ThreadFeedHistoryControls;
@@ -3815,7 +3814,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const [landedListKey, setLandedListKey] = useState<string | null>(null);
   // LegendList reports ready, and shows its rows, while rows measured during its initial scroll can
   // still leave it hundreds of points short of the end; isAtEnd stays true through that.
-  const settling = props.feed.length > 0 && landedListKey !== feedThreadKey;
+  // A newly submitted first prompt already has its position. Paint it on
+  // the first layout instead of waiting for saved history to settle.
+  const settling = props.anchorMessageId === null && props.feed.length > 0 && landedListKey !== feedThreadKey;
   const openingViewport = useAnimatedRef<View>();
   const openingScroll = useSharedValue(0);
   const openingPlacement = useMemo(() => ({
@@ -4364,7 +4365,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   }
 
   const placeOpeningRows = settling && !props.jumpToMessageId && !anchoredEndSpace &&
-    !props.pendingHandoff && !props.statusLines?.length && !props.submissionOwnsScroll &&
+    !props.pendingHandoff && !props.statusLines?.length &&
     !retainedMediaRowId && props.contentPresentation.kind === "ready";
   const content = (
     <PresentationSource identifier={fileShareSourceIdentifier} style={{ flex: 1 }}>
@@ -4391,7 +4392,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             keyboardOffset={props.keyboardOffset}
             {...(usesNativeAutomaticInsets ? { contentInset: { top: anchorTopInset } } : {})}
             freeze={props.freeze}
-            maintainScrollAtEnd={jumpReady || props.submissionOwnsScroll ? false : THREAD_FEED_MAINTAIN_SCROLL_AT_END}
+            maintainScrollAtEnd={jumpReady ? false : THREAD_FEED_MAINTAIN_SCROLL_AT_END}
             maintainScrollAtEndThreshold={THREAD_FEED_MAINTAIN_SCROLL_AT_END_THRESHOLD}
             maintainVisibleContentPosition
             data={groupedFeed}
@@ -4423,7 +4424,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             // Android scrolls a tapped selectable message into view when it takes focus, which reads
             // as a user scroll and drops end following before the keyboard closes.
             scrollsChildToFocus={false}
-            keyboardLiftBehavior={props.keyboardLiftBehavior ?? "whenAtEnd"}
+            keyboardLiftBehavior={props.sendingWithKeyboard ? "persistent" : "whenAtEnd"}
             // Seed the initial viewport before native onLayout.
             {...(viewportHeight > 0 && viewportWidth > 0
               ? { estimatedListSize: { height: viewportHeight, width: viewportWidth } }

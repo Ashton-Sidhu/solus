@@ -39,7 +39,7 @@ export type NotificationPr = z.infer<typeof notificationPrSchema>
  */
 export const notificationResourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('work'), workId: z.string().min(1), revisionId: z.number().int().optional() }),
-  z.object({ kind: z.literal('task'), taskId: z.string().min(1) }),
+  z.object({ kind: z.literal('issue'), issueId: z.string().min(1) }),
   z.object({ kind: z.literal('session'), sessionId: z.string().min(1) }),
   z.object({ kind: z.literal('pr'), pr: notificationPrSchema }),
   z.object({
@@ -70,7 +70,7 @@ export type NotificationResource = z.infer<typeof notificationResourceSchema>
 export const notificationFactsSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('work.review_requested'), message: z.string().max(2000).optional() }),
   z.object({ kind: z.literal('work.review_decided'), decision: z.enum(['approved', 'changes_requested', 'commented']) }),
-  z.object({ kind: z.literal('task.assigned') }),
+  z.object({ kind: z.literal('issue.assigned') }),
   z.object({ kind: z.literal('pr.assigned') }),
   z.object({ kind: z.literal('pr.review_requested') }),
   z.object({ kind: z.literal('automation.finished'), status: z.enum(['succeeded', 'failed', 'cancelled']) }),
@@ -87,13 +87,13 @@ export type NotificationFacts = z.infer<typeof notificationFactsSchema>
 export type NotificationKind = NotificationFacts['kind']
 
 export const NOTIFICATION_KINDS = [
-  'work.review_requested', 'work.review_decided', 'task.assigned', 'pr.assigned', 'pr.review_requested',
+  'work.review_requested', 'work.review_decided', 'issue.assigned', 'pr.assigned', 'pr.review_requested',
   'automation.finished', 'review_job.finished', 'mention', 'session.shared', 'session.unshared', 'app.signal',
 ] as const satisfies readonly NotificationKind[]
 
 /** Kinds a person causes for someone else: their own action never alerts them. */
 export const OTHER_PERSON_KINDS: ReadonlySet<NotificationKind> = new Set([
-  'work.review_requested', 'work.review_decided', 'task.assigned', 'pr.assigned', 'pr.review_requested', 'mention',
+  'work.review_requested', 'work.review_decided', 'issue.assigned', 'pr.assigned', 'pr.review_requested', 'mention',
   'session.shared', 'session.unshared',
 ])
 

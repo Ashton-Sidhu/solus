@@ -1,7 +1,7 @@
 <script lang="ts">
   import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import { PinOff as PinOffIcon, PanelRight as PanelRightIcon } from "@lucide/svelte";
-  import type { TaskLink } from "@solus/contracts/task-types";
+  import type { IssueLink } from "@solus/contracts/task-types";
   import ArtifactView from "../../artifact/ArtifactView.svelte";
 
   /**
@@ -10,14 +10,14 @@
    * so it is open rather than a disclosure they have to find.
    */
   interface Props {
-    link: TaskLink;
+    link: IssueLink;
     /** The work's HTML once loaded, null until then. Read from the store. */
     html: string | null;
     /** False while the page is mounted but hidden. A hidden task page must not
      *  keep a live frame: the pin is remembered, the iframe is not. */
     enabled: boolean;
-    onOpen: (link: TaskLink) => void;
-    onUnpin: (link: TaskLink) => void;
+    onOpen: (link: IssueLink) => void;
+    onUnpin: (link: IssueLink) => void;
   }
 
   let { link, html, enabled, onOpen, onUnpin }: Props = $props();

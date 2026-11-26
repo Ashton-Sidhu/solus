@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { DEFAULT_INTEGRATION_ACCOUNT } from '@solus/contracts/integration-types'
+import { HOST_USE } from '@solus/contracts/permissions'
 import type { AgentTool, AgentToolResult } from '../execution/agents/tools/agent-tool'
 import { currentPersonKey } from '../vault/acting-scope'
 import type { CommandStarter } from './command-admission'
@@ -57,6 +58,7 @@ export function resourceAgentTools(servers: ResourceServer[], watchServers: Reso
     },
     alwaysLoad: false,
     requiresApproval: false,
+    access: { permission: HOST_USE },
     execute: async (input, context) => {
       const chosen = input.server ? named(input.server) : undefined
       if (input.server && !chosen) return unknown(input.server)
@@ -94,6 +96,7 @@ export function resourceAgentTools(servers: ResourceServer[], watchServers: Reso
     },
     alwaysLoad: false,
     requiresApproval: false,
+    access: { permission: HOST_USE },
     execute: async (input, context) => {
       const server = named(input.server)
       if (!server) return unknown(input.server)
@@ -122,6 +125,7 @@ export function resourceAgentTools(servers: ResourceServer[], watchServers: Reso
     },
     alwaysLoad: false,
     requiresApproval: false,
+    access: { permission: HOST_USE },
     execute: async (input, context) => {
       const server = watchServers.find((candidate) => candidate.slug === input.server)
       if (!server) return { ok: false, text: `No MCP server of this run that sends changes is named ${input.server}. Servers that send changes: ${watchSlugs}.` }

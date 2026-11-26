@@ -11,6 +11,7 @@
   import SettingsRow from "./SettingsRow.svelte";
   import { managedSetting } from "./policy/managed-setting.svelte";
   import RateLimitSetting from "./RateLimitSetting.svelte";
+  import CompletedRetentionSetting from "./CompletedRetentionSetting.svelte";
   import ModelRoutingSection from "./ModelRoutingSection.svelte";
   import DelegationSettingsSection from "./DelegationSettingsSection.svelte";
   let { searchQuery = "", serverId }: { searchQuery?: string; serverId?: string } = $props();
@@ -50,6 +51,10 @@
 
 <DelegationSettingsSection {isVisible} />
 
-<SettingsSection {...settingsDefinitions["sessions.section-sessions"]} visible={isVisible("ratelimit")}>
+<SettingsSection
+  {...settingsDefinitions["sessions.section-sessions"]}
+  visible={["ratelimit", "completed-retention"].some(isVisible)}
+>
   <RateLimitSetting visible={isVisible("ratelimit")} />
+  <CompletedRetentionSetting visible={isVisible("completed-retention")} />
 </SettingsSection>

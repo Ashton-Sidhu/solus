@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { FOOTER_TAB, SETTINGS_NAV_GROUPS, settingsNavGroups, settingsTabShown, type SettingsNavGroup } from '@solus/workspace-ui/components/settings/lib/settings-nav'
+import { SETTINGS_NAV_GROUPS, settingsNavGroups, settingsTabShown, type SettingsNavGroup } from '@solus/workspace-ui/components/settings/lib/settings-nav'
 import type { SettingsTab } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 
 // The settings sidebar follows T3 Code's groups. What matters: every page stays
-// reachable (Account from the footer), Organization is there only for a person who
-// is signed in, and Policy sits beside it then.
+// reachable from a group (Account & sync too, now that Settings has no sign-in
+// footer), Organization is there only for a person who is signed in, and Policy
+// sits beside it then.
 
 const SETTINGS_PAGE = readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src/components/settings/SettingsPage.svelte'), 'utf8')
 const tabs = [...SETTINGS_PAGE.matchAll(/\{\s*id: "([^"]+)",[^}]*?group: "([^"]+)"/g)].map((match) => ({
@@ -23,11 +24,12 @@ describe('the settings sidebar', () => {
     expect(settingsNavGroups(tabs, true).filter((section) => section.headingHidden).map((section) => section.group)).toEqual(['Preferences', 'More'])
   })
 
-  test('keeps every page reachable: each one in a group, or Account in the footer', () => {
+  test('keeps every page reachable from a group, Account & sync included', () => {
     for (const isSignedIn of [true, false]) {
       const shown = tabs.filter((tab) => settingsTabShown(tab.id, isSignedIn))
       const inGroups = settingsNavGroups(shown, isSignedIn).flatMap((section) => section.items.map((tab) => tab.id))
-      expect(new Set([...inGroups, FOOTER_TAB])).toEqual(new Set(shown.map((tab) => tab.id)))
+      expect(new Set(inGroups)).toEqual(new Set(shown.map((tab) => tab.id)))
+      expect(inGroups).toContain('account')
     }
   })
 

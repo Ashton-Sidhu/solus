@@ -251,7 +251,7 @@ describe('one task works on a session at a time', () => {
     // The index holds what the command keeps: a second active owner cannot be written.
     await expect(database.getDatabase().run(sql`
       INSERT INTO resource_links(organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, source, status, created_by, created_at)
-      VALUES ('local', 'task', 'different', 'session', '', 's2', 'works-on', 'system', 'active', 'x', 1)`)).rejects.toThrow()
+      VALUES ('local', 'issue', 'different', 'session', '', 's2', 'works-on', 'system', 'active', 'x', 1)`)).rejects.toThrow()
 
     // The second task takes the session: the first task's edge goes with the move.
     await second.linkSession('s2', 'working')
@@ -323,8 +323,8 @@ describe('who made an edge', () => {
       'session→pr:1': ['owner-key', 'branch'],
       'session→pr:2': ['user-2', 'manual'],
       'session→file:/tmp/a.md': ['user-1', 'agent'],
-      'task→session:owned': [hostUserKey(), 'system'],
-      'task→automation:auto-1': [hostUserKey(), 'system'],
+      'issue→session:owned': [hostUserKey(), 'system'],
+      'issue→automation:auto-1': [hostUserKey(), 'system'],
     })
   })
 })
@@ -352,7 +352,7 @@ describe('deletes leave no dangling edge', () => {
     expect(await links.danglingEdgeCount(database.getDatabase())).toBe(0)
     await tasks.deleteTask(task.id)
     useTaskAdaptersForTests(null)
-    expect((await edges()).some((edge) => edge.source_kind === 'task')).toBe(false)
+    expect((await edges()).some((edge) => edge.source_kind === 'issue')).toBe(false)
     expect(await links.danglingEdgeCount(database.getDatabase())).toBe(0)
     await sessionRecords.deleteSessionRecord('local', 's1')
     expect(await edges()).toEqual([])

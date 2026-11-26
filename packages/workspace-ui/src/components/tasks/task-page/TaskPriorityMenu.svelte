@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import type { TaskPriority } from "@solus/contracts/task-types";
+  import type { IssuePriority } from "@solus/contracts/task-types";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import { PRIORITY_META, PRIORITY_OPTIONS } from "../lib/tasks-api";
 
@@ -12,10 +12,10 @@
    * priority a task can be in and reads as one in the list.
    */
   interface Props {
-    priority: TaskPriority | undefined;
+    priority: IssuePriority | undefined;
     /** Why the provider does not take a change of the priority. Null enables the menu. */
     lock: string | null;
-    onSelect: (priority: TaskPriority | null) => void;
+    onSelect: (priority: IssuePriority | null) => void;
     align?: "start" | "end";
     triggerClass: string;
     trigger: Snippet;

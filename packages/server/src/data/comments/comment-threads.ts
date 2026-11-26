@@ -6,7 +6,7 @@ import { applyCommentCommand, CommentCommandError, type CommentActor, type WorkC
 import type { Db } from '../../db/database'
 import { hostUserKey } from '../../host/host-user'
 import { planAnnotations } from '../../plans/schema'
-import { tasks } from '../tasks/schema'
+import { issues } from '../tasks/schema'
 import { works } from '../works/schema'
 import { commentThreads } from './schema'
 
@@ -20,11 +20,11 @@ import { commentThreads } from './schema'
  * A work's and a plan's threads are `PlanComment`s on the wire; the reducer in
  * `@solus/contracts/comment-commands` decides what a command does to one, and
  * `applyThreadCommand` runs it against the one row with a compare-and-set on
- * the thread's version. A task's comments are `TaskComment`s; `task-store.ts`
+ * the thread's version. A task's comments are `IssueComment`s; `task-store.ts`
  * projects them from the same rows.
  */
 
-export type ThreadSubjectKind = 'task' | 'work' | 'plan'
+export type ThreadSubjectKind = 'issue' | 'work' | 'plan'
 
 export interface ThreadSubject {
   organizationId: string
@@ -172,7 +172,7 @@ function recordFromRow(row: ThreadRow): ThreadRecord {
 
 /** A subject's threads in their reading order: a task's by time, a work's or a plan's by position. */
 export async function readThreads(db: Db, subject: ThreadSubject): Promise<ThreadRecord[]> {
-  const order = subject.kind === 'task' ? sql`created_at, thread_id` : sql`position, thread_id`
+  const order = subject.kind === 'issue' ? sql`created_at, thread_id` : sql`position, thread_id`
   const rows = threadRowSchema.array().parse(await db.all(sql`
     SELECT ${THREAD_COLUMNS} FROM ${commentThreads} WHERE ${subjectClause(subject)} ORDER BY ${order}
   `))
@@ -203,9 +203,9 @@ export async function readExternalThread(db: Db, subject: ThreadSubject, externa
  */
 async function allocatePosition(db: Db, subject: ThreadSubject): Promise<number> {
   const counter = sql`comment_position = comment_position + 1`
-  const statement = subject.kind === 'task'
+  const statement = subject.kind === 'issue'
     // A task has no organization: its comments are in `local`, on the host's copy of the task.
-    ? sql`UPDATE ${tasks} SET ${counter} WHERE id = ${subject.id} RETURNING comment_position`
+    ? sql`UPDATE ${issues} SET ${counter} WHERE id = ${subject.id} RETURNING comment_position`
     : subject.kind === 'work'
       ? sql`UPDATE ${works} SET ${counter} WHERE id = ${subject.id} AND organization_id = ${subject.organizationId} RETURNING comment_position`
       : sql`UPDATE ${planAnnotations} SET ${counter} WHERE session_id = ${subject.id} AND plan_tool_use_id = ${subject.part ?? ''} AND organization_id = ${subject.organizationId} RETURNING comment_position`

@@ -24,7 +24,7 @@ describe('toolCallCode', () => {
 
   test('shows any other structured input as indented JSON', () => {
     const input = '{"query":"select:Read","max_results":3,"filter":{"kind":"pr"}}'
-    expect(toolCallCode('mcp__solus__find_works', input)).toEqual({
+    expect(toolCallCode('mcp__solus__list_works', input)).toEqual({
       language: 'json',
       code: '{\n  "query": "select:Read",\n  "max_results": 3,\n  "filter": {\n    "kind": "pr"\n  }\n}',
     })

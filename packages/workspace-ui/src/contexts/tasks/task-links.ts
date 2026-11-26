@@ -1,7 +1,7 @@
 // What one client knows about a task from more than one host. Pure: the
 // stores read these from `$derived`.
 
-import type { TaskSessionLink, TaskSidebarPrLink } from '@solus/contracts/task-types'
+import type { IssueSessionLink, IssueSidebarPrLink } from '@solus/contracts/task-types'
 
 /**
  * One list of session links from the lists that each host holds for a task.
@@ -11,10 +11,10 @@ import type { TaskSessionLink, TaskSidebarPrLink } from '@solus/contracts/task-t
  * change when a second host answers later. The newest link is first.
  */
 export function mergeSessionLinks(
-  linksByHost: ReadonlyMap<string, readonly TaskSessionLink[]>,
+  linksByHost: ReadonlyMap<string, readonly IssueSessionLink[]>,
   hostOrder: readonly string[],
-): TaskSessionLink[] {
-  const bySessionId = new Map<string, TaskSessionLink>()
+): IssueSessionLink[] {
+  const bySessionId = new Map<string, IssueSessionLink>()
   for (const serverId of orderedHosts(linksByHost, hostOrder)) {
     for (const link of linksByHost.get(serverId) ?? []) {
       if (!bySessionId.has(link.sessionId)) bySessionId.set(link.sessionId, link)
@@ -26,7 +26,7 @@ export function mergeSessionLinks(
 /** The host that holds the link to a session, or undefined. An unlink must go
  *  to that host: another host does not know the link. */
 export function hostOfSessionLink(
-  linksByHost: ReadonlyMap<string, readonly TaskSessionLink[]>,
+  linksByHost: ReadonlyMap<string, readonly IssueSessionLink[]>,
   hostOrder: readonly string[],
   sessionId: string,
 ): string | undefined {
@@ -37,10 +37,10 @@ export function hostOfSessionLink(
 /** One list of pull request links from the lists that each host holds. A pull
  *  request is one repository scope and one number. */
 export function mergePrLinks(
-  linksByHost: ReadonlyMap<string, readonly TaskSidebarPrLink[]>,
+  linksByHost: ReadonlyMap<string, readonly IssueSidebarPrLink[]>,
   hostOrder: readonly string[],
-): TaskSidebarPrLink[] {
-  const byIdentity = new Map<string, TaskSidebarPrLink>()
+): IssueSidebarPrLink[] {
+  const byIdentity = new Map<string, IssueSidebarPrLink>()
   for (const serverId of orderedHosts(linksByHost, hostOrder)) {
     for (const link of linksByHost.get(serverId) ?? []) {
       const identity = `${link.targetScope ?? ''}#${link.number}`

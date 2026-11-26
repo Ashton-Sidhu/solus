@@ -11,6 +11,7 @@
   import { runHost } from "../../contexts/workspace/run-location";
   import { toasts } from "../../lib/toasts";
   import { connectionsNav } from "../connections/connections-nav.svelte";
+  import { outsideAppsDialog } from "../connections/outside-apps/outside-apps-dialog.svelte";
   import HostDirectory from "../servers/HostDirectory.svelte";
   import { hostSetupStore } from "../servers/host-setup.store.svelte";
   import { Button } from "../ui/button";
@@ -464,6 +465,8 @@
         onAsk={() => askAgentAboutHosts(workspace, [menuMachine], hostAskOf(menuMachine))}
         onOpen={() => connectionsNav.open(menuMachine.serverId)}
         onNewSession={() => workspace.drafts.openSessionDraft({ freshTask: true, serverId: menuMachine.serverId, via: "click" })}
+        onConnectApps={() => outsideAppsDialog.open(menuMachine.serverId)}
+        onCopyMcpAddress={() => void outsideAppsDialog.copyMcpAddress(menuMachine.serverId)}
         onRetry={() => fleetStore.retryHosts([menuMachine.serverId])}
         onStart={() => fleetStore.startHosts([menuMachine.serverId])}
         onUpdate={() => fleetStore.updateHosts([menuMachine.serverId])}

@@ -8,7 +8,7 @@
     Link as LinkIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
-  import type { Task } from "@solus/contracts/task-types";
+  import type { Issue } from "@solus/contracts/task-types";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import { PROVIDER_NAMES, taskRef } from "../lib/tasks-api";
 
@@ -23,7 +23,7 @@
    * becomes the leading arrow, because on a phone that is the move.
    */
   interface Props {
-    task: Task;
+    task: Issue;
     /** A read of the task from its provider is on its way. */
     refreshing: boolean;
     /** Read the task from its provider again. */
@@ -66,7 +66,7 @@
     type="button"
     class="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent]"
     onclick={onOpenList}
-    aria-label="Back to tasks"
+    aria-label="Back to issues"
   >
     <CaretLeftIcon size={19} />
   </button>
@@ -76,7 +76,7 @@
       {taskRef(task)}
     </span>
     <span class="max-w-full truncate text-xs text-muted-foreground">
-      {providerName} · Tasks
+      {providerName} · Issues
     </span>
   </div>
 
@@ -87,7 +87,7 @@
           {...props}
           type="button"
           class="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent]"
-          aria-label="Task actions"
+          aria-label="Issue actions"
         >
           <DotsIcon size={19} />
         </button>
@@ -115,7 +115,7 @@
       {#if onOpenPage}
         <DropdownMenu.Item onSelect={() => onOpenPage?.()}>
           <ArrowsOutSimpleIcon size={14} />
-          <span class="flex-1 text-left">Open task page</span>
+          <span class="flex-1 text-left">Open issue page</span>
         </DropdownMenu.Item>
       {/if}
       {#if onCopyLink}
@@ -132,10 +132,10 @@
       {/if}
       <DropdownMenu.Separator />
       <DropdownMenu.Item disabled={!onPrevious} onSelect={() => onPrevious?.()}>
-        <span class="flex-1 text-left">Previous task</span>
+        <span class="flex-1 text-left">Previous issue</span>
       </DropdownMenu.Item>
       <DropdownMenu.Item disabled={!onNext} onSelect={() => onNext?.()}>
-        <span class="flex-1 text-left">Next task</span>
+        <span class="flex-1 text-left">Next issue</span>
       </DropdownMenu.Item>
     </DropdownMenu.Content>
   </DropdownMenu.Root>

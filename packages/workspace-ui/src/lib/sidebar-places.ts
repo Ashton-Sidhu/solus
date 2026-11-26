@@ -18,7 +18,7 @@ export const SIDEBAR_PLACES = [
   { id: 'automations', label: 'Automations' },
   { id: 'insights', label: 'Insights' },
   { id: 'prs', label: 'Pull requests' },
-  { id: 'tasks', label: 'Tasks' },
+  { id: 'tasks', label: 'Issues' },
   { id: 'search', label: 'Search' },
 ] as const
 

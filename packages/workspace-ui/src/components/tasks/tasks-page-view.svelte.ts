@@ -1,6 +1,6 @@
 import type { TaskViewFilters } from '@solus/contracts/task-views'
-import type { TaskSourceState } from '@solus/contracts/task-types'
-import type { Task } from '../../contexts/tasks/task.svelte'
+import type { IssueSourceState } from '@solus/contracts/task-types'
+import type { Issue } from '../../contexts/tasks/task.svelte'
 import type { ListGroupSpec, ListRowPlace, ListStatusOption } from '../ui/list-page/list-page'
 import {
   DEFAULT_TASK_SORT,
@@ -13,7 +13,7 @@ import {
   type BoardView,
   type TaskSort,
 } from './lib/tasks-api'
-import { isTaskSnoozed, openColumnIds, taskGroups } from './lib/tasks-list-view'
+import { openColumnIds, taskGroups } from './lib/tasks-list-view'
 import {
   matchesTaskQuery,
   sourcesFailure,
@@ -31,9 +31,9 @@ import type { ProviderTaskSearch } from './lib/provider-search.svelte'
 interface TasksPageViewInput {
   /** The tasks the task host holds for the person. The view keeps the ones
    *  that a source in `sources` lists. */
-  tasks: () => Task[]
+  tasks: () => Issue[]
   /** The person's task sources, as the task host read them. */
-  sources: () => TaskSourceState[]
+  sources: () => IssueSourceState[]
   now: () => number
   /** Sessions whose agent works on the task now, not every linked one. */
   runningSessionsFor: (taskId: string) => number
@@ -60,8 +60,6 @@ export class TasksPageView {
   runningOnly = $state(false)
   overdueOnly = $state(false)
   assignedOnly = $state(false)
-  /** A snoozed task is out of the list until it wakes; this shows only those. */
-  snoozedOnly = $state(false)
   /**
    * Which columns the list shows. Null = the ones a list opens on: the columns
    * of work that is not done, so finished tasks stay out of the way until asked
@@ -81,7 +79,7 @@ export class TasksPageView {
   snapshot(): TaskViewFilters {
     return { sourceKey: this.#sourceKey, query: this.query, layout: this.layout, sort: this.sort,
       involvement: this.involvement, runningOnly: this.runningOnly, overdueOnly: this.overdueOnly,
-      assignedOnly: this.assignedOnly, snoozedOnly: this.snoozedOnly, columnIds: this.selectedColumnIds }
+      assignedOnly: this.assignedOnly, columnIds: this.selectedColumnIds }
   }
 
   apply(filters: TaskViewFilters): void {
@@ -93,13 +91,12 @@ export class TasksPageView {
     this.runningOnly = filters.runningOnly
     this.overdueOnly = filters.overdueOnly
     this.assignedOnly = filters.assignedOnly
-    this.snoozedOnly = filters.snoozedOnly
     this.selectedColumnIds = filters.columnIds === null ? null : [...filters.columnIds]
   }
 
   // --- The source on screen -----------------------------------------------
 
-  readonly source: TaskSourceState | null = $derived.by(
+  readonly source: IssueSourceState | null = $derived.by(
     () => this.#input.sources().find((source) => source.sourceKey === this.#sourceKey) ?? null,
   )
 
@@ -108,7 +105,7 @@ export class TasksPageView {
   )
 
   /** The sources whose tasks are on screen. */
-  readonly sources: TaskSourceState[] = $derived.by(() => (this.source ? [this.source] : this.#input.sources()))
+  readonly sources: IssueSourceState[] = $derived.by(() => (this.source ? [this.source] : this.#input.sources()))
   /** A source that cannot be read, or one that holds more tasks than the host read. */
   readonly failure: SourcesFailure | null = $derived(sourcesFailure(this.sources))
   readonly truncated: boolean = $derived(this.sources.some((source) => source.truncated))
@@ -127,14 +124,14 @@ export class TasksPageView {
     return this.layout === 'board'
   }
 
-  isOverdue = (task: Pick<Task, 'dueDate' | 'category'>): boolean => {
+  isOverdue = (task: Pick<Issue, 'dueDate' | 'category'>): boolean => {
     if (!task.dueDate || task.category === 'done') return false
     return Date.parse(`${task.dueDate}T23:59:59`) < this.#input.now()
   }
 
   /** The tasks of every source that match the search, before the source on
    *  screen narrows them. The source strip counts these. */
-  readonly #matched: Task[] = $derived.by(() => {
+  readonly #matched: Issue[] = $derived.by(() => {
     const { providerSearch } = this.#input
     const sourceKeys = new Set(this.#input.sources().map((source) => source.sourceKey))
     const providerMatches = providerSearch.query === this.query.trim() && providerSearch.involvement === this.involvement ? providerSearch.results : []
@@ -150,27 +147,20 @@ export class TasksPageView {
 
   /** The tasks that the search keeps. A source view shows the tasks that the
    *  source lists; the mixed view shows each task one time. */
-  readonly searched: Task[] = $derived(this.#matched.filter((task) => boardColumnIdOf(task, this.board) !== null))
+  readonly searched: Issue[] = $derived(this.#matched.filter((task) => boardColumnIdOf(task, this.board) !== null))
 
-  readonly #matchedInView: Task[] = $derived(
-    this.#matched.filter((task) => isTaskSnoozed(task, this.#input.now()) === this.snoozedOnly),
-  )
-  /** How many tasks each source holds for the search and the snooze filter. */
-  readonly sourceCounts: Map<string, number> = $derived(taskCountsBySource(this.#matchedInView))
+  /** How many tasks each source holds for the search. */
+  readonly sourceCounts: Map<string, number> = $derived(taskCountsBySource(this.#matched))
   /** How many tasks every source together holds; a task on two sources counts once. */
-  readonly allSourcesCount: number = $derived(this.#matchedInView.length)
+  readonly allSourcesCount: number = $derived(this.#matched.length)
 
-  /** The snoozed tasks, or every other task: the list shows one of the two. */
-  readonly inView: Task[] = $derived.by(() =>
-    this.searched.filter((task) => isTaskSnoozed(task, this.#input.now()) === this.snoozedOnly),
-  )
+  readonly inView: Issue[] = $derived(this.searched)
 
-  /** The columns of the view, with every task that the search and the snooze
-   *  filter keep. The list's column filter and its counts read these. */
-  readonly columns: BoardColumn<Task>[] = $derived(buildBoard(this.inView, this.board))
+  /** The columns of the view, with every task that the search keeps. The list's column filter and its counts read these. */
+  readonly columns: BoardColumn<Issue>[] = $derived(buildBoard(this.inView, this.board))
   readonly columnIds: string[] = $derived(this.selectedColumnIds ?? openColumnIds(this.columns))
 
-  readonly visibleTasks: Task[] = $derived.by(() => {
+  readonly visibleTasks: Issue[] = $derived.by(() => {
     let rows = this.inView
     if (!this.boardLayout) {
       rows = rows.filter((task) => this.columnIds.includes(boardColumnIdOf(task, this.board) ?? NO_COLUMN_ID))
@@ -192,7 +182,7 @@ export class TasksPageView {
    * exempt — the board already ignores it.)
    */
   readonly boardUnfiltered: boolean = $derived(
-    !this.query.trim() && this.involvement === 'all' && !this.runningOnly && !this.overdueOnly && !this.assignedOnly && !this.snoozedOnly,
+    !this.query.trim() && this.involvement === 'all' && !this.runningOnly && !this.overdueOnly && !this.assignedOnly,
   )
 
   /**
@@ -204,7 +194,6 @@ export class TasksPageView {
     running: this.inView.filter((task) => this.#input.runningSessionsFor(task.id) > 0).length,
     overdue: this.inView.filter(this.isOverdue).length,
     assigned: this.inView.filter((task) => !!task.assignee).length,
-    snoozed: this.searched.filter((task) => isTaskSnoozed(task, this.#input.now())).length,
   }))
 
   /**
@@ -218,7 +207,7 @@ export class TasksPageView {
   )
 
   /** The columns of the view that a task can be moved to: the bulk bar offers these. */
-  readonly moveOptions: BoardColumn<Task>[] = $derived(
+  readonly moveOptions: BoardColumn<Issue>[] = $derived(
     this.columns.filter((column) => moveTargetFor(this.board, column.id) !== null),
   )
 
@@ -233,7 +222,7 @@ export class TasksPageView {
     if (providerSearch.searching) return 'searching the provider…'
     if (providerSearch.error) return 'the provider did not answer the search'
     if (providerSearch.query && providerSearch.query === this.query.trim()) return 'searched the provider'
-    return 'not every task is loaded · search reaches the rest'
+    return 'not every issue is loaded · search reaches the rest'
   })
 
   clearFilters(): void {
@@ -247,7 +236,6 @@ export class TasksPageView {
     this.runningOnly = false
     this.overdueOnly = false
     this.assignedOnly = false
-    this.snoozedOnly = false
     this.selectedColumnIds = null
   }
 

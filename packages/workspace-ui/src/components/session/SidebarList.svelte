@@ -3,7 +3,7 @@
   import type { PinnedSession } from "@solus/contracts/types";
   import type { DraftRow as DraftRowModel } from "./lib/draft-list";
   import type { SidebarSection } from "./lib/sidebar-list-items";
-  import type { SidebarTask } from "./lib/task-list";
+  import type { SidebarSession } from "./lib/sidebar-rows";
 
   /** What both sidebar views hand the list unchanged: how a row renders and
    *  what the rows' own actions do. */
@@ -12,17 +12,17 @@
     motionMs: number;
     isLoading: boolean;
     /** Draws a row; the flag says it sits in a project folder. */
-    taskRow: Snippet<[SidebarTask, boolean]>;
+    taskRow: Snippet<[SidebarSession, boolean]>;
     /** Draws a pinned session with no open conversation. */
     pinnedRow: Snippet<[PinnedSession]>;
     onOpenDraft: (draft: DraftRowModel) => void;
     onDiscardDraft: (draft: DraftRowModel) => void;
     onToggleSection: (section: SidebarSection) => void;
-    /** ⌫ on a row: the row's X. `taskKey` is absent on a session listed
+    /** ⌫ on a row: the row's X. `rowKey` is absent on a session listed
      *  under a row. */
-    onCloseRow: (target: { taskKey?: string; tabId?: string }) => void;
+    onCloseRow: (target: { rowKey?: string; tabId?: string }) => void;
     /** → and ← on a row that started sessions: unfold or fold them. */
-    onNestedOpenChange: (taskKey: string, isOpen: boolean) => void;
+    onNestedOpenChange: (rowKey: string, isOpen: boolean) => void;
   }
 </script>
 
@@ -31,7 +31,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import DraftRow from "./DraftRow.svelte";
   import SidebarSectionHeader from "./SidebarSectionHeader.svelte";
-  import TaskListSkeleton from "./TaskListSkeleton.svelte";
+  import SidebarListSkeleton from "./SidebarListSkeleton.svelte";
   import type { SidebarFolder } from "./lib/sidebar-project-folders";
   import { sidebarListMotion } from "./lib/sidebar-list-motion.svelte";
   import { groupSidebarListItems, sidebarListOrderKey, type SidebarListItem, type SidebarListRow } from "./lib/sidebar-list-items";
@@ -80,7 +80,7 @@
   function parentRowIndex(rows: HTMLElement[], focused: HTMLElement, index: number): number {
     if (focused.dataset.folderKey !== undefined) return -1;
     if (focused.dataset.nestedSession !== undefined) {
-      return rows.findLastIndex((row, at) => at < index && row.dataset.taskKey !== undefined);
+      return rows.findLastIndex((row, at) => at < index && row.dataset.rowKey !== undefined);
     }
     const memberOf = focused.closest<HTMLElement>("[data-folder]")?.dataset.folder;
     return memberOf === undefined ? -1 : rows.findIndex((row) => row.dataset.folderKey === memberOf);
@@ -97,7 +97,7 @@
       index,
       parentIndex: parentIndex < 0 ? null : parentIndex,
       folderOpen: focused.dataset.folderKey === undefined ? undefined : isOpen,
-      nestedOpen: focused.dataset.taskKey === undefined ? undefined : isOpen,
+      nestedOpen: focused.dataset.rowKey === undefined ? undefined : isOpen,
     };
   }
 
@@ -116,7 +116,7 @@
     const index = focused ? rows.indexOf(focused) : -1;
     if (index < 0) return;
 
-    const taskKey = focused!.dataset.taskKey;
+    const rowKey = focused!.dataset.rowKey;
     const folderKey = focused!.dataset.folderKey;
     const intent = treeKeyIntent(event.key, focusedRowState(rows, focused!, index), rows.length);
     if (!intent) return;
@@ -130,13 +130,13 @@
         requestInputFocus();
         break;
       case "close":
-        onCloseRow({ taskKey, tabId: focused!.dataset.tabId });
+        onCloseRow({ rowKey, tabId: focused!.dataset.tabId });
         break;
       case "setFolderOpen":
         if (folderKey !== undefined) onFolderOpenChange?.(folderKey, intent.isOpen);
         break;
       case "setNestedOpen":
-        if (taskKey !== undefined) onNestedOpenChange(taskKey, intent.isOpen);
+        if (rowKey !== undefined) onNestedOpenChange(rowKey, intent.isOpen);
         break;
     }
   }
@@ -181,7 +181,7 @@
              list motion can glide it from one section list to another. -->
         <div
           data-folder={item.folderKey}
-          data-sidebar-row-key={item.task.key}
+          data-sidebar-row-key={item.session.key}
           data-sidebar-section={scrollsWithinShelf ? undefined : item.section}
           class="-mx-2 px-2 [content-visibility:auto] [overflow-clip-margin:0.5rem] {item.folderKey === undefined && (item.section === 'sessions' ||
           item.section === 'shared' ||
@@ -189,7 +189,7 @@
             ? '[contain-intrinsic-size:auto_62px]'
             : '[contain-intrinsic-size:auto_36px]'} {item.section === 'completed' ? 'opacity-80' : ''}"
         >
-          {@render taskRow(item.task, item.folderKey !== undefined)}
+          {@render taskRow(item.session, item.folderKey !== undefined)}
         </div>
       {/if}
     {/each}
@@ -203,7 +203,7 @@
   <div class="flex min-h-full flex-col">
     {@render rows(list.mainRows, false)}
     {#if isLoading}
-      <TaskListSkeleton />
+      <SidebarListSkeleton />
     {/if}
     {#if list.shelves.length > 0}
       <div class="mt-auto flex shrink-0 flex-col gap-2 pt-2">

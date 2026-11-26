@@ -19,7 +19,7 @@
   import UserMessageBubble from "../../conversation/UserMessageBubble.svelte";
   import PullRequestWatchRow from "../../conversation/PullRequestWatchRow.svelte";
   import BackgroundCommandRow from "../../conversation/BackgroundCommandRow.svelte";
-  import { hostNoticeKind } from "../../conversation/lib/host-notice";
+  import { hostNoticeKind } from "@solus/client-core/host-notice";
   import ToolGroupItem from "../../conversation/ToolGroupItem.svelte";
   import ThoughtRow from "../../conversation/ThoughtRow.svelte";
   import AnsweredQuestion from "../../conversation/AnsweredQuestion.svelte";

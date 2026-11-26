@@ -28,7 +28,7 @@ const TURN_COLUMNS = [
   'origin',
   'prompt',
   'prompt_source',
-  'task',
+  'issue',
   'cost_usd',
   'input_tokens',
   'output_tokens',
@@ -129,9 +129,9 @@ function whereClause(request: MetricsTurnFilter, visible: InsightFilter, include
     conditions.push('session_id = ?')
     params.push(request.sessionId)
   }
-  if (request.taskId) {
-    conditions.push('task_id = ?')
-    params.push(request.taskId)
+  if (request.issueId) {
+    conditions.push('issue_id = ?')
+    params.push(request.issueId)
   }
   if (request.search) {
     const pattern = `%${request.search}%`

@@ -71,7 +71,7 @@ function harness(opts: { status?: Session['status'] } = {}) {
     runHosts: { promptFields: () => ({}), confirm: () => {}, followRunningHost: () => {} },
     promptComposer: new PromptComposer({} as never, {} as never),
     settings: { activeAgent: 'claude-code' },
-    tasksStore: { taskForSession: () => null },
+    issuesStore: { taskForSession: () => null },
     eventReducer: {
       closeAgentConversationTurn: () => {},
       handleError: (_sessionId: string, error: { message: string }) => {

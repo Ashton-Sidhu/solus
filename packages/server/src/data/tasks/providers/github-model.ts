@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { TaskColumn, TaskEpic, TaskField, TaskPriority, TaskState } from '@solus/contracts/task-types'
+import type { IssueColumn, IssueEpic, IssueField, IssuePriority, IssueState } from '@solus/contracts/task-types'
 import { githubIssueCategory, githubProjectOptionCategory } from '../status-category'
 import { MAX_SOURCE_TASKS, type ProviderComment, type ProviderTask, type SourceItem } from './types'
 import { ISSUE_PROVIDER_FIELDS, ISSUE_REACTION_FIELDS, type GitHubIssueMetadataSelection } from './github-issue-metadata'
@@ -365,7 +365,7 @@ export function planningStatusesOf(repository: PlanningStatuses): PlanningStatus
   return repository.planningStatuses?.nodes?.filter((status) => status !== null) ?? []
 }
 
-export function planningColumn(status: PlanningStatus): TaskColumn {
+export function planningColumn(status: PlanningStatus): IssueColumn {
   return {
     id: status.id,
     name: status.name,
@@ -506,7 +506,7 @@ export const DUE_FIELD_RE = /due|target|end|ship/i
 
 // Conventional priority labels → normalized priority. Covers the common schemes
 // (`priority: high`, `p1`, bare `urgent`). First match by descending severity wins.
-const PRIORITY_LABELS: Array<{ priority: TaskPriority; match: RegExp }> = [
+const PRIORITY_LABELS: Array<{ priority: IssuePriority; match: RegExp }> = [
   { priority: 'urgent', match: /^(priority\s*[:/-]?\s*)?(urgent|critical|p0)$/i },
   { priority: 'high', match: /^(priority\s*[:/-]?\s*)?(high|p1)$/i },
   { priority: 'medium', match: /^(priority\s*[:/-]?\s*)?(medium|med|p2)$/i },
@@ -514,7 +514,7 @@ const PRIORITY_LABELS: Array<{ priority: TaskPriority; match: RegExp }> = [
 ]
 
 /** The priority of an issue that is on no Project. */
-export function priorityFromLabels(labels: string[]): TaskPriority | undefined {
+export function priorityFromLabels(labels: string[]): IssuePriority | undefined {
   for (const { priority, match } of PRIORITY_LABELS) {
     if (labels.some((label) => match.test(label.trim()))) return priority
   }
@@ -522,7 +522,7 @@ export function priorityFromLabels(labels: string[]): TaskPriority | undefined {
 }
 
 /** The names of a Priority field's options (`Urgent`, `P0`, `High`) map as the labels do. */
-export function priorityFromOption(name: string): TaskPriority | undefined {
+export function priorityFromOption(name: string): IssuePriority | undefined {
   return priorityFromLabels([name])
 }
 
@@ -551,7 +551,7 @@ export function statusValueOf(fieldValues: FieldValues): { optionId: string; nam
  * prefers a DATE field with a conventional name, then the first DATE value.
  */
 function readProjectFields(items: IssueProjectItemNode[]) {
-  let priority: TaskPriority | undefined
+  let priority: IssuePriority | undefined
   let namedDue: string | undefined
   let anyDue: string | undefined
   for (const item of items) {
@@ -575,9 +575,9 @@ export function projectItemsOf(node: IssueNode): IssueProjectItemNode[] {
 }
 
 /** A GitHub issue takes a priority or a due date only when a Project it is on has that field. */
-function issueWritableFields(items: IssueProjectItemNode[]): TaskField[] {
+function issueWritableFields(items: IssueProjectItemNode[]): IssueField[] {
   const fields = items.flatMap((item) => presentNodes(item.project.fields.nodes))
-  const writable: TaskField[] = ['title', 'body', 'labels', 'assignee']
+  const writable: IssueField[] = ['title', 'body', 'labels', 'assignee']
   if (fields.some((field) => field.dataType === 'SINGLE_SELECT' && field.name?.toLowerCase() === 'priority')) {
     writable.push('priority')
   }
@@ -588,12 +588,12 @@ function issueWritableFields(items: IssueProjectItemNode[]): TaskField[] {
 // ─── Mappers ──────────────────────────────────────────────────────────────────
 
 /** Legacy state for a repository without planning statuses. */
-export function issueState(state: 'OPEN' | 'CLOSED'): TaskState {
+export function issueState(state: 'OPEN' | 'CLOSED'): IssueState {
   return { name: state === 'CLOSED' ? 'Closed' : 'Open', category: githubIssueCategory(state) }
 }
 
 /** The parent issue as the epic. A list read has no description. */
-function issueEpic(parent: NonNullable<IssueNode['parent']>): TaskEpic {
+function issueEpic(parent: NonNullable<IssueNode['parent']>): IssueEpic {
   return {
     provider: 'github',
     externalId: String(parent.number),
@@ -709,7 +709,7 @@ export function commentFromNode(comment: CommentNode): ProviderComment {
   }
 }
 
-export function planningState(status: PlanningStatus): TaskState {
+export function planningState(status: PlanningStatus): IssueState {
   const { name, category } = planningColumn(status)
   return { name, category }
 }

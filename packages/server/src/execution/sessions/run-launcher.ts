@@ -976,7 +976,7 @@ export class RunLauncher {
     // runs with none (docs/plans/task-conversation.md, decision 8). A provider
     // handoff is a new backend conversation of the same Solus session, so it
     // stays under the task the session has.
-    if (pendingHandoff && !options.taskId) {
+    if (pendingHandoff && !options.issueId) {
       const existingTask = await dispatchStep('task_lookup', {
         fn: 'taskIdForSession',
         file: 'run-launcher.ts',
@@ -985,12 +985,12 @@ export class RunLauncher {
         annotate({ taskId: found ?? '' })
         return found
       })
-      if (existingTask) options.taskId = existingTask
+      if (existingTask) options.issueId = existingTask
     }
     // Bind the task the prompt names, when this host holds it. A shipped
     // snapshot marks the task as foreign: its row lives on another host, where
     // the dispatching client bound it.
-    const boundTaskId = options.taskSnapshot ? undefined : options.taskId
+    const boundTaskId = options.taskSnapshot ? undefined : options.issueId
     if (boundTaskId) {
       await dispatchStep('task_prepare', {
         projectKey: resolvedProjectPath ?? '',
@@ -1009,7 +1009,7 @@ export class RunLauncher {
           existingAgentSessionId: isForkingSession
             ? null
             : effectiveInput.agentSessionId ?? pendingHandoff?.fromSessionId ?? null,
-          taskId: boundTaskId,
+          issueId: boundTaskId,
         })
         annotate({ bound: !!prepared })
         return prepared
@@ -1020,14 +1020,14 @@ export class RunLauncher {
     // a prompt prefix it was read back as the user's own turn on reload, and a
     // session's whole history folds behind one row when its first turn has no
     // user message to lead it. The packet holds no live task state, so it stays
-    // the same from turn to turn; the agent reads that state with read_task.
-    if (options.taskId) {
+    // the same from turn to turn; the agent reads that state with read_issue.
+    if (options.issueId) {
       const context = await dispatchStep('task_context', {
-        taskId: options.taskId,
+        taskId: options.issueId,
         fn: 'taskSystemContext',
         file: 'run-launcher.ts',
       }, async (annotate) => {
-        const composed = await taskSystemContext(options.taskId!, options.taskSnapshot ?? null, sessionId, effectiveInput.executionPreferences)
+        const composed = await taskSystemContext(options.issueId!, options.taskSnapshot ?? null, sessionId)
         annotate({ contextChars: composed.length })
         return composed
       })

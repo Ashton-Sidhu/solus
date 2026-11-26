@@ -179,7 +179,7 @@ export function createDesktopPalette(
       });
     void session.worksStore.loadAll();
     void session.automationsStore.loadAll();
-    void session.tasksStore.ensureLoaded();
+    void session.issuesStore.ensureLoaded();
   }
 
   // Seed command set for the editor command palette. Intentionally a small,
@@ -258,7 +258,7 @@ export function createDesktopPalette(
     },
     {
       id: "new-session-in-task",
-      label: "New session in task",
+      label: "New session in issue",
       group: "General",
       icon: PlusIcon,
       hint: comboHint("global.new-session-in-task"),
@@ -267,11 +267,11 @@ export function createDesktopPalette(
     },
     {
       id: "new-session-without-task",
-      label: "New session without task",
+      label: "New session without issue",
       group: "General",
       icon: PlusIcon,
       hint: comboHint("global.new-session-without-task"),
-      keywords: ["create", "session", "tab", "no task"],
+      keywords: ["create", "session", "tab", "no issue", "no task"],
       run: () =>
         session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
     },
@@ -590,8 +590,8 @@ export function createDesktopPalette(
     // A task belongs to no project; the composer asks for its task source.
     commands.push({
       id: "create-task",
-      label: "Create task",
-      group: "Tasks",
+      label: "Create issue",
+      group: "Issues",
       icon: TaskIcon,
       hint: comboHint("global.new-task"),
       keywords: ["task", "create", "new", "todo", "issue"],
@@ -601,11 +601,11 @@ export function createDesktopPalette(
     // Open any existing task (opens its detail). Like the other parent
     // commands, surface this the instant the palette opens so it never waits on
     // the tasks provider; children stream in once the store loads.
-    const goToTaskChildren: Command[] = session.tasksStore.loaded
-      ? session.tasksStore.tasks.map((t) => ({
+    const goToTaskChildren: Command[] = session.issuesStore.loaded
+      ? session.issuesStore.tasks.map((t) => ({
           id: `go-to-task:${t.id}`,
           label: t.title,
-          group: "Tasks",
+          group: "Issues",
           icon: TaskIcon,
           keywords: ["task", t.reference ?? "", t.assignee ?? "", ...t.labels],
           run: () => session.goToTask(t.id),
@@ -613,7 +613,7 @@ export function createDesktopPalette(
       : [];
     commands.push({
       id: "go-to-task",
-      label: "Open task…",
+      label: "Open issue…",
       group: "View",
       icon: TaskIcon,
       keywords: ["task", "go", "open", "find", "jump", "issue", "ticket"],

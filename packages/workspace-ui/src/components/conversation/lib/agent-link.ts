@@ -2,7 +2,7 @@ import { agentActivityOfTool, type AgentActivity } from '@solus/contracts/agent-
 import { DOT_MARK_FOR_ACTIVITY, type DotMarkName } from '@solus/client-core/dot-marks'
 import { sessionExecutionStatus, type SessionExecution } from '@solus/contracts/session-execution'
 import type { Message, SessionStatus } from '@solus/contracts/types'
-import type { GlyphStatus } from '../../session/lib/task-list'
+import type { GlyphStatus } from '../../session/lib/sidebar-rows'
 import type { SubagentRowState } from './subagent-group'
 
 /**

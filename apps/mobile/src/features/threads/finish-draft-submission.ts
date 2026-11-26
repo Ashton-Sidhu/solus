@@ -21,12 +21,11 @@ export async function submitNewTaskDraft(
 ) {
   const saved = enqueue(message);
   if (saved === null) return null;
+  if (Platform.OS === "ios" && KeyboardController.isVisible()) {
+    void KeyboardController.dismiss({ animated: false }).catch(() => {});
+  }
   await saved;
   if (isCurrent?.() === false) return null;
-  if (Platform.OS === "ios" && KeyboardController.isVisible()) {
-    await KeyboardController.dismiss({ animated: false });
-    if (isCurrent?.() === false) return null;
-  }
   navigation.dispatch(CommonActions.setParams(submittedThreadParams(message.environmentId, message.threadId)));
   abortComposerDraftOperations(draftKey);
   const draft = getComposerDraftSnapshot(draftKey);

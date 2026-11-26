@@ -2,10 +2,10 @@
 // reads the task, and shows the error when the host or the provider refuses.
 // The page keeps the markup and its own view state.
 import type {
-  TaskLink,
-  TaskLinkInput,
-  TaskMoveTarget,
-  TaskUpdatePatch,
+  IssueLink,
+  IssueLinkInput,
+  IssueMoveTarget,
+  IssueUpdatePatch,
 } from '@solus/contracts/task-types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { ClientShellContext, SurfaceContext } from '../../../../contexts'
@@ -36,13 +36,13 @@ export function toastTaskError(action: string, error: Parameters<typeof String>[
 
 export function createTaskPageCommands(input: TaskPageCommandsInput) {
   const { session, shell } = input
-  const store = session.tasksStore
+  const store = session.issuesStore
   const task = () => store.get(input.taskId())
 
   function notifySessionUnavailable(): void {
     toasts.error('Session no longer available', {
       description:
-        'This task still has the session link, but its history is not available on the host that owns it.',
+        'This issue still has the session link, but its history is not available on the host that owns it.',
     })
   }
 
@@ -87,23 +87,23 @@ export function createTaskPageCommands(input: TaskPageCommandsInput) {
     /** Send a change of the task's fields to the provider. False when the
      *  provider refused it: the task keeps its old value, and an editor that
      *  holds a draft of the field must take that value back. */
-    async save(patch: TaskUpdatePatch): Promise<boolean> {
+    async save(patch: IssueUpdatePatch): Promise<boolean> {
       try {
         await task().update(patch)
         return true
       } catch (error) {
-        toastTaskError('save task', error)
+        toastTaskError('save issue', error)
         return false
       }
     },
 
     /** Move the task. The task entity puts the old place back when the
      *  provider refuses the move. */
-    async move(target: TaskMoveTarget): Promise<void> {
+    async move(target: IssueMoveTarget): Promise<void> {
       try {
         await task().move(target)
       } catch (error) {
-        toastTaskError('move task', error)
+        toastTaskError('move issue', error)
       }
     },
 
@@ -112,7 +112,7 @@ export function createTaskPageCommands(input: TaskPageCommandsInput) {
       try {
         await task().loadDetails()
       } catch (error) {
-        toastTaskError('refresh task', error)
+        toastTaskError('refresh issue', error)
       }
     },
 
@@ -156,27 +156,27 @@ export function createTaskPageCommands(input: TaskPageCommandsInput) {
       if (!task().canDelete) return
       const pending = store.softRemove([task().id])
       if (!pending.length) return
-      toasts.undo('Task deleted', () => store.restorePending(pending), {
+      toasts.undo('Issue deleted', () => store.restorePending(pending), {
         onDismiss: () =>
-          store.commitPending(pending).catch((error) => toastTaskError('delete task', error)),
+          store.commitPending(pending).catch((error) => toastTaskError('delete issue', error)),
       })
       input.onClose()
     },
 
-    addLink(link: TaskLinkInput): void {
+    addLink(link: IssueLinkInput): void {
       void task().link(link).catch((error) => toastTaskError('link this', error))
     },
 
-    removeLink(link: TaskLink): void {
+    removeLink(link: IssueLink): void {
       void store
-        .get(link.taskId)
+        .get(link.issueId)
         .unlink(link.kind, link.targetKey, link.targetScope)
         .catch((error) => toastTaskError('unlink this', error))
     },
 
-    async pinArtifact(link: TaskLink, pinned: boolean): Promise<void> {
+    async pinArtifact(link: IssueLink, pinned: boolean): Promise<void> {
       try {
-        await store.get(link.taskId).link({
+        await store.get(link.issueId).link({
           kind: 'work',
           targetScope: link.targetScope,
           targetKey: link.targetKey,
@@ -188,9 +188,9 @@ export function createTaskPageCommands(input: TaskPageCommandsInput) {
     },
 
     /** The host draws the still, so this waits on a browser; the row shows it. */
-    async attachArtifact(link: TaskLink): Promise<void> {
+    async attachArtifact(link: IssueLink): Promise<void> {
       try {
-        const linkedTask = store.get(link.taskId)
+        const linkedTask = store.get(link.issueId)
         await linkedTask.attachArtifact(link.targetKey)
         toasts.success(`Preview sent to ${PROVIDER_NAMES[linkedTask.providerId]}`)
       } catch (error) {
@@ -199,7 +199,7 @@ export function createTaskPageCommands(input: TaskPageCommandsInput) {
     },
 
     /** A linked row opens wherever that kind lives. */
-    openLink(link: TaskLink): void {
+    openLink(link: IssueLink): void {
       switch (link.kind) {
         case 'work':
           shell.openResource({

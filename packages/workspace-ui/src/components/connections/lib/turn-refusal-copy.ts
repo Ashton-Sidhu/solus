@@ -57,6 +57,8 @@ export function turnRefusalCopy(code: TurnRefusal, input: { signedIn: boolean; a
       return { title: 'This host has no policy for this work yet', hint: '', action: 'none' }
     case 'POLICY_UNENFORCEABLE':
       return { title: 'This host cannot apply the policy', hint: '', action: 'none' }
+    case 'APP_NOT_ALLOWED':
+      return { title: 'This app is not allowed', hint: 'Your organization chooses which apps may use Solus.', action: 'none' }
   }
 }
 

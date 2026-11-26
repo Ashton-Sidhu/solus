@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { taskKey } from '@solus/contracts/task-sources'
-import type { TaskSource } from '@solus/contracts/task-sources'
+import { issueKey } from '@solus/contracts/task-sources'
+import type { IssueSource } from '@solus/contracts/task-sources'
 import type { JiraTransport, SourceWriteState, TaskHome } from '@solus/server/data/tasks/providers/types'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
@@ -26,8 +26,8 @@ type JiraRequest = Parameters<JiraTransport['request']>[0]
 const CLOUD_ID = 'cloud-1'
 const SITE_URL = 'https://acme.atlassian.net'
 const HOME: TaskHome = { provider: 'jira', cloudId: CLOUD_ID, key: 'ACME-7' }
-const PROJECT_SOURCE: TaskSource = { kind: 'jira-project', cloudId: CLOUD_ID, projectKey: 'ACME' }
-const BOARD_SOURCE: TaskSource = { kind: 'jira-board', cloudId: CLOUD_ID, boardId: 12 }
+const PROJECT_SOURCE: IssueSource = { kind: 'jira-project', cloudId: CLOUD_ID, projectKey: 'ACME' }
+const BOARD_SOURCE: IssueSource = { kind: 'jira-board', cloudId: CLOUD_ID, boardId: 12 }
 const BOARD_WRITE_STATE: SourceWriteState = {
   kind: 'jira-board',
   projectKey: 'ACME',
@@ -127,7 +127,7 @@ describe('the identity of a Jira task', () => {
     const { task } = await new JiraTaskProvider(jira).fetch({ provider: 'jira', cloudId: CLOUD_ID, id: '10007' })
 
     expect(requests[0]?.path).toBe('/rest/api/3/issue/10007')
-    expect(taskKey(task.ref)).toBe('jira:cloud-1:10007')
+    expect(issueKey(task.ref)).toBe('jira:cloud-1:10007')
     expect(task.reference).toBe('ACME-7')
     expect(task.home).toEqual(HOME)
     // The link addresses the site, not the API gateway, which needs a bearer token.
@@ -311,7 +311,7 @@ describe('a Jira project source', () => {
     expect(read.writeState).toBeNull()
     expect(read.items).toHaveLength(1)
     expect(read.items[0]).toMatchObject({ columnId: '3', itemId: null })
-    expect(taskKey(read.items[0]!.task.ref)).toBe('jira:cloud-1:10007')
+    expect(issueKey(read.items[0]!.task.ref)).toBe('jira:cloud-1:10007')
 
     const search = jqlBodySchema.parse(requests.find((request) => request.path === '/rest/api/3/search/jql')?.body)
     expect(search.jql).toBe('project = "ACME" ORDER BY updated DESC')

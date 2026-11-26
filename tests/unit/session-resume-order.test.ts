@@ -86,7 +86,7 @@ function harness() {
     runFor: (tabId: string) => sessions[tabId]?.run,
     apiFor: () => api,
     closeTab: (tabId: string) => { closed.push(tabId); delete tabs[tabId]; delete sessions[tabId] },
-    tasksStore: { ensureSessionBinding: async () => null },
+    issuesStore: { ensureSessionBinding: async () => null },
   }
   const workspace = new Proxy(state, { get: (target, key) => key in target ? target[key as keyof typeof target] : ignored })
   return { opening: new SessionOpening(workspace), created, closed, sessions }

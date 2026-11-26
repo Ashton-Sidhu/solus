@@ -25,12 +25,6 @@ const RATE_LIMIT_BEHAVIOR = {
   stop: 'stop at a rate limit',
 } satisfies Record<ManagedValue<'rateLimitBehavior'>, string>
 
-const TASK_LIFECYCLE = {
-  none: 'no task status changes by agents',
-  moderate: 'task status changes by agents, except done',
-  autonomous: 'all task status changes by agents',
-} satisfies Record<ManagedValue<'agentTaskLifecyclePolicy'>, string>
-
 /** How each managed value reads in "Globex sessions use <value> (managed)." */
 type ManagedValueDescriptions = { [K in ManagedSessionSettingKey]: (value: ManagedValue<K>) => string }
 
@@ -47,7 +41,6 @@ const DESCRIBE: ManagedValueDescriptions = {
   worktreeBranchNaming: () => 'a set branch name format',
   codebaseNaming: (value) => value === 'generated' ? 'generated codebase names' : 'codebase names from the folder names',
   defaultPermissionMode: (value) => `${PERMISSION_MODE_DISPLAY[value].label} by default`,
-  agentTaskLifecyclePolicy: (value) => TASK_LIFECYCLE[value],
   rateLimitBehavior: (value) => RATE_LIMIT_BEHAVIOR[value],
   reviewAgent: (value) => `${AGENT_LABELS[value]} for reviews`,
   reviewModel: (value) => `${value} for reviews`,

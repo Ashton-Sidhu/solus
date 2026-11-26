@@ -42,6 +42,8 @@ export interface RunHandle {
   sawPermissionRequest: boolean
   permissionDenials: Array<{ tool_name: string; tool_use_id: string }>
   abortController: AbortController
+  /** Ends the run's token on the MCP endpoint; its tools are not reachable after the run. */
+  releaseTools?: () => void
   /** Promise that settles when the run completes. Set up by the backend in startRun. */
   runPromise: Promise<void>
   /** Final assistant result reported by task_complete, when the provider supplies it. */

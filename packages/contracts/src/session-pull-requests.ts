@@ -4,7 +4,7 @@
 import { z } from 'zod'
 import { solusAgentToolName } from './agent-tools'
 import { parseGitHubPullRequestUrl } from './providers'
-import type { TaskPrSnapshot } from './task-types'
+import type { IssuePrSnapshot } from './task-types'
 import type { Attribution } from './user'
 
 /** The pull request a URL names, as a link stores it. Null for a URL that is
@@ -68,7 +68,7 @@ export interface SessionPullRequestLink {
   createdBy?: Attribution
   linkedAt: number
   /** What PR sync last saw. Absent until it first answers. */
-  snapshot?: TaskPrSnapshot
+  snapshot?: IssuePrSnapshot
   /** The code host says that this pull request does not exist. */
   missing?: boolean
   /** The session watches this pull request and its agent wakes on news

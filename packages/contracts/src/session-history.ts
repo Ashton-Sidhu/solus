@@ -152,6 +152,8 @@ export interface SessionLoadMessage {
   /** Set on sub-agent tool-result/text lines so history replay can divert them
    *  into the parent tool's `subMessages` instead of the flat thread. */
   parentToolUseId?: string
+  /** Stable provider task across calls that resume the same agent. */
+  providerTaskId?: string
   /** A host-recorded activity merged into the history by its time (plans/012 §5),
    *  or a provider handoff the lineage read rebuilt as `agent_switched`. */
   activity?: Activity

@@ -175,7 +175,7 @@ function answersFrom(outputs: readonly SessionOutput[]): string[] {
   return answers
 }
 
-function settle(exchange: AgentExchange, report: Pick<SessionReport, 'status' | 'reply' | 'outputs' | 'taskId' | 'durationMs'>): void {
+function settle(exchange: AgentExchange, report: Pick<SessionReport, 'status' | 'reply' | 'outputs' | 'issueId' | 'durationMs'>): void {
   exchange.status = SETTLED_STATUS[report.status]
   // A request a person answered stays with the exchange — question, answer and
   // reply are one story. Live, the answers arrived one by one; rebuilt, they
@@ -187,7 +187,7 @@ function settle(exchange: AgentExchange, report: Pick<SessionReport, 'status' | 
   if (!exchange.answers?.length) exchange.request = undefined
   exchange.reply = report.reply
   if (report.outputs.length) exchange.outputs = report.outputs
-  if (report.taskId) exchange.taskId = report.taskId
+  if (report.issueId) exchange.issueId = report.issueId
   if (report.durationMs !== undefined) exchange.durationMs = report.durationMs
 }
 
@@ -308,7 +308,7 @@ export class AgentConversationCards {
     // a home in the current turn.
     const exchange = index.exchange(update.messageId, update.sessionId)
       ?? index.open(update.sessionId, { messageId: update.messageId, prompt: '', origin: 'prompted', cwd: '', timestamp: update.settledAt }).exchange
-    settle(exchange, { status: update.status, reply: update.replyText, outputs: update.outputs ?? [], taskId: update.taskId, durationMs: update.durationMs })
+    settle(exchange, { status: update.status, reply: update.replyText, outputs: update.outputs ?? [], issueId: update.issueId, durationMs: update.durationMs })
     const ref = index.card(update.messageId)?.agentConversationRef
     if (ref) ref.starting = undefined
     exchange.toolCallCount = update.toolCallCount

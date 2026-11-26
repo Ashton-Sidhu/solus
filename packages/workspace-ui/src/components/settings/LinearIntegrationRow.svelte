@@ -27,7 +27,7 @@
   const description = $derived(
     linear.connected
       ? `Connected${linear.label ? ` as ${linear.label}` : ""}${linear.location === "account" ? " in your Solus account" : " on this host"}`
-      : "Read and update Linear issues from Tasks.",
+      : "Read and update Linear issues from Issues.",
   );
 
   function openDialog() {
@@ -79,7 +79,7 @@
 <IntegrationDialog
   bind:isOpen={isDialogOpen}
   title={linear.connected ? "Replace the Linear key" : "Connect Linear"}
-  description="Read and update Linear issues from Tasks."
+  description="Read and update Linear issues from Issues."
   logo={PROVIDER_LOGOS.linear}
   onClose={() => (key = "")}
   testId="linear-connect-dialog"

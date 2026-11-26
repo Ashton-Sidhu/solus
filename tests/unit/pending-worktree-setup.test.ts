@@ -79,7 +79,7 @@ async function reducerFor(session: Session) {
       tabIdsBySession: new Map([[session.id, ['tab-1']]]),
     },
     settings: { rateLimitBehavior: 'ask' },
-    tasksStore: { refreshSessionBinding: async () => null, get: () => ({ trackSessionStart: () => {}, linkSession: () => new Promise(() => {}) }) },
+    issuesStore: { refreshSessionBinding: async () => null, get: () => ({ trackSessionStart: () => {}, linkSession: () => new Promise(() => {}) }) },
     workStreamTracker: { sweep: () => {}, beginWorkStream: () => {} },
     onTurnSettled: () => {},
     refreshTurnSnapshots: () => {},

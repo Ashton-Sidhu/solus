@@ -201,6 +201,12 @@ import { SshDeviceHost, sshDeviceTarget } from './devices/ssh-device-host'
 import { SshClient } from './platform/ssh'
 import { registerDeviceHandlers } from './transport/handlers/device-handlers'
 import type { SessionRuntime } from './execution/session-runtime'
+import { setAgentToolEndpointUrl } from './execution/agents/tools/agent-tool-endpoint'
+import { installAppAccessChecks } from './admission/app-sign-in'
+import { LOCAL_POLICY_ORGANIZATION_ID } from '@solus/contracts/policy'
+
+/** How long a member's access holds after the host renewed their token: their app stops within this after they lose access. */
+const MEMBER_ACCESS_CHECK_MS = 5 * 60 * 1000
 import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '@solus/contracts/types'
 import type { HostEventMap } from '@solus/contracts/host-events'
 import type { AgentId, IpcContext } from '@solus/contracts/types'
@@ -232,8 +238,9 @@ import { registerAutomationHandlers } from './transport/handlers/automation-hand
 import { startAutomationScheduler, stopAutomationScheduler } from './execution/automations/automation-scheduler'
 import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundSessionDispatcher, setAutomationWorktreeCreator } from './execution/automations/automation-runner'
 import { nextAutomationDueAt, onAutomationsChanged, pauseAutomationsOf } from './data/automations/automations-store'
-import { setRemoteHosts, setSessionController, setSessionOrchestration } from './execution/agents/tools/session-tools'
-import { RemoteHosts } from './execution/orchestration/remote-hosts'
+import { setRemoteHosts, setSessionController, setSessionOrchestration, type ReachCaller } from './execution/agents/tools/session-tools'
+import { RemoteHosts, reachOfPrincipal } from './execution/orchestration/remote-hosts'
+import { organizationApisOf } from './execution/orchestration/remote-session-read'
 import { hostMesh } from './execution/orchestration/host-mesh'
 import { LocalClientDoor, type LocalClient } from './transport/local-client'
 import { IntroducedHosts } from './execution/orchestration/introduced-hosts'
@@ -247,7 +254,6 @@ import { onWorkReviewsChanged } from './data/works/work-reviews'
 import { registerWorkReviewHandlers } from './transport/handlers/work-review-handlers'
 import { registerNotificationHubHandlers } from './transport/handlers/notification-hub-handlers'
 import { publishNotificationChanges } from './notifications/hub-events'
-import { publishTaskSnoozeChanges } from './transport/events/task-snooze-events'
 import { PersonConnections } from './transport/events/person-connections'
 import { publishSessionViewChanges } from './transport/events/session-view-events'
 import { StreamedProse } from './transport/events/streamed-prose'
@@ -294,6 +300,7 @@ import { publishPersonalDocumentChanges } from './transport/events/personal-docu
 import { loadPersonSettings, startPersonSettingsPulls, usePersonSettingsAccount } from './execution/person-settings'
 import { registerLiveActivityHandlers } from './transport/handlers/live-activity-handlers'
 import { registerSessionDirectoryHandler } from './transport/handlers/session-directory-handler'
+import { HistoryPrewarm } from './execution/sessions/history-prewarm'
 import { registerProjectConfigHandlers } from './transport/handlers/project-config-handlers'
 import { registerCodebaseHandlers } from './transport/handlers/codebase-handlers'
 import { onCodebasesChanged } from './data/codebases/codebases'
@@ -760,7 +767,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onWorkReviewsChanged((change) => events.broadcast('workReviews.changed', change)),
     // A client with no socket principal is the desktop's own IPC connection: the local owner.
     publishNotificationChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL),
-    publishTaskSnoozeChanges(events, personConnections),
     publishSessionViewChanges(events, personConnections),
     publishPersonHistoryChanges(events, personConnections),
     publishPersonalDocumentChanges(events, personConnections),
@@ -775,10 +781,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onTasksChanged((taskId) => {
       // A task's links reach sessions and works: room members are checked again.
       events.forgetRoomAdmissions()
-      void events.broadcast('tasks.invalidated', taskId ? { taskId } : {})
+      void events.broadcast('issues.invalidated', taskId ? { issueId: taskId } : {})
     }),
     // The end of a source read: a client reads the state of its sources again.
-    onTaskSourcesChanged((sourceKeys) => { void events.broadcast('tasks.sourcesChanged', { sourceKeys }) }),
+    onTaskSourcesChanged((sourceKeys) => { void events.broadcast('issues.sourcesChanged', { sourceKeys }) }),
     // `registerTasksHandlers` starts the timer that keeps the wanted sources fresh.
     stopTaskSourcePolling,
     // A task reads the pull requests of its sessions, so a session's change is
@@ -1317,9 +1323,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     return { account: owner ? { userId: owner.userId, scope: 'personal' } : null, isOwner: true }
   }
   // A caller's reach: the owner's own, a member's organization, and nothing for anyone else.
-  const reachOf = (principal: Principal): ReachRequest | null => principal.kind === 'org-member'
-    ? { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
-    : principal.kind === 'owner' ? ownerReach() : null
+  const reachOf = (principal: Principal): ReachRequest | null => reachOfPrincipal(principal, ownerReach)
+  // The person an agent tool reaches for: the calling session's current turn, or an outside
+  // app's person. Null for the host's own turn, which has no person.
+  const reachingPrincipal = (caller: ReachCaller): Principal | null => {
+    if ('principal' in caller) return caller.principal
+    const actor = opts.sessionRuntime.activeRunRequests.get(caller.sessionId)?.actor
+    return actor?.user ? actor.principal : null
+  }
   const hostPairings = new HostPairings(getInstallationId, hostDisplayName)
   const pairApprovals = new PairApprovals()
   domainEventUnsubscribes.push(registerPairApprovalHandlers(server, pairApprovals, { broadcast: (topic, payload) => events.broadcast(topic, payload) }))
@@ -1394,30 +1405,19 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     },
     permissionModeFor: (sessionId) => opts.sessionRuntime.activeSessions.get(sessionId)?.runInput?.permissionMode ?? opts.sessionRuntime.sessionPermissionModes.get(sessionId),
     codebaseIdFor: (sessionId) => opts.sessionRuntime.sessionFolders.codebaseIdOf(sessionId),
-    // A turn reaches other hosts for its own person (host-reach.md §3.2): the owner through
-    // their personal delegation and the introduced hosts; a member only through the
-    // organization they work in here; anyone else not at all.
-    reachRequestFor: (sessionId): ReachRequest | null => {
-      const actor = opts.sessionRuntime.activeRunRequests.get(sessionId)?.actor
-      const principal = actor?.principal
-      if (!actor?.user || principal?.kind === 'owner') return ownerReach()
-      if (principal?.kind === 'org-member') return { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
-      return null
+    // A turn, or an outside app's call, reaches other hosts for its own person by `reachOf`
+    // (host-reach.md §3.2; plans/035 §0.6): the owner through their personal delegation and
+    // the introduced hosts; a member only through their organization; anyone else not at all.
+    // The host's own turn, with no person, reaches as the owner.
+    reachRequestFor: (caller): ReachRequest | null => {
+      const principal = reachingPrincipal(caller)
+      return principal ? reachOf(principal) : ownerReach()
     },
     // The same people and scopes read their organizations' Solus APIs: the owner every
     // organization this host holds a delegation for, a member only their own.
-    organizationApisFor: (sessionId) => {
-      const actor = opts.sessionRuntime.activeRunRequests.get(sessionId)?.actor
-      const principal = actor?.principal
-      const owner = !actor?.user || principal?.kind === 'owner'
-      const ownerId = owner ? delegations?.holders().find((holder) => holder.scope === 'personal')?.userId : undefined
-      return (delegations?.holders() ?? []).flatMap((holder) => {
-        if (holder.scope === 'personal') return []
-        const reads = owner
-          ? holder.userId === ownerId
-          : principal?.kind === 'org-member' && holder.userId === principal.userId && holder.scope.organizationId === principal.organizationId
-        return reads ? [{ organizationId: holder.scope.organizationId, client: delegations!.apiClient(holder.userId, holder.scope) }] : []
-      })
+    organizationApisFor: (caller) => {
+      const held = delegations
+      return held ? organizationApisOf(reachingPrincipal(caller), held.holders(), (userId, scope) => held.apiClient(userId, scope)) : []
     },
     listAgentTargets: async () => Promise.all(
       opts.sessionRuntime
@@ -1481,7 +1481,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let insightPull: InsightPull | null = null
   registerObservabilityHandlers(server, { sessionRuntime: opts.sessionRuntime, insightPull: () => insightPull })
   registerProjectConfigHandlers(server)
-  registerSessionDirectoryHandler(server)
+  const historyPrewarm = new HistoryPrewarm(opts.sessionRuntime)
+  registerSessionDirectoryHandler(server, historyPrewarm)
+  // A turn changes the provider file: read the session's first page again before it is next opened.
+  opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => {
+    if (event.status === 'completed' || event.status === 'failed' || event.status === 'interrupted') historyPrewarm.afterTurn(event.sessionId)
+  })
   registerCodebaseHandlers(server, opts.sessionRuntime.sessionFolders, opts.sessionRuntime.taskFolders)
   registerTasksHandlers(server)
   registerOutboxHandlers(server)
@@ -1650,7 +1655,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     adopt: (sessionId, path, addToCodebase) => {
       return opts.sessionRuntime.sessionFolders.adoptCreated(sessionId, path, addToCodebase, opts.sessionRuntime.actorOfSession(sessionId) ?? HOST_ACTOR)
     },
-    // The project, codebase, and sharing tools send the RPC of a person's client, through its gate.
+    // The project, codebase, sharing, and host tools send the RPC of a person's client, through its gate.
     rpc: {
       listProjects: (args, caller) => server.handle('listProjects', args, caller),
       projectConfigLoad: (args, caller) => server.handle('projectConfigLoad', args, caller),
@@ -1664,6 +1669,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       shareSet: (args, caller) => server.handle('shareSet', args, caller),
       shareSetLink: (args, caller) => server.handle('shareSetLink', args, caller),
       shareLinkOrigin: (args, caller) => server.handle('shareLinkOrigin', args, caller),
+      hostSelfTest: (args, caller) => server.handle('hostSelfTest', args, caller),
+      hostResources: (args, caller) => server.handle('hostResources', args, caller),
     },
   })
   // A Run on prompt copies its repository before its run starts (docs/run-on.md).
@@ -1827,6 +1834,25 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     : Promise.resolve({ ok: false, reason: 'not-linked' })
   let runnerDelivery: RunnerDelivery | null = null
   let delegations: Delegations | null = null
+  // An outside app's organization may allow only some apps, and a member's app stops when
+  // the member loses access: the host acts for them only while it can renew their token (plans/035 §0.3).
+  const memberAccessCache = new Map<string, number>()
+  installAppAccessChecks({
+    appDenial: (app, approver) => hostPolicies().forWork(approver.kind === 'member' ? approver.organizationId : LOCAL_POLICY_ORGANIZATION_ID).appDenial(app)?.message ?? null,
+    memberHasAccess: async (approver) => {
+      const key = `${approver.userId}:${approver.organizationId}`
+      if ((memberAccessCache.get(key) ?? 0) > Date.now()) return true
+      try {
+        await delegations?.accessToken(approver.userId, { organizationId: approver.organizationId }, { kind: 'api' })
+        if (!delegations) return false
+        memberAccessCache.set(key, Date.now() + MEMBER_ACCESS_CHECK_MS)
+        return true
+      } catch {
+        memberAccessCache.delete(key)
+        return false
+      }
+    },
+  })
   // A registration again under the same host id is a new generation with a new OAuth client.
   const registrationKey = (registration: HostRegistration | null) => registration ? `${registration.hostId}:${registration.generation}` : null
   let registeredKey = registrationKey(readStoredRegistration())
@@ -2372,6 +2398,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
 
   actualPort = await listenWithRetries(port)
+  // A harness on this host reaches its run's tools over loopback, whatever address the server binds.
+  setAgentToolEndpointUrl(`http://127.0.0.1:${actualPort}/mcp`)
   const serveSetting = getServerSettings().tailscaleServe
   if (serveSetting.enabled && effectiveRemoteAccess() !== 'off') {
     void tailscaleServe.enable(serveSetting.port, actualPort).then(async () => {
@@ -2461,6 +2489,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     try { ws.close() } catch (err) { log.warn('ws_close_failed_during_rebind', { error: err instanceof Error ? err.message : String(err) }) }
     await new Promise<void>((resolve) => http.close(() => resolve()))
     actualPort = await listenWithRetries(actualPort)
+    setAgentToolEndpointUrl(`http://127.0.0.1:${actualPort}/mcp`)
     const serveSettingAfterBind = getServerSettings().tailscaleServe
     if (remoteAccess !== 'off' && serveSettingAfterBind.enabled) {
       void tailscaleServe.enable(serveSettingAfterBind.port, actualPort)

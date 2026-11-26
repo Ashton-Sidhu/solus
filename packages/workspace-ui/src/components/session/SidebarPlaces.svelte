@@ -159,7 +159,7 @@
         };
       case "tasks":
         return {
-          label: "Tasks",
+          label: "Issues",
           shortcut: comboHint("global.toggle-tasks"),
           isActive: session.router.at("tasks"),
           onclick: () => session.toggleTasks(),

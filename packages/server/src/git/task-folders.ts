@@ -43,7 +43,7 @@ const log = createLogger('TaskFolders', 'task-folders.ts')
 const CHECKOUTS_AT_ONE_TIME = 4
 
 /** One checkout of a task folder: a repository and the place of its worktree. */
-interface Checkout {
+export interface Checkout {
   repositoryPath: string
   worktreePath: string
 }
@@ -99,7 +99,7 @@ const samePlace = (a: string, b: string): boolean => path.resolve(a) === path.re
 const messageOf = (error: Parameters<typeof String>[0]): string => (error instanceof Error ? error.message : String(error))
 
 /** The worktrees of a task folder. A worktree is before each one inside it. */
-function checkoutsOf(taskFolder: TaskFolder): Checkout[] {
+export function checkoutsOf(taskFolder: TaskFolder): Checkout[] {
   const primary = taskFolder.primaryIsWorktree ? [{ repositoryPath: taskFolder.primaryRepositoryPath, worktreePath: taskFolder.primaryPath }] : []
   return [...primary, ...taskFolder.repositories].sort((a, b) => a.worktreePath.length - b.worktreePath.length)
 }

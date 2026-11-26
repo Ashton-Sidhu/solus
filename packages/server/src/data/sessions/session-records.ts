@@ -109,7 +109,7 @@ const STARTED = sql.raw('session_records.started_at IS NOT NULL')
 const recordWithStateRowSchema = recordRowSchema.extend({
   settled_at: z.number().nullable(),
   auto_settle_disabled_at: z.number().nullable(),
-  settled_by: z.enum(['person', 'pull-request', 'task', 'idle']).nullable(),
+  settled_by: z.enum(['person', 'pull-request', 'issue', 'idle']).nullable(),
   active_order_key: z.string().nullable(),
   pin_order_key: z.string().nullable(),
   view_settled_at: z.number().nullable(),

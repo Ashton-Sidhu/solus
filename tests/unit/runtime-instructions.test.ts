@@ -28,6 +28,8 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
 
 let ClaudeBackend: typeof import('@solus/server/execution/agents/claude/claude-backend')['ClaudeBackend']
 beforeAll(async () => {
+  // The run's tools are served over the host's MCP endpoint, which boot sets up.
+  ;(await import('@solus/server/execution/agents/tools/agent-tool-endpoint')).setAgentToolEndpointUrl('http://127.0.0.1:1/mcp')
   ;({ ClaudeBackend } = await import('@solus/server/execution/agents/claude/claude-backend'))
 })
 
@@ -279,7 +281,7 @@ describe('runtime instructions', () => {
     // WHY: guidance for tools a run does not have talks the agent out of the
     // automation it still has (raw simctl, a background wait).
     const deviceListTool = tool('device_list')
-    const createAutomationTool = tool('create_automation')
+    const createAutomationTool = tool('manage_automations')
     const codex = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [deviceListTool, createAutomationTool])
     const claude = await claudeAppend([deviceListTool, createAutomationTool])
     for (const prompt of [codex, claude]) {

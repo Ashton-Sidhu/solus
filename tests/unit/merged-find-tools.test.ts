@@ -51,7 +51,7 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-describe('find_works answers with or without a query', () => {
+describe('list_works answers with or without a query', () => {
   test('no query lists the open works; a query searches their content', async () => {
     await works.createWork('local', 
       'Rate limit handling',
@@ -63,19 +63,19 @@ describe('find_works answers with or without a query', () => {
       process.cwd(),
     )
 
-    const listed = await workTools.findWorksAgentTool.execute({}, toolContext('find-works'))
+    const listed = await workTools.listWorksAgentTool.execute({}, toolContext('find-works'))
     expect(listed.ok).toBe(true)
     expect(listed.text).toContain('Rate limit handling')
 
     // The point of the query half: it matches body text no title carries.
-    const searched = await workTools.findWorksAgentTool.execute(
+    const searched = await workTools.listWorksAgentTool.execute(
       { query: 'dead transport' },
       toolContext('find-works'),
     )
     expect(searched.ok).toBe(true)
     expect(searched.text).toContain('Rate limit handling')
 
-    const missed = await workTools.findWorksAgentTool.execute(
+    const missed = await workTools.listWorksAgentTool.execute(
       { query: 'nothing writes this phrase' },
       toolContext('find-works'),
     )
@@ -115,7 +115,7 @@ describe('session-only links', () => {
     }
   })
 
-  test('read_task lists session IDs for read_session', async () => {
+  test('read_issue lists session IDs for read_session', async () => {
     // GitHub owns the task: the read asks the provider, here a fake one.
     const { FakeTaskProviders, githubIssue } = await import('./helpers/task-fixtures')
     const { useTaskAdaptersForTests } = await import('@solus/server/data/tasks/providers/registry')
@@ -125,7 +125,7 @@ describe('session-only links', () => {
     useTaskAdaptersForTests(providers.adapters())
     const task = { id: 'github:I_1' }
     await linkTaskSession('local', task.id, 'prior-attempt')
-    const read = await taskTools.readTaskAgentTool.execute({ task_id: task.id }, toolContext('calling-session-id'))
+    const read = await taskTools.readTaskAgentTool.execute({ issue_id: task.id }, toolContext('calling-session-id'))
     expect(read.ok).toBe(true)
     expect(read.text).toContain('prior-attempt [working]')
     expect(read.text).toContain('read_session with session_id')

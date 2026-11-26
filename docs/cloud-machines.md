@@ -109,45 +109,63 @@ registered already ignores the code.
   on its page in Solus or in the console. The Solus server keeps running until
   you stop it. To use the computer again, start with a new data directory.
 
-## Agents can manage cloud machines
+## Agents can manage your hosts
 
 An agent can do these tasks for you in a conversation
-(`plans/035-cloud-machine-tools.md`):
+(`plans/035-cloud-machine-tools.md`, `plans/036-host-tools.md`). Each tool
+applies only where its action is real. `list_hosts` shows, for each host, the
+actions that apply to it.
 
-- List, create, start, stop, restart, and delete the cloud machines of your
-  organizations, and change the packages and setup script of a machine that
-  Solus makes (`list_cloud_machines`, `create_cloud_machine`,
-  `update_cloud_machine`, `start_cloud_machine`, `stop_cloud_machine`,
-  `restart_cloud_machine`, `delete_cloud_machine`). Only delete applies to a
-  machine that you run.
-- Join a machine that you run (`join_cloud_machine`). Only the owner of the
-  host, at that host, can do this, because the host connects with its own SSH
-  keys. The host makes a link code and runs `solus setup --address URL` on the
-  machine over SSH. The code goes on the standard input of the command, so it is
-  not in the conversation, in a log, or in the command line of either machine.
-  The conditions of [Before you start](#before-you-start) apply, and the address
-  must be `https://`.
-- List the people and teams of an organization, and read or change its name and
-  host rules (`list_organization_members`, `read_organization_policy`,
-  `update_organization_policy`).
+| Tool | Applies to |
+| --- | --- |
+| `list_hosts` | Every host: your computers and the cloud machines of your organizations |
+| `add_host` | Pair a computer. With `organization`, join a machine that you run as a cloud machine of that organization |
+| `create_host` | A new cloud machine that Solus makes |
+| `start_host`, `stop_host`, `restart_host` | A cloud machine that Solus makes |
+| `update_host` | `release`: install the newest Solus release, on every host. `packages` and `setup_script`: only a cloud machine that Solus makes |
+| `check_host` | Every host: its self test, and its CPU and memory |
+| `share_host`, `unshare_host` | Your personal host, with one of your organizations |
+| `remove_host` | Forget a host here. The machine and its sessions stay |
+| `delete_host` | A cloud machine. Solus destroys a machine that it makes, with its disk |
+
+The organization tools read the people and teams of an organization, and read
+or change its name and host rules (`list_organization_members`,
+`read_organization_policy`, `update_organization_policy`).
+
+The join (`add_host` with `organization`): only the owner of the host, at that
+host, can do this, because the host connects with its own SSH keys. The host
+makes a link code and runs `solus setup --address URL` on the machine over SSH.
+The code goes on the standard input of the command, so it is not in the
+conversation, in a log, or in the command line of either machine. The
+conditions of [Before you start](#before-you-start) apply, and the address must
+be `https://`.
 
 The rules:
 
-- **Signed in only.** The host sends each request to Solus Cloud as you, with
-  the token it holds for you. A conversation of a person who is not signed in to
-  Solus on that host does not get these tools.
-- **Not this host.** An agent never changes, stops, restarts, or deletes the
-  host that runs its conversation. Do that from another host, or in
-  **Settings → Machines**.
-- **Approval.** Delete and a change of the host rules ask for your approval
-  first. Delete destroys the disk of a machine that Solus makes. A change of the
-  host rules applies to every member and every host of the organization.
+- **Signed in for Solus Cloud.** The host sends each request to Solus Cloud as
+  you, with the token it holds for you. A conversation of a person who is not
+  signed in to Solus on that host does not get the tools that need it
+  (`create_host`, `start_host`, `stop_host`, `restart_host`, `delete_host`,
+  `share_host`, `unshare_host`, and the organization tools). `list_hosts`,
+  `add_host`, `update_host` with `release`, `check_host`, and `remove_host`
+  work signed out too.
+- **Not this host.** An agent never stops, restarts, updates, or deletes the
+  host that runs its conversation, because that ends the conversation. Do that
+  from another host, or in **Settings → Machines**. It can check and share this
+  host.
+- **Only a machine that Solus makes has a stored setup.** On any other host,
+  `update_host` refuses `packages` and `setup_script`: install packages there
+  yourself, or start a session there.
+- **Approval.** `delete_host`, `remove_host`, `share_host`, and a change of the
+  host rules ask for your approval first.
 - **The machine card.** When you did not say a choice, the agent shows a card
-  in the conversation: the organization of a new machine, when you are in more
-  than one, or the packages and setup script of a machine to change. The card
-  only collects your choice. Decline closes it, and nothing changes.
+  in the conversation: the organization of a new machine or of a join, when
+  you are in more than one, or the packages and setup script of a machine to
+  change. The card only collects your choice. Decline closes it, and nothing
+  changes.
 - Your role still applies: a member creates a machine, and an organization
-  owner changes, deletes, and sets the host rules.
+  owner changes, deletes, and sets the host rules. Only the owner of a personal
+  host shares it.
 
 ## If the command fails
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { TaskStatusCategory } from "@solus/contracts/task-sources";
+  import type { IssueStatusCategory } from "@solus/contracts/task-sources";
   import { CATEGORY_META } from "./lib/tasks-api";
 
   /** The board's status mark ("Tasks page" spec, board layout): one ring that
@@ -10,7 +10,7 @@
    *  the column head can drop the uppercase micro-label and the card can carry
    *  its status in 12px without a second word. */
   interface Props {
-    category: TaskStatusCategory;
+    category: IssueStatusCategory;
     size?: number;
   }
   let { category, size = 12 }: Props = $props();
@@ -21,7 +21,7 @@
     open: "",
     active: "M6 6L6 2.2A3.8 3.8 0 0 1 6 9.8Z",
     done: "M6 2.2A3.8 3.8 0 1 1 5.99 2.2Z",
-  } satisfies Record<TaskStatusCategory, string>;
+  } satisfies Record<IssueStatusCategory, string>;
 
   // Mixed toward the foreground so the mark stays legible at 12px against both
   // the card and the column wash, in either theme.

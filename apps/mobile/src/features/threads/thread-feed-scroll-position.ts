@@ -40,16 +40,3 @@ export function resolveThreadFeedSubmissionAnchor<AnchorId>(input: {
 
   return input.queuedMessageCount > 0 ? null : input.submittedMessageId;
 }
-
-/** Keep the list at its reading position until the new row and keyboard insets settle. */
-export async function finishThreadFeedGlide(input: {
-  readonly afterPaint: () => Promise<void>;
-  readonly isCurrent: () => boolean;
-  readonly dismissKeyboard?: (() => Promise<void>) | undefined;
-  readonly scrollToEnd: () => Promise<void>;
-}) {
-  await input.afterPaint();
-  if (!input.isCurrent()) return;
-  await input.dismissKeyboard?.();
-  if (input.isCurrent()) await input.scrollToEnd();
-}

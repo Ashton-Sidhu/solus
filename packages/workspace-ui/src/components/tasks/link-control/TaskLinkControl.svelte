@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Check as CheckIcon, Link as LinkIcon, ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
-  import type { TaskLinkTarget } from "@solus/contracts/task-types";
+  import type { IssueLinkTarget } from "@solus/contracts/task-types";
   import { getSurfaceContext } from "../../../contexts";
   import { requestInputFocus } from "../../../lib/inputFocus";
   import { toasts } from "../../../lib/toasts";
@@ -26,7 +26,7 @@
    * host broadcast refreshes them all at once.
    */
   interface Props {
-    target: TaskLinkTarget;
+    target: IssueLinkTarget;
     /** The link-time snapshot title the host stores beside the edge. */
     title: string;
     url?: string | null;
@@ -42,7 +42,7 @@
   let { target, title, url, serverId, conversationTaskId, onlyWithTask = false }: Props = $props();
 
   const session = getSurfaceContext();
-  const store = session.tasksStore;
+  const store = session.issuesStore;
 
   const linked = $derived(store.linkedTasksFor(target));
   const currentTask = $derived(conversationTaskId ? store.peek(conversationTaskId) : null);
@@ -50,7 +50,7 @@
     taskLinkControlState(
       linked,
       currentTask
-        ? { taskId: currentTask.id, title: currentTask.title, category: currentTask.category, reference: currentTask.reference }
+        ? { issueId: currentTask.id, title: currentTask.title, category: currentTask.category, reference: currentTask.reference }
         : null,
     ),
   );
@@ -71,10 +71,10 @@
   const candidates = $derived(
     store.tasks
       .filter((task) => task.category !== "done")
-      .map((task) => ({ taskId: task.id, title: task.title, category: task.category, reference: task.reference })),
+      .map((task) => ({ issueId: task.id, title: task.title, category: task.category, reference: task.reference })),
   );
   const rows = $derived(taskLinkPickerRows(candidates, linked ?? [], conversationTaskId ?? null));
-  const shownRows = $derived(rows.filter((row) => matchesSearch(`${row.title} ${row.reference ?? ""} ${row.taskId}`, query)));
+  const shownRows = $derived(rows.filter((row) => matchesSearch(`${row.title} ${row.reference ?? ""} ${row.issueId}`, query)));
 
   function openMenu(next: boolean) {
     open = next;
@@ -98,7 +98,7 @@
     } catch (error) {
       if (isLinked) store.noteLinked(target, task);
       else store.noteUnlinked(target, taskId);
-      toasts.error(isLinked ? "Couldn't unlink from the task" : "Couldn't link to the task", {
+      toasts.error(isLinked ? "Couldn't unlink from the issue" : "Couldn't link to the issue", {
         description: error instanceof Error ? error.message : String(error),
       });
     } finally {
@@ -108,13 +108,13 @@
 
   function linkToCurrent() {
     if (controlState.kind !== "none" || !controlState.currentTask) return;
-    void toggle(controlState.currentTask.taskId, false);
+    void toggle(controlState.currentTask.issueId, false);
     requestInputFocus();
   }
 
   function unlinkOnly() {
     if (controlState.kind !== "one") return;
-    void toggle(controlState.task.taskId, true);
+    void toggle(controlState.task.issueId, true);
     requestInputFocus();
   }
 
@@ -141,7 +141,7 @@
         title={`Open ${linkedTaskRef(controlState.task)}`}
         onclick={(e) => {
           e.stopPropagation();
-          openTask(controlState.kind === "one" ? controlState.task.taskId : "");
+          openTask(controlState.kind === "one" ? controlState.task.issueId : "");
         }}
         data-testid="task-link-open"
       >
@@ -212,8 +212,8 @@
               bind:this={triggerEl}
               type="button"
               class="task-link-control__action flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md"
-              title="Choose tasks"
-              aria-label="Choose tasks to link"
+              title="Choose issues"
+              aria-label="Choose issues to link"
               data-testid="task-link-more"
             >
               <CaretDownIcon size={11} />
@@ -235,15 +235,15 @@
         <!-- The rows filter themselves (`matchesSearch`): the command's own
              filter moves row DOM nodes behind the keyed list. -->
         <Command.Root shouldFilter={false}>
-          <MenuSearch bind:value={query} placeholder="Link to tasks" />
+          <MenuSearch bind:value={query} placeholder="Link to issues" />
           <Command.List class="max-h-[288px] overflow-y-auto p-1.5">
             <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">
               No tasks match
             </Command.Empty>
-            {#each shownRows as row (row.taskId)}
+            {#each shownRows as row (row.issueId)}
               <Command.Item
-                value="{row.title} {row.reference ?? ''} {row.taskId}"
-                onSelect={() => void toggle(row.taskId, row.linked)}
+                value="{row.title} {row.reference ?? ''} {row.issueId}"
+                onSelect={() => void toggle(row.issueId, row.linked)}
                 disabled={busyTaskId !== null}
                 data-menu-current={row.linked ? "" : undefined}
                 class="menu-item-stagger"
@@ -260,7 +260,7 @@
                 </span>
                 <span class="shrink-0 tabular-nums text-(--solus-text-tertiary)">{linkedTaskRef(row)}</span>
                 <span class="min-w-0 flex-1 truncate">{row.title}</span>
-                {#if busyTaskId === row.taskId}
+                {#if busyTaskId === row.issueId}
                   <span class="shrink-0 text-(--solus-text-tertiary)">Saving…</span>
                 {:else if row.current}
                   <span class="shrink-0 text-(--solus-text-tertiary)">This chat</span>

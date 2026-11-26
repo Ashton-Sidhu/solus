@@ -15,10 +15,10 @@ const page = <T extends z.ZodType>(item: T) => z.strictObject({
   nextCursor: z.string().max(2048).nullable(),
 })
 
-export const solusApiScopeSchema = z.enum(['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write', 'sessions:admit', 'insights:read', 'profile:read', 'integrations:read', 'integrations:write'])
+export const solusApiScopeSchema = z.enum(['issues:read', 'issues:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write', 'sessions:admit', 'insights:read', 'profile:read', 'integrations:read', 'integrations:write'])
 export type SolusApiScope = z.infer<typeof solusApiScopeSchema>
 /** What a person's client may do, over its socket or with its token over HTTP. */
-export const CLIENT_SOLUS_API_SCOPES: SolusApiScope[] = ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write', 'insights:read']
+export const CLIENT_SOLUS_API_SCOPES: SolusApiScope[] = ['issues:read', 'issues:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write', 'insights:read']
 
 export const workspaceIdSchema = z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/)
 export type WorkspaceId = z.infer<typeof workspaceIdSchema>
@@ -236,7 +236,7 @@ export type WorkspaceWorkPage = z.infer<typeof workspaceWorkPageSchema>
 export const workspaceSessionStateSchema = z.strictObject({
   autoSettleDisabledAt: z.number().int().optional(),
   settledAt: z.number().int().min(0).nullable(),
-  settledBy: z.enum(['person', 'pull-request', 'task', 'idle']).nullable(),
+  settledBy: z.enum(['person', 'pull-request', 'issue', 'idle']).nullable(),
 }).meta({ description: "Whether the session's pull requests or task finished its work. Every person sees the same state. A person's own settle is in their view." })
 
 /** One person's view of a session: their settle, archive, and snooze. */
@@ -278,7 +278,7 @@ export const workspaceSessionPullRequestListSchema = z.strictObject({ items: z.a
 export type WorkspaceSessionPullRequestList = z.infer<typeof workspaceSessionPullRequestListSchema>
 
 /** The record a link starts from: a session, or a task named by its task key. The provider owns the task; only its links are stored here. */
-export const workspaceLinkSourceSchema = z.strictObject({ kind: z.enum(['task', 'session']), id: workspaceIdSchema })
+export const workspaceLinkSourceSchema = z.strictObject({ kind: z.enum(['issue', 'session']), id: workspaceIdSchema })
 export type WorkspaceLinkSource = z.infer<typeof workspaceLinkSourceSchema>
 
 /**
@@ -312,7 +312,7 @@ export const workspaceSessionLinkListSchema = z.strictObject({
   items: z.array(z.strictObject({
     target: z.discriminatedUnion('kind', [
       ...workspaceLinkTargetSchema.options,
-      z.strictObject({ kind: z.literal('task'), id: workspaceIdSchema }),
+      z.strictObject({ kind: z.literal('issue'), id: workspaceIdSchema }),
     ]),
     title: z.string(),
     state: z.string().optional(),

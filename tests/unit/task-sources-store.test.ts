@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, jest, test } from 'bun:test'
-import type { TaskSourceOptions, TaskSourceState } from '@solus/contracts/task-types'
+import type { IssueSourceOptions, IssueSourceState } from '@solus/contracts/task-types'
 import {
   BOARD_SOURCE_KEY,
   REPO_SOURCE_KEY,
@@ -27,13 +27,13 @@ describe('which host reads the sources', () => {
     const world = await createTasksWorld()
     world.setSources([repo])
     const asked: string[] = []
-    world.connections.registerPrimary('workshop', { tasksSources: async () => { asked.push('workshop'); return [] } })
-    world.connections.registerHost('local', { tasksSources: async () => { asked.push('local'); return [sourceState(REPO_SOURCE_KEY)] } })
+    world.connections.registerPrimary('workshop', { issuesSources: async () => { asked.push('workshop'); return [] } })
+    world.connections.registerHost('local', { issuesSources: async () => { asked.push('local'); return [sourceState(REPO_SOURCE_KEY)] } })
 
-    await world.taskSourcesStore.load()
+    await world.issueSourcesStore.load()
 
     expect(asked).toEqual(['local'])
-    expect(world.taskSourcesStore.host).toBe('local')
+    expect(world.issueSourcesStore.host).toBe('local')
   })
 
   test('the primary connection reads them when the device cannot run agents', async () => {
@@ -44,13 +44,13 @@ describe('which host reads the sources', () => {
     world.setSources([repo])
     world.attachmentOnlyHosts.add('local')
     const asked: string[] = []
-    world.connections.registerPrimary('workshop', { tasksSources: async () => { asked.push('workshop'); return [sourceState(REPO_SOURCE_KEY)] } })
-    world.connections.registerHost('local', { tasksSources: async () => { asked.push('local'); return [] } })
+    world.connections.registerPrimary('workshop', { issuesSources: async () => { asked.push('workshop'); return [sourceState(REPO_SOURCE_KEY)] } })
+    world.connections.registerHost('local', { issuesSources: async () => { asked.push('local'); return [] } })
 
-    await world.taskSourcesStore.load()
+    await world.issueSourcesStore.load()
 
     expect(asked).toEqual(['workshop'])
-    expect(world.taskSourcesStore.sources.map((source) => source.sourceKey)).toEqual([REPO_SOURCE_KEY])
+    expect(world.issueSourcesStore.sources.map((source) => source.sourceKey)).toEqual([REPO_SOURCE_KEY])
   })
 
   test('with no host that runs agents, nothing is asked and the store says so', async () => {
@@ -60,12 +60,12 @@ describe('which host reads the sources', () => {
     world.setSources([repo])
     world.attachmentOnlyHosts.add('cloud')
     let asked = 0
-    world.connections.registerPrimary('cloud', { tasksSources: async () => { asked++; return [] } })
+    world.connections.registerPrimary('cloud', { issuesSources: async () => { asked++; return [] } })
 
-    await world.taskSourcesStore.load()
+    await world.issueSourcesStore.load()
 
     expect(asked).toBe(0)
-    expect(world.taskSourcesStore.host).toBeNull()
+    expect(world.issueSourcesStore.host).toBeNull()
   })
 })
 
@@ -77,20 +77,20 @@ describe('reading the sources', () => {
     world.setSources([repo, board])
     const requests: Array<{ sources: unknown; opts: unknown }> = []
     world.connections.registerPrimary('local', {
-      tasksSources: async (sources: unknown, opts?: unknown) => {
+      issuesSources: async (sources: unknown, opts?: unknown) => {
         requests.push({ sources, opts })
         return [sourceState(REPO_SOURCE_KEY), sourceState(BOARD_SOURCE_KEY)]
       },
     })
 
-    await world.taskSourcesStore.load()
-    await world.taskSourcesStore.load({ refresh: 'force' })
+    await world.issueSourcesStore.load()
+    await world.issueSourcesStore.load({ refresh: 'force' })
 
     expect(requests).toEqual([
       { sources: [repo, board], opts: undefined },
       { sources: [repo, board], opts: { refresh: 'force' } },
     ])
-    expect(world.taskSourcesStore.sourceByKey.get(BOARD_SOURCE_KEY)?.columns.map((column) => column.name))
+    expect(world.issueSourcesStore.sourceByKey.get(BOARD_SOURCE_KEY)?.columns.map((column) => column.name))
       .toEqual(['Todo', 'In progress', 'Shipped'])
   })
 
@@ -100,7 +100,7 @@ describe('reading the sources', () => {
     const world = await createTasksWorld()
     const requests: unknown[] = []
     world.connections.registerPrimary('local', {
-      tasksSources: async (sources: unknown) => {
+      issuesSources: async (sources: unknown) => {
         requests.push(sources)
         return [sourceState(REPO_SOURCE_KEY)]
       },
@@ -110,7 +110,7 @@ describe('reading the sources', () => {
     await settle()
 
     expect(requests).toEqual([[repo]])
-    expect(world.taskSourcesStore.sources.map((source) => source.sourceKey)).toEqual([REPO_SOURCE_KEY])
+    expect(world.issueSourcesStore.sources.map((source) => source.sourceKey)).toEqual([REPO_SOURCE_KEY])
   })
 
   test('a person with no source asks nothing and has no source', async () => {
@@ -119,14 +119,14 @@ describe('reading the sources', () => {
     const world = await createTasksWorld()
     world.setSources([repo])
     let asked = 0
-    world.connections.registerPrimary('local', { tasksSources: async () => { asked++; return [sourceState(REPO_SOURCE_KEY)] } })
-    await world.taskSourcesStore.load()
+    world.connections.registerPrimary('local', { issuesSources: async () => { asked++; return [sourceState(REPO_SOURCE_KEY)] } })
+    await world.issueSourcesStore.load()
 
     world.setSources([])
     await settle()
 
     expect(asked).toBe(1)
-    expect(world.taskSourcesStore.sources).toEqual([])
+    expect(world.issueSourcesStore.sources).toEqual([])
   })
 
   test('a failed read keeps the last answer on screen and says why it failed', async () => {
@@ -136,21 +136,21 @@ describe('reading the sources', () => {
     world.setSources([repo])
     let fail = false
     world.connections.registerPrimary('local', {
-      tasksSources: async () => {
+      issuesSources: async () => {
         if (fail) throw new Error('The host did not answer.')
         return [sourceState(REPO_SOURCE_KEY)]
       },
     })
-    await world.taskSourcesStore.load()
+    await world.issueSourcesStore.load()
 
     fail = true
-    await world.taskSourcesStore.load()
-    expect(world.taskSourcesStore.error).toBe('The host did not answer.')
-    expect(world.taskSourcesStore.sources.map((source) => source.sourceKey)).toEqual([REPO_SOURCE_KEY])
+    await world.issueSourcesStore.load()
+    expect(world.issueSourcesStore.error).toBe('The host did not answer.')
+    expect(world.issueSourcesStore.sources.map((source) => source.sourceKey)).toEqual([REPO_SOURCE_KEY])
 
     fail = false
-    await world.taskSourcesStore.load()
-    expect(world.taskSourcesStore.error).toBeNull()
+    await world.issueSourcesStore.load()
+    expect(world.issueSourcesStore.error).toBeNull()
   })
 
   test('an older answer never replaces a newer one', async () => {
@@ -158,18 +158,18 @@ describe('reading the sources', () => {
     // the source that the person just added.
     const world = await createTasksWorld()
     world.setSources([repo, board])
-    const slow = Promise.withResolvers<TaskSourceState[]>()
+    const slow = Promise.withResolvers<IssueSourceState[]>()
     let reads = 0
     world.connections.registerPrimary('local', {
-      tasksSources: () => reads++ === 0 ? slow.promise : Promise.resolve([sourceState(REPO_SOURCE_KEY), sourceState(BOARD_SOURCE_KEY)]),
+      issuesSources: () => reads++ === 0 ? slow.promise : Promise.resolve([sourceState(REPO_SOURCE_KEY), sourceState(BOARD_SOURCE_KEY)]),
     })
 
-    const older = world.taskSourcesStore.load()
-    await world.taskSourcesStore.load()
+    const older = world.issueSourcesStore.load()
+    await world.issueSourcesStore.load()
     slow.resolve([sourceState(REPO_SOURCE_KEY)])
     await older
 
-    expect(world.taskSourcesStore.sources.map((source) => source.sourceKey)).toEqual([REPO_SOURCE_KEY, BOARD_SOURCE_KEY])
+    expect(world.issueSourcesStore.sources.map((source) => source.sourceKey)).toEqual([REPO_SOURCE_KEY, BOARD_SOURCE_KEY])
   })
 
   test('says that it refreshes while a read is in flight, and while the host reads a source from its provider', async () => {
@@ -177,19 +177,19 @@ describe('reading the sources', () => {
     // goes on after the host answered its copy. A spinner that stops early lies.
     const world = await createTasksWorld()
     world.setSources([repo])
-    const answer = Promise.withResolvers<TaskSourceState[]>()
-    let next: Promise<TaskSourceState[]> = answer.promise
-    world.connections.registerPrimary('local', { tasksSources: () => next })
+    const answer = Promise.withResolvers<IssueSourceState[]>()
+    let next: Promise<IssueSourceState[]> = answer.promise
+    world.connections.registerPrimary('local', { issuesSources: () => next })
 
-    const load = world.taskSourcesStore.load()
-    expect(world.taskSourcesStore.refreshing).toBe(true)
+    const load = world.issueSourcesStore.load()
+    expect(world.issueSourcesStore.refreshing).toBe(true)
     answer.resolve([sourceState(REPO_SOURCE_KEY, { refreshing: true })])
     await load
-    expect(world.taskSourcesStore.refreshing).toBe(true)
+    expect(world.issueSourcesStore.refreshing).toBe(true)
 
     next = Promise.resolve([sourceState(REPO_SOURCE_KEY)])
-    await world.taskSourcesStore.load()
-    expect(world.taskSourcesStore.refreshing).toBe(false)
+    await world.issueSourcesStore.load()
+    expect(world.issueSourcesStore.refreshing).toBe(false)
   })
 })
 
@@ -203,22 +203,22 @@ describe('when the task host says that its sources changed', () => {
     await settle()
     const reads: string[] = []
     const api = (name: string) => ({
-      tasksSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
-      tasksSources: async () => {
+      issuesSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
+      issuesSources: async () => {
         reads.push(name)
         return [sourceState(REPO_SOURCE_KEY)]
       },
     })
     world.connections.registerPrimary('local', api('local'))
     world.connections.registerHost('workshop', api('workshop'))
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
     expect(reads).toEqual([])
 
-    world.connections.emit('local', 'tasks.sourcesChanged', { sourceKeys: [REPO_SOURCE_KEY] })
-    world.connections.emit('local', 'tasks.sourcesChanged', { sourceKeys: [BOARD_SOURCE_KEY] })
+    world.connections.emit('local', 'issues.sourcesChanged', { sourceKeys: [REPO_SOURCE_KEY] })
+    world.connections.emit('local', 'issues.sourcesChanged', { sourceKeys: [BOARD_SOURCE_KEY] })
     // Another host's read does not change what the task host answered.
-    world.connections.emit('workshop', 'tasks.sourcesChanged', { sourceKeys: [REPO_SOURCE_KEY] })
+    world.connections.emit('workshop', 'issues.sourcesChanged', { sourceKeys: [REPO_SOURCE_KEY] })
     jest.advanceTimersByTime(99)
     expect(reads).toEqual([])
     jest.advanceTimersByTime(1)
@@ -234,13 +234,13 @@ describe('when the task host says that its sources changed', () => {
     await settle()
     let reads = 0
     world.connections.registerPrimary('local', {
-      tasksSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
-      tasksSources: async () => {
+      issuesSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
+      issuesSources: async () => {
         reads++
         return [sourceState(REPO_SOURCE_KEY)]
       },
     })
-    const store = new world.TasksStore()
+    const store = new world.IssuesStore()
     await store.ensureLoaded()
 
     world.connections.emitReadiness('local', 'reconnecting')
@@ -252,7 +252,7 @@ describe('when the task host says that its sources changed', () => {
 })
 
 describe('the choices of the source setup', () => {
-  const options: TaskSourceOptions = {
+  const options: IssueSourceOptions = {
     github: { connected: true, repositories: [], projects: [] },
     jira: { connected: false, projects: [], boards: [] },
   }
@@ -263,22 +263,22 @@ describe('the choices of the source setup', () => {
     const world = await createTasksWorld()
     let reads = 0
     world.connections.registerPrimary('local', {
-      tasksSourceOptions: async () => ({ ...options, github: { connected: reads++ > 0, repositories: [], projects: [] } }),
+      issuesSourceOptions: async () => ({ ...options, github: { connected: reads++ > 0, repositories: [], projects: [] } }),
     })
 
-    expect(world.taskSourcesStore.options).toBeNull()
-    await world.taskSourcesStore.loadOptions()
-    expect(world.taskSourcesStore.options?.github.connected).toBe(false)
-    await world.taskSourcesStore.loadOptions()
-    expect(world.taskSourcesStore.options?.github.connected).toBe(true)
+    expect(world.issueSourcesStore.options).toBeNull()
+    await world.issueSourcesStore.loadOptions()
+    expect(world.issueSourcesStore.options?.github.connected).toBe(false)
+    await world.issueSourcesStore.loadOptions()
+    expect(world.issueSourcesStore.options?.github.connected).toBe(true)
   })
 
   test('two surfaces that open at the same time share one read', async () => {
     const world = await createTasksWorld()
     let reads = 0
-    world.connections.registerPrimary('local', { tasksSourceOptions: async () => { reads++; return options } })
+    world.connections.registerPrimary('local', { issuesSourceOptions: async () => { reads++; return options } })
 
-    await Promise.all([world.taskSourcesStore.loadOptions(), world.taskSourcesStore.loadOptions()])
+    await Promise.all([world.issueSourcesStore.loadOptions(), world.issueSourcesStore.loadOptions()])
     expect(reads).toBe(1)
   })
 
@@ -288,20 +288,20 @@ describe('the choices of the source setup', () => {
     const world = await createTasksWorld()
     let fail = false
     world.connections.registerPrimary('local', {
-      tasksSourceOptions: async () => {
+      issuesSourceOptions: async () => {
         if (fail) throw new Error('GitHub did not answer.')
         return options
       },
     })
-    await world.taskSourcesStore.loadOptions()
+    await world.issueSourcesStore.loadOptions()
 
     fail = true
-    expect(await world.taskSourcesStore.loadOptions()).toBeNull()
-    expect(world.taskSourcesStore.optionsError).toBe('GitHub did not answer.')
-    expect(world.taskSourcesStore.options).toEqual(options)
+    expect(await world.issueSourcesStore.loadOptions()).toBeNull()
+    expect(world.issueSourcesStore.optionsError).toBe('GitHub did not answer.')
+    expect(world.issueSourcesStore.options).toEqual(options)
 
     fail = false
-    await world.taskSourcesStore.loadOptions()
-    expect(world.taskSourcesStore.optionsError).toBeNull()
+    await world.issueSourcesStore.loadOptions()
+    expect(world.issueSourcesStore.optionsError).toBeNull()
   })
 })

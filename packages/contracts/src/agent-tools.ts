@@ -12,6 +12,8 @@
  *
  * Claude prefixes these with `mcp__solus__`; Codex passes them bare.
  */
+import { z } from 'zod'
+
 /**
  * A `secretRef` from `request_secret` works once, only in the session that asked,
  * for 15 minutes. Any tool with a `secretRef` field takes one in place of a secret.
@@ -35,7 +37,7 @@ export function isArtifactRenderTool(name: string | undefined): boolean {
 /** User-controlled tools, grouped by their function in Settings. */
 export const SOLUS_TOOL_GROUPS = [
   { id: 'works', label: 'Works', tools: [
-    'find_works',
+    'list_works',
     'read_work',
     'create_work',
     'update_work',
@@ -49,13 +51,8 @@ export const SOLUS_TOOL_GROUPS = [
     'request_work_review',
   ] },
   { id: 'automations', label: 'Automations', tools: [
-    'create_automation',
-    'list_automations',
-    'read_automation',
-    'update_automation',
-    'delete_automation',
-    'run_automation',
-    'list_automation_runs',
+    'read_automations',
+    'manage_automations',
   ] },
   { id: 'apps', label: 'Apps', tools: [
     'save_app',
@@ -71,31 +68,29 @@ export const SOLUS_TOOL_GROUPS = [
     'set_app_signal_action',
   ] },
   { id: 'webhooks', label: 'Webhooks', tools: [
-    'create_webhook',
-    'update_webhook',
-    'delete_webhook',
-    'rotate_webhook',
-    'list_webhooks',
-    'read_webhook_delivery',
-    'dry_run_webhook',
+    'read_webhooks',
+    'manage_webhooks',
   ] },
-  { id: 'connections', label: 'Connections', tools: [
+  { id: 'hosts', label: 'Hosts', tools: [
     'list_hosts',
     'add_host',
+    'create_host',
+    'start_host',
+    'stop_host',
+    'restart_host',
+    'update_host',
+    'check_host',
+    'share_host',
+    'unshare_host',
     'remove_host',
+    'delete_host',
+  ] },
+  { id: 'connections', label: 'Connections', tools: [
     'connection_status',
     'connect_integration',
     'add_mcp_server',
   ] },
-  { id: 'cloud', label: 'Cloud machines and organization', tools: [
-    'list_cloud_machines',
-    'create_cloud_machine',
-    'update_cloud_machine',
-    'start_cloud_machine',
-    'stop_cloud_machine',
-    'restart_cloud_machine',
-    'delete_cloud_machine',
-    'join_cloud_machine',
+  { id: 'organization', label: 'Organization', tools: [
     'list_organization_members',
     'read_organization_policy',
     'update_organization_policy',
@@ -190,12 +185,12 @@ export const SOLUS_TOOL_GROUPS = [
     'update_codebase',
     'delete_codebase',
   ] },
-  { id: 'tasks', label: 'Tasks', tools: [
-    'list_tasks',
-    'read_task',
-    'update_task_status',
-    'create_task',
-    'comment_task',
+  { id: 'tasks', label: 'Issues', tools: [
+    'list_issues',
+    'read_issue',
+    'update_issue_status',
+    'create_issue',
+    'comment_issue',
   ] },
 ] as const
 
@@ -203,6 +198,42 @@ export type ConfigurableSolusToolName = (typeof SOLUS_TOOL_GROUPS)[number]['tool
 export type SolusToolPreferences = Partial<Record<ConfigurableSolusToolName, boolean>>
 
 export const CONFIGURABLE_SOLUS_TOOL_NAMES = SOLUS_TOOL_GROUPS.flatMap((group) => [...group.tools])
+
+/**
+ * Tools that were renamed, or that became one action of a grouped tool (the reads need no approval,
+ * the changes do. A switch that a person or a policy set on an old name applies
+ * to its new tool, so a tool that was off stays off.
+ */
+const RENAMED_SOLUS_TOOLS: Readonly<Record<string, ConfigurableSolusToolName>> = {
+  find_works: 'list_works',
+  list_automations: 'read_automations',
+  read_automation: 'read_automations',
+  list_automation_runs: 'read_automations',
+  create_automation: 'manage_automations',
+  update_automation: 'manage_automations',
+  delete_automation: 'manage_automations',
+  run_automation: 'manage_automations',
+  list_webhooks: 'read_webhooks',
+  read_webhook_delivery: 'read_webhooks',
+  dry_run_webhook: 'read_webhooks',
+  create_webhook: 'manage_webhooks',
+  update_webhook: 'manage_webhooks',
+  delete_webhook: 'manage_webhooks',
+  rotate_webhook: 'manage_webhooks',
+}
+
+/** The switches with each old tool name moved to its new tool. Off wins: one old tool that was off turns its whole new tool off. */
+export function withRenamedSolusTools(switches: Readonly<Record<string, boolean>>): Record<string, boolean> {
+  const next: Record<string, boolean> = {}
+  for (const [name, enabled] of Object.entries(switches)) {
+    if (!RENAMED_SOLUS_TOOLS[name]) next[name] = enabled
+  }
+  for (const [name, enabled] of Object.entries(switches)) {
+    const renamed = RENAMED_SOLUS_TOOLS[name]
+    if (renamed) next[renamed] = (next[renamed] ?? true) && enabled
+  }
+  return next
+}
 
 export function isSolusToolEnabled(name: string, preferences: SolusToolPreferences): boolean {
   return !Object.entries(preferences).some(([toolName, enabled]) => toolName === name && !enabled)

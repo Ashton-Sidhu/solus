@@ -1,6 +1,6 @@
 import type { TaskInvolvement } from '@solus/contracts/task-data'
-import type { TaskSource } from '@solus/contracts/task-sources'
-import type { TaskAssigneeCandidate, TaskColumn } from '@solus/contracts/task-types'
+import type { IssueSource } from '@solus/contracts/task-sources'
+import type { IssueAssigneeCandidate, IssueColumn } from '@solus/contracts/task-types'
 import { jiraStatusCategory } from '../status-category'
 import { createJiraTask, readJiraTask, transitionJiraIssue } from '../providers/jira'
 import {
@@ -25,12 +25,12 @@ import {
   type TaskSourceAdapter,
 } from '../providers/types'
 
-type JiraProject = Extract<TaskSource, { kind: 'jira-project' }>
+type JiraProject = Extract<IssueSource, { kind: 'jira-project' }>
 
 const PAGE_SIZE = 50
 const SEARCH_LIMIT = 100
 
-function jiraProject(source: TaskSource): JiraProject {
+function jiraProject(source: IssueSource): JiraProject {
   if (source.kind !== 'jira-project') throw new Error(`The Jira project source cannot read a ${source.kind} source.`)
   return source
 }
@@ -41,7 +41,7 @@ export class JiraProjectSource implements TaskSourceAdapter {
 
   constructor(private readonly jira: JiraTransport) {}
 
-  async read(source: TaskSource, continuation?: string): Promise<SourceRead> {
+  async read(source: IssueSource, continuation?: string): Promise<SourceRead> {
     const { cloudId, projectKey } = jiraProject(source)
     const issues: JiraIssue[] = []
     let nextPageToken: string | undefined = continuation
@@ -82,12 +82,12 @@ export class JiraProjectSource implements TaskSourceAdapter {
 
   /** Jira gives the statuses for each issue type. A column is a status, one
    *  time, in the sequence Jira first gives it. */
-  private async columns(cloudId: string, projectKey: string): Promise<TaskColumn[]> {
+  private async columns(cloudId: string, projectKey: string): Promise<IssueColumn[]> {
     const issueTypes = await this.jira.request(
       { cloudId, path: `/rest/api/3/project/${encodeURIComponent(projectKey)}/statuses` },
       projectStatusesSchema,
     )
-    const columns = new Map<string, TaskColumn>()
+    const columns = new Map<string, IssueColumn>()
     for (const status of issueTypes.flatMap((issueType) => issueType.statuses)) {
       if (columns.has(status.id)) continue
       columns.set(status.id, {
@@ -104,7 +104,7 @@ export class JiraProjectSource implements TaskSourceAdapter {
    * Solus holds: the issue a person looks for is frequently an older one. The
    * text goes to Jira, which searches the whole project.
    */
-  async search(source: TaskSource, query: string, involvement: TaskInvolvement = 'all'): Promise<ProviderTask[]> {
+  async search(source: IssueSource, query: string, involvement: TaskInvolvement = 'all'): Promise<ProviderTask[]> {
     if (involvement === 'mentioned') throw new Error('Jira does not expose a reliable mentioned-by-me issue search. Open Jira to use its mention notifications.')
     const { cloudId, projectKey } = jiraProject(source)
     const body: JiraSearchBody = {
@@ -121,7 +121,7 @@ export class JiraProjectSource implements TaskSourceAdapter {
   }
 
   async create(input: {
-    source: TaskSource
+    source: IssueSource
     writeState: SourceWriteState | null
     draft: TaskDraft
   }): Promise<SourceItem> {
@@ -147,7 +147,7 @@ export class JiraProjectSource implements TaskSourceAdapter {
   }
 
   /** Solus does not write the assignee of a Jira issue, so it lists no candidates. */
-  async assignees(source: TaskSource): Promise<TaskAssigneeCandidate[]> {
+  async assignees(source: IssueSource): Promise<IssueAssigneeCandidate[]> {
     jiraProject(source)
     return []
   }

@@ -2,7 +2,7 @@ import type { Via } from '@solus/contracts/analytics-events'
 
 import type { PullRequestOpenTarget, WorkspaceContext } from '../workspace/workspace.context.svelte'
 import { connectionsNav, type HostPageTab } from '../../components/connections/connections-nav.svelte'
-import { pairCodeRequest } from '../../components/connections/lib/pair-code-request.svelte'
+import { pairCodeRequest } from '../../components/connections/lib/access-tab-requests.svelte'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
 import { toasts } from '../../lib/toasts'

@@ -1,4 +1,4 @@
-import type { TaskEpic, TaskPlacement, TaskPr, TaskSidebarPrLink } from '@solus/contracts/task-types'
+import type { IssueEpic, IssuePlacement, IssuePr, IssueSidebarPrLink } from '@solus/contracts/task-types'
 
 // Whether a re-read carries the same value a task already holds.
 //
@@ -18,13 +18,13 @@ export function sameStrings(
   return current.every((value, index) => value === next[index])
 }
 
-export function samePr(current: TaskPr | undefined, next: TaskPr | undefined): boolean {
+export function samePr(current: IssuePr | undefined, next: IssuePr | undefined): boolean {
   if (current === next) return true
   if (!current || !next) return false
   return current.number === next.number && current.url === next.url
 }
 
-export function sameEpic(current: TaskEpic | undefined, next: TaskEpic | undefined): boolean {
+export function sameEpic(current: IssueEpic | undefined, next: IssueEpic | undefined): boolean {
   if (current === next) return true
   if (!current || !next) return false
   return current.provider === next.provider
@@ -35,8 +35,8 @@ export function sameEpic(current: TaskEpic | undefined, next: TaskEpic | undefin
 }
 
 export function samePlacements(
-  current: readonly TaskPlacement[],
-  next: readonly TaskPlacement[],
+  current: readonly IssuePlacement[],
+  next: readonly IssuePlacement[],
 ): boolean {
   if (current === next) return true
   if (current.length !== next.length) return false
@@ -45,8 +45,8 @@ export function samePlacements(
 }
 
 export function samePrLinks(
-  current: readonly TaskSidebarPrLink[] | undefined,
-  next: readonly TaskSidebarPrLink[],
+  current: readonly IssueSidebarPrLink[] | undefined,
+  next: readonly IssueSidebarPrLink[],
 ): boolean {
   if (!current || current.length !== next.length) return false
   return current.every((link, index) => {

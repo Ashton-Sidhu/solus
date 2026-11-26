@@ -5,12 +5,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Client as LegacyClient } from '@modelcontextprotocol/sdk/client/index.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { SubscribeRequestSchema, UnsubscribeRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { DatabaseSync } from '../helpers/bun-sqlite'
+import { runToolClient } from '../helpers/run-tool-client'
 import { resetTestDatabase } from '../helpers/test-db'
 import type { Integration } from '@solus/contracts/integration-types'
 import type { ResourceWatchChangedEvent } from '@solus/contracts/integrations/resource-watch'
@@ -30,8 +29,6 @@ const { ResourceWatchStore } = await import('@solus/server/integrations/resource
 const { resourceAgentTools } = await import('@solus/server/integrations/resource-tools')
 const { withActingScope } = await import('@solus/server/vault/acting-scope')
 const { HOST_IDENTITY } = await import('@solus/server/execution/seats/acting-identity')
-const { adaptClaudeTools } = await import('@solus/server/execution/agents/claude/claude-tool-adapter')
-const { adaptCodexTools } = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
 const { closeDb } = await import('@solus/server/db')
 const { SessionWake } = await import('@solus/server/execution/sessions/session-wake')
 const { useHostUser } = await import('@solus/server/host/host-user')
@@ -630,12 +627,7 @@ describe('resource watches', () => {
     const tools = resourceAgentTools([integration], [integration], w.gateway, null)
     expect(tools.map((tool) => tool.name)).toEqual(['list_integration_resources', 'read_integration_resource', 'watch_integration_resource'])
     expect(resourceAgentTools([integration], [], w.gateway, null).map((tool) => tool.name)).not.toContain('watch_integration_resource')
-    expect(adaptCodexTools(tools)[0]?.tools.map((tool) => tool.name)).toContain('watch_integration_resource')
-    const { server } = adaptClaudeTools(tools, context(), 'auto')
-    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair()
-    await server.instance.connect(serverSide)
-    const client = new LegacyClient({ name: 'test', version: '1.0.0' })
-    await client.connect(clientSide)
+    const client = await runToolClient(tools, context())
     const listed = (await client.listTools()).tools.find((tool) => tool.name.endsWith('watch_integration_resource'))
     expect(listed?.inputSchema.required).toEqual(['server', 'uri', 'watching'])
     await client.close()

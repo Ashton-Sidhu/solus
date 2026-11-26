@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isMarkdownVideo, markdownAssetId, markdownImagePath, zoomScrollOffset } from "@solus/workspace-ui/components/conversation/lib/markdown-image";
+import { isMarkdownVideo, markdownAssetId, markdownImageFileName, markdownImagePath, zoomScrollOffset } from "@solus/workspace-ui/components/conversation/lib/markdown-image";
 import { standaloneLocalVideoHref, standaloneMarkdownMediaLink } from "@solus/workspace-ui/lib/githubMarkdown";
 
 describe("markdown image paths", () => {
@@ -32,6 +32,21 @@ describe("markdown image paths", () => {
     expect(markdownAssetId(`asset://${id}`)).toBe(id);
     expect(markdownAssetId("asset://../../secret.png")).toBeNull();
     expect(markdownAssetId(`asset://${"b".repeat(64)}.svg`)).toBe(`${"b".repeat(64)}.svg`);
+  });
+});
+
+describe("missing image placeholder name", () => {
+  // WHY: a scratchpad screenshot is deleted when its agent stops. The
+  // placeholder names the file, so the reader knows which one is gone.
+  test("names the file of a host path, a file URL, or a web URL", () => {
+    expect(markdownImageFileName("/tmp/x/scratchpad/14-reason-box.png", "/tmp/x/scratchpad/14-reason-box.png", null)).toBe("14-reason-box.png");
+    expect(markdownImageFileName("C:\\Users\\me\\shot.png", "C:\\Users\\me\\shot.png", null)).toBe("shot.png");
+    expect(markdownImageFileName("https://example.com/a/shot.png?v=2#top", null, null)).toBe("shot.png");
+  });
+
+  test("a stored asset's hash is not a name", () => {
+    const id = `${"c".repeat(64)}.png`;
+    expect(markdownImageFileName(`asset://${id}`, null, id)).toBeNull();
   });
 });
 

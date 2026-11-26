@@ -125,7 +125,7 @@ export const UI_TO_SDK_PERMISSION_MODE = {
 } satisfies Record<PermissionMode, SdkPermissionMode>
 
 // Harness built-ins that schedule work as cloud agents. Solus owns durable
-// recurring work through its own automation domain (`create_automation`), which
+// recurring work through its own automation domain (`manage_automations`), which
 // runs on this host with the session's project and provider. Leaving these
 // reachable only offers a wrong way to answer "remind me every morning", so the
 // tools are withheld rather than argued against in the system prompt.

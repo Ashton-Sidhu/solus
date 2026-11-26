@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { linearCategory, linearRequest } from '@solus/server/data/tasks/providers/linear-api'
 import {
-  parseTaskKey,
-  taskKey,
-  taskSourceKey
+  parseIssueKey,
+  issueKey,
+  issueSourceKey
 } from '@solus/contracts/task-sources'
 import { linearRefSchema, vaultSaveKeyRequestSchema, materialKindsOf } from '@solus/contracts/vault'
 
@@ -49,16 +49,16 @@ describe('Linear transport and identity', () => {
   })
   test('a task and team keep workspace identity and use the account key contract', () => {
     const ref = { provider: 'linear', workspaceId: 'workspace-a', id: 'issue-id' } as const
-    expect(parseTaskKey(taskKey(ref))).toEqual(ref)
+    expect(parseIssueKey(issueKey(ref))).toEqual(ref)
     expect(
-      taskSourceKey({
+      issueSourceKey({
         kind: 'linear-team',
         workspaceId: 'workspace-a',
         teamId: 'team',
         teamKey: 'APP'
       })
     ).not.toBe(
-      taskSourceKey({
+      issueSourceKey({
         kind: 'linear-team',
         workspaceId: 'workspace-b',
         teamId: 'team',

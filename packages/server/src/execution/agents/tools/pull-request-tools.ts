@@ -32,6 +32,7 @@ import type { PrSync } from '../../../prs/pr-sync'
 import type { AgentTool, AgentToolContext } from './agent-tool'
 import { linkCallerPullRequest } from './session-link-tools'
 import { remoteTarget } from './session-tools'
+import { personProjectHolding } from './project-record-tools'
 import { encodeCursor, readAgentSummary, readSections, readCursor, pullRequestReadSection } from './pull-request-read'
 
 interface PullRequestToolHost {
@@ -48,7 +49,8 @@ export function installPullRequestToolHost(next: PullRequestToolHost): void {
 
 interface AdmittedToolSession {
   cwd: string
-  sessionId: string
+  /** The calling session; none for an outside app, which works in a project it names. */
+  sessionId: string | undefined
   principal: Principal
   host: PullRequestToolHost
 }
@@ -57,18 +59,42 @@ interface ToolSession extends AdmittedToolSession, CodeHost {
   syncHost: CodeHost
 }
 
-async function toolAdmission(context: AgentToolContext, writes: boolean): Promise<AdmittedToolSession> {
+const SESSION_REQUIRED = 'This tool requires an active Solus session.'
+
+/** The person of the call and this host, when the person holds the host permission of `method`, the RPC a client sends. */
+async function callerAdmission(method: 'gitRunAction' | 'prGetDetail'): Promise<{ principal: Principal; host: PullRequestToolHost }> {
   const principal = workspaceToolAuthority()
-  const sessionId = context.sessionId()
-  if (!host || !principal || !sessionId) throw new Error('This tool requires an active Solus session.')
-  const resources = host.resources
+  if (!host || !principal) throw new Error(SESSION_REQUIRED)
+  await assertRpcAccess(method, principal, [], host.resources)
+  return { principal, host }
+}
+
+/**
+ * A session works in its checkout, and its person must be allowed the session.
+ * A caller with no session (an outside app, plans/035 §8) works in the project
+ * it names, which must be one its person may use; only the host permission of
+ * the RPC applies, as for a client.
+ */
+async function toolAdmission(context: AgentToolContext, writes: boolean, project: string | undefined): Promise<AdmittedToolSession> {
   const method = writes ? 'gitRunAction' : 'prGetDetail'
-  const cwd = resolveHomePath(context.cwd)
-  await assertRpcAccess(method, principal, [], resources)
-  const permission = await authorize(principal, writes ? 'edit' : 'read', { kind: 'session', id: sessionId }, { name: method, resources })
-  if (permission) throw new Error(permission.detail)
+  const { principal, host } = await callerAdmission(method)
+  const sessionId = context.sessionId()
+  const cwd = resolveHomePath(sessionId ? context.cwd : await namedProject(context, project))
+  if (sessionId) {
+    const permission = await authorize(principal, writes ? 'edit' : 'read', { kind: 'session', id: sessionId }, { name: method, resources: host.resources })
+    if (permission) throw new Error(permission.detail)
+  }
   assertPathInScope(method, principal, cwd)
   return { cwd, sessionId, principal, host }
+}
+
+/** The folder of the project an outside app names, when its person may use it. */
+async function namedProject(context: AgentToolContext, project: string | undefined): Promise<string> {
+  if (!project) throw new Error('Pass project: this app is not running inside a Solus session. list_projects lists the projects.')
+  const folder = resolveHomePath(project)
+  const found = await personProjectHolding('the pull request tools', folder, context)
+  if (!found) throw new Error(`No project of this host holds ${folder}. Use list_projects.`)
+  return found.path
 }
 
 async function toolCodeHost(cwd: string): Promise<{ scoped: CodeHost; syncHost: CodeHost } | null> {
@@ -82,9 +108,14 @@ async function toolSession(admission: AdmittedToolSession, input: { repository?:
   const target = await toolCodeHost(admission.cwd)
   if (!target) throw new Error('This checkout has no supported code host.')
   const session = { ...admission, ...target.scoped, syncHost: target.syncHost }
+  // An outside app names the project, so the repository must be the project's.
+  if (!admission.sessionId && input.repository && !matchesRepository(session, input.repository)) {
+    throw new Error(`${input.repository} is not the repository of the project ${admission.cwd}.`)
+  }
   // Like upstream, a repository without a number does not retarget the
   // implicit branch PR.
   if (!input.repository || input.number === undefined || matchesRepository(session, input.repository)) return session
+  if (!admission.sessionId) throw new Error(SESSION_REQUIRED)
   const { operations, context } = await workspaceToolContext(admission.sessionId)
   const { items } = await operations.listSessionPullRequests(context, admission.sessionId)
   const repo = linkedPullRequestRepository(items, session.repo, input.repository, input.number)
@@ -96,12 +127,14 @@ async function toolSession(admission: AdmittedToolSession, input: { repository?:
 
 const nonEmpty = z.string().trim().min(1)
 const number = z.number().int().positive()
-const environmentId = nonEmpty.optional().describe('The calling Solus host. Omit to use its checkout.')
+const environmentId = nonEmpty.optional().describe('Omit for this host.')
 const environmentFields = { environmentId }
+const project = nonEmpty.optional().describe('Only for an outside app, which must pass it: the project on this host, as list_projects gives it. A session uses its checkout.')
 const targetFields = {
   ...environmentFields,
-  number: number.optional().describe("Default: this checkout's branch PR."),
-  repository: nonEmpty.optional().describe('Repository as owner/name. Use with number for an explicitly linked PR.'),
+  project,
+  number: number.optional().describe("Default: this branch's PR."),
+  repository: nonEmpty.optional().describe('A linked PR: owner/name, with number.'),
 }
 const names = z.array(nonEmpty).min(1).max(25)
 const cursor = nonEmpty.max(4096).optional()
@@ -175,13 +208,16 @@ function tool<T extends Fields>(
   inputFields: T,
   writes: boolean,
   run: (input: z.output<z.ZodObject<T>>, session: ToolSession, context: AgentToolContext) => Promise<object>,
+  /** The tool works in the calling session's checkout and nowhere else (it pushes, or it starts a run). */
+  needsSession = false,
 ): AgentTool<T> {
   return {
     name, description, inputFields, strictInput: true, requiresApproval: writes,
     async execute(input, context) {
       try {
         context.abortSignal.throwIfAborted()
-        const admission = await toolAdmission(context, writes)
+        if (needsSession && !context.sessionId()) throw new Error(SESSION_REQUIRED)
+        const admission = await toolAdmission(context, writes, z.object({ project }).parse(input).project)
         assertEnvironment(z.object({ environmentId }).parse(input).environmentId)
         const session = await toolSession(admission, z.object({ repository: targetFields.repository, number: targetFields.number }).parse(input))
         if (writes) invalidateAgentPullRequestReads(session.repo)
@@ -212,6 +248,7 @@ const prList = tool(
   'pull_request_list', 'List PRs in this checkout repository, recently updated first.',
   {
     ...environmentFields,
+    project,
     state: z.enum(['all', 'open', 'closed', 'merged']).default('open'),
     involvement: z.enum(['all', 'reviewing', 'authored']).default('all'),
     query: nonEmpty.max(200).optional(),
@@ -233,7 +270,8 @@ const prList = tool(
 
 const threadLinkFields = {
   ...environmentFields,
-  threadId: nonEmpty.optional(),
+  threadId: nonEmpty.optional().describe('The session. Omit to use this session. An outside app must pass it.'),
+  project: nonEmpty.optional().describe('Only for an outside app: a project on this host whose code host reads the PR states. Without it, the last known states.'),
   states: z.array(z.enum(['open', 'closed', 'merged'])).optional(),
   cursor,
 }
@@ -247,22 +285,27 @@ const threadLinks: AgentTool<typeof threadLinkFields> = {
   async execute(input, agent) {
     try {
       agent.abortSignal.throwIfAborted()
-      const session = await toolAdmission(agent, false)
-      const sessionId = input.threadId ?? session.sessionId
+      const callerSessionId = agent.sessionId()
+      const sessionId = input.threadId ?? callerSessionId
+      if (!sessionId) throw new Error('Pass threadId: this app is not running inside a Solus session.')
+      // An outside app reads a session it names, in a project it may name (plans/035 §8).
+      const admitted = callerSessionId || input.project ? await toolAdmission(agent, false, input.project) : null
+      const caller = admitted ?? await callerAdmission('prGetDetail')
       if (input.environmentId !== undefined && input.environmentId !== getInstallationId()) {
         if (!input.threadId) throw new Error('Pass threadId on the target host.')
-        const remote = await remoteTarget(input.environmentId, session.sessionId)
+        if (!callerSessionId) throw new Error(SESSION_REQUIRED)
+        const remote = await remoteTarget(input.environmentId, { sessionId: callerSessionId })
         if ('error' in remote) throw new Error(remote.error)
         const links = await remote.host.call('list session pull requests', () => remote.host.api.sessionPullRequests(sessionId))
         return { ok: true, text: JSON.stringify(threadPullRequestPage(links, new Map(), input)), format: 'json' }
       }
-      const permission = await authorize(session.principal, 'read', { kind: 'session', id: sessionId }, {
-        name: 'list_thread_pull_requests', resources: session.host.resources,
+      const permission = await authorize(caller.principal, 'read', { kind: 'session', id: sessionId }, {
+        name: 'list_thread_pull_requests', resources: caller.host.resources,
       })
       if (permission) throw new Error(permission.detail)
-      const { operations, context } = await workspaceToolContext(session.sessionId)
+      const { operations, context } = await workspaceToolContext(callerSessionId ?? sessionId)
       const links = (await operations.listSessionPullRequests(context, sessionId)).items
-      const checkout = links.length ? await toolCodeHost(session.cwd) : null
+      const checkout = links.length && admitted ? await toolCodeHost(admitted.cwd) : null
       const metadata = await readLinkedMetadata(links, checkout?.scoped)
       return { ok: true, text: JSON.stringify(threadPullRequestPage(links, metadata, input)), format: 'json' }
     } catch (error) {
@@ -314,7 +357,8 @@ const prCreate = tool(
   { ...environmentFields, title: nonEmpty, body: z.string(), base: nonEmpty.optional(), draft: z.boolean().optional(), private: z.boolean().optional() },
   true, async (input, session, context) => {
     if (input.private) throw new Error('GitHub has no private pull requests. Nothing was pushed. Leave out private to open a public one.')
-    const { repo, provider, cwd, sessionId } = session
+    const { repo, provider, cwd } = session
+    const sessionId = session.sessionId!
     const branch = await getWorkingBranch(cwd)
     if (!branch) throw new Error('Check out a branch before creating a pull request.')
     const destination = await resolvePushDestination(cwd, branch)
@@ -354,6 +398,7 @@ const prCreate = tool(
       next: record?.delegation ? 'End your reply with: PR <full URL>, head <SHA>, checks and reviews <state>.' : undefined,
     }
   },
+  true,
 )
 
 const updateFields = {
@@ -638,7 +683,8 @@ const ciRerun = tool(
     const checks = checksFor(pr, input.check)
     if (!checks.length) return { ...identity({ ...pr, baseRepo: repo }), checks: [] }
     const repository = repositoryKeyOf(repo)
-    const original = (await readPullRequestWatches([session.sessionId])).find(watch => watch.repository === repository && watch.number === number)
+    // Only a session watches pull requests.
+    const original = session.sessionId ? (await readPullRequestWatches([session.sessionId])).find(watch => watch.repository === repository && watch.number === number) : undefined
     try {
       const result = await review.rerunChecks(repo, checks, pr.headSha)
       const restarted = checks.flatMap((check, index) => {
@@ -648,7 +694,7 @@ const ciRerun = tool(
       if (original && restarted.length) {
         // Preserve any newer remark watermark. A replacement watch or head is left alone.
         try {
-          const watch = (await readPullRequestWatches([session.sessionId])).find(watch => watch.watchId === original.watchId)
+          const watch = (await readPullRequestWatches([original.sessionId])).find(watch => watch.watchId === original.watchId)
           if (watch) await reopenPullRequestWatchChecks(watch, pr.headSha, restarted)
         } catch (error) {
           log.warn('pr_check_watch_reopen_failed', { sessionId: session.sessionId, number, error: String(error) })

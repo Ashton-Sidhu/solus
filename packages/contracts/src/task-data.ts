@@ -1,4 +1,4 @@
-import type { TaskAssigneeCandidate, TaskComment, TaskDetails } from './task-types'
+import type { IssueAssigneeCandidate, IssueComment, IssueDetails } from './task-types'
 
 export type TaskReactionContent =
   'THUMBS_UP' | 'THUMBS_DOWN' | 'LAUGH' | 'HOORAY' | 'CONFUSED' | 'HEART' | 'ROCKET' | 'EYES'
@@ -24,11 +24,11 @@ export interface TaskProviderPullRequest {
 }
 export interface TaskProviderData {
   author: string | null
-  assignees: TaskAssigneeCandidate[]
+  assignees: IssueAssigneeCandidate[]
   commentsTruncated?: boolean
   reactions: TaskReaction[]
   events: TaskProviderEvent[]
-  comments?: TaskComment[]
+  comments?: IssueComment[]
   historyCursor: string | null
   pullRequests: TaskProviderPullRequest[]
   /** Capabilities are provider support, not permission to write. */
@@ -62,7 +62,7 @@ export interface TaskTemplate {
   url?: string
 }
 export interface TaskExternalIssue {
-  details: TaskDetails
+  details: IssueDetails
   inspection?: TaskProviderData
   readOnly: boolean
 }

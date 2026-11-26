@@ -1,11 +1,10 @@
 import type {
-  Task as TaskRecord,
-  TaskSessionLink,
-  TaskSnooze,
-  TaskSourceState,
-  TaskSummary,
+  Issue as TaskRecord,
+  IssueSessionLink,
+  IssueSourceState,
+  IssueSummary,
 } from '@solus/contracts/task-types'
-import type { TaskSource } from '@solus/contracts/task-sources'
+import type { IssueSource } from '@solus/contracts/task-sources'
 import { singleHostServerConnections } from './server-connections-mock'
 import { SvelteRunes } from './svelte-runes'
 
@@ -20,17 +19,12 @@ import { SvelteRunes } from './svelte-runes'
  * first import from it.
  */
 
-type TasksStoreClass = typeof import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')['TasksStore']
-type TaskSourcesStore = import('@solus/workspace-ui/contexts/tasks/task-sources.store.svelte').TaskSourcesStore
+type TasksStoreClass = typeof import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')['IssuesStore']
+type IssueSourcesStore = import('@solus/workspace-ui/contexts/tasks/task-sources.store.svelte').IssueSourcesStore
 
 interface WorldGlobals {
   serverConnections: object
   hosts: { hasCollaboration(serverId: string): boolean; hasExecution(serverId: string): boolean }
-  taskSnoozesStore: {
-    start(): void
-    get(taskId: string): TaskSnooze | undefined
-    snooze(serverId: string, taskId: string, until: number | null, note?: string): Promise<void>
-  }
 }
 
 const worlds: WorldGlobals[] = []
@@ -43,14 +37,12 @@ export interface TasksWorld {
   connectHost(serverId: string, api: object): void
   /** Hosts that hold only attachments, such as the organization's Solus API. */
   attachmentOnlyHosts: Set<string>
-  snoozes: Map<string, TaskSnooze>
-  snoozeCalls: Array<{ serverId: string; taskId: string; until: number | null; note: string }>
-  TasksStore: TasksStoreClass
-  taskSourcesStore: TaskSourcesStore
+  IssuesStore: TasksStoreClass
+  issueSourcesStore: IssueSourcesStore
   /** Change the person's task sources, as a write of their settings does. */
-  setSources(sources: TaskSource[]): void
+  setSources(sources: IssueSource[]): void
   /** The compiled `task.svelte.ts` and `tasks.store.svelte.ts`, for a test that compiles a reader of them. */
-  modules: { task: string; tasksStore: string; taskSources: string; connections: string }
+  modules: { task: string; issuesStore: string; issueSources: string; connections: string }
 }
 
 const file = SvelteRunes.file
@@ -75,18 +67,11 @@ export async function createTasksWorld(): Promise<TasksWorld> {
     },
   }
   const attachmentOnlyHosts = new Set<string>()
-  const snoozes = new Map<string, TaskSnooze>()
-  const snoozeCalls: TasksWorld['snoozeCalls'] = []
   worlds.push({
     serverConnections: connections,
     hosts: {
       hasCollaboration: () => true,
       hasExecution: (serverId) => !attachmentOnlyHosts.has(serverId),
-    },
-    taskSnoozesStore: {
-      start: () => {},
-      get: (taskId) => snoozes.get(taskId),
-      snooze: async (serverId, taskId, until, note = '') => { snoozeCalls.push({ serverId, taskId, until, note }) },
     },
   })
 
@@ -94,7 +79,6 @@ export async function createTasksWorld(): Promise<TasksWorld> {
   const stub = (name: string, source: string) => runes.module(`${name}-${index}`, source)
   const connectionsModule = stub('connections', `export const serverConnections = ${world}.serverConnections`)
   const hostsModule = stub('hosts', `export const hosts = ${world}.hosts`)
-  const snoozesModule = stub('snoozes', `export const taskSnoozesStore = ${world}.taskSnoozesStore`)
   // The same rule as `attemptServerId` in `lib/sessionUtils`, which imports icons.
   const sessionUtilsModule = stub('session-utils', `
     export const attemptServerId = ({ link, liveServerId, taskServerId }) =>
@@ -107,7 +91,6 @@ export async function createTasksWorld(): Promise<TasksWorld> {
     '@solus/client-core/task-data': file('packages/client-core/src/task-data.ts'),
     '@solus/contracts/task-types': file('packages/contracts/src/task-types.ts'),
     '../hosts/hosts.svelte': hostsModule,
-    './task-snoozes.store.svelte': snoozesModule,
     './task-reconcile': file(`${tasks}/task-reconcile.ts`),
     './task-links': file(`${tasks}/task-links.ts`),
     '@solus/contracts/task-sources': file('packages/contracts/src/task-sources.ts'),
@@ -115,30 +98,30 @@ export async function createTasksWorld(): Promise<TasksWorld> {
   const hostEventsModule = runes.source(`host-events-${index}`, 'packages/client-core/src/host-events.ts', {
     './server-connections': connectionsModule,
   })
-  const taskSources = runes.source(`task-sources-${index}`, `${tasks}/task-sources.store.svelte.ts`, {
+  const issueSources = runes.source(`task-sources-${index}`, `${tasks}/task-sources.store.svelte.ts`, {
     ...shared,
     '@solus/client-core/host-events': hostEventsModule,
   })
   const task = runes.source(`task-${index}`, `${tasks}/task.svelte.ts`, shared)
-  const tasksStore = runes.source(`tasks-store-${index}`, `${tasks}/tasks.store.svelte.ts`, {
+  const issuesStore = runes.source(`tasks-store-${index}`, `${tasks}/tasks.store.svelte.ts`, {
     ...shared,
     '../../lib/sessionUtils': sessionUtilsModule,
     './task.svelte': task,
-    './task-sources.store.svelte': taskSources,
+    './task-sources.store.svelte': issueSources,
   })
 
-  const { TasksStore } = await import(tasksStore) as { TasksStore: TasksStoreClass }
-  const { taskSourcesStore } = await import(taskSources) as { taskSourcesStore: TaskSourcesStore }
+  const { IssuesStore } = await import(issuesStore) as { IssuesStore: TasksStoreClass }
+  const { issueSourcesStore } = await import(issueSources) as { issueSourcesStore: IssueSourcesStore }
   // The person's settings: no source until a test names some.
   const settingsListeners = new Set<(change: { set: object; reset: readonly string[] }) => void>()
   const settings = {
-    values: { taskSources: [] as TaskSource[] },
+    values: { issueSources: [] as IssueSource[] },
     onChange: (listener: (change: { set: object; reset: readonly string[] }) => void) => {
       settingsListeners.add(listener)
       return () => { settingsListeners.delete(listener) }
     },
   }
-  taskSourcesStore.useSources(settings)
+  issueSourcesStore.useSources(settings)
   return {
     connections: base,
     connectHost: (serverId, api) => {
@@ -146,15 +129,13 @@ export async function createTasksWorld(): Promise<TasksWorld> {
       for (const listener of [...connectionListeners]) listener(connection)
     },
     attachmentOnlyHosts,
-    snoozes,
-    snoozeCalls,
-    TasksStore,
-    taskSourcesStore,
+    IssuesStore,
+    issueSourcesStore,
     setSources: (sources) => {
-      settings.values = { taskSources: sources }
-      for (const listener of [...settingsListeners]) listener({ set: { taskSources: sources }, reset: [] })
+      settings.values = { issueSources: sources }
+      for (const listener of [...settingsListeners]) listener({ set: { issueSources: sources }, reset: [] })
     },
-    modules: { task, tasksStore, taskSources, connections: connectionsModule },
+    modules: { task, issuesStore, issueSources, connections: connectionsModule },
   }
 }
 
@@ -165,7 +146,7 @@ export const BOARD_SOURCE_KEY = 'github-project:acme/7'
 export const JIRA_SOURCE_KEY = 'jira-project:cloud-1/SOL'
 
 /** A GitHub issue as a host's snapshot lists it. */
-export function issueRow(id = 'github:I_1', overrides: Partial<TaskSummary> = {}): TaskSummary {
+export function issueRow(id = 'github:I_1', overrides: Partial<IssueSummary> = {}): IssueSummary {
   return {
     id,
     providerId: 'github',
@@ -189,7 +170,7 @@ export function issueRecord(id = 'github:I_1', overrides: Partial<TaskRecord> = 
 }
 
 /** A draft item of a GitHub Project: no reference and no URL. */
-export function draftRow(id = 'github:DI_1', overrides: Partial<TaskSummary> = {}): TaskSummary {
+export function draftRow(id = 'github:DI_1', overrides: Partial<IssueSummary> = {}): IssueSummary {
   return issueRow(id, {
     kind: 'draft',
     reference: undefined,
@@ -201,7 +182,7 @@ export function draftRow(id = 'github:DI_1', overrides: Partial<TaskSummary> = {
   })
 }
 
-export function sessionLink(sessionId: string, overrides: Partial<TaskSessionLink> = {}): TaskSessionLink {
+export function sessionLink(sessionId: string, overrides: Partial<IssueSessionLink> = {}): IssueSessionLink {
   return {
     sessionId,
     sessionTitle: null,
@@ -215,8 +196,8 @@ export function sessionLink(sessionId: string, overrides: Partial<TaskSessionLin
   }
 }
 
-export function sourceState(sourceKey: string, overrides: Partial<TaskSourceState> = {}): TaskSourceState {
-  const base: Record<string, Pick<TaskSourceState, 'source' | 'label' | 'columns'>> = {
+export function sourceState(sourceKey: string, overrides: Partial<IssueSourceState> = {}): IssueSourceState {
+  const base: Record<string, Pick<IssueSourceState, 'source' | 'label' | 'columns'>> = {
     [REPO_SOURCE_KEY]: {
       source: { kind: 'github-repo', owner: 'acme', repo: 'app' },
       label: 'acme/app',
@@ -251,9 +232,9 @@ export function sourceState(sourceKey: string, overrides: Partial<TaskSourceStat
 
 /** A snapshot answer of a host. */
 export function snapshotOf(
-  rows: TaskSummary[],
-  sessionsByTask: Record<string, TaskSessionLink[]> = {},
-): { tasks: TaskSummary[]; sessionsByTask: Record<string, TaskSessionLink[]> } {
+  rows: IssueSummary[],
+  sessionsByTask: Record<string, IssueSessionLink[]> = {},
+): { tasks: IssueSummary[]; sessionsByTask: Record<string, IssueSessionLink[]> } {
   return { tasks: rows, sessionsByTask }
 }
 

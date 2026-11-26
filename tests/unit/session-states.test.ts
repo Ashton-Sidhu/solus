@@ -218,7 +218,7 @@ describe('a task and the state of its sessions', () => {
     await task.linkSession('by-person', 'working', {})
 
     await tasks.moveTask(task.id, { category: 'done' })
-    expect(await stateOf('worker')).toMatchObject({ settledBy: 'task' })
+    expect(await stateOf('worker')).toMatchObject({ settledBy: 'issue' })
     expect(await stateOf('reader')).toBeNull()
 
     await tasks.moveTask(task.id, { category: 'open' })

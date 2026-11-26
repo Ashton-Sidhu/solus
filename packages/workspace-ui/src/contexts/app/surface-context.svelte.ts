@@ -1,5 +1,5 @@
 import type { GitCheckout, IpcContext, RunConfig, Session } from '@solus/contracts/types'
-import type { TasksStore } from '../tasks/tasks.store.svelte'
+import type { IssuesStore } from '../tasks/tasks.store.svelte'
 import type { LogicalProject, ProjectPageScope, ProjectRef } from '../projects/project-catalog'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import type { WorksStore, WorkListing } from '../works/works.store.svelte'
@@ -32,7 +32,7 @@ import { createAppContext } from './create-app-context'
  */
 export interface SurfaceContext {
   readonly settings: SettingsContext
-  readonly tasksStore: TasksStore
+  readonly issuesStore: IssuesStore
   readonly worksStore: WorksStore
   readonly outboxStore: OutboxStore
   /** A transcript's plan and automation cards resolve against these. */

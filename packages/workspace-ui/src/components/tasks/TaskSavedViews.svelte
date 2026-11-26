@@ -22,14 +22,14 @@
 
   function save() {
     if (!name.trim()) return;
-    const held = settings.taskSavedViews.find((view) => view.id === editingId);
-    const next = putTaskSavedView(settings.taskSavedViews, {
+    const held = settings.issueSavedViews.find((view) => view.id === editingId);
+    const next = putTaskSavedView(settings.issueSavedViews, {
       id: editingId ?? crypto.randomUUID(),
       name,
       filters: held?.filters ?? $state.snapshot(filters),
     });
-    if (!settings.setPersonal('taskSavedViews', next)) {
-      toasts.error('Could not save the task view');
+    if (!settings.setPersonal('issueSavedViews', next)) {
+      toasts.error('Could not save the issue view');
       return;
     }
     name = '';
@@ -49,13 +49,13 @@
   <DropdownMenu.SubTrigger>
     <BookmarkIcon size={14} class="shrink-0 text-muted-foreground" />
     <span class="min-w-0 flex-1 truncate">Saved views</span>
-    {#if settings.taskSavedViews.length > 0}
-      <span class="tabular-nums text-muted-foreground">{settings.taskSavedViews.length}</span>
+    {#if settings.issueSavedViews.length > 0}
+      <span class="tabular-nums text-muted-foreground">{settings.issueSavedViews.length}</span>
     {/if}
   </DropdownMenu.SubTrigger>
   <DropdownMenu.SubContent collisionPadding={8} class="flex max-h-[min(32rem,calc(var(--bits-dropdown-menu-content-available-height,36rem)-1rem))] w-72 max-w-[calc(100vw-1rem)] flex-col overflow-y-auto p-2">
     <div class="px-2 pt-0.5 pb-1.5 text-menu text-muted-foreground">Saved views</div>
-    {#each settings.taskSavedViews as view (view.id)}
+    {#each settings.issueSavedViews as view (view.id)}
       <div class="flex min-w-0 items-center">
         <DropdownMenu.Item class="min-w-0 flex-1" onSelect={() => onApply(view.filters)}>
           <span class="min-w-0 flex-1 truncate">{view.name}</span>
@@ -69,8 +69,8 @@
           title="Remove"
           onSelect={() =>
             settings.setPersonal(
-              'taskSavedViews',
-              settings.taskSavedViews.filter((held) => held.id !== view.id),
+              'issueSavedViews',
+              settings.issueSavedViews.filter((held) => held.id !== view.id),
             )}
         >
           <TrashIcon size={14} class="text-muted-foreground" />
@@ -114,7 +114,7 @@
       <Button
         type="submit"
         disabled={!name.trim() ||
-          (!editingId && settings.taskSavedViews.length >= 50)}
+          (!editingId && settings.issueSavedViews.length >= 50)}
         class="text-menu pointer-coarse:h-12"
         >Save</Button
       >

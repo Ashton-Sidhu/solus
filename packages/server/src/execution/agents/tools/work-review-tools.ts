@@ -5,7 +5,7 @@ import { foreignLinkedItemFor } from '../../../data/tasks/foreign-tasks'
 import type { AgentTool } from './agent-tool'
 
 const requestWorkReviewFields = {
-  work_id: z.string().describe('The id of the work to review (from find_works).'),
+  work_id: z.string().describe('The id of the work to review (from list_works).'),
   reviewer_ids: z.array(z.string().min(1)).min(1).max(50).describe('The user ids of the organization members to ask. A member who cannot open the work is given it as a commenter.'),
   message: z.string().max(2000).optional().describe('An optional note that tells the reviewers what to look at.'),
   expected_content_version: z.number().int().min(0).describe('The content_version that read_work returned. The reviewers are asked about exactly that version; if the work changed since, nothing is requested and you must read it again.'),

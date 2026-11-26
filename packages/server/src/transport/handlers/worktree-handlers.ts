@@ -21,7 +21,7 @@ import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { assertPathInScope } from '../../data/sessions/guest-path-scope'
 import { prIndex } from '../../prs/pr-index'
 import { pullRequestForHead, pushHeadFor, type CodeHost } from '../../prs/code-host'
-import type { SolusServer } from '../server'
+import type { HandlerCtx, SolusServer } from '../server'
 import { attributionOf, type Actor } from '../../admission/actor'
 import { resolveHomePath } from '../../platform/paths'
 import type { HostEventPublisher } from '../events/host-event-publisher'
@@ -32,6 +32,16 @@ import { writingBackendFor, type WritingBackend } from '../../execution/agents/w
 import type { WorktreeMover } from '../../execution/sessions/worktree-move'
 import type { WorktreeOffers } from '../../execution/sessions/worktree-offers'
 import type { PrSync } from '../../prs/pr-sync'
+import { listManagedWorktrees, managedWorktreeSizes, removeManagedWorktree, type ManagedWorktreeHost } from '../../git/managed-worktrees'
+import { findTaskFolderContaining, listTaskFolders } from '../../git/task-folder-store'
+import { listProjects } from '../../project-config/projects-manifest'
+import { projectsVisibleTo } from './setup-handlers'
+import { getSessionRecords } from '../../data/sessions/session-records'
+import { recordScopeOf } from '../../admission/principal'
+import { worktreeProjectRoot } from '@solus/contracts/types'
+import { codebasesFor } from '../../data/codebases/codebases'
+import { membersOf } from '../../files/codebase-members'
+import { getInstallationId } from '../../admission/auth'
 
 const log = createLogger('main', 'worktree-handlers')
 
@@ -164,6 +174,57 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     if (!dir || dir === '~') return []
     assertPathInScope('worktreeListProject', handlerCtx.principal, dir)
     return listProjectWorktrees(dir)
+  })
+
+  /** The host as one caller sees it: their sessions, and the task folders and codebases in their scope. */
+  const managedWorktreeHost = (handlerCtx: HandlerCtx): ManagedWorktreeHost => ({
+    boundDirectories: () => sessionRuntime.sessionCheckouts.sessionCheckoutPaths.entries(),
+    sessionTitles: async (sessionIds) => {
+      const records = await getSessionRecords(recordScopeOf(handlerCtx.principal), sessionIds)
+      const titles = new Map<string, string>()
+      for (const [sessionId, record] of records) {
+        const title = record.customTitle || record.title
+        if (title) titles.set(sessionId, title)
+      }
+      return titles
+    },
+    taskFolders: () => listTaskFolders()
+      .filter((record) => projectsVisibleTo(handlerCtx.principal, [{ path: record.primaryRepositoryPath }]).length > 0),
+    codebaseName: async (codebaseId) => (await codebasesFor(handlerCtx.actor).get(codebaseId))?.name ?? null,
+  })
+
+  /** Only a folder in the caller's projects folder: a task folder by its repository, a worktree by its project. */
+  const assertManagedFolderInScope = (method: 'managedWorktreeRemove' | 'managedWorktreeSizes', folder: string, handlerCtx: HandlerCtx): void => {
+    assertPathInScope(method, handlerCtx.principal, folder)
+    const taskFolder = findTaskFolderContaining(folder)
+    const owner = taskFolder ? taskFolder.primaryRepositoryPath : worktreeProjectRoot(folder)
+    if (projectsVisibleTo(handlerCtx.principal, [{ path: owner }]).length === 0) {
+      throw new Error('This worktree is outside your projects folder')
+    }
+  }
+
+  // Every repository that the person sees on this host: each project, and each
+  // Git member of a codebase here. A container root is never a project, so the
+  // repositories inside it come only from its codebase. Task folders come
+  // from the host's own record of them.
+  server.register('managedWorktreesList', async (_args, handlerCtx) => {
+    const installationId = getInstallationId()
+    const codebases = await codebasesFor(handlerCtx.actor).list()
+    const members = (await Promise.all(codebases.map((codebase) => membersOf(codebase, installationId)))).flat()
+      .filter((member) => member.state === 'git' && !member.submodule)
+    const repositories = projectsVisibleTo(handlerCtx.principal, [...await listProjects(), ...members])
+    return listManagedWorktrees(repositories.map((repository) => repository.path), managedWorktreeHost(handlerCtx))
+  })
+
+  server.register('managedWorktreeRemove', async ([worktreePath, options], handlerCtx) => {
+    assertManagedFolderInScope('managedWorktreeRemove', worktreePath, handlerCtx)
+    log.info('rpc_managed_worktree_remove', { worktreePath, force: options?.force === true })
+    return removeManagedWorktree(worktreePath, { force: options?.force === true }, managedWorktreeHost(handlerCtx))
+  })
+
+  server.register('managedWorktreeSizes', async ([worktreePaths], handlerCtx) => {
+    for (const worktreePath of worktreePaths) assertManagedFolderInScope('managedWorktreeSizes', worktreePath, handlerCtx)
+    return managedWorktreeSizes(worktreePaths, managedWorktreeHost(handlerCtx))
   })
 
   server.register('diff', async (args, handlerCtx) => {

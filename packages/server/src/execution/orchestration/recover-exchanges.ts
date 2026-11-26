@@ -1,7 +1,7 @@
 import type { OrchestrationItem } from '@solus/contracts/session-exchange'
 import type { OrchestratedRuntime } from './session-orchestrator'
 import { CHILD_INTERRUPTED_BY_RESTART } from './exchange-reports'
-import { isOpenExchange, type Exchange } from './exchange'
+import { isOpenExchange, senderSessionOf, type Exchange } from './exchange'
 import type { ExchangeLedger } from './exchange-ledger'
 import type { ParentDelivery } from './parent-delivery'
 
@@ -27,7 +27,8 @@ export function recoverExchanges(
         item: { type: 'report' as const, report: exchange.report } }]
     })
     const sender = entries.length ? ledger.exchanges.get(entries[0]!.exchangeId)?.senderSessionId : undefined
-    if (sender) delivery.restore(sender, queue.queueId, entries)
+    const senderSessionId = sender ? senderSessionOf(sender) : undefined
+    if (senderSessionId) delivery.restore(senderSessionId, queue.queueId, entries)
   }
   for (const exchange of ledger.exchanges.values()) {
     if (!ledger.restoredExchangeIds.has(exchange.exchangeId) || !isOpenExchange(exchange)) continue

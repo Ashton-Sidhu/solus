@@ -1,3 +1,4 @@
+import { hostNoticeKind, watchNotification } from '@solus/client-core/host-notice'
 import { toolFeedBody, userMessageBody } from '@solus/contracts/session-feed-item'
 import { splitPromptFiles, stripSessionReferenceContext } from '@solus/contracts/injected-context'
 import { isArtifactRenderTool } from '@solus/contracts/agent-tools'
@@ -75,7 +76,9 @@ export function withTurnItemBodies(messages: WireSessionLoadMessage[]): WireSess
       return { ...row, content: '', turnItem: { type: 'assistant_message', text: row.content, streaming: false } }
     }
     if (row.role === 'user') {
-      return { ...row, content: '', turnItem: userMessageBody(row.content) }
+      const notice = row.sender ? null : hostNoticeKind(row)
+      const monitor = notice === 'resource-watch' || notice === 'pull-request-watch' ? watchNotification(row.content, notice) : null
+      return { ...row, content: '', turnItem: userMessageBody(row.content, row.sender, !!notice, monitor ?? undefined) }
     }
     if (row.role !== 'tool' || !row.toolId || !row.toolName || hasToolCard(row)) return row
     const turnItem = toolFeedBody(row.toolName, row.toolInput ?? null)

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { PresenceFocus } from '@solus/contracts/presence'
-import type { Task } from '@solus/contracts/task-types'
+import type { Issue } from '@solus/contracts/task-types'
 import type { SessionMeta } from '@solus/contracts/types'
 import type { SidebarSessionChild } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import type { PresencePerson } from '@solus/workspace-ui/components/presence/lib/presence-people'
@@ -11,7 +11,7 @@ import { peopleOnSessions, pickerRowSessions } from '@solus/workspace-ui/compone
 // whose screen shows that session, and a task row shows everyone in any of its
 // sessions, so a closed task still names who is under it.
 
-const task = { id: 't1' } as Task
+const task = { id: 't1' } as Issue
 const child = (serverId: string | undefined, sessionId: string | undefined) => ({ serverId, sessionId }) as SidebarSessionChild
 
 function person(userId: string, isComposing = false): PresencePerson {

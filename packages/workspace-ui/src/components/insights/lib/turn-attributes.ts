@@ -94,8 +94,8 @@ const ATTRIBUTE_LABELS = new Map<string, string>(Object.entries({
   project: 'Project',
   project_root: 'Project root',
   branch: 'Branch',
-  task: 'Task',
-  task_id: 'Task ID',
+  issue: 'Issue',
+  issue_id: 'Issue ID',
   automation: 'Automation',
   automation_id: 'Automation ID',
   prompt_source: 'Prompt source',
@@ -289,7 +289,7 @@ export function turnAttributes(root: MetricsSpan, view: TraceView): TurnAttribut
   const outputTokens = root.attrs.outputTokens ?? null
   const totalTokens =
     inputTokens == null && outputTokens == null ? null : (inputTokens ?? 0) + (outputTokens ?? 0)
-  const taskId = text(root.attrs.taskId ?? null)
+  const taskId = text(root.attrs.issueId ?? null)
   const taskTitle = text(root.attrs.taskTitle ?? null)
   const taskDestination: TurnAttributeDestination | undefined = taskId
     ? { name: 'task', taskId }
@@ -354,8 +354,8 @@ export function turnAttributes(root: MetricsSpan, view: TraceView): TurnAttribut
         fact('project', root.attrs.projectName ?? null),
         fact('project_root', root.projectRoot, undefined, true),
         fact('branch', root.attrs.branch ?? null),
-        fact('task', taskTitle, undefined, false, taskTitle ? taskDestination : undefined),
-        fact('task_id', taskId, undefined, true, taskDestination),
+        fact('issue', taskTitle, undefined, false, taskTitle ? taskDestination : undefined),
+        fact('issue_id', taskId, undefined, true, taskDestination),
         fact('automation', root.attrs.automationName ?? null),
         fact('automation_id', root.attrs.automationId ?? null, undefined, true),
         fact('prompt_source', root.attrs.promptSource ?? null),

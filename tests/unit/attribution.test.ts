@@ -117,8 +117,8 @@ describe('one person’s actions', () => {
     providers.hold(githubIssue(1, { title: 'Ship it' }))
     useTaskAdaptersForTests(providers.adapters())
     const task = await seedTask(githubIssue(1, { title: 'Ship it' }))
-    const linked = await call<{ links: Array<{ createdBy: Attribution }>; activity: Array<{ kind: string; change?: string; by: Attribution }> }>('tasksLink', [task.id, { kind: 'work', targetKey: work.id }], ctx)
-    const commented = await call<{ comments: Array<{ author?: Attribution }> }>('tasksComment', [task.id, 'Linked the spec'], ctx)
+    const linked = await call<{ links: Array<{ createdBy: Attribution }>; activity: Array<{ kind: string; change?: string; by: Attribution }> }>('issuesLink', [task.id, { kind: 'work', targetKey: work.id }], ctx)
+    const commented = await call<{ comments: Array<{ author?: Attribution }> }>('issuesComment', [task.id, 'Linked the spec'], ctx)
 
     // An automation they create.
     const automation = await call<{ id: string }>('automationCreate', ['Nightly', action, true, { type: 'manual' }], ctx)
@@ -192,8 +192,8 @@ describe('rows written before stage 4', () => {
     const raw = database.getDatabase()
     // A link's maker is its `author` attribution; `created_by` is the user id behind it (plans/029 decision 2).
     await raw.run(sql`INSERT INTO resource_links (organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, title, source, status, author, origin_session_id, created_by, created_at) VALUES
-      ('local', 'task', ${task.id}, 'automation', '', 'a1', 'reference', 'A', 'system', 'active', '{"kind":"system"}', NULL, 'local:host', 1),
-      ('local', 'task', ${task.id}, 'automation', '', 'a2', 'reference', 'B', 'agent', 'active', '{"kind":"agent","sessionId":"thread-9"}', 'thread-9', 'local:host', 2)`)
+      ('local', 'issue', ${task.id}, 'automation', '', 'a1', 'reference', 'A', 'system', 'active', '{"kind":"system"}', NULL, 'local:host', 1),
+      ('local', 'issue', ${task.id}, 'automation', '', 'a2', 'reference', 'B', 'agent', 'active', '{"kind":"agent","sessionId":"thread-9"}', 'thread-9', 'local:host', 2)`)
 
     const details = await taskAttachments.taskAttachments('local', task.id)
     const agent: Attribution = { kind: 'agent', sessionId: 'thread-9' }

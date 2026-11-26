@@ -9,11 +9,11 @@ import {
 } from '@solus/workspace-ui/components/session/lib/sidebar-list-items'
 import type { PinnedSession } from '@solus/contracts/types'
 import type { DraftRow } from '@solus/workspace-ui/components/session/lib/draft-list'
-import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
+import type { SidebarSession } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 
-function row(id: string, lifecycle: SidebarTask['lifecycle'] = 'active'): SidebarTask {
+function row(id: string, lifecycle: SidebarSession['lifecycle'] = 'active'): SidebarSession {
   // SAFETY: the list reads only identity and lifecycle from a row.
-  return { id, key: id, lifecycle } as SidebarTask
+  return { id, key: id, lifecycle } as SidebarSession
 }
 
 function draft(draftId: string): DraftRow {
@@ -21,7 +21,7 @@ function draft(draftId: string): DraftRow {
   return { draftId } as DraftRow
 }
 
-function pin(sessionId: string, title = sessionId, sessionRow: SidebarTask | null = null): PinnedEntry {
+function pin(sessionId: string, title = sessionId, sessionRow: SidebarSession | null = null): PinnedEntry {
   const pinned: PinnedSession = { sessionId, serverId: 'local', provider: 'claude', title, cwd: '/repo', pinnedAt: 0 }
   return { pin: pinned, row: sessionRow }
 }
@@ -39,7 +39,7 @@ function list(overrides: Partial<SidebarListInput> = {}) {
     isWorkingOpen: true,
     isSnoozedOpen: true,
     isCompletedOpen: true,
-    shelfRevealTaskId: null,
+    shelfRevealRowId: null,
     ...overrides,
   })
 }
@@ -68,7 +68,7 @@ describe('the sidebar as one list', () => {
   test('a closed Working section still shows the row on screen', () => {
     // WHY: sending a prompt makes the row you are reading busy. It must not
     // disappear into a closed section while you watch its turn run.
-    expect(list({ working: [row('w1'), row('w2')], isWorkingOpen: false, shelfRevealTaskId: 'w2' })
+    expect(list({ working: [row('w1'), row('w2')], isWorkingOpen: false, shelfRevealRowId: 'w2' })
       .map((item) => item.key)).toEqual(['header:working', 'w2:card'])
     expect(list({ working: [row('w1')], isWorkingOpen: false }).map((item) => item.key))
       .toEqual(['header:working'])
@@ -78,9 +78,9 @@ describe('the sidebar as one list', () => {
     // WHY: a closed section still shows the row on screen, so a toggle there
     // would only turn the chevron and hide nothing.
     const header = (items: ReturnType<typeof list>) => items.find((item) => item.kind === 'header')
-    expect(header(list({ snoozed: [row('s1', 'snoozed')], isSnoozedOpen: false, shelfRevealTaskId: 's1' })))
+    expect(header(list({ snoozed: [row('s1', 'snoozed')], isSnoozedOpen: false, shelfRevealRowId: 's1' })))
       .toMatchObject({ section: 'snoozed', canToggle: false })
-    expect(header(list({ snoozed: [row('s1', 'snoozed')], isSnoozedOpen: true, shelfRevealTaskId: 's1' })))
+    expect(header(list({ snoozed: [row('s1', 'snoozed')], isSnoozedOpen: true, shelfRevealRowId: 's1' })))
       .toMatchObject({ canToggle: false })
   })
 
@@ -89,7 +89,7 @@ describe('the sidebar as one list', () => {
     const items = list({
       snoozed: [row('s1', 'snoozed'), row('s2', 'snoozed')],
       isSnoozedOpen: false,
-      shelfRevealTaskId: 's1',
+      shelfRevealRowId: 's1',
     })
     expect(items.find((item) => item.kind === 'header')).toMatchObject({ canToggle: true })
     expect(list({ completed: [row('c1', 'completed')] }).find((item) => item.kind === 'header'))
@@ -99,8 +99,8 @@ describe('the sidebar as one list', () => {
   test('a row that starts or finishes a turn keeps its card shape', () => {
     const idle = list({ sessions: [row('s1'), row('a1')] })
     const busy = list({ sessions: [row('s1')], working: [row('a1')] })
-    expect(idle.find((item) => item.kind === 'task' && item.task.id === 'a1')?.key)
-      .toBe(busy.find((item) => item.kind === 'task' && item.task.id === 'a1')?.key)
+    expect(idle.find((item) => item.kind === 'session' && item.session.id === 'a1')?.key)
+      .toBe(busy.find((item) => item.kind === 'session' && item.session.id === 'a1')?.key)
     expect(sidebarListOrderKey(idle)).not.toBe(sidebarListOrderKey(busy))
   })
 
@@ -172,7 +172,7 @@ describe('the sidebar as one list', () => {
   test('a row moving from Snoozed to Completed keeps its slim row key', () => {
     const before = list({ snoozed: [row('t', 'snoozed')], completed: [row('c', 'completed')] })
     const after = list({ completed: [row('t', 'completed'), row('c', 'completed')] })
-    const keyOf = (items: typeof before) => items.find((item) => item.kind === 'task' && item.task.id === 't')?.key
+    const keyOf = (items: typeof before) => items.find((item) => item.kind === 'session' && item.session.id === 't')?.key
     expect(keyOf(after)).toBe(keyOf(before))
     expect(sidebarListOrderKey(after)).not.toBe(sidebarListOrderKey(before))
   })
@@ -180,15 +180,15 @@ describe('the sidebar as one list', () => {
   test('a row changing shape between card and slim is a new element', () => {
     const active = list({ sessions: [row('t')] })
     const done = list({ completed: [row('t', 'completed')] })
-    expect(active.find((item) => item.kind === 'task')?.key).toBe('t:card')
-    expect(done.find((item) => item.kind === 'task')?.key).toBe('t:slim')
+    expect(active.find((item) => item.kind === 'session')?.key).toBe('t:card')
+    expect(done.find((item) => item.kind === 'session')?.key).toBe('t:slim')
   })
 
   test('a collapsed shelf shows its header and only the row you are reading', () => {
     const items = list({
       completed: [row('c1', 'completed'), row('c2', 'completed')],
       isCompletedOpen: false,
-      shelfRevealTaskId: 'c2',
+      shelfRevealRowId: 'c2',
     })
     expect(items.map((item) => item.key)).toEqual(['header:completed', 'c2:slim'])
     expect(items[0]).toMatchObject({ count: 2, isOpen: false })
@@ -227,7 +227,7 @@ describe('the sidebar as one list', () => {
   test('a pinned session keeps the same row when it completes', () => {
     const active = list({ pinned: [pin('p1', 'p1', row('session'))] })
     const completed = list({ pinned: [pin('p1', 'p1', row('session', 'completed'))] })
-    expect(active[0]).toMatchObject({ kind: 'task', key: 'session:slim', section: 'pinned' })
+    expect(active[0]).toMatchObject({ kind: 'session', key: 'session:slim', section: 'pinned' })
     expect(completed[0]?.key).toBe(active[0]?.key)
   })
 

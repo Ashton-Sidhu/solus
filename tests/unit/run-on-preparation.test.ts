@@ -181,7 +181,7 @@ function cloneRunHarness() {
       composeImagePayload: () => ({ inline: undefined, refs: undefined }),
     },
     config: { pendingSessionStartTarget: () => null },
-    tasksStore: { taskForSession: () => null },
+    issuesStore: { taskForSession: () => null },
     eventReducer: { closeAgentConversationTurn: () => {}, handleError: () => {} },
     apiFor: () => target,
     sessionFor: () => session,

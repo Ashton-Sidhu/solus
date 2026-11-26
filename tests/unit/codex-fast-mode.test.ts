@@ -2,7 +2,6 @@ import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentTool } from '@solus/server/execution/agents/tools/agent-tool'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
-import { CodexRpcError } from '@solus/server/execution/agents/codex/codex-agent'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -10,6 +9,8 @@ let CodexBackend: typeof import('@solus/server/execution/agents/codex/codex-back
 
 beforeAll(async () => {
   ;({ CodexBackend } = await import('@solus/server/execution/agents/codex/codex-backend'))
+  // The run's tools are served over the host's MCP endpoint, which boot sets up.
+  ;(await import('@solus/server/execution/agents/tools/agent-tool-endpoint')).setAgentToolEndpointUrl('http://127.0.0.1:1/mcp')
 })
 
 describe('Codex backend configuration', () => {
@@ -19,6 +20,7 @@ describe('Codex backend configuration', () => {
       type CapturedParams = {
         developerInstructions?: string | null
         collaborationMode?: { settings: { developer_instructions?: string | null } }
+        config?: { 'mcp_servers.solus'?: { url?: string } } | null
       }
       const requests: Array<{ method: string; params: CapturedParams }> = []
       const { promise: turnStarted, resolve: markTurnStarted } = Promise.withResolvers<void>()
@@ -54,6 +56,8 @@ describe('Codex backend configuration', () => {
       expect(developer).toContain('## Solus collaborative browser')
       expect(developer).toContain('## Pull request linking')
       expect(requests.find((request) => request.method === 'turn/start')?.params.collaborationMode?.settings).not.toHaveProperty('developer_instructions')
+      // WHY: a thread keeps the config of the request that opened it, so each one points Codex at the run's tools.
+      expect(requests.find((request) => request.method === method)?.params.config?.['mcp_servers.solus']?.url).toBe('http://127.0.0.1:1/mcp')
     })
   }
 
@@ -92,37 +96,6 @@ describe('Codex backend configuration', () => {
         .toMatchObject({ 'features.concurrent_reasoning_summaries': true })
     })
   }
-
-  test('removes tool guidance when Codex rejects dynamic tools', async () => {
-    const backend = new CodexBackend()
-    const starts: Array<{ developerInstructions?: string | null }> = []
-    const { promise: turnStarted, resolve: markTurnStarted } = Promise.withResolvers<void>()
-    Reflect.set(backend, 'client', {
-      request: async (method: string, params: { developerInstructions?: string | null }) => {
-        if (method === 'thread/start') {
-          starts.push(params)
-          if (starts.length === 1) throw new CodexRpcError('Dynamic tools unavailable', -32602)
-          return { thread: { id: 'thread-1' }, model: 'gpt-5.6-sol' }
-        }
-        if (method === 'turn/start') {
-          markTurnStarted()
-          return { turn: { id: 'turn-1' } }
-        }
-        throw new Error(`Unexpected method: ${method}`)
-      },
-    })
-    backend.startRun({
-      provider: 'codex', prompt: 'Build it', cwd: '/tmp/project',
-      tools: [{ name: 'start_sessions', description: 'Start', inputFields: {}, requiresApproval: false, execute: async () => ({ ok: true, text: '' }) }],
-      model: 'gpt-5.6-sol', permissionMode: 'full-access', persistence: 'ephemeral', service: 'sessions',
-      systemPrompt: 'User extra instructions:\nStay concise.',
-    })
-    await turnStarted
-    expect(starts[0]?.developerInstructions).toContain('## Solus orchestration')
-    expect(starts[1]?.developerInstructions).toContain('Stay concise.')
-    expect(starts[1]?.developerInstructions).toContain('<runtime_info>')
-    expect(starts[1]?.developerInstructions).not.toContain('## Solus orchestration')
-  })
 
   test('sets the fast service tier on both the thread and the turn', async () => {
     // WHY: setting only the initial thread does not update resumed sessions,

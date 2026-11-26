@@ -109,19 +109,19 @@ export function requestedTaskTarget(
   rootTaskId: string | null,
 ): TaskTarget {
   if (options.withoutTask) return { kind: 'none' }
-  if (options.taskId) return { kind: 'existing', taskId: options.taskId }
-  if (!options.freshTask && rootTaskId) return { kind: 'existing', taskId: rootTaskId }
+  if (options.taskId) return { kind: 'existing', issueId: options.taskId }
+  if (!options.freshTask && rootTaskId) return { kind: 'existing', issueId: rootTaskId }
   return { kind: 'none' }
 }
 
 /** The task named, when the target names an existing one. */
 export function existingTaskId(task: TaskTarget): string | null {
-  return task.kind === 'existing' ? task.taskId : null
+  return task.kind === 'existing' ? task.issueId : null
 }
 
 /** Read the field a persisted tab stores back into a target. */
 export function taskTargetFrom(fields: { pendingTaskId?: string | null }): TaskTarget {
-  return fields.pendingTaskId ? { kind: 'existing', taskId: fields.pendingTaskId } : { kind: 'none' }
+  return fields.pendingTaskId ? { kind: 'existing', issueId: fields.pendingTaskId } : { kind: 'none' }
 }
 
 /**
@@ -131,8 +131,8 @@ export function taskTargetFrom(fields: { pendingTaskId?: string | null }): TaskT
  * every later prompt back to the task the session left. Before the link
  * lands, the binding is all there is.
  */
-export function ownedTaskId(tasksStore: { taskForSession(sessionId: string | null | undefined): { id: string } | null }, session: Session): string | undefined {
-  return tasksStore.taskForSession(session.id)?.id
+export function ownedTaskId(issuesStore: { taskForSession(sessionId: string | null | undefined): { id: string } | null }, session: Session): string | undefined {
+  return issuesStore.taskForSession(session.id)?.id
     ?? existingTaskId(session.task)
     ?? undefined
 }

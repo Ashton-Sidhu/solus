@@ -4,7 +4,7 @@
 
 import type { ConversationWidth } from "@solus/contracts/settings";
 import type { PromptVia } from "@solus/contracts/types";
-import { hostNoticeKind } from "./host-notice";
+import { hostNoticeKind } from "@solus/client-core/host-notice";
 
 const REM = 16;
 

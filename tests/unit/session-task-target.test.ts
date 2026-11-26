@@ -23,15 +23,15 @@ describe('the task a new session files under', () => {
   })
 
   test('a session started inside a task is more of that task', () => {
-    expect(requestedTaskTarget({}, 'task-1')).toEqual({ kind: 'existing', taskId: 'task-1' })
+    expect(requestedTaskTarget({}, 'task-1')).toEqual({ kind: 'existing', issueId: 'task-1' })
   })
 
   test('a named task wins', () => {
-    expect(requestedTaskTarget({ taskId: 'task-2' }, 'task-1')).toEqual({ kind: 'existing', taskId: 'task-2' })
+    expect(requestedTaskTarget({ taskId: 'task-2' }, 'task-1')).toEqual({ kind: 'existing', issueId: 'task-2' })
   })
 
   test('a restored tab files under the task it was saved with, or under none', () => {
-    expect(taskTargetFrom({ pendingTaskId: 'task-1' })).toEqual({ kind: 'existing', taskId: 'task-1' })
+    expect(taskTargetFrom({ pendingTaskId: 'task-1' })).toEqual({ kind: 'existing', issueId: 'task-1' })
     expect(taskTargetFrom({ pendingTaskId: null })).toEqual({ kind: 'none' })
     expect(taskTargetFrom({})).toEqual({ kind: 'none' })
   })
