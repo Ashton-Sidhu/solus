@@ -19,9 +19,11 @@ import { sessionCloudIdentity } from './session-cloud-identity'
 const log = createLogger('SessionPush', 'session-push.ts')
 const rowSchema = z.object({ session_id: z.string(), repository: z.string(), head: z.string().nullable(), turn_count: z.number(),
   cloud_scope: z.string().nullable(), pushed_head: z.string().nullable(), reported_head: z.string().nullable(),
-  push_due_at: z.number().nullable(), push_attempts: z.number(), push_refused_head: z.string().nullable(), pushed_bytes: z.number() })
+  push_due_at: z.number().nullable(), push_attempts: z.number(), push_refused_head: z.string().nullable(), pushed_bytes: z.number(),
+  push_stopped_reason: z.string().nullable() })
 const ROW_COLUMNS = `session_id, repository, head, turn_count, cloud_scope, pushed_head, reported_head,
-  push_due_at, push_attempts, push_refused_head, pushed_bytes`
+  push_due_at, push_attempts, push_refused_head, pushed_bytes, push_stopped_reason`
+const stoppedRowSchema = z.object({ push_stopped_reason: z.string().nullable() })
 type Row = z.infer<typeof rowSchema>
 /** Where the repository of one session goes in the cloud: who pushes it, and from which host. */
 interface PushTarget {
@@ -93,7 +95,7 @@ export class SessionPusher {
   /** Scan persisted work on boot or when a delegation becomes available. */
   resume(): void {
     const rows = rowSchema.array().parse(this.database().prepare(`SELECT ${ROW_COLUMNS} FROM session_storage WHERE head IS NOT NULL AND push_refused_head IS NULL
-      ORDER BY rowid DESC`).all())
+      AND push_stopped_reason IS NULL ORDER BY rowid DESC`).all())
     for (const row of rows) if (row.head !== row.pushed_head || row.head !== row.reported_head) this.enqueue(row.session_id)
   }
 
@@ -113,7 +115,7 @@ export class SessionPusher {
   async stop(): Promise<void> { this.stopped = true; this.signedOut(); await this.queue }
 
   private enqueue(sessionId: string): void {
-    if (this.stopped || this.paused || this.scheduled.has(sessionId)) return
+    if (this.stopped || this.paused || this.scheduled.has(sessionId) || this.pushStopped(sessionId)) return
     this.scheduled.add(sessionId)
     this.queue = this.queue.then(async () => {
       this.scheduled.delete(sessionId)
@@ -127,7 +129,7 @@ export class SessionPusher {
 
   private async process(sessionId: string): Promise<void> {
     const row = this.row(sessionId)
-    if (!row?.head || row.push_refused_head) return
+    if (!row?.head || row.push_refused_head || row.push_stopped_reason) return
     if ((row.push_due_at ?? 0) > this.now()) { this.wake((row.push_due_at ?? 0) - this.now()); return }
     // A session that began on an older format stays on its host and moves only by the host path.
     if (await this.deps.repositories.named(row.repository).firstManifestVersion().catch(() => null) !== 2) return
@@ -237,10 +239,18 @@ export class SessionPusher {
     }
   }
 
-  /** A refusal that a retry cannot change: stop all later pushes of this session on this host. */
+  /**
+   * A refusal that a retry cannot change: stop all later pushes of this session
+   * on this host. It is not a divergence: the cloud history is still a part of
+   * the local one, so `push_refused_head` stays null and the session continues here.
+   */
   private stopPush(sessionId: string, commit: string, reason: string): void {
-    this.database().prepare('UPDATE session_storage SET push_refused_head = ?, push_due_at = NULL, push_error = ? WHERE session_id = ?').run(commit, reason, sessionId)
+    this.database().prepare('UPDATE session_storage SET push_stopped_reason = ?, push_due_at = NULL, push_error = ? WHERE session_id = ?').run(reason, reason, sessionId)
     log.warn('session_push_stopped', { sessionId, commit, reason })
+  }
+
+  private pushStopped(sessionId: string): boolean {
+    return !!stoppedRowSchema.nullish().parse(this.database().prepare('SELECT push_stopped_reason FROM session_storage WHERE session_id = ?').get(sessionId))?.push_stopped_reason
   }
 
   private fail(sessionId: string, error: Error): void {

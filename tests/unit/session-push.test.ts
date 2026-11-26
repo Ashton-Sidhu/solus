@@ -70,7 +70,7 @@ async function fixture(schemaVersion: 1 | 2 = 2) {
   const db = new DatabaseSync(':memory:')
   db.exec(`CREATE TABLE session_storage (session_id TEXT PRIMARY KEY, repository TEXT, head TEXT, turn_count INTEGER,
     cloud_scope TEXT, pushed_head TEXT, reported_head TEXT, push_due_at INTEGER, push_attempts INTEGER DEFAULT 0,
-    push_error TEXT, push_refused_head TEXT, pushed_bytes INTEGER NOT NULL DEFAULT 0)`)
+    push_error TEXT, push_refused_head TEXT, pushed_bytes INTEGER NOT NULL DEFAULT 0, push_stopped_reason TEXT)`)
   const manifest = { ...emptySessionManifest('test-session', 'local'), schemaVersion }
   manifest.turns.push({ operationId: 'one', endedAt: 1, provider: 'codex', threadId: 'thread', partial: false,
     head: null, snapshots: [], bundle: null, hasDiff: false })
@@ -92,7 +92,7 @@ async function fixture(schemaVersion: 1 | 2 = 2) {
     accountOf: () => 'person', decision: () => ({ allowed: true }), fetch: store.fetchImpl }
   // SAFETY: the columns of the table this fixture made.
   const row = () => db.prepare('SELECT * FROM session_storage WHERE session_id = ?').get('test-session') as { pushed_head: string | null; reported_head: string | null;
-    push_refused_head: string | null; push_error: string | null; pushed_bytes: number }
+    push_refused_head: string | null; push_error: string | null; pushed_bytes: number; push_stopped_reason: string | null }
   /** The remote's main, or '' for a remote with no main. */
   const remoteHead = () => {
     try { return execFileSync('git', ['--git-dir', remote, 'rev-parse', '--verify', '--quiet', 'refs/heads/main'], { encoding: 'utf8' }).trim() } catch { return '' }
@@ -318,37 +318,60 @@ test('a backlog of five commits is pushed one at a time, each bundle before its 
   f.db.close()
 })
 
+/**
+ * A stopped push is not a divergence: the person continues the session on this host.
+ * `PromptDispatch` refuses a prompt only for a cloud history that differs.
+ */
+async function expectStoppedButCurrent(f: Awaited<ReturnType<typeof fixture>>, pusher: InstanceType<typeof SessionPusher>, countPushes: () => number): Promise<void> {
+  expect(f.row().push_refused_head).toBeNull()
+  expect(pusher.refusedHead('test-session')).toBeNull()
+  const { PromptDispatch } = await import('@solus/server/execution/sessions/prompt-dispatch')
+  // SAFETY: `assertSessionCurrent` reads only `refusedHead`, not the runtime.
+  const dispatch = new PromptDispatch({} as ConstructorParameters<typeof PromptDispatch>[0])
+  dispatch.refusedHead = (sessionId) => pusher.refusedHead(sessionId)
+  expect(() => dispatch.assertSessionCurrent('test-session')).not.toThrow()
+  // Each later way in to the push stops before Git.
+  const before = countPushes()
+  pusher.committed('test-session')
+  pusher.resume()
+  pusher.established()
+  await pusher.idle()
+  expect(countPushes()).toBe(before)
+}
+
 // WHY: a retry cannot change these refusals of Artifacts. A retry with backoff forever
 // only uses the network; the host stops and records why.
 for (const text of ['artifacts_git_receive_pack_object_too_large', 'artifacts_git_receive_pack_request_too_large', 'zlib member compressed data exceeds maximum']) {
-  test(`the refusal "${text}" stops the push for good`, async () => {
+  test(`the refusal "${text}" stops the push for good and the session continues on this host`, async () => {
     const f = await fixture()
     let pushes = 0
     withPush(f.repos, async () => { pushes++; return { status: 'failed', reason: 'transport', remoteMessage: `remote: error: ${text}` } })
     const pusher = new SessionPusher({ ...f.deps, retryMs: 1 })
     pusher.committed('test-session')
     await pusher.idle()
-    pusher.established()
-    await pusher.idle()
     expect(pushes).toBe(1)
-    expect(pusher.refusedHead('test-session')).toBe(f.first)
+    expect(f.row().push_stopped_reason).toContain(text)
     expect(f.row().push_error).toContain(text)
     expect(f.row().pushed_head).toBeNull()
+    await expectStoppedButCurrent(f, pusher, () => pushes)
     await pusher.stop()
     f.db.close()
   })
 }
 
 // WHY: Artifacts can enforce 1 GB for one repository. The host stops before that, with a clear reason.
-test('a push past 900 MiB stops with a clear reason', async () => {
+test('a push past 900 MiB stops with a clear reason and the session continues on this host', async () => {
   const f = await fixture()
   f.db.prepare('UPDATE session_storage SET pushed_bytes = ?').run(900 * 1024 * 1024)
+  let pushes = 0
+  withPush(f.repos, async (real, ...args) => { pushes++; return real(...args) })
   const pusher = new SessionPusher(f.deps)
   pusher.committed('test-session')
   await pusher.idle()
+  expect(pushes).toBe(0)
   expect(f.remoteHead()).toBe('')
-  expect(pusher.refusedHead('test-session')).toBe(f.first)
-  expect(f.row().push_error).toBe('This session is too large for the cloud copy.')
+  expect(f.row().push_stopped_reason).toBe('This session is too large for the cloud copy.')
+  await expectStoppedButCurrent(f, pusher, () => pushes)
   await pusher.stop()
   f.db.close()
 }, 20_000)

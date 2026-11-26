@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1a61023b-b537-46e4-8b80-eb66527b744c",
+  "id": "5b503acf-b2ca-42cd-917d-d32e1293b2fe",
   "prevId": "d3a2115c-f0fa-4d42-8168-9b4a67af017d",
   "tables": {
     "acl_entry": {
@@ -7326,6 +7326,13 @@
         },
         "push_refused_head": {
           "name": "push_refused_head",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "push_stopped_reason": {
+          "name": "push_stopped_reason",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

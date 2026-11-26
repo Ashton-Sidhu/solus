@@ -1,1 +1,0 @@
-ALTER TABLE `session_storage` ADD `pushed_bytes` integer DEFAULT 0 NOT NULL;
