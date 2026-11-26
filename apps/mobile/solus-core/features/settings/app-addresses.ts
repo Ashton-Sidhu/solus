@@ -28,6 +28,24 @@ export function cloudAppAddress(addresses: readonly AppAddress[]): AppAddress | 
   return null
 }
 
+/**
+ * Where apps reach the host, as Sharing & access shows it: anywhere (the address a
+ * cloud app uses), and on the person's own devices (a tailnet address). An address
+ * the internet reaches also reaches the person's devices, so `devices` is only a
+ * tailnet address.
+ */
+export function appReachOf(addresses: readonly AppAddress[]) {
+  return {
+    anywhere: cloudAppAddress(addresses),
+    devices: addresses.find((entry) => entry.reach === 'tailnet') ?? null,
+  }
+}
+
+/** The address as a row shows it, without `https://`. Copy gives the whole address. */
+export function shortAppAddress(url: string): string {
+  return url.replace(/^https?:\/\//, '')
+}
+
 export function appAddressSourceLabel(source: AppAddressSource): string {
   switch (source) {
     case 'solus': return 'Solus account'

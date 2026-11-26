@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, View } from "react-native";
-import type { PairApprovalDecision } from "@solus/contracts/add-machine";
+import type { PairApprovalDecision, PairApprovalRequest } from "@solus/contracts/add-machine";
 import { useListened } from "@solus-mobile/app/app-context";
 import { canChangeAccess, hasPairing } from "@solus-mobile/features/settings/host-access";
 import { timeLeft } from "@solus-mobile/lib/time";
 import { AppText } from "../components/ui/AppText";
 import { Button } from "../components/ui/Button";
+import { cn } from "../lib/cn";
 import { SettingsRow } from "../features/settings/components/SettingsRow";
 import { SettingsSection } from "../features/settings/components/SettingsSection";
 import { solus } from "./runtime";
@@ -54,19 +55,6 @@ export function HostAccessSection({
     madeCode.current = true;
     generate();
   }, [makeCode, mayPair]);
-  const decide = (requestId: string, decision: PairApprovalDecision) =>
-    void solus.pairApprovals
-      .decide(hostId, requestId, decision)
-      .then((done) => {
-        if (!done)
-          Alert.alert("Request no longer waiting", "It expired or was answered elsewhere.");
-      })
-      .catch((e) =>
-        Alert.alert(
-          decision === "approve" ? "Could not approve the machine" : "Could not deny the machine",
-          String(e),
-        ),
-      );
   const openApprovals = approvals.filter((request) => request.expiresAt > now);
   if (!mayPair && openApprovals.length === 0) return null;
   return (
@@ -97,36 +85,70 @@ export function HostAccessSection({
       ) : null}
       {openApprovals.length > 0 ? (
         <SettingsSection title="Approval requests">
-          {openApprovals.map((request) => (
-            <View key={request.requestId} className="gap-2 px-4 py-3">
-              <AppText className="text-foreground">{request.deviceLabel}</AppText>
-              <AppText selectable className="text-sm text-foreground-muted">
-                Check code {request.checkCode} · {request.fromAddress} ·{" "}
-                {timeLeft(request.expiresAt, now)}
-              </AppText>
-              <AppText className="text-sm text-foreground-muted">
-                Approve it only if the other machine shows the same check code.
-              </AppText>
-              <View className="flex-row gap-2">
-                <Button
-                  label="Deny"
-                  tone="secondary"
-                  size="compact"
-                  disabled={deciding.has(request.requestId)}
-                  onPress={() => decide(request.requestId, "deny")}
-                />
-                <Button
-                  label="Approve"
-                  tone="primary"
-                  size="compact"
-                  disabled={deciding.has(request.requestId)}
-                  onPress={() => decide(request.requestId, "approve")}
-                />
-              </View>
-            </View>
+          {openApprovals.map((request, index) => (
+            <PairApprovalRow
+              key={request.requestId}
+              hostId={hostId}
+              request={request}
+              now={now}
+              isDeciding={deciding.has(request.requestId)}
+              separated={index > 0}
+            />
           ))}
         </SettingsSection>
       ) : null}
     </>
+  );
+}
+
+/** A machine that asks to pair with this host, with its check code, Deny, and Approve. */
+export function PairApprovalRow(props: {
+  readonly hostId: string;
+  readonly request: PairApprovalRequest;
+  readonly now: number;
+  readonly isDeciding: boolean;
+  readonly separated: boolean;
+}) {
+  const { request } = props;
+  const decide = (decision: PairApprovalDecision) =>
+    void solus.pairApprovals
+      .decide(props.hostId, request.requestId, decision)
+      .then((done) => {
+        if (!done)
+          Alert.alert("Request no longer waiting", "It expired or was answered elsewhere.");
+      })
+      .catch((e) =>
+        Alert.alert(
+          decision === "approve" ? "Could not approve the machine" : "Could not deny the machine",
+          String(e),
+        ),
+      );
+  return (
+    <View className={cn("gap-2 px-4 py-3", props.separated && "border-t border-border-subtle")}>
+      <AppText className="text-foreground">{request.deviceLabel}</AppText>
+      <AppText selectable className="text-sm text-foreground-muted">
+        Check code {request.checkCode} · {request.fromAddress} ·{" "}
+        {timeLeft(request.expiresAt, props.now)}
+      </AppText>
+      <AppText className="text-sm text-foreground-muted">
+        Approve it only if the other machine shows the same check code.
+      </AppText>
+      <View className="flex-row gap-2">
+        <Button
+          label="Deny"
+          tone="secondary"
+          size="compact"
+          disabled={props.isDeciding}
+          onPress={() => decide("deny")}
+        />
+        <Button
+          label="Approve"
+          tone="primary"
+          size="compact"
+          disabled={props.isDeciding}
+          onPress={() => decide("approve")}
+        />
+      </View>
+    </View>
   );
 }

@@ -121,35 +121,44 @@ describe('the gate before connecting an outside app from the phone', () => {
 
 describe('what the phone says when the gate is not open', () => {
   const noAddress = { kind: 'no-address', solus: null, hasTailnetAddress: true } as const
+  const owner = { appName: 'Claude', mayChangeHostSettings: true }
 
-  test('it gives the three ways, says Serve alone is not enough, and offers Check again', () => {
-    const message = outsideAppGateMessage(noAddress, 'Studio Mac', { mayChangeHostSettings: true })
-    expect(message.title).toBe('Give Studio Mac an address apps can reach')
-    expect(message.ways.map((way) => way.label)).toEqual(['Link the host to your Solus account', 'Turn on Tailscale Funnel', 'Use your own address'])
-    expect(message.ways[1]!.detail).toContain('Tailscale Serve alone reaches only the devices on your tailnet')
-    expect(message.canCheckAgain).toBe(true)
+  test('it names the app, says the host is only on the person\'s devices, and gives the three ways, Funnel first', () => {
+    const message = outsideAppGateMessage(noAddress, 'Studio Mac', owner)
+    expect(message.title).toBe('Claude needs an internet address')
+    expect(message.lines).toEqual(['Studio Mac can only be reached on your devices now. Pick one way to open it to Claude.'])
+    expect(message.ways.map((way) => way.label)).toEqual(['Tailscale Funnel', 'Solus Cloud', 'Your own address'])
+    expect(message.ways[0]!.detail).toBe('Turn on in Solus on Studio Mac')
+  })
+
+  test('opened from the host\'s addresses, it speaks of cloud apps; a host with no tailnet address is not said to reach the devices', () => {
+    const message = outsideAppGateMessage({ ...noAddress, hasTailnetAddress: false }, 'Studio Mac', { ...owner, appName: null })
+    expect(message.title).toBe('Cloud apps need an internet address')
+    expect(message.lines).toEqual(['Studio Mac has no address on the internet. Pick one way to open it to cloud apps.'])
   })
 
   test('only a person who may change host settings gets the field for their own address; others are told the owner sets it', () => {
-    expect(outsideAppGateMessage(noAddress, 'Studio Mac', { mayChangeHostSettings: true }).showsAddressField).toBe(true)
-    const member = outsideAppGateMessage(noAddress, 'Studio Mac', { mayChangeHostSettings: false })
+    expect(outsideAppGateMessage(noAddress, 'Studio Mac', owner).showsAddressField).toBe(true)
+    const member = outsideAppGateMessage(noAddress, 'Studio Mac', { ...owner, mayChangeHostSettings: false })
     expect(member.showsAddressField).toBe(false)
-    expect(member.ways[2]!.detail).toContain('The owner of Studio Mac sets')
+    expect(member.ways[2]!.detail).toBe('The owner of Studio Mac sets it in the host settings')
   })
 
-  test('the Solus way says where to act on the host for each step of the link', () => {
+  test('the Solus Cloud way says how far the link got', () => {
     const detail = (solus: Parameters<typeof outsideAppGateMessage>[0] & { kind: 'no-address' }) =>
-      outsideAppGateMessage(solus, 'Studio Mac', { mayChangeHostSettings: false }).ways[0]!.detail
-    expect(detail({ ...noAddress, solus: { kind: 'not-registered' } })).toContain('On Studio Mac, open Solus and sign in.')
-    expect(detail({ ...noAddress, solus: { kind: 'tunnel-off', reason: 'The link expired.' } })).toContain('turn on Reachable from the internet. You cannot turn it on from a phone. The link expired.')
+      outsideAppGateMessage(solus, 'Studio Mac', owner).ways[1]!.detail
+    expect(detail({ ...noAddress, solus: { kind: 'not-registered' } })).toBe('Link Studio Mac to your account there')
+    expect(detail({ ...noAddress, solus: { kind: 'tunnel-off', reason: 'The link expired.' } })).toBe('On Studio Mac, turn on Reachable from the internet. The link expired.')
+    expect(detail({ ...noAddress, solus: { kind: 'tunnel-offline', reason: null } })).toBe('Studio Mac is linked, but its tunnel is offline')
   })
 
   test('an own address that does not answer can be fixed from the phone; another source cannot', () => {
-    const own = outsideAppGateMessage({ kind: 'unreachable', address: CUSTOM, reason: 'TLS failed.' }, 'Studio Mac', { mayChangeHostSettings: true })
+    const own = outsideAppGateMessage({ kind: 'unreachable', address: CUSTOM, reason: 'TLS failed.' }, 'Studio Mac', owner)
     expect(own.lines).toEqual([`${CUSTOM.url} (Your own address)`, 'TLS failed.'])
     expect(own.showsAddressField).toBe(true)
-    expect(outsideAppGateMessage({ kind: 'unreachable', address: FUNNEL, reason: 'x' }, 'Studio Mac', { mayChangeHostSettings: true }).showsAddressField).toBe(false)
-    expect(outsideAppGateMessage({ kind: 'checking', step: 'address' }, 'Studio Mac', { mayChangeHostSettings: true }).canCheckAgain).toBe(false)
+    expect(own.canCheckAgain).toBe(true)
+    expect(outsideAppGateMessage({ kind: 'unreachable', address: FUNNEL, reason: 'x' }, 'Studio Mac', owner).showsAddressField).toBe(false)
+    expect(outsideAppGateMessage({ kind: 'checking', step: 'address' }, 'Studio Mac', owner).canCheckAgain).toBe(false)
   })
 })
 

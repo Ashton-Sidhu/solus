@@ -2,8 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import type { AppSignInRequest } from '@solus/contracts/host-api'
 import { appSignInLink } from '@solus/contracts/outside-apps'
 import {
-  appSignInDetails,
   appSignInDoneMessage,
+  appSignInFacts,
+  appSignInSummary,
   appSignInLinkOf,
   AppSignIns,
   appSignInTimeLeft,
@@ -160,13 +161,21 @@ describe('the approve-app link and the sheet text', () => {
     expect(new AppSignIns({ hosts: () => [], hostsSettled: () => true, onHostsChange: () => () => {}, connectionFor: () => null }).openLink('solus://settings')).toBe(false)
   })
 
-  test('the sheet names where access goes, the access and its effect, and the time left', () => {
-    const details = appSignInDetails({ ...REQUEST, onThisComputer: true })
-    expect(details.place).toBe('Access goes to claude.ai')
-    expect(details.computer).not.toBeNull()
-    expect(details.access).toBe('Read and write access')
-    expect(details.effect).toContain('start, message, and stop sessions')
-    expect(appSignInTimeLeft(REQUEST.expiresAt, REQUEST.expiresAt - 299_500)).toBe('Expires in 5:00')
+  test('the sheet asks about the app by name, says it acts as the person on this host, and warns before approving', () => {
+    expect(appSignInSummary(REQUEST, 'Studio Mac')).toEqual({
+      title: 'Approve Claude?',
+      line: 'Claude will use Studio Mac as you. Only approve a sign-in you just started.',
+    })
+  })
+
+  test('the facts name where access goes, what the app can do, and the time left, never more than is left', () => {
+    expect(appSignInFacts(REQUEST, REQUEST.expiresAt - 479_000)).toEqual([
+      { label: 'Access goes to', value: 'claude.ai' },
+      { label: 'It can', value: 'Read and write' },
+      { label: 'Time left', value: '7 min' },
+    ])
+    expect(appSignInTimeLeft(REQUEST.expiresAt, REQUEST.expiresAt - 30_000)).toBe('Less than a minute')
     expect(appSignInTimeLeft(REQUEST.expiresAt, REQUEST.expiresAt)).toBeNull()
+    expect(appSignInFacts(REQUEST, REQUEST.expiresAt)[2]).toEqual({ label: 'Time left', value: 'Expired' })
   })
 })

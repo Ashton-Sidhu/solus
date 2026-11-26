@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
-import { ScrollView, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 import * as Linking from "expo-linking";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useListened } from "@solus-mobile/app/app-context";
 import {
-  APP_SIGN_IN_WARNING,
-  appSignInDetails,
   appSignInDoneMessage,
+  appSignInFacts,
+  appSignInSummary,
   appSignInTimeLeft,
   NO_HOST_MESSAGE,
+  ON_THIS_COMPUTER_NOTE,
   type AppSignInState,
 } from "@solus-mobile/features/settings/app-sign-in";
 import type { AppSignInRequest } from "@solus/contracts/host-api";
@@ -16,12 +17,14 @@ import { AppActivityIndicator } from "../components/ui/AppActivityIndicator";
 import { AppText, AppTextInput } from "../components/ui/AppText";
 import { Button } from "../components/ui/Button";
 import { Sheet } from "../components/ui/Sheet";
-import { solus } from "./runtime";
+import { OutsideAppLogo } from "./OutsideAppLogo";
+import { FactList } from "./OutsideAppsSection";
+import { solus, useSolusWorkspace } from "./runtime";
 
 /**
  * Approves an outside app's sign-in on the phone (plans/035 §0.5). The camera opens
- * the sign-in page's `solus://approve-app` link here; "Approve a sign-in" on a host's
- * Use Solus in other apps section opens the code entry. `solus.appSignIns` keeps
+ * the sign-in page's `solus://approve-app` link here; "Approve a sign-in" on Sharing &
+ * access opens the code entry. `solus.appSignIns` keeps
  * the one sign-in on screen.
  */
 // The link that started the app opens once, not again when the coordinator mounts again.
@@ -79,7 +82,12 @@ function AppSignInBody(props: { readonly state: Exclude<AppSignInState, { kind: 
           <Button label="Try again" onPress={() => solus.appSignIns.retry()} />
         </View>
       ) : state.kind === "open" ? (
-        <Request request={state.request} deciding={state.deciding} error={state.error} />
+        <Request
+          hostId={state.hostId}
+          request={state.request}
+          deciding={state.deciding}
+          error={state.error}
+        />
       ) : (
         <Outcome message={appSignInDoneMessage(state)} />
       )}
@@ -121,62 +129,72 @@ function CodeEntry(props: { readonly error: string | null }) {
 }
 
 function Request(props: {
+  readonly hostId: string;
   readonly request: AppSignInRequest;
   readonly deciding: "approve" | "deny" | null;
   readonly error: string | null;
 }) {
   const { request } = props;
+  const { hostsById } = useSolusWorkspace();
+  const hostName = hostsById[props.hostId]?.environmentLabel ?? "this host";
   const [now, setNow] = useState(() => Date.now());
-  const timeLeft = appSignInTimeLeft(request.expiresAt, now);
-  const isLive = timeLeft !== null;
+  const isLive = appSignInTimeLeft(request.expiresAt, now) !== null;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a one-second countdown while the sign-in waits
   useEffect(() => {
     if (!isLive) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [isLive]);
-  const details = appSignInDetails(request);
+  const summary = appSignInSummary(request, hostName);
   return (
-    <View className="gap-4">
-      <View className="gap-1">
-        <AppText accessibilityRole="header" className="text-lg font-t3-medium text-foreground">
-          {request.appName}
-        </AppText>
-        <AppText className="text-sm text-foreground">{details.place}</AppText>
-        {details.computer ? (
-          <AppText className="text-sm text-foreground-muted">{details.computer}</AppText>
+    <View className="gap-5">
+      <View className="items-center gap-3">
+        <OutsideAppLogo logoId={request.appId} size={56} />
+        <View className="items-center gap-1.5">
+          <AppText accessibilityRole="header" className="text-center text-xl font-t3-bold text-foreground">
+            {summary.title}
+          </AppText>
+          <AppText className="text-center text-base text-foreground-secondary">{summary.line}</AppText>
+        </View>
+      </View>
+      <View className="gap-2">
+        <FactList facts={appSignInFacts(request, now)} />
+        {request.onThisComputer ? (
+          <AppText className="px-1 text-sm text-foreground-muted">{ON_THIS_COMPUTER_NOTE}</AppText>
         ) : null}
+        {isLive ? null : (
+          <AppText accessibilityLiveRegion="polite" className="px-1 text-sm text-foreground-muted">
+            This sign-in expired. Start it again in the app.
+          </AppText>
+        )}
       </View>
-      <View className="gap-1 rounded-xl bg-grouped-card px-4 py-3">
-        <AppText className="text-sm font-t3-medium text-foreground">{details.access}</AppText>
-        <AppText className="text-sm text-foreground-muted">{details.effect}</AppText>
-      </View>
-      <AppText className="text-sm text-foreground-muted" accessibilityLiveRegion="polite">
-        {timeLeft ?? "This sign-in expired. Start it again in the app."}
-      </AppText>
-      <AppText className="text-sm text-foreground">{APP_SIGN_IN_WARNING}</AppText>
       {props.error ? (
         <AppText accessibilityRole="alert" className="text-sm text-danger-foreground">
           {props.error}
         </AppText>
       ) : null}
-      <View className="flex-row gap-3">
+      <View className="gap-2">
         <Button
-          label="Deny"
-          loading={props.deciding === "deny"}
+          label="Approve"
+          tone="primary"
+          fullWidth
+          loading={props.deciding === "approve"}
+          disabled={props.deciding !== null || !isLive}
+          onPress={() => void solus.appSignIns.decide("approve")}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: props.deciding !== null, busy: props.deciding === "deny" }}
           disabled={props.deciding !== null}
           onPress={() => void solus.appSignIns.decide("deny")}
-        />
-        <View className="flex-1">
-          <Button
-            label="Approve"
-            tone="primary"
-            fullWidth
-            loading={props.deciding === "approve"}
-            disabled={props.deciding !== null || !isLive}
-            onPress={() => void solus.appSignIns.decide("approve")}
-          />
-        </View>
+          className="min-h-11 items-center justify-center active:opacity-70"
+        >
+          {props.deciding === "deny" ? (
+            <AppActivityIndicator colorClassName="accent-foreground-muted" />
+          ) : (
+            <AppText className="text-base font-t3-medium text-foreground-secondary">Deny</AppText>
+          )}
+        </Pressable>
       </View>
     </View>
   );

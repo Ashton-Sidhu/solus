@@ -1,5 +1,5 @@
-import type { AppAccess, ConnectionsServerInfo, PairedDevice } from '@solus/contracts/host-api'
-import { OUTSIDE_APP_GUIDES, OUTSIDE_APP_NAMES, type OutsideAppGuide } from '@solus/contracts/outside-apps'
+import type { AppAccess, ConnectionsServerInfo } from '@solus/contracts/host-api'
+import { OUTSIDE_APP_GUIDES, type OutsideAppGuide } from '@solus/contracts/outside-apps'
 
 /**
  * How a person connects an outside app to a host from the phone (plans/035 §10),
@@ -9,36 +9,29 @@ import { OUTSIDE_APP_GUIDES, OUTSIDE_APP_NAMES, type OutsideAppGuide } from '@so
  * with `needsPublicUrl`): the phone can open their pages and paste in them. Apps
  * that run on a computer (Cursor, Claude Code, Codex, and the others) need that
  * computer: the phone cannot open them or run their commands, so the person sets
- * them up from Solus there, or with "Something else…" and the public address.
+ * them up from Solus there.
  */
 export const PHONE_APP_GUIDES: readonly OutsideAppGuide[] = OUTSIDE_APP_GUIDES.filter((guide) => guide.needsPublicUrl)
 
-/** The steps of "Something else…": any app that adds a remote MCP server with OAuth. */
-export const OTHER_APP_STEPS: readonly string[] = ['Add a remote MCP server with OAuth.']
-export const OTHER_APP_NOTE = 'Apps that require their own client ID cannot connect.'
-
 /** What a pairing code lets the app do, as `docs/outside-apps.md` (Access) says. Read and write is the default. */
-export const APP_ACCESS_OPTIONS: readonly { access: AppAccess; label: string; effect: string }[] = [
-  {
-    access: 'read',
-    label: 'Read',
-    effect: 'Read works, projects, codebases, tasks, automations, sessions, the links of a session, pull requests and their checks, and the results of messages the app sent.',
-  },
-  {
-    access: 'write',
-    label: 'Read and write',
-    effect: 'Also create and change records, start, message, and stop sessions, and rerun checks.',
-  },
-  {
-    access: 'full',
-    label: 'Full',
-    effect: 'Also use tools that ask for approval inside Solus, such as changing a work, running an automation, linking items to a session, and changing, reviewing, or merging a pull request.',
-  },
+export const APP_ACCESS_OPTIONS: readonly { access: AppAccess; label: string }[] = [
+  { access: 'read', label: 'Read' },
+  { access: 'write', label: 'Read and write' },
+  { access: 'full', label: 'Full' },
 ]
 export const DEFAULT_APP_ACCESS: AppAccess = 'write'
 
 export function appAccessLabel(access: AppAccess): string {
   return APP_ACCESS_OPTIONS.find((option) => option.access === access)?.label ?? access
+}
+
+/** The one line under the access switch of the Connect sheet: what this app can and cannot do. */
+export function appAccessLine(access: AppAccess, appName: string): string {
+  switch (access) {
+    case 'read': return `${appName} can read sessions, works, and tasks. It can’t change anything.`
+    case 'write': return `${appName} can start and message sessions. It can’t merge or change settings.`
+    case 'full': return `${appName} can also change works, run automations, and merge pull requests.`
+  }
 }
 
 /** The one action that hands the host's address to an app: copy a text, then open the first link that opens. */
@@ -65,7 +58,7 @@ export function appSetup(guide: OutsideAppGuide, publicUrl: string | null): AppS
   switch (handoff.kind) {
     case 'open': {
       const link = handoff.link(publicUrl)
-      return { kind: 'ready', message: null, action: { label: `Open ${guide.name}`, copyText: null, copiedNotice: null, links: [link], page: link } }
+      return { kind: 'ready', message: null, action: { label: `Add to ${guide.name}`, copyText: null, copiedNotice: null, links: [link], page: link } }
     }
     case 'copy-url':
       return { kind: 'ready', message: null, action: { label: `Copy address and open ${guide.name}`, copyText: publicUrl, copiedNotice: 'Address copied', links: [handoff.link], page: handoff.link } }
@@ -93,13 +86,6 @@ export async function openFirstLink(links: readonly string[], open: (url: string
   throw failure
 }
 
-/** How long a pairing code still works: "Expires 9:41 · one use". Null once it expired. */
-export function appCodeExpiry(expiresAt: number, now: number): string | null {
-  const seconds = Math.ceil((expiresAt - now) / 1000)
-  if (seconds <= 0) return null
-  return `Expires ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} · one use`
-}
-
 /**
  * Any person who uses the host connects apps that act as them: its owner, or a
  * member of its organization (`connectionsCreateAppPairingCode` needs `host.use`).
@@ -107,11 +93,4 @@ export function appCodeExpiry(expiresAt: number, now: number): string | null {
  */
 export function showsOutsideApps(info: Pick<ConnectionsServerInfo, 'principal' | 'hostKind'>): boolean {
   return info.hostKind !== 'api' && (info.principal === 'local-owner' || info.principal === 'remote-owner' || info.principal === 'org-member')
-}
-
-/** The name of the app a grant came from, to show beside its label; null when the label already says it or the host is older. */
-export function connectedAppName(app: Pick<PairedDevice, 'deviceLabel' | 'app'>): string | null {
-  if (!app.app) return null
-  const name: string | undefined = OUTSIDE_APP_NAMES[app.app.appId]
-  return name && name !== app.deviceLabel ? name : null
 }

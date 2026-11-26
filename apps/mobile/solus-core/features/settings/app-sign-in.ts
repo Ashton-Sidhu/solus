@@ -3,7 +3,7 @@ import type { AppSignInRequest } from '@solus/contracts/host-api'
 import { parseAppSignInLink } from '@solus/contracts/outside-apps'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
-import { APP_ACCESS_OPTIONS } from './outside-app-setup'
+import { appAccessLabel } from './outside-app-setup'
 
 /**
  * An outside app's sign-in that the person approves on the phone (plans/035 §0.5,
@@ -11,7 +11,7 @@ import { APP_ACCESS_OPTIONS } from './outside-app-setup'
  *
  * - **The link.** The sign-in page shows a QR code of `solus://approve-app?host=…&request=…`.
  *   The phone camera opens it in the app. The link names the host by its installation id.
- * - **The check code.** On a host's "Use Solus in other apps" section, the person types
+ * - **The check code.** On a host's Sharing & access page, "Approve a sign-in" asks for
  *   the code that the sign-in page shows.
  *
  * Either way the phone reads the sign-in from the host (`connectionsReadAppSignIn`) and the
@@ -191,25 +191,35 @@ export function hostForInstallation(hosts: readonly AppSignInHost[], installatio
   return (hosts.find((host) => host.installationId === installationId) ?? hosts.find((host) => host.hostId === installationId))?.hostId ?? null
 }
 
-/** "Expires in 4:59", or null once the sign-in expired. */
+/** "8 min", or "Less than a minute"; null once the sign-in expired. Never more time than is left. */
 export function appSignInTimeLeft(expiresAt: number, now: number): string | null {
   const seconds = Math.ceil((expiresAt - now) / 1000)
   if (seconds <= 0) return null
-  return `Expires in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+  return seconds < 60 ? 'Less than a minute' : `${Math.floor(seconds / 60)} min`
 }
 
-/** The lines that tell the person what they approve. */
-export function appSignInDetails(request: AppSignInRequest) {
-  const option = APP_ACCESS_OPTIONS.find((candidate) => candidate.access === request.access)
+const APP_SIGN_IN_WARNING = 'Only approve a sign-in you just started.'
+
+/** The question, and the line under it, at the top of the approval sheet. */
+export function appSignInSummary(request: Pick<AppSignInRequest, 'appName'>, hostName: string) {
   return {
-    place: `Access goes to ${request.redirectPlace}`,
-    computer: request.onThisComputer ? 'The app is on the computer that opened the sign-in page.' : null,
-    access: `${option?.label ?? request.access} access`,
-    effect: option?.effect ?? '',
+    title: `Approve ${request.appName}?`,
+    line: `${request.appName} will use ${hostName} as you. ${APP_SIGN_IN_WARNING}`,
   }
 }
 
-export const APP_SIGN_IN_WARNING = 'Only approve a sign-in you just started.'
+/** What the person approves: where access goes, what the app can do, and the time left. */
+export function appSignInFacts(request: AppSignInRequest, now: number): { label: string; value: string }[] {
+  return [
+    { label: 'Access goes to', value: request.redirectPlace },
+    { label: 'It can', value: appAccessLabel(request.access) },
+    { label: 'Time left', value: appSignInTimeLeft(request.expiresAt, now) ?? 'Expired' },
+  ]
+}
+
+/** The line under the facts when the sign-in returns to a computer. */
+export const ON_THIS_COMPUTER_NOTE = 'The app is on the computer that opened the sign-in page.'
+
 export const NO_HOST_MESSAGE = 'This sign-in is for a host this phone is not connected to.'
 
 export function appSignInDoneMessage(state: Extract<AppSignInState, { kind: 'decided' }>): string {

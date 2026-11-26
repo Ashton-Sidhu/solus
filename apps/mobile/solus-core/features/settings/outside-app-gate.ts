@@ -97,11 +97,15 @@ export interface OutsideAppGateMessage {
   canCheckAgain: boolean
 }
 
-/** What the phone says about a gate that is not open. The phone cannot change how the host is reached, so it says where to. */
+/**
+ * What the phone says about a gate that is not open. The phone cannot change how
+ * the host is reached, so it says where to. `appName` is the app the person
+ * chose; null when they opened the ways from the host's addresses.
+ */
 export function outsideAppGateMessage(
   gate: Exclude<OutsideAppGate, { kind: 'open' }>,
   hostName: string,
-  options: { mayChangeHostSettings: boolean },
+  options: { appName: string | null; mayChangeHostSettings: boolean },
 ): OutsideAppGateMessage {
   const none = { ways: [], showsAddressField: false }
   switch (gate.kind) {
@@ -112,29 +116,30 @@ export function outsideAppGateMessage(
         ...none,
         canCheckAgain: false,
       }
-    case 'no-address':
+    case 'no-address': {
+      const target = options.appName ?? 'cloud apps'
       return {
-        title: `Give ${hostName} an address apps can reach`,
+        title: options.appName ? `${options.appName} needs an internet address` : 'Cloud apps need an internet address',
         lines: [
-          `These apps run in the cloud. They need an address on the internet to reach ${hostName}. Use one of these ways.`,
-          'Only apps that you approve can use the address.',
+          gate.hasTailnetAddress
+            ? `${hostName} can only be reached on your devices now. Pick one way to open it to ${target}.`
+            : `${hostName} has no address on the internet. Pick one way to open it to ${target}.`,
         ],
+        // Funnel first: it needs no account. The phone cannot turn on Funnel or the tunnel.
         ways: [
-          { label: 'Link the host to your Solus account', detail: solusWayDetail(gate.solus, hostName) },
+          { label: 'Tailscale Funnel', detail: `Turn on in Solus on ${hostName}` },
+          { label: 'Solus Cloud', detail: solusWayDetail(gate.solus, hostName) },
           {
-            label: 'Turn on Tailscale Funnel',
-            detail: `On ${hostName}, open Solus and turn on Tailscale Funnel. You cannot turn it on from a phone. Tailscale Serve alone reaches only the devices on your tailnet${gate.hasTailnetAddress ? ', so the address that the host has now does not work for cloud apps' : ''}.`,
-          },
-          {
-            label: 'Use your own address',
+            label: 'Your own address',
             detail: options.mayChangeHostSettings
-              ? `Enter the https address where your own reverse proxy or tunnel serves ${hostName}.`
-              : `The owner of ${hostName} sets the https address where their own reverse proxy or tunnel serves it, in the host settings.`,
+              ? 'An https proxy or tunnel you run'
+              : `The owner of ${hostName} sets it in the host settings`,
           },
         ],
         showsAddressField: options.mayChangeHostSettings,
-        canCheckAgain: true,
+        canCheckAgain: false,
       }
+    }
     case 'unreachable': {
       const isOwnAddress = gate.address.source === 'custom'
       return {
@@ -155,19 +160,13 @@ export function outsideAppGateMessage(
 }
 
 function solusWayDetail(step: SolusLinkStep | null, hostName: string): string {
-  const turnOn = 'In Settings → Account, turn on Reachable from the internet. You cannot turn it on from a phone.'
   switch (step?.kind) {
     case undefined:
     case 'not-registered':
-      return `On ${hostName}, open Solus and sign in. ${turnOn}`
+      return `Link ${hostName} to your account there`
     case 'tunnel-off':
-      return [`On ${hostName}, open Solus. ${turnOn}`, step.reason].filter(Boolean).join(' ')
+      return [`On ${hostName}, turn on Reachable from the internet`, step.reason].filter(Boolean).join('. ')
     case 'tunnel-offline':
-      return `${hostName} is linked, but its tunnel is offline.${step.reason ? ` ${step.reason}` : ''} Open Solus on ${hostName} to start it again.`
+      return [`${hostName} is linked, but its tunnel is offline`, step.reason].filter(Boolean).join('. ')
   }
-}
-
-/** The line under the address on the Connect step: where the address comes from. */
-export function appAddressNote(address: AppAddress, appName: string | null, hostName: string): string {
-  return `${appName ?? 'The app'} reaches ${hostName} at this address (${appAddressSourceLabel(address.source)}).`
 }

@@ -4,7 +4,6 @@ import type { HostOrganizationsStatus } from '@solus/contracts/organization-scop
 import { Listeners } from '../../lib/listeners'
 import { relativeTime } from '../../lib/time'
 import type { HostConnection } from '../hosts/host-connections'
-import { appAccessLabel } from './outside-app-setup'
 
 /**
  * How one host is reached and who reaches it, as the desktop and web Access tab
@@ -107,6 +106,16 @@ export class HostAccess {
     if (this.connectionFor(hostId) !== connection || latest.kind !== 'loaded') return
     this.dropFinishedAddressTest(hostId)
     this.set(hostId, { ...latest, appEndpoint: appEndpoint.endpoint, appEndpointError: appEndpoint.error })
+  }
+
+  /** Reads the pairings again, as when the person comes back from an app that signed in. The rest stays as it is. */
+  async refreshPairedDevices(hostId: string): Promise<void> {
+    const connection = this.connectionFor(hostId)
+    if (!connection || this.stateOf(hostId).kind !== 'loaded') return
+    const paired = await readPairedDevices(connection.api)
+    const latest = this.stateOf(hostId)
+    if (this.connectionFor(hostId) !== connection || latest.kind !== 'loaded') return
+    this.set(hostId, { ...latest, pairedDevices: paired.devices, pairedDevicesError: paired.error })
   }
 
   async load(hostId: string): Promise<void> {
@@ -326,20 +335,35 @@ export function showsPairedDevices(info: ConnectionsServerInfo): boolean {
   return hasPairing(info) && (info.principal === 'local-owner' || info.principal === 'remote-owner')
 }
 
+/** An outside app that still reaches this host's tools: one grant, from one sign-in. */
+export type ConnectedApp = PairedDevice & { app: NonNullable<PairedDevice['app']> }
+
 /** The outside apps that still reach this host's tools; a revoked app signs in again as a new one. */
-export function connectedApps(devices: PairedDevice[]): (PairedDevice & { app: { access: AppAccess } })[] {
-  return devices.filter((device): device is PairedDevice & { app: { access: AppAccess } } =>
-    device.app !== undefined && device.revokedAt === null)
+export function connectedApps(devices: PairedDevice[]): ConnectedApp[] {
+  return devices.filter((device): device is ConnectedApp => device.app !== undefined && device.revokedAt === null)
+}
+
+/** A device the host paired, as Sharing & access lists it under Devices. */
+export interface PairedDeviceRow {
+  deviceId: string
+  label: string
+  /** "Connected now", or when the host last saw it. */
+  detail: string
 }
 
 /**
- * The line under a connected app: the access it was given, and when it last used the host.
- * The host writes `lastSeenAt` at most once a minute, so an app that has not come back since
- * its approval still has the time of its approval there.
+ * The devices that still have access, not the outside apps: the ones connected
+ * now first, then the most recently seen. Only the owner reads them.
  */
-export function connectedAppDetail(app: PairedDevice & { app: { access: AppAccess } }, now = Date.now()): string {
-  const seen = app.lastSeenAt > app.pairedAt
-    ? `Last connected ${relativeTime(new Date(app.lastSeenAt).toISOString(), now)} ago`
-    : 'Not connected yet'
-  return `${appAccessLabel(app.app.access)} access · ${seen}`
+export function pairedDeviceRows(snapshot: Pick<HostAccessSnapshot, 'pairedDevices' | 'devices'>, now = Date.now()): PairedDeviceRow[] {
+  const connected = new Set(snapshot.devices.flatMap((device) => (device.deviceId ? [device.deviceId] : [])))
+  return snapshot.pairedDevices
+    .filter((device) => device.app === undefined && device.revokedAt === null)
+    .map((device) => ({ device, isConnected: connected.has(device.deviceId) }))
+    .sort((a, b) => Number(b.isConnected) - Number(a.isConnected) || b.device.lastSeenAt - a.device.lastSeenAt)
+    .map(({ device, isConnected }) => ({
+      deviceId: device.deviceId,
+      label: device.deviceLabel,
+      detail: isConnected ? 'Connected now' : `Last seen ${relativeTime(new Date(device.lastSeenAt).toISOString(), now)} ago`,
+    }))
 }

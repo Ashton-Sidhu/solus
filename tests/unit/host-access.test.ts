@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { bestPairEndpoint, pairLink, parsePairLink } from '@solus/client-core/pairing'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
-import { connectedAppDetail, connectedApps, HostAccess, networkNote, showsPairedDevices, type HostEndpoint } from '../../apps/mobile/solus-core/features/settings/host-access'
-import { APP_ACCESS_OPTIONS, appCodeExpiry, appSetup, connectedAppName, DEFAULT_APP_ACCESS, openFirstLink, PHONE_APP_GUIDES, showsOutsideApps } from '../../apps/mobile/solus-core/features/settings/outside-app-setup'
+import { connectedApps, HostAccess, networkNote, pairedDeviceRows, showsPairedDevices, type HostEndpoint } from '../../apps/mobile/solus-core/features/settings/host-access'
+import { APP_ACCESS_OPTIONS, appAccessLine, appSetup, DEFAULT_APP_ACCESS, openFirstLink, PHONE_APP_GUIDES, showsOutsideApps } from '../../apps/mobile/solus-core/features/settings/outside-app-setup'
 import { OUTSIDE_APP_GUIDES } from '@solus/contracts/outside-apps'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
@@ -157,11 +157,6 @@ describe('outside apps on a host’s Access screen', () => {
     const cursor = { deviceId: 'a1', deviceLabel: 'Cursor', pairedAt: now - 86_400_000, lastSeenAt: now - 3_600_000, revokedAt: null, app: { access: 'write' as const, appId: 'cursor' as const } }
     const old = { ...cursor, deviceId: 'a0', revokedAt: now - 60_000 }
     expect(connectedApps([tablet, cursor, old])).toEqual([cursor])
-    expect(connectedAppDetail(cursor, now)).toBe('Read and write access · Last connected 1h ago')
-    expect(connectedAppDetail({ ...cursor, app: { access: 'read', appId: 'cursor' } }, now)).toStartWith('Read access ·')
-    expect(connectedAppDetail({ ...cursor, app: { access: 'full', appId: 'cursor' } }, now)).toStartWith('Full access ·')
-    // The host writes the time it last saw the app; at the approval it is the time of the approval.
-    expect(connectedAppDetail({ ...cursor, lastSeenAt: cursor.pairedAt }, now)).toBe('Read and write access · Not connected yet')
 
     const api = hostApi().on('connectionsListDevices', () => [tablet, cursor]).on('connectionsRevokeDevice', () => ({ ok: true }))
     const { access } = await phoneWith(api)
@@ -207,20 +202,18 @@ describe('connecting an outside app from the phone', () => {
     expect(PHONE_APP_GUIDES.map((entry) => entry.id)).not.toContain('claude-code')
   })
 
-  test('the access starts at Read and write, and each level says what the app can do', () => {
+  test('the access starts at Read and write, and one line under the switch says what the app can and cannot do', () => {
     expect(DEFAULT_APP_ACCESS).toBe('write')
     expect(APP_ACCESS_OPTIONS.map((option) => option.label)).toEqual(['Read', 'Read and write', 'Full'])
-    expect(APP_ACCESS_OPTIONS.find((option) => option.access === 'full')?.effect).toContain('ask for approval')
-  })
-
-  test('a pairing code counts down to its end, then it has expired', () => {
-    expect(appCodeExpiry(600_000, 0)).toBe('Expires 10:00 · one use')
-    expect(appCodeExpiry(600_000, 600_000 - 61_500)).toBe('Expires 1:02 · one use')
-    expect(appCodeExpiry(600_000, 600_000)).toBeNull()
+    expect(appAccessLine('read', 'Claude')).toContain('It can’t change anything')
+    // Merging a pull request asks for approval inside Solus: only Full allows it.
+    expect(appAccessLine('write', 'Claude')).toBe('Claude can start and message sessions. It can’t merge or change settings.')
+    expect(appAccessLine('full', 'Claude')).toContain('merge pull requests')
   })
 
   test('each app gets the address the way it takes it', () => {
     const claude = appSetup(guide('claude'), URL)
+    expect(claude.kind === 'ready' && claude.action.label).toBe('Add to Claude')
     expect(claude.kind === 'ready' && claude.action.copyText).toBeNull()
     expect(claude.kind === 'ready' && claude.action.links[0]).toContain(`connectorUrl=${encodeURIComponent(URL)}`)
 
@@ -261,11 +254,36 @@ describe('connecting an outside app from the phone', () => {
     expect(showsOutsideApps({ ...INFO, hostKind: 'api' })).toBe(false)
   })
 
-  test('a connected app shows the name of the app it came from, unless its label says it', () => {
-    const grant = { deviceLabel: 'My assistant', app: { access: 'read' as const, appId: 'chatgpt' as const } }
-    expect(connectedAppName(grant)).toBe('ChatGPT')
-    expect(connectedAppName({ ...grant, deviceLabel: 'ChatGPT' })).toBeNull()
-    expect(connectedAppName({ deviceLabel: 'Tablet' })).toBeNull()
+  test('the Sharing & access devices are the paired devices, not the apps: connected ones first, then by last seen', () => {
+    const now = Date.parse('2026-11-20T12:00:00Z')
+    const device = (deviceId: string, lastSeenAt: number) => ({ deviceId, deviceLabel: deviceId, pairedAt: now - 86_400_000, lastSeenAt, revokedAt: null })
+    const rows = pairedDeviceRows({
+      pairedDevices: [
+        device('laptop', now - 2 * 3_600_000),
+        device('old-phone', now - 3 * 86_400_000),
+        { ...device('revoked', now), revokedAt: now },
+        { ...device('claude', now), app: { access: 'write', appId: 'claude' } },
+        device('this-phone', now - 7_200_000),
+      ],
+      devices: [{ id: 's1', deviceLabel: 'this-phone', deviceId: 'this-phone', connectedAt: now, connectionCount: 1, connectionIds: ['c1'] }],
+    }, now)
+    expect(rows).toEqual([
+      { deviceId: 'this-phone', label: 'this-phone', detail: 'Connected now' },
+      { deviceId: 'laptop', label: 'laptop', detail: 'Last seen 2h ago' },
+      { deviceId: 'old-phone', label: 'old-phone', detail: 'Last seen 3d ago' },
+    ])
+  })
+
+  test('coming back from an app reads the pairings again, and keeps the rest of the screen', async () => {
+    const now = Date.parse('2026-11-20T12:00:00Z')
+    const api = hostApi()
+    const { access } = await phoneWith(api)
+    const before = api.callsOf('connectionsAppEndpoint').length
+    const claude = { deviceId: 'a1', deviceLabel: 'Claude', pairedAt: now, lastSeenAt: now, revokedAt: null, app: { access: 'write' as const, appId: 'claude' as const } }
+    api.on('connectionsListDevices', () => [claude])
+    await access.refreshPairedDevices('inst-a')
+    expect(connectedApps(loaded(access).pairedDevices)).toEqual([claude])
+    expect(api.callsOf('connectionsAppEndpoint').length).toBe(before)
   })
 })
 
