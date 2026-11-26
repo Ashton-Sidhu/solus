@@ -204,6 +204,7 @@ export const RPC_INVOKE_METHODS = [
   'workspaceProjectRemove',
   'workspaceProjectUpdate',
   'sessionDirectoryOpen',
+  'sessionShellOpen',
   'codebaseList',
   'codebaseSave',
   'codebaseMembers',

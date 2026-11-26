@@ -88,6 +88,8 @@ export interface HostEventMap {
   /** One person archived, returned, snoozed, or woke a session. Only that
    *  person's connections hear it; `view` is their view now. */
   'session.viewChanged': { sessionId: string; view: SessionView }
+  /** The changes to one caller's session list after their cursor. Each client gets its own payload. */
+  'sessionShell.changed': import('./session-shell').SessionShellChanges
   /** `agentSessionId` is a correlation attribute, not a second address: the
    *  picker and agent-conversation cards hold only a provider thread id. */
   'session.transcriptChanged': { sessionId: string }
@@ -301,6 +303,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.artifactsChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "A session's artifacts changed: a pull request, work, file, or automation was linked or unlinked." },
   'session.digestChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "What a session, or a session below it, did changed: a turn, a tool call, a sub-agent, or a checkpoint." },
   'session.stateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was settled or made active.' },
+  'sessionShell.changed': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: "Changes to one person's session list after their cursor; a gap asks for `sessionShellOpen` again." },
   'session.viewChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: "One person's view of a session changed: archived, returned, snoozed, or woken." },
   'session.transcriptChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'The cloud transcript changed.' },
   'session.executionChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A saved session or provider sub-agent execution changed.' },

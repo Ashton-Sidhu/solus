@@ -70,6 +70,8 @@ export interface HostCapabilities {
   /** The sessions API accepts personal list order and shared auto-settle changes. */
   sessionListControls?: boolean
   sessionDirectoryOpen?: boolean
+  /** The host answers `sessionShellOpen` and sends `sessionShell.changed` (docs/plans/mobile-session-shell.md). */
+  sessionShell?: boolean
   /** Session commands this host can admit through its prompt and provider APIs. */
   sessionComposer?: { providerSwitch: boolean; sideChatCommands: boolean }
   attachUpload?: boolean
