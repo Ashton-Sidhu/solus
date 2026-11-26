@@ -13,7 +13,6 @@ import {
   APP_ACCESS_OPTIONS,
   appAccessLabel,
   appCodeExpiry,
-  appGuideNote,
   appSetup,
   DEFAULT_APP_ACCESS,
   openFirstLink,
@@ -268,7 +267,7 @@ function ConnectStep(props: {
 }) {
   const [anotherWay, setAnotherWay] = useState(false);
   const app = props.choice === "other" ? null : props.choice;
-  const note = app ? appGuideNote(app) : null;
+  const note = app?.note ?? null;
   const code = (
     <ApprovalCode
       hostId={props.hostId}

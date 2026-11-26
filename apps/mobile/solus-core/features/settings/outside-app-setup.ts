@@ -41,13 +41,6 @@ export function appAccessLabel(access: AppAccess): string {
   return APP_ACCESS_OPTIONS.find((option) => option.access === access)?.label ?? access
 }
 
-/** The one line under an app's action, when its guide has one. Older catalogs have no note. */
-export function appGuideNote(guide: OutsideAppGuide): string | null {
-  // SAFETY: a catalog gives a guide at most an optional `note` string; an older catalog has no such key, so it reads as undefined.
-  const { note } = guide as OutsideAppGuide & { readonly note?: string }
-  return note ?? null
-}
-
 /** The one action that hands the host's address to an app: copy a text, then open the first link that opens. */
 export interface AppSetupAction {
   label: string
