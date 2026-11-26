@@ -36,6 +36,7 @@ export function registerCapabilityHandlers(
       name: hostDisplayName(),
       sessionListControls: true,
       sessionDirectoryOpen: server.hasHandler('sessionDirectoryOpen') && server.hasHandler('solusApiRequest'),
+      sessionShell: server.hasHandler('sessionShellOpen') && server.hasHandler('solusApiRequest'),
       sessionComposer: { providerSwitch: server.hasHandler('switchSessionAgent'), sideChatCommands: false },
       attachUpload: server.hasHandler('attachUpload'),
       attachStreamUpload: server.hasHandler('attachUploadToken'),

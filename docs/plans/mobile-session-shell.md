@@ -77,6 +77,17 @@ A snapshot reads the same rows that `sessionDirectoryOpen` reads, for the same c
 - API mode reads its rows from the Solus API as `sessionDirectoryOpen` does. The log follows the same record changes.
 - A host without the capability keeps the old path on the phone (§7, phase 3).
 
+### 5.5 Host implementation (phase 2)
+
+- `packages/server/src/transport/events/session-shell.ts` (`SessionShell`) keeps the sequence, the epoch, the log, the clients that follow, and the live agent activity. The log holds each key one time, at its newest sequence, so a busy session does not fill it.
+- `packages/server/src/transport/handlers/session-shell-handler.ts` reads the rows for one caller. It uses the reads of `sessionDirectoryOpen` (`session-directory-handler.ts` exports them) with the caller's own context. A changed session is read with `getSession`: a top-level session in the caller's list, or one they pinned, is a row.
+- The keys come from these sources:
+  - each event that `HostEventPublisher` hands over (`observe`): title, fork, pull requests, state, status, activity, execution (not a sub-agent's), index, share, `codebases.changed`, `projects.changed`, and `automation.changed`;
+  - the domain changes that no connection may hear, because they go to one person only or to no event: a record write or delete, a person's view, read state, and pin (`onPinnedSessionChanged`), and the attention entries (a diff of each `attention.onChange`).
+- A project key is a path: the host compares its project list before and after `projects.changed`. An automation that is saved with a new name, or deleted, moves each session of its runs.
+- Scope safety: a client gets `row.removed` or `project.removed` only for a key that this process sent to the same `scopeKey` before. A caller does not learn the id of a session, or the path of a project, that they could not read. This is how §5.2 "a session that the caller cannot read now becomes `row.removed`" applies.
+- A client that falls behind the log gets an event that does not continue its copy, and opens the shell again.
+
 ## 6. Phone
 
 One driver for each host (`apps/mobile/solus-core/features/threads/`):
@@ -114,3 +125,6 @@ Solus features that must keep working:
 - Desktop and web use their own session list. They can use this operation later; this plan does not change them.
 - Phase 4 removes the old path. A host without `sessionShell` then shows its rows only after an update. Decide before phase 4 whether to keep the old path for such hosts.
 - The log size (2,000 entries, 10 minutes) is a first value. Measure how often phones get `snapshot` after a short absence.
+- A session leaves a list when it is quiet for a long time, with no event. The host does not send `row.removed` for it; the row stays on the phone until the next snapshot.
+- The first index sweep can end with no index event. Then `indexing.changed` comes with the next change, not at once.
+- An automation rename reaches only the sessions of the runs that the host keeps.
