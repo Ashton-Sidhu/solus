@@ -2498,7 +2498,6 @@
   "a6eeff30440d26a2": "Issue {key}",
   "c0e2d952114e7d59": "автор: {author}",
   "2195cdd7774c1c23": "неизвестный автор",
-  "093394ace72dbd79": "{count, plural, one {{count} комментарий} few {{count} комментария} many {{count} комментариев} other {{count} комментария}}",
   "217e1e7b60469736": "Состояние issue: {state}",
   "5fd6c9c736b80b62": "Состояние issue",
   "a749275f1ad66618": "Неизвестный автор",
@@ -3197,7 +3196,6 @@
   "2bc714a245998c04": "Нейтрально",
   "b28db58c44b25db3": "{passed} из {total}",
   "8e64d98f747bf650": "{count, plural, one {{count} проверка не проходит} few {{count} проверки не проходят} many {{count} проверок не проходят} other {{count} проверки не проходят}}",
-  "ff4514103a353d8e": "{count, plural, one {{count} требует внимания} few {{count} требуют внимания} many {{count} требуют внимания} other {{count} требуют внимания}}",
   "078bb63ea2f3ee40": "Проверки требуют внимания",
   "fd63b391898889f9": "{count, plural, one {{count} ожидает действия} few {{count} ожидают действия} many {{count} ожидают действия} other {{count} ожидают действия}}",
   "a39948e68089494f": "{count, plural, one {Ожидает: {count}} few {Ожидает: {count}} many {Ожидает: {count}} other {Ожидает: {count}}}",
@@ -5449,7 +5447,7 @@
       "v": "v"
     }
   ],
-  "ffd7529d1f50e0a6": "{count, plural, one {{count} остановка} few {{count} остановки} many {{count} остановок} other {{count} остановки}}",
+  "e093a6c02ff2c19f": "{count, plural, one {{count} остановка} few {{count} остановки} many {{count} остановок} other {{count} остановки}}",
   "9830004326e7d8c0": "{count, plural, one {по {count} файлу} few {по {count} файлам} many {по {count} файлам} other {по {count} файла}}",
   "e6035bad35419efa": "Параметры гида",
   "4d7635a2bf1f5816": "Переписать гайд",

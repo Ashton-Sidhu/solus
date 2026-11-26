@@ -15,6 +15,116 @@ The bundled Markdown library uses its native singular and plural image-copy labe
 
 Mobile extends T3's image paragraph rule to screenshots on a separate line beside a caption. The native image view draws a cached bitmap as soon as it is ready. The loading label sits behind the bitmap while the load event is in flight.
 
+## Public T3 Code partial import through 2026-11-26
+
+This candidate compares public main at `d8f315a81f5f8244742d98a8aacb02a7668bcd6e`
+with the full import at `620cf4770d992d642f822a13dc2539c2605a3500` and applies selected
+changes to Solus main at `d78f9dcce5e3e0a455e94cb8f29d1f3ba9ded86a`. The full
+comparison base stays at `620cf4770d992d642f822a13dc2539c2605a3500`. The earlier
+public partial import and later fixes on Solus main are included in this
+comparison. The iOS screens and project picker changes also reconcile the
+earlier Solus candidate at `2739607124c1205da68f2f86766a7d98ae38c0e7`.
+
+- **Workspace and drafts.** The mounted phone and tablet workspace stacks use the
+  updated T3 screens fork and the collapsed column fix (#42490, #42593, #43148).
+  Compose opens `NewTaskProject` directly when there is no project. T3's
+  `newTaskDestination` reads the same Solus project filter and eligible hosts.
+  Project selection opens the Solus `Thread` draft, and the first prompt follows
+  `submitThreadComposerMessage` and the scoped Solus outbox. Android tablets can
+  open subagents, linked sessions and previews in the inspector (#43210).
+  `useOpenThreadInspector` selects the presentation. It uses the existing
+  session, provider history and browser routes on the selected host.
+- **Composer and media.** The shared `ThreadComposer` command menu ranks an exact
+  skill above description matches and recognizes triggers after full-width spaces
+  and nonbreaking spaces (#42879, #43302). Android paste restores the context of
+  copied images if the clipboard returns only text (#37409). The native
+  editor returns the original fragment to the shared composer. The existing
+  picker, upload registry, and Solus outbox still accept the attachments.
+  Mandarin Android dictation and floating dictation controls use T3's native
+  and shared controllers (#41993, #42132). The keyboard patch adds Android
+  state recovery and iPad window overlap (#40380, #42777). It keeps the
+  Solus transcript inset behavior. Expo SDK 58 patch updates take the
+  Android photo picker fix and the new share cache path (#42514, #40825).
+- **Files and read-only history.** The mounted `ThreadFileScreen` and attachment
+  routes keep media, CSV headings and partial-file warnings below the iPad
+  navigation bar (#43352, #42928, #43320). The checkout adapter keeps
+  `readProjectFile` and `assetCreateUrl` under the chosen account and host.
+  ZIP previews reuse the attachment body and platform progress label.
+  The shared Markdown helpers keep more file and thread links readable, and
+  position math after a byte-order mark (#43094, #43284, #43285, #43194,
+  #43442, #43318, #43453). Linked sessions and provider subagents show an
+  earlier-page error at **Load earlier** and keep the loaded rows (#40973).
+  The Solus history adapter uses its existing cursor and scope with
+  `hostsLinkedSessionPage`, `sessionLineageHistory`, the cloud mirror or
+  `loadSessionSubagent`. The error does not move the reader to the end.
+- **Git, pull requests and issues.** `GitCommitSheet` keeps file exclusions
+  after a failed commit (#43425). Its Solus adapter checks account, connection,
+  checkout and branch, and clears the exclusions when `gitRunAction` reports
+  a new commit. `ReviewCommentComposerSheet` shows a count for mixed diff
+  lines when a range would run backwards (#42863). The mounted PR routes use
+  T3's ordered diff pages, guide outline, checks labels and activity text
+  (#42233, #43486, #43452, #42663, #42598). `prGetOverview`, `prChecks` and
+  `prGetDiff` still supply the scoped data. `IssuesScreen` uses T3's
+  `holdIssuePages` and `continueIssuePage` over `tasksSearch` or
+  `tasksSidebarSnapshot`. It stops paging when no cursor remains and reads
+  a singular comment count correctly (#42992, #43367).
+- **Dependency and error handling.** The lockfile drops the unvendored
+  `infra/relay` import that retained obsolete Expo patch hashes. The crash
+  preview keeps an emoji whole at the text limit (#43260). Solus keeps its
+  production identity, entry point, native discovery module and Markdown fork.
+
+Remaining route and adapter work:
+
+- Workflows needs `workflows.subscribe`, `workflows.get`, and run actions for
+  `WorkflowsScreen` and `WorkflowRunRouteScreen`. Solus's scheduled-task
+  operations do not supply workflow runs, steps, and answers. `FeedbackRequestCard`
+  needs the `feedback_request` turn item and `agentFeedback.answerRequest` with
+  its permission and consent fields.
+- The full T3 linked-thread subscription still needs a Solus translation for
+  `peerLinks.subscribeThread`, `peerLinks.threadHistoryPage`, and
+  `peerLinks.threadItem`. The current sheet can retry a Solus page. The
+  upstream side-chat submit command has no Solus operation.
+- `ThreadFileScreen` needs the T3 legacy text fallback at the typed file read.
+  Solus `readProjectFile` returns a permitted `kind: "binary"` record.
+  T3 expects `ProjectReadFileError.failure === "binary_file"` and a signed
+  `AssetResource` for `attachmentTextAtom`. The existing Solus asset API
+  requires its own scope and lease. The checkout preview still uses its
+  existing read and page controls.
+- The active `VoiceModelSettings` uses `voiceModelStatus` and
+  `voiceModelRetry` for one host model. T3's `VoiceModelSection` needs a
+  model catalog and model-specific download and cancel calls. Its progress
+  change is not a Solus voice settings change.
+- T3's issue detail refresh assumes the comments preview travels with the
+  detail result (#43410). The Solus issue adapter still reads the detail and
+  `tasksSearchComments` separately. T3's withheld-patch classification
+  (#43497) needs the Solus `prGetDiff` response to distinguish a missing
+  zero-count patch from an empty file diff.
+- The share handoff to an open draft (#42597) starts in
+  `IncomingShareProvider` and is consumed by T3's `NewTaskDraftScreen`.
+  The mounted Solus draft uses the `Thread` route and its own admission
+  controller. That route still needs to consume the shared handoff. The
+  T3 Stop check (#42918) reads a `run_interrupt_request` projection item.
+  The active Solus composer in `use-thread-screen-data.tsx` gets steer
+  availability from the Solus session status and needs an equivalent
+  pending-stop signal. Offline settle and snooze (#24917) need a
+  scoped replay operation for the Solus list actions. The Archive screen
+  continues to call the selected host through `setArchived`.
+- The T3 Markdown tarball update and its link wrapping and checkbox indexing
+  changes remain pending. The Solus fork has native image-copy labels that
+  must carry forward. LegendList, Reanimated, Clerk, and the wider T3
+  session-open changes also remain pending.
+
+The frozen root and mobile installs passed. The focused mobile suites passed
+439 tests with the default iOS configuration and 43 with the Android
+configuration. The shared workspace suites passed 340 tests, and 13 host test
+files passed on SQLite. The fixtures include saved and first reads, stale pages
+after a scope change, signed media, a failed commit, and a failed or interrupted
+history read. The native iOS composer checks passed. Production Expo exports
+contained Hermes bundles for both platforms and configured `sh.solus.mobile`
+for both. The mobile type check reports the same 63 errors as captured main.
+The run used route and host fixtures for verification. It did not run Android
+native tests or exercise native layouts on a device.
+
 ## Public T3 Code partial import through 2026-11-24
 
 This import compares public T3 Code main at `a7a6126a7d9b364c0fbef3f7fe1a087c4b004393` with the last full import at `620cf4770d992d642f822a13dc2539c2605a3500`. The full comparison base stays at `620cf4770d992d642f822a13dc2539c2605a3500`. The fork revision records the earlier fork import. The composer path fixes and Live Activity fixes already listed here were reconciled with the public changes.

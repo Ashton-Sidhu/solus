@@ -64,6 +64,7 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
     model?: TranscriptModel;
     title?: string | null;
     error?: string;
+    historyFailed?: boolean;
     paging?: boolean;
   }>();
   const mirror =
@@ -143,7 +144,7 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
   const loadEarlier = async () => {
     if (store) return store.controller.loadOlder();
     if (!mirror?.model || mirror.paging) return;
-    const pending = { ...mirror, paging: true, error: undefined };
+    const pending = { ...mirror, paging: true, historyFailed: false };
     setCopy(pending);
     try {
       const relay = mirror.relay;
@@ -155,9 +156,9 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
         mirror.model.prependHistory(page);
       } else await solus.cloudHistory.readOlder(mirror.model);
       setCopy((current) => (current === pending ? { ...pending, paging: false } : current));
-    } catch (error) {
+    } catch {
       setCopy((current) =>
-        current === pending ? { ...pending, paging: false, error: String(error) } : current,
+        current === pending ? { ...pending, paging: false, historyFailed: true } : current,
       );
     }
   };
@@ -171,19 +172,18 @@ export function useLinkedSession(target: LinkedThreadTarget, active: boolean, pa
     working: meta?.status === "running",
     hasOlder: meta?.history.hasMoreHistory ?? !!mirror?.model?.olderCursor,
     paging: meta?.history.loading ?? mirror?.paging,
+    historyFailed: !!(meta?.history.error || mirror?.historyFailed),
     error:
       record.error ??
-      (meta?.phase.kind === "error" ? meta.phase.message : meta?.history.error) ??
+      (meta?.phase.kind === "error" ? meta.phase.message : null) ??
       mirror?.error ??
       (!host && (!cloud || !provider) && (!via || (!parentSessionId && !isLinked))
         ? keptOnHost ? keptOnHostText() : "Connect to the host to read this session."
         : null),
     retry: () => {
       if (store) {
-        if (meta?.history.error) void loadEarlier();
-        else void store.controller.load();
+        void store.controller.load();
       } else if (host) record.refresh();
-      else if (mirror?.model) void loadEarlier();
       else setAttempt((n) => n + 1);
     },
     loadEarlier,

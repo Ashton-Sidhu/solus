@@ -130,14 +130,14 @@ export function useCheckoutGit(
           throw new Error("The checkout changed.");
       }
       if (scope !== hostQueryScope(controller.hostId)) throw new Error("The connection changed.");
-      await api.gitRunAction(context(), {
+      const result = await api.gitRunAction(context(), {
         actionId: uuidv4(),
         action: checkoutActions[input.action],
         createFeatureBranch: !createBeforeAction && input.featureBranch,
         commitMessage: input.commitMessage,
         filePaths: input.filePaths ? [...input.filePaths] : undefined,
       });
-      completed = true;
+      completed = input.action !== "commit" || result.commit.status === "created";
     });
     return completed;
   };
