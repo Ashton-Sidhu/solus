@@ -1,3 +1,4 @@
+import { routeClaudeTaskReplies } from './claude-subagent-protocol'
 import type { PermissionMode } from '@solus/contracts/types'
 import { isPermissionModeAbove } from '@solus/contracts/policy'
 import { hostPolicies } from '../../../host/policy/host-policy-store'
@@ -524,7 +525,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       // An unreadable transcript (another user's file) reads as empty; it never crashes the server.
       rl.on('error', () => resolve())
     })
-    return messages
+    return routeClaudeTaskReplies(messages)
   }
 
 
@@ -560,7 +561,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         }
         // Enough to fill the window, or we've already read the whole file.
         if (messages.length > limit || from <= 0) {
-          return messages.length > limit ? messages.slice(-limit) : messages
+          return routeClaudeTaskReplies(messages).slice(-limit)
         }
         windowBytes = Math.min(size, windowBytes * 4)
       }

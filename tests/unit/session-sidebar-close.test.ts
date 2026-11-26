@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
+import type { SidebarSession } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
-type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask'> & {
+type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeRow'> & {
   closedTabIds: string[]
   closeTabs: (tabIds: string[]) => void
-  catalogTasks: SidebarTask[]
-  activeTasks: SidebarTask[]
+  catalogRows: SidebarSession[]
+  activeRows: SidebarSession[]
   openedDraftCount: number
   openedDraftOptions: Array<{ freshTask?: boolean; via?: string; reveal?: boolean }>
   hasSettledBootLocation: boolean
@@ -17,8 +17,8 @@ type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask'> & {
 function sidebarStoreForDismissal(): SidebarStoreHarness {
   const store = Object.create(SessionSidebarStore.prototype) as SidebarStoreHarness
   store.closedTabIds = []
-  store.catalogTasks = []
-  store.activeTasks = []
+  store.catalogRows = []
+  store.activeRows = []
   store.openedDraftCount = 0
   store.openedDraftOptions = []
   store.hasSettledBootLocation = false
@@ -26,7 +26,7 @@ function sidebarStoreForDismissal(): SidebarStoreHarness {
   // pane already showing a draft or a page needs nothing.
   store.session = {
     showsConversation: false,
-    tasksStore: { loaded: true, tasks: [] },
+    issuesStore: { loaded: true, tasks: [] },
     drafts: { openSessionDraft: (options: { freshTask?: boolean; via?: string; reveal?: boolean } = {}) => {
       store.openedDraftCount += 1
       store.openedDraftOptions.push(options)
@@ -58,9 +58,9 @@ describe('session sidebar dismissal', () => {
       createdAt: 0,
       runStartedAt: 1,
       tabIds: ['loose-tab'],
-    } satisfies SidebarTask
+    } satisfies SidebarSession
 
-    store.closeTask(task)
+    store.closeRow(task)
 
     expect(store.closedTabIds).toEqual(['loose-tab'])
   })
@@ -71,13 +71,13 @@ describe('session sidebar dismissal', () => {
     // must not land the user in work they already finished.
     const store = sidebarStoreForDismissal()
     ;(store.session as { showsConversation: boolean }).showsConversation = true
-    store.activeTasks = []
+    store.activeRows = []
 
-    store.closeTask({
+    store.closeRow({
       id: 'root',
       lifecycle: 'active',
       tabIds: ['root-tab'],
-    } as SidebarTask)
+    } as SidebarSession)
 
     expect(store.openedDraftOptions).toEqual([{ freshTask: true, via: 'click' }])
   })
@@ -92,9 +92,9 @@ describe('session sidebar dismissal', () => {
       workingRows: [],
       sharedRows: [],
       pinnedRows: [],
-      snoozedTasks: [],
-      completedTasks: [],
-      activeTasks: [],
+      snoozedRows: [],
+      completedRows: [],
+      activeRows: [],
     })
     store.session = {
       activeTabId: 'root-tab',
@@ -125,9 +125,9 @@ describe('session sidebar dismissal', () => {
       sessionRows: [{ tabIds: ['closing'] }, { tabIds: ['next'] }],
       sharedRows: [],
       workingRows: [],
-      snoozedTasks: [],
-      completedTasks: [],
-      sessionsFor: (task: SidebarTask) => task.tabIds.map((tabId) => ({ tabId })),
+      snoozedRows: [],
+      completedRows: [],
+      sessionsFor: (task: SidebarSession) => task.tabIds.map((tabId) => ({ tabId })),
     })
     const selectedTabIds: string[] = []
     store.session = {
@@ -150,13 +150,13 @@ describe('session sidebar dismissal', () => {
     // interruption than the one it fixes.
     const store = sidebarStoreForDismissal()
     ;(store.session as { showsConversation: boolean }).showsConversation = true
-    store.activeTasks = [{ id: 'other' } as SidebarTask]
+    store.activeRows = [{ id: 'other' } as SidebarSession]
 
-    store.closeTask({
+    store.closeRow({
       id: 'root',
       lifecycle: 'active',
       tabIds: ['root-tab'],
-    } as SidebarTask)
+    } as SidebarSession)
 
     expect(store.openedDraftCount).toBe(0)
   })
@@ -166,13 +166,13 @@ describe('session sidebar dismissal', () => {
     // work, so it must not move the user off whatever they were reading.
     const store = sidebarStoreForDismissal()
     ;(store.session as { showsConversation: boolean }).showsConversation = true
-    store.activeTasks = []
+    store.activeRows = []
 
-    store.closeTask({
+    store.closeRow({
       id: 'root',
       lifecycle: 'completed',
       tabIds: ['root-tab'],
-    } as SidebarTask)
+    } as SidebarSession)
 
     expect(store.openedDraftCount).toBe(0)
   })
@@ -191,7 +191,7 @@ describe('session sidebar boot location', () => {
     // its task can have been completed since. Launching into finished work is
     // the same wrong landing that ending the last task avoids.
     const store = bootStore()
-    store.activeTasks = []
+    store.activeRows = []
 
     store.settleBootLocation()
 
@@ -202,7 +202,7 @@ describe('session sidebar boot location', () => {
     // WHY: launch must not steal the screen. Seeding a draft on an empty
     // workspace already opens quietly; landing on one has to match.
     const store = bootStore()
-    store.activeTasks = []
+    store.activeRows = []
 
     store.settleBootLocation()
 
@@ -213,7 +213,7 @@ describe('session sidebar boot location', () => {
     // WHY: the restored location is what the user left open. An active row
     // means it is still live work, so boot must leave them in it.
     const store = bootStore()
-    store.activeTasks = [{ id: 'live' } as SidebarTask]
+    store.activeRows = [{ id: 'live' } as SidebarSession]
 
     store.settleBootLocation()
 
@@ -224,8 +224,8 @@ describe('session sidebar boot location', () => {
     // WHY: rows are empty while the snapshot loads, so deciding then would send
     // every launch to a draft and drop the restored conversation.
     const store = bootStore()
-    ;(store.session as { tasksStore: { loaded: boolean } }).tasksStore.loaded = false
-    store.activeTasks = []
+    ;(store.session as { issuesStore: { loaded: boolean } }).issuesStore.loaded = false
+    store.activeRows = []
 
     store.settleBootLocation()
 
@@ -238,10 +238,10 @@ describe('session sidebar boot location', () => {
     // deliberate choice, and the run-time rule — not this one — owns what
     // happens when live work ends.
     const store = bootStore()
-    store.activeTasks = [{ id: 'live' } as SidebarTask]
+    store.activeRows = [{ id: 'live' } as SidebarSession]
     store.settleBootLocation()
 
-    store.activeTasks = []
+    store.activeRows = []
     store.settleBootLocation()
 
     expect(store.openedDraftCount).toBe(0)

@@ -190,8 +190,8 @@
   // belongs to — the one-click target. Resolved once here, not per card.
   const conversationTaskId = $derived(
     sess
-      ? (session.tasksStore.taskForSession(sess.id)?.id ??
-        session.tasksStore.taskForSession(sess.agentSessionId)?.id ??
+      ? (session.issuesStore.taskForSession(sess.id)?.id ??
+        session.issuesStore.taskForSession(sess.agentSessionId)?.id ??
         null)
       : null,
   );

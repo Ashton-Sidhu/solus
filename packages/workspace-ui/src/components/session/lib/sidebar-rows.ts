@@ -2,7 +2,7 @@ import { formatElapsed } from '@solus/client-core/elapsed-time'
 import { latestPrObservation } from '../../../contexts/prs/linked-pr'
 import { parseGitHubPullRequestUrl, type PullRequest } from '@solus/contracts/providers'
 import type { Session } from '@solus/contracts/types'
-import type { Task, TaskPrSnapshot } from '@solus/contracts/task-types'
+import type { Issue, IssuePrSnapshot } from '@solus/contracts/task-types'
 import type { DotMarkName } from '@solus/client-core/dot-marks'
 import { liveDotMark, type AttentionState, type LiveMarkFacts } from '../../../lib/sessionUtils'
 import type { ListProjectOption } from '../../ui/list-page/list-page'
@@ -22,7 +22,7 @@ import type { SidebarSection } from './sidebar-list-items'
  *  this", which nothing else in the app knows.
  *
  *  `background` is a finished turn whose background task still runs. */
-export type TaskStatus = 'question' | 'approval' | 'error' | 'plan' | 'limit' | 'starting' | 'running' | 'background' | 'idle' | 'done'
+export type SidebarStatus = 'question' | 'approval' | 'error' | 'plan' | 'limit' | 'starting' | 'running' | 'background' | 'idle' | 'done'
 
 /** One fixed order everywhere. The list is a queue of decisions, so anything
  *  that stopped and asked sorts above anything still working. */
@@ -37,7 +37,7 @@ export const STATUS_RANK = {
   background: 5,
   idle: 6,
   done: 7,
-} satisfies Record<TaskStatus, number>
+} satisfies Record<SidebarStatus, number>
 
 export const ATTENTION_RANK = {
   awaiting: 6,
@@ -55,15 +55,15 @@ export const ATTENTION_RANK = {
  *  that wants a person, and the Background pattern. A running or starting
  *  turn shows its dot mark only when nothing is unread; idle and done report
  *  nothing at all. */
-export function hasStatusMark(status: TaskStatus): boolean {
+export function hasStatusMark(status: SidebarStatus): boolean {
   return status !== 'starting' && status !== 'running' && status !== 'idle' && status !== 'done'
 }
 
 /** The line glyphs (`TaskStatusGlyph`): the states that want a person, and
  *  `finished`, the Done check of finished work that is not read. */
-export type GlyphStatus = Extract<TaskStatus, 'question' | 'approval' | 'error' | 'plan' | 'limit'> | 'finished'
+export type GlyphStatus = Extract<SidebarStatus, 'question' | 'approval' | 'error' | 'plan' | 'limit'> | 'finished'
 
-export function isGlyphStatus(status: TaskStatus | 'finished'): status is GlyphStatus {
+export function isGlyphStatus(status: SidebarStatus | 'finished'): status is GlyphStatus {
   return status === 'finished' || (hasStatusMark(status) && status !== 'background')
 }
 
@@ -80,7 +80,7 @@ export function glyphWord(status: GlyphStatus): string | null {
  * error uses title weight to call for attention. Selection still emphasizes
  * every other state; the accent spine is enough to locate a read error. */
 export function shouldEmphasizeTitle(
-  status: TaskStatus,
+  status: SidebarStatus,
   unread: boolean,
   isCurrent: boolean,
 ): boolean {
@@ -103,7 +103,7 @@ export function shouldEmphasizeTitle(
  * already looked at it would make the column impossible to clear.
  */
 export function shouldLeadTitle(
-  status: TaskStatus,
+  status: SidebarStatus,
   unread: boolean,
   isCurrent: boolean,
 ): boolean {
@@ -114,7 +114,7 @@ export function shouldLeadTitle(
 /** Session output stays unread independently of the durable task lifecycle.
  * A state that needs the user keeps its more specific glyph; otherwise the
  * Done check wins over idle, starting, running, or done presentation. */
-export function showsUnreadIndicator(status: TaskStatus, unread: boolean): boolean {
+export function showsUnreadIndicator(status: SidebarStatus, unread: boolean): boolean {
   return unread && !hasStatusMark(status)
 }
 
@@ -123,7 +123,7 @@ export function showsUnreadIndicator(status: TaskStatus, unread: boolean): boole
  * branch, so the answer belongs to its lone session. A row with several
  * sessions leaves the question to each of them, which can answer differently.
  */
-export function taskRowBranchName(
+export function sessionRowBranchName(
   taskBranchName: string | null,
   sessions: readonly { branchName: string | null }[],
 ): string | null {
@@ -136,7 +136,7 @@ export function taskRowBranchName(
  * rest — the moment it wants something or starts working again, the agent's
  * state is the truth and the check the user ticked is stale.
  */
-export function taskStatusFor(attention: AttentionState, markedDone = false): TaskStatus {
+export function sidebarStatusFor(attention: AttentionState, markedDone = false): SidebarStatus {
   switch (attention) {
     case 'awaiting':
       return 'question'
@@ -197,11 +197,11 @@ export type SidebarRowMark =
   | { kind: 'age'; label: string }
 
 export interface SidebarRowMarkInput {
-  status: TaskStatus
+  status: SidebarStatus
   unread: boolean
   /** The last snooze expired after this row was last visited. */
   woke: boolean
-  lifecycle: SidebarTask['lifecycle']
+  lifecycle: SidebarSession['lifecycle']
   isPinned?: boolean
   /** Start of the turn in flight. 0 unless running. */
   runStartedAt: number
@@ -276,7 +276,7 @@ export function resolveSidebarRowMark(input: SidebarRowMarkInput): SidebarRowMar
  * at full ink however quiet the rest of the column is.
  */
 export function shouldRecedeRow(
-  status: TaskStatus,
+  status: SidebarStatus,
   unread: boolean,
   woke: boolean,
   isOnPath: boolean,
@@ -284,7 +284,7 @@ export function shouldRecedeRow(
   return !hasStatusMark(status) && !unread && !woke && !isOnPath
 }
 
-export interface SidebarTask {
+export interface SidebarSession {
   /** Identifies the row model: the tab of a mounted session, or
    *  `session:<id>` for a session with no conversation open here. */
   id: string
@@ -311,7 +311,7 @@ export interface SidebarTask {
   worktreePath?: string | null
   /** The host this row's session runs on. */
   serverId: string | null
-  status: TaskStatus
+  status: SidebarStatus
   /** The raw state behind `status`, kept so glyphs can be labelled in the
    *  app's own words rather than the sidebar's narrower vocabulary. */
   attention: AttentionState
@@ -335,14 +335,14 @@ export interface SidebarTask {
   tabIds: string[]
   /** The task this session is linked to, named on a chip. A task has no row
    *  of its own: the chip opens its page. */
-  linkedTask?: SidebarLinkedTask
+  linkedTask?: SidebarLinkedIssue
   /** Another person's session, with no task of the reader's around it: the
    *  row is in Shared with you and in no other section
    *  (docs/plans/shared-with-you.md). */
   share?: SessionShare
 }
 
-export interface SidebarLinkedTask {
+export interface SidebarLinkedIssue {
   taskId: string
   title: string
 }
@@ -351,10 +351,10 @@ export interface SidebarLinkedTask {
  *  are included because the unscoped sidebar can show several projects whose
  *  tasks use similar titles. An empty query returns the original array so the
  *  mounted row graph keeps its identity when search is not in use. */
-export function filterSidebarTasks(
-  tasks: SidebarTask[],
+export function filterSidebarSessions(
+  tasks: SidebarSession[],
   query: string,
-): SidebarTask[] {
+): SidebarSession[] {
   const needle = query.trim().toLocaleLowerCase()
   if (!needle) return tasks
   return tasks.filter((task) =>
@@ -375,7 +375,7 @@ function outranksSnooze(attention: AttentionState): boolean {
  * Which shelf a row sits on. Every input is a plain value: whether the work
  * the row stands for is finished and when, and the row's own wake time.
  */
-export function resolveTaskSidebarLifecycle(input: {
+export function resolveSidebarSessionLifecycle(input: {
   isCompleted: boolean
   completedAt?: number
   /** Fallback completion time. A row finished with no recorded time has no
@@ -390,7 +390,7 @@ export function resolveTaskSidebarLifecycle(input: {
    *  which case nothing can outrank the snooze. */
   attention?: AttentionState
   now: number
-}): Pick<SidebarTask, 'lifecycle' | 'completedAt' | 'snoozedUntil' | 'lastReadAt' | 'woke'> {
+}): Pick<SidebarSession, 'lifecycle' | 'completedAt' | 'snoozedUntil' | 'lastReadAt' | 'woke'> {
   const snoozedUntil = input.snoozedUntil ?? 0
   const lastReadAt = input.lastReadAt ?? 0
   const { isCompleted } = input
@@ -417,8 +417,8 @@ export function sessionRowLifecycle(
   state: { settledAt: number | null; snoozedUntil: number | null } | null,
   attention: AttentionState,
   now: number,
-): Pick<SidebarTask, 'lifecycle' | 'completedAt' | 'snoozedUntil' | 'lastReadAt' | 'woke'> {
-  return resolveTaskSidebarLifecycle({
+): Pick<SidebarSession, 'lifecycle' | 'completedAt' | 'snoozedUntil' | 'lastReadAt' | 'woke'> {
+  return resolveSidebarSessionLifecycle({
     isCompleted: !!state?.settledAt,
     completedAt: state?.settledAt ?? undefined,
     snoozedUntil: state?.snoozedUntil ?? undefined,
@@ -440,7 +440,7 @@ export function isCompletedTaskSession(
 
 /** The task store's answer for one session, narrowed to what this rule reads. */
 export interface TaskBySessionLookup {
-  taskForSession(sessionId: string | null | undefined): Task | null
+  taskForSession(sessionId: string | null | undefined): Issue | null
 }
 
 /**
@@ -449,10 +449,10 @@ export interface TaskBySessionLookup {
  * sharing that tiny update hands every keyed row a fresh object and makes the
  * whole column update.
  */
-export function reconcileSidebarTasks(
-  previousById: Map<string, SidebarTask>,
-  nextTasks: SidebarTask[],
-): SidebarTask[] {
+export function reconcileSidebarSessions(
+  previousById: Map<string, SidebarSession>,
+  nextTasks: SidebarSession[],
+): SidebarSession[] {
   const liveIds = new Set<string>()
   const reconciled = nextTasks.map((next) => {
     liveIds.add(next.id)
@@ -499,25 +499,25 @@ export function reconcileSidebarTasks(
 
 /** Keep sidebar rows in their fixed creation order, newest first, so new work
  * lands at the top. */
-export function sortSidebarRowsByCreation(tasks: SidebarTask[]): SidebarTask[] {
+export function sortSidebarRowsByCreation(tasks: SidebarSession[]): SidebarSession[] {
   return [...tasks].sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))
 }
 
 /** When a row last did anything. Asked for, never stored on the row: it moves
  *  with every streamed message, and a row model that carried it would make the
  *  whole column rebuild on each one. */
-export type RowActivity = (task: SidebarTask) => number
+export type RowActivity = (task: SidebarSession) => number
 
 /** Statuses of an agent that is busy and does not need the user: a running
  *  turn, background work after a finished turn, or a wait on a rate limit. */
-export function isWorkingStatus(status: TaskStatus): boolean {
+export function isWorkingStatus(status: SidebarStatus): boolean {
   return status === 'starting' || status === 'running' || status === 'background' || status === 'limit'
 }
 
 /** Whether a row folds into the Working section until it comes back to the
  *  user with a question, a plan, an error, or a finished turn. Another
  *  person's session stays in Shared with you while it runs. */
-export function isInWorkingSection(row: Pick<SidebarTask, 'status' | 'share'>): boolean {
+export function isInWorkingSection(row: Pick<SidebarSession, 'status' | 'share'>): boolean {
   return !row.share && isWorkingStatus(row.status)
 }
 
@@ -529,7 +529,7 @@ export function isInWorkingSection(row: Pick<SidebarTask, 'status' | 'share'>): 
  * their lifecycle, then by whether their agent is busy.
  */
 export function sidebarSectionOf(
-  row: Pick<SidebarTask, 'status' | 'share' | 'lifecycle'>,
+  row: Pick<SidebarSession, 'status' | 'share' | 'lifecycle'>,
   isPinned: boolean,
 ): SidebarSection {
   if (isPinned) return 'pinned'
@@ -541,15 +541,15 @@ export function sidebarSectionOf(
 
 /** Shared with you, newest grant first; a session no direct share gave goes
  *  by its last activity. */
-export function sortSharedRows(rows: readonly SidebarTask[]): SidebarTask[] {
-  const sortAt = (row: SidebarTask) => (row.share ? shareSortAt(row.share) : 0)
+export function sortSharedRows(rows: readonly SidebarSession[]): SidebarSession[] {
+  const sortAt = (row: SidebarSession) => (row.share ? shareSortAt(row.share) : 0)
   return rows.toSorted((a, b) => sortAt(b) - sortAt(a) || a.id.localeCompare(b.id))
 }
 
 /** Order the sessions newest first by when each row last came back to the
  *  user, so a row that leaves the Working section lands on top
  *  (`SidebarReturnOrder`). */
-export function sortRowsByReturn(tasks: readonly SidebarTask[], returnedAt: RowActivity): SidebarTask[] {
+export function sortRowsByReturn(tasks: readonly SidebarSession[], returnedAt: RowActivity): SidebarSession[] {
   const returned = new Map(tasks.map((task) => [task, returnedAt(task)]))
   return tasks.toSorted((a, b) =>
     (returned.get(b) ?? 0) - (returned.get(a) ?? 0) || a.id.localeCompare(b.id),
@@ -563,7 +563,7 @@ export function sortRowsByReturn(tasks: readonly SidebarTask[], returnedAt: RowA
  * rows fold into the Working section, and the sessions are ordered by when
  * each row came back to the user (`sortRowsByReturn`).
  */
-export function sortTasks(tasks: SidebarTask[], activityAt: RowActivity): SidebarTask[] {
+export function sortSidebarSessions(tasks: SidebarSession[], activityAt: RowActivity): SidebarSession[] {
   const activity = new Map(tasks.map((task) => [task, activityAt(task)]))
   return [...tasks].sort((a, b) =>
     STATUS_RANK[a.status] - STATUS_RANK[b.status]
@@ -585,16 +585,16 @@ export interface ProjectSummary {
 
 /**
  * The projects behind the breadcrumb's picker: one per project, grouped the
- * way the column filters (`SidebarTask.groupKey`), each named by its row in
+ * way the column filters (`SidebarSession.groupKey`), each named by its row in
  * `optionsFor`.
  */
 export function buildProjectSummaries(
-  allTasks: SidebarTask[],
+  allRows: SidebarSession[],
   activityAt: RowActivity,
   optionsFor: (projectKeys: string[]) => ListProjectOption[],
 ): ProjectSummary[] {
-  const byProject = new Map<string, SidebarTask[]>()
-  for (const task of allTasks) {
+  const byProject = new Map<string, SidebarSession[]>()
+  for (const task of allRows) {
     const tasks = byProject.get(task.groupKey)
     if (tasks) tasks.push(task)
     else byProject.set(task.groupKey, [task])
@@ -602,7 +602,7 @@ export function buildProjectSummaries(
 
   return optionsFor([...byProject.keys()]).map((project) => {
     const tasks = byProject.get(project.key)!
-    const ranked = sortTasks(tasks, activityAt)
+    const ranked = sortSidebarSessions(tasks, activityAt)
     return {
       project,
       count: tasks.length,
@@ -623,11 +623,11 @@ export function buildProjectSummaries(
  */
 export function resolveProjectFilter(
   savedFilter: string | null,
-  allTasks: readonly SidebarTask[],
+  allRows: readonly SidebarSession[],
   catalogKeys: readonly string[] = [],
 ): string | null {
   if (!savedFilter) return null
-  return catalogKeys.includes(savedFilter) || allTasks.some((task) => task.groupKey === savedFilter)
+  return catalogKeys.includes(savedFilter) || allRows.some((task) => task.groupKey === savedFilter)
     ? savedFilter : null
 }
 
@@ -644,12 +644,12 @@ export interface ProjectFilterChoice extends ListProjectOption {
  *  snoozed or completed — it is still a scope, and it still reads 0. Each is
  *  named by its row in `optionsFor`. */
 export function projectFilterChoices(
-  allTasks: readonly SidebarTask[],
+  allRows: readonly SidebarSession[],
   optionsFor: (projectKeys: string[]) => ListProjectOption[],
   catalogKeys: readonly string[] = [],
 ): ProjectFilterChoice[] {
   const counts = new Map<string, number>()
-  for (const task of allTasks) {
+  for (const task of allRows) {
     counts.set(task.groupKey, (counts.get(task.groupKey) ?? 0) + (task.lifecycle === 'active' ? 1 : 0))
   }
   return optionsFor([...new Set([...counts.keys(), ...catalogKeys])])
@@ -676,12 +676,12 @@ export interface PrChip {
  * pull request and can still open it. Nothing here is reconstructed — a missing
  * URL stays missing rather than being assembled from a repository and a number.
  */
-export interface TaskPrChoice {
+export interface PrChoice {
   number: number
   targetScope: string
   title: string
   url: string | null
-  pullRequest: PullRequest | TaskPrSnapshot | null
+  pullRequest: PullRequest | IssuePrSnapshot | null
   /** A required check fails on the current head, so it cannot merge. Absent
    *  when this client has not read the checks. */
   requiredChecksFail?: boolean
@@ -695,9 +695,9 @@ export interface TaskPrChoice {
  * through a link and through a branch is one entry, and the same number in two
  * repositories is two. The first mention wins, so a link's own title survives a
  * branch observation of the same pull request. */
-export function dedupePrChoices(choices: readonly TaskPrChoice[]): TaskPrChoice[] {
-  const found: TaskPrChoice[] = []
-  const byKey = new Map<string, TaskPrChoice>()
+export function dedupePrChoices(choices: readonly PrChoice[]): PrChoice[] {
+  const found: PrChoice[] = []
+  const byKey = new Map<string, PrChoice>()
   for (const choice of choices) {
     const parsedUrl = choice.url ? parseGitHubPullRequestUrl(choice.url) : null
     // Both names for one pull request. A mention that carries a URL is known by
@@ -764,7 +764,7 @@ export function prChipState(pr: Pick<PullRequest, 'state' | 'draft'> & { needsMy
  *
  * The number is the pull request that gave the set its state, so the number
  * and the colour beside it describe the same pull request. */
-export function prChipForChoices(choices: readonly TaskPrChoice[]): PrChip | null {
+export function prChipForChoices(choices: readonly PrChoice[]): PrChip | null {
   if (!choices.length) return null
   const states = choices.map((choice): PrChipState => {
     const state = choice.pullRequest ? prChipState(choice.pullRequest) : 'unknown'

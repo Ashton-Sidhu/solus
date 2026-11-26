@@ -6,6 +6,7 @@ import type { TranscriptItem } from "@solus-mobile/features/conversation/lib/tra
 import { mayWorkLocallyDuringSetup } from "@solus/contracts/setup-card";
 import { RequestActionButton } from "@solus-mobile/features/threads/RequestActionButton";
 import { compactionDividerText } from "@solus/contracts/context-compaction";
+import { browserSnapshotLabel } from "@solus/client-core/browser-snapshot-label";
 import { handoffDividerText } from "@solus-mobile/features/conversation/lib/provider-handoff";
 import { EnvironmentId } from "@t3tools/contracts";
 import { useTranscriptItem } from "@solus-mobile/features/threads/use-transcript-items";
@@ -174,7 +175,7 @@ export function ConversationCard({ store, id }: { store: ConversationStore; id: 
       return (
         <ConversationMedia
           store={store}
-          label={item.snapshot.title || "Browser screenshot"}
+          label={browserSnapshotLabel(item.snapshot)}
           source={{ assetId: item.snapshot.assetId }}
         />
       );

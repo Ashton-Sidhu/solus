@@ -1,6 +1,6 @@
 <script lang="ts">
   import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
-  import type { TaskAssigneeCandidate } from "@solus/contracts/task-types";
+  import type { IssueAssigneeCandidate } from "@solus/contracts/task-types";
   import { Check as CheckIcon, User as UserIcon } from "@lucide/svelte";
   import * as Command from "../../ui/command";
   import { ListAvatar, personFrom } from "../../ui/list-page";
@@ -11,10 +11,10 @@
    *  picker in the app opens, over the host's assignable people. */
   interface Props {
     assignee?: string;
-    assignees?: TaskAssigneeCandidate[];
+    assignees?: IssueAssigneeCandidate[];
     onSelectMany?: (logins: string[]) => void;
     assigneeAvatarUrl?: string;
-    candidates: TaskAssigneeCandidate[];
+    candidates: IssueAssigneeCandidate[];
     loading: boolean;
     error: string | null;
     /** Why the provider does not take a change of the assignee. Null enables the menu. */

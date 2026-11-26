@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import type { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
-import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
+import type { SidebarSession } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 
 // The store's import chain reaches module-level stores built with `$state`,
 // which only the Svelte compiler provides. Bun runs the source as written, so
@@ -50,7 +50,7 @@ describe('selecting a sidebar row', () => {
       key: 'tab-1',
       tabIds: ['tab-1'],
       linkedTask: { taskId: 'task-1', title: 'Task' },
-    } as SidebarTask)
+    } as SidebarSession)
     expect(calls).toEqual(['tab:tab-1'])
   })
 })
@@ -59,17 +59,17 @@ describe('selecting a sidebar row', () => {
 // sidebar lists them — pinned, sessions, shared with you, then working — not the order tabs
 // were opened. Otherwise the key jumps to a row that is not the one below.
 describe('next and previous session keys', () => {
-  function harness(onScreenTaskId: string | null) {
+  function harness(onScreenSessionRowId: string | null) {
     const opened: string[] = []
     const store = Object.create(SidebarStoreClass.prototype) as SessionSidebarStore
-    const row = (id: string) => ({ id }) as SidebarTask
+    const row = (id: string) => ({ id }) as SidebarSession
     Object.defineProperties(store, {
       sessionRows: { value: [row('session-a'), row('session-b')] },
       sharedRows: { value: [row('shared')] },
       pinnedRows: { value: [row('pinned')] },
       workingRows: { value: [row('working')] },
-      onScreenTaskId: { value: onScreenTaskId },
-      onScreenRowId: { value: onScreenTaskId },
+      onScreenSessionRowId: { value: onScreenSessionRowId },
+      onScreenRowId: { value: onScreenSessionRowId },
     })
     store.selectTask = async (task) => { opened.push(task.id) }
     return { store, opened }

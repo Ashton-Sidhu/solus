@@ -50,8 +50,8 @@ export function useIssueList(targets: ReadonlyArray<IssueListTarget>) {
         timer = setTimeout(() => refreshIssueLists(id), 200);
       };
       return [
-        connection.events.subscribe("tasks.sourcesChanged", refresh),
-        connection.events.subscribe("tasks.invalidated", refresh),
+        connection.events.subscribe("issues.sourcesChanged", refresh),
+        connection.events.subscribe("issues.invalidated", refresh),
         () => clearTimeout(timer),
       ];
     });

@@ -1078,20 +1078,20 @@ describe('native saved artifacts', () => {
 
 test('a task-bound native session prepares its task before dispatch and leaves the local link to the server', async () => {
   const task = { id: 'github:I_1', title: 'Fix login' }
-  const api = baseApi().on('tasksPrepareForSession', () => ({ task, snapshot: null }))
+  const api = baseApi().on('issuesPrepareForSession', () => ({ task, snapshot: null }))
   const { controller } = await open({ api, target: { hostId: 'inst-a', newSession: { sessionId: 'new-task-session', provider: 'codex', workingDirectory: '/work/app' } } })
   controller.bindTask(task.id, 'inst-a')
   await controller.load()
   await controller.send('Fix this issue')
   const methods = api.calls.map((call) => call.method)
-  expect(methods.indexOf('tasksPrepareForSession')).toBeLessThan(methods.indexOf('prompt'))
-  expect(api.callsOf('tasksPrepareForSession')[0]).toEqual([{ taskId: task.id, includeSnapshot: false }])
-  expect(api.callsOf('prompt')[0]?.[1]).toMatchObject({ taskId: task.id, prompt: 'Fix this issue' })
-  expect(api.callsOf('tasksLinkSession')).toHaveLength(0)
+  expect(methods.indexOf('issuesPrepareForSession')).toBeLessThan(methods.indexOf('prompt'))
+  expect(api.callsOf('issuesPrepareForSession')[0]).toEqual([{ issueId: task.id, includeSnapshot: false }])
+  expect(api.callsOf('prompt')[0]?.[1]).toMatchObject({ issueId: task.id, prompt: 'Fix this issue' })
+  expect(api.callsOf('issuesLinkSession')).toHaveLength(0)
 })
 
 test('a refused task preparation keeps the native prompt for retry and never starts an unbound agent', async () => {
-  const api = baseApi().on('tasksPrepareForSession', () => { throw new Error('Task access ended') })
+  const api = baseApi().on('issuesPrepareForSession', () => { throw new Error('Task access ended') })
   const { controller, outbox } = await open({ api, target: { hostId: 'inst-a', newSession: { sessionId: 'new-task-session', provider: 'codex', workingDirectory: '/work/app' } } })
   controller.bindTask('github:I_1', 'inst-a')
   await controller.load()

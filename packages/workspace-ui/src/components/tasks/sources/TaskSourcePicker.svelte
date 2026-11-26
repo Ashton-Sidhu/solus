@@ -1,8 +1,8 @@
 <script lang="ts">
   import { Plus as PlusIcon, RefreshCw as RefreshIcon } from "@lucide/svelte";
   import { untrack } from "svelte";
-  import { taskSourceKey, taskSourceProvider } from "@solus/contracts/task-sources";
-  import { getSettingsContext, getSurfaceContext, taskHostId, taskSourcesStore } from "../../../contexts";
+  import { issueSourceKey, issueSourceProvider } from "@solus/contracts/task-sources";
+  import { getSettingsContext, getSurfaceContext, taskHostId, issueSourcesStore } from "../../../contexts";
   import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import * as Command from "../../ui/command";
   import { MenuSearch } from "../../ui/menu";
@@ -43,7 +43,7 @@
   }
   let { active, onChanged, onLeave, onConnect, provider = null }: Props = $props();
 
-  type SourceProvider = ReturnType<typeof taskSourceProvider>;
+  type SourceProvider = ReturnType<typeof issueSourceProvider>;
   const isProviderShown = (shown: SourceProvider) => provider === null || provider === shown;
 
   const settings = getSettingsContext();
@@ -51,10 +51,10 @@
 
   let query = $state("");
 
-  const config = $derived({ taskSources: settings.taskSources });
-  const configured = $derived(config.taskSources);
-  const options = $derived(taskSourcesStore.options);
-  const optionsError = $derived(taskSourcesStore.optionsError);
+  const config = $derived({ issueSources: settings.issueSources });
+  const configured = $derived(config.issueSources);
+  const options = $derived(issueSourcesStore.options);
+  const optionsError = $derived(issueSourcesStore.optionsError);
   const groups = $derived(options ? sourceChoiceGroups(options, configured) : []);
   // A repository or a Project that the host did not list: typed as
   // `owner/repo`, or pasted as a github.com URL. It needs no answer from the
@@ -68,7 +68,7 @@
   const offered = $derived(
     groups
       .flatMap((group) => matchingChoices(group, query))
-      .filter((choice) => choice.sourceKey !== typedChoice?.sourceKey && isProviderShown(taskSourceProvider(choice.source))),
+      .filter((choice) => choice.sourceKey !== typedChoice?.sourceKey && isProviderShown(issueSourceProvider(choice.source))),
   );
   // Whether this person may save a Linear key here, so its connect action
   // opens the key dialog instead of Settings. Read again on each open.
@@ -82,14 +82,14 @@
     options && !query.trim() ? sourceConnectionNotes(options).filter((note) => isProviderShown(note.provider)) : [],
   );
   const alreadyConfigured = $derived(
-    !typedChoice && !!query.trim() && configured.some((source) => taskSourceKey(source) === manualSourceKey(query)),
+    !typedChoice && !!query.trim() && configured.some((source) => issueSourceKey(source) === manualSourceKey(query)),
   );
 
   // Opening the picker is the only moment the choices are worth a provider
   // read, and a person connects GitHub or Jira in between two opens.
   $effect(() => {
     if (!active) return;
-    untrack(() => void taskSourcesStore.loadOptions());
+    untrack(() => void issueSourcesStore.loadOptions());
   });
   $effect(() => {
     const key = linearKey;
@@ -124,7 +124,7 @@
 {#snippet choiceRow(choice: SourceChoice)}
   <Command.Item value={choice.sourceKey} onSelect={() => add(choice)}>
     <span class="flex w-[15px] shrink-0 items-center justify-center">
-      <SourceLogo source={taskSourceProvider(choice.source)} />
+      <SourceLogo source={issueSourceProvider(choice.source)} />
     </span>
     <span class="min-w-0 flex-1 truncate">{choice.label}</span>
     {#if choice.detail}
@@ -201,7 +201,7 @@
       class="ml-auto flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-9"
       aria-label="Refresh sources"
       title="Refresh sources"
-      onclick={() => void taskSourcesStore.loadOptions()}
+      onclick={() => void issueSourcesStore.loadOptions()}
     >
       <RefreshIcon size={13} aria-hidden="true" />
     </button>

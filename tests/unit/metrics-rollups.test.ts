@@ -142,7 +142,7 @@ describe.serial('session summary', () => {
     const service = registries.SPAN_SERVICES.sessions
     const shared = { kind: turn, name: 'turn', service, sessionId: 'session-2', status: 'ok' as const }
     // Same started_at: span_id breaks the tie.
-    spanTable.writeSpan({ ...shared, spanId: 'b-turn', traceId: 'b-turn', startedAt: 1_000, endedAt: 3_000, model: 'fable', attrs: { costUsd: 0.5, inputTokens: 10, outputTokens: 20, toolCallCount: 2, promptSource: 'typed', taskId: 'task-1', taskTitle: 'Fix observability' } })
+    spanTable.writeSpan({ ...shared, spanId: 'b-turn', traceId: 'b-turn', startedAt: 1_000, endedAt: 3_000, model: 'fable', attrs: { costUsd: 0.5, inputTokens: 10, outputTokens: 20, toolCallCount: 2, promptSource: 'typed', issueId: 'task-1', taskTitle: 'Fix observability' } })
     spanTable.writeSpan({ ...shared, spanId: 'a-turn', traceId: 'a-turn', startedAt: 1_000, endedAt: 2_000, model: 'fable', attrs: { costUsd: 0.25, inputTokens: 5, outputTokens: 5 } })
     spanTable.writeSpan({ ...shared, spanId: 'c-turn', traceId: 'c-turn', startedAt: 5_000, endedAt: 6_000, model: 'opus', status: 'error', attrs: {} })
 
@@ -157,7 +157,7 @@ describe.serial('session summary', () => {
     expect(summary.totalCostUsd).toBe(0.75)
     expect(summary.totalInputTokens).toBe(15)
     expect(summary.totalOutputTokens).toBe(25)
-    expect(summary.taskId).toBe('task-1')
+    expect(summary.issueId).toBe('task-1')
     expect(summary.taskTitle).toBe('Fix observability')
     expect(summary.turns[0].promptSource).toBeNull()
     expect(summary.turns[1].promptSource).toBe('typed')

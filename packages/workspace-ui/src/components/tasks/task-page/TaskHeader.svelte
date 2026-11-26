@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack, type Snippet } from "svelte";
   import type { AgentId } from "@solus/contracts/types";
-  import type { Task, TaskMoveTarget, TaskPriority } from "@solus/contracts/task-types";
+  import type { Issue, IssueMoveTarget, IssuePriority } from "@solus/contracts/task-types";
   import { getAgentContext, getSurfaceContext } from "../../../contexts";
   import DocumentPromptEditor from "../../editor/DocumentPromptEditor.svelte";
   import GithubMarkdown from '../../github-markdown/GithubMarkdown.svelte';
@@ -19,7 +19,7 @@
   import TaskStatusMenu from "./TaskStatusMenu.svelte";
 
   interface Props {
-    task: Task;
+    task: Issue;
     /** Why each field editor is disabled (`taskFieldLocks`). */
     locks: TaskFieldLocks;
     /** Each save answers false when the provider refused the change. */
@@ -27,8 +27,8 @@
     onSaveBody: (body: string) => Promise<boolean>;
     /** What the move menu offers (`taskMoveGroups`). */
     moveGroups: TaskMoveGroup[];
-    onMove: (target: TaskMoveTarget) => void;
-    onSavePriority: (priority: TaskPriority | null) => void;
+    onMove: (target: IssueMoveTarget) => void;
+    onSavePriority: (priority: IssuePriority | null) => void;
     /** The folded rung's stand-in for the rail: a Details disclosure at the end
      *  of the status line, and the panel it opens under the title. Both are
      *  absent wherever the rail's column is actually on screen. */

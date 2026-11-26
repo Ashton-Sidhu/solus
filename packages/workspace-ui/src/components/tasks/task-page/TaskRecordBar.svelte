@@ -8,7 +8,7 @@
     Link as LinkIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
-  import type { Task } from "@solus/contracts/task-types";
+  import type { Issue } from "@solus/contracts/task-types";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import { PROVIDER_NAMES, taskRef } from "../lib/tasks-api";
 
@@ -23,7 +23,7 @@
    * becomes the leading arrow, because on a phone that is the move.
    */
   interface Props {
-    task: Task;
+    task: Issue;
     /** A read of the task from its provider is on its way. */
     refreshing: boolean;
     /** Read the task from its provider again. */

@@ -7,7 +7,7 @@
  *  (plans/031 D6), and on sessions settled before idle sessions left the list
  *  by rule. A person's settle is in their own view, never in the shared
  *  state. */
-export type SessionSettledBy = 'person' | 'pull-request' | 'task' | 'idle'
+export type SessionSettledBy = 'person' | 'pull-request' | 'issue' | 'idle'
 
 /** What every person sees of a session: whether something other than a
  *  person found its work finished — its pull requests or its task. */

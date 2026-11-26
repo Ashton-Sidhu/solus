@@ -2,16 +2,16 @@ import { describe, expect, it } from 'bun:test'
 import type { PullRequest } from '@solus/contracts/providers'
 import { formatElapsed } from '@solus/client-core/elapsed-time'
 import { pullRequestFixture } from './__fixtures__/pull-request'
-import type { Task } from '@solus/contracts/task-types'
+import type { Issue } from '@solus/contracts/task-types'
 import type { ListProjectOption } from '@solus/workspace-ui/components/ui/list-page/list-page'
 import {
-  completedTasksWithinRetention,
-} from '@solus/workspace-ui/lib/completed-task-retention'
+  completedRowsWithinRetention,
+} from '@solus/workspace-ui/lib/completed-row-retention'
 import {
   buildProjectSummaries,
   formatCompletedAge,
   formatWakeIn,
-  filterSidebarTasks,
+  filterSidebarSessions,
   hasStatusMark,
   shouldEmphasizeTitle,
   shouldLeadTitle,
@@ -19,28 +19,28 @@ import {
   prChipForBranches,
   prChipForChoices,
   dedupePrChoices,
-  reconcileSidebarTasks,
+  reconcileSidebarSessions,
   resolveSidebarRowMark,
-  resolveTaskSidebarLifecycle,
+  resolveSidebarSessionLifecycle,
   shouldRecedeRow,
   showsUnreadIndicator,
   isCompletedTaskSession,
   sessionRowLifecycle,
   projectFilterChoices,
   resolveProjectFilter,
-  sortTasks,
+  sortSidebarSessions,
   isInWorkingSection,
   isWorkingStatus,
   sortRowsByReturn,
-  taskRowBranchName,
-  taskStatusFor,
-  type SidebarTask,
-  type TaskStatus,
-} from '@solus/workspace-ui/components/session/lib/task-list'
+  sessionRowBranchName,
+  sidebarStatusFor,
+  type SidebarSession,
+  type SidebarStatus,
+} from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 import { worktreeDisplayName } from '@solus/workspace-ui/lib/git-context'
 
 describe('sidebar task search', () => {
-  const task = (title: string, projectLabel: string): SidebarTask => ({
+  const task = (title: string, projectLabel: string): SidebarSession => ({
     id: title,
     key: title,
     title,
@@ -66,13 +66,13 @@ describe('sidebar task search', () => {
   it('matches task and project names without changing row order', () => {
     // WHY: a multi-project sidebar needs title search and project context, but
     // filtering must not move the rows the user has learned.
-    expect(filterSidebarTasks(tasks, 'SYNC')).toEqual([tasks[0]])
-    expect(filterSidebarTasks(tasks, 'website')).toEqual([tasks[1]])
+    expect(filterSidebarSessions(tasks, 'SYNC')).toEqual([tasks[0]])
+    expect(filterSidebarSessions(tasks, 'website')).toEqual([tasks[1]])
   })
 
   it('keeps the original task array when the query is blank', () => {
     // WHY: idle search must not invalidate every mounted task row.
-    expect(filterSidebarTasks(tasks, '   ')).toBe(tasks)
+    expect(filterSidebarSessions(tasks, '   ')).toBe(tasks)
   })
 })
 
@@ -91,11 +91,11 @@ describe('completed task age', () => {
   it('removes completed sidebar tasks when their retention period ends', () => {
     // WHY: completion history is useful briefly, but old rows must leave the
     // session sidebar without deleting or reopening their durable tasks.
-    const recent = { completedAt: now - 2 * 86_400_000 + 1 } as SidebarTask
-    const expired = { completedAt: now - 2 * 86_400_000 } as SidebarTask
-    const unknown = { completedAt: 0 } as SidebarTask
+    const recent = { completedAt: now - 2 * 86_400_000 + 1 } as SidebarSession
+    const expired = { completedAt: now - 2 * 86_400_000 } as SidebarSession
+    const unknown = { completedAt: 0 } as SidebarSession
 
-    expect(completedTasksWithinRetention([recent, expired, unknown], 2, now)).toEqual([
+    expect(completedRowsWithinRetention([recent, expired, unknown], 2, now)).toEqual([
       recent,
       unknown,
     ])
@@ -105,11 +105,11 @@ describe('completed task age', () => {
 describe('sidebar lifecycle resolution', () => {
   const now = 10 * 24 * 60 * 60 * 1000
   it('keeps work that is not finished active', () => {
-    expect(resolveTaskSidebarLifecycle({ isCompleted: false, now }).lifecycle).toBe('active')
+    expect(resolveSidebarSessionLifecycle({ isCompleted: false, now }).lifecycle).toBe('active')
   })
 
   it('puts done rows in Completed ahead of a stale snooze', () => {
-    expect(resolveTaskSidebarLifecycle({
+    expect(resolveSidebarSessionLifecycle({
       isCompleted: true,
       completedAt: now - 1,
       snoozedUntil: now + 1,
@@ -121,7 +121,7 @@ describe('sidebar lifecycle resolution', () => {
     // WHY: a row finished before its completion time was recorded has none at
     // all. Without a fallback the row reports no age and sorts under every
     // dated row on the shelf.
-    expect(resolveTaskSidebarLifecycle({
+    expect(resolveSidebarSessionLifecycle({
       isCompleted: true,
       updatedAt: now - 3,
       now,
@@ -129,7 +129,7 @@ describe('sidebar lifecycle resolution', () => {
   })
 
   it('prefers the recorded completion time over the last change', () => {
-    expect(resolveTaskSidebarLifecycle({
+    expect(resolveSidebarSessionLifecycle({
       isCompleted: true,
       completedAt: now - 7,
       updatedAt: now - 1,
@@ -138,7 +138,7 @@ describe('sidebar lifecycle resolution', () => {
   })
 
   it('returns an expired snooze with a woke marker until it is read', () => {
-    expect(resolveTaskSidebarLifecycle({
+    expect(resolveSidebarSessionLifecycle({
       isCompleted: false,
       snoozedUntil: now - 1,
       lastReadAt: 0,
@@ -149,7 +149,7 @@ describe('sidebar lifecycle resolution', () => {
   it('keeps a snoozed row on its shelf while its agent is still working', () => {
     // WHY: a snooze defers the row, not the run. Quiet progress is exactly what
     // the user asked not to see, so a turn in flight must not drag it back.
-    expect(resolveTaskSidebarLifecycle({
+    expect(resolveSidebarSessionLifecycle({
       isCompleted: false,
       snoozedUntil: now + 1,
       attention: 'running',
@@ -162,7 +162,7 @@ describe('sidebar lifecycle resolution', () => {
     // would otherwise sit unseen behind the shelf until the wake time. The
     // snooze survives, so answering leaves the wake time in force.
     for (const attention of ['awaiting', 'awaiting_plan', 'error'] as const) {
-      expect(resolveTaskSidebarLifecycle({
+      expect(resolveSidebarSessionLifecycle({
         isCompleted: false,
         snoozedUntil: now + 1,
         attention,
@@ -174,9 +174,9 @@ describe('sidebar lifecycle resolution', () => {
 
 function task(
   key: string,
-  status: TaskStatus,
-  overrides: Partial<SidebarTask> = {},
-): SidebarTask {
+  status: SidebarStatus,
+  overrides: Partial<SidebarSession> = {},
+): SidebarSession {
   return {
     id: key,
     key,
@@ -233,14 +233,14 @@ function pr(overrides: Partial<PullRequest> = {}): PullRequest {
   })
 }
 
-describe('reconcileSidebarTasks', () => {
+describe('reconcileSidebarSessions', () => {
   it('updates the sidebar when an automation is renamed and finds it by its new name', () => {
     const before = task('first', 'idle', { automationId: 'nightly', automationName: 'Nightly sync' })
-    const [after] = reconcileSidebarTasks(new Map([[before.id, before]]), [
+    const [after] = reconcileSidebarSessions(new Map([[before.id, before]]), [
       { ...before, automationName: 'Daily sync' },
     ])
-    expect(filterSidebarTasks([after], 'Daily sync')).toEqual([after])
-    expect(filterSidebarTasks([after], 'Nightly sync')).toEqual([])
+    expect(filterSidebarSessions([after], 'Daily sync')).toEqual([after])
+    expect(filterSidebarSessions([after], 'Nightly sync')).toEqual([])
   })
 
   it('keeps unrelated row models stable when one task clears its unread state', () => {
@@ -251,7 +251,7 @@ describe('reconcileSidebarTasks', () => {
       [second.id, second],
     ])
 
-    const reconciled = reconcileSidebarTasks(previousById, [
+    const reconciled = reconcileSidebarSessions(previousById, [
       task('first', 'idle', { unread: false }),
       task('second', 'running'),
     ])
@@ -266,17 +266,17 @@ describe('reconcileSidebarTasks', () => {
     const linked = task('first', 'idle', { linkedTask: { taskId: 't1', title: 'Stabilize sync' } })
     const previousById = new Map([[linked.id, linked]])
 
-    const same = reconcileSidebarTasks(previousById, [
+    const same = reconcileSidebarSessions(previousById, [
       task('first', 'idle', { linkedTask: { taskId: 't1', title: 'Stabilize sync' } }),
     ])
     expect(same[0]).toBe(linked)
 
-    const renamed = reconcileSidebarTasks(previousById, [
+    const renamed = reconcileSidebarSessions(previousById, [
       task('first', 'idle', { linkedTask: { taskId: 't1', title: 'Stabilize sync and retry' } }),
     ])
     expect(renamed[0]).not.toBe(linked)
 
-    const unlinked = reconcileSidebarTasks(previousById, [task('first', 'idle')])
+    const unlinked = reconcileSidebarSessions(previousById, [task('first', 'idle')])
     expect(unlinked[0].linkedTask).toBeUndefined()
   })
 
@@ -288,7 +288,7 @@ describe('reconcileSidebarTasks', () => {
       [second.id, second],
     ])
 
-    reconcileSidebarTasks(previousById, [task('second', 'idle')])
+    reconcileSidebarSessions(previousById, [task('second', 'idle')])
 
     expect([...previousById.keys()]).toEqual(['second'])
   })
@@ -296,11 +296,11 @@ describe('reconcileSidebarTasks', () => {
 
 const noActivity = () => 0
 
-describe('sortTasks', () => {
+describe('sortSidebarSessions', () => {
   it('puts a question above a running task from another project', () => {
     // The whole point of flat mode: the sort is on state, not on project. If
     // project won, the row that stopped and asked would sit below busywork.
-    const sorted = sortTasks([
+    const sorted = sortSidebarSessions([
       task('running-elsewhere', 'running', {
         projectKey: '/repos/model-routing',
         projectLabel: 'model-routing',
@@ -311,7 +311,7 @@ describe('sortTasks', () => {
   })
 
   it('ranks the full state order: question, error, plan, limit, running, idle, done', () => {
-    const sorted = sortTasks([
+    const sorted = sortSidebarSessions([
       task('g', 'done'),
       task('f', 'idle'),
       task('e', 'running'),
@@ -325,7 +325,7 @@ describe('sortTasks', () => {
 
   it('breaks ties on most recent activity', () => {
     const activity = new Map([['older', 10], ['newer', 20]])
-    const sorted = sortTasks(
+    const sorted = sortSidebarSessions(
       [task('older', 'idle'), task('newer', 'idle')],
       (row) => activity.get(row.key) ?? 0,
     )
@@ -336,7 +336,7 @@ describe('sortTasks', () => {
     // The sidebar renders the array it was given, in the order tasks arrived —
     // a picker asking for a ranking must not be able to shuffle the column.
     const tasks = [task('a', 'idle'), task('b', 'question')]
-    sortTasks(tasks, noActivity)
+    sortSidebarSessions(tasks, noActivity)
     expect(tasks.map((t) => t.key)).toEqual(['a', 'b'])
   })
 })
@@ -638,34 +638,34 @@ describe('dedupePrChoices', () => {
   })
 })
 
-describe('taskStatusFor', () => {
+describe('sidebarStatusFor', () => {
   it('spends no glyph on a finished-but-unread session', () => {
     // The spec has no "finished" state and forbids unread badges; the signal
     // survives as a bolder title instead.
-    expect(taskStatusFor('unread')).toBe('idle')
-    expect(taskStatusFor(null)).toBe('idle')
+    expect(sidebarStatusFor('unread')).toBe('idle')
+    expect(sidebarStatusFor(null)).toBe('idle')
   })
 
   it('maps every attention state that wants a person', () => {
-    expect(taskStatusFor('awaiting')).toBe('question')
-    expect(taskStatusFor('approval')).toBe('approval')
-    expect(taskStatusFor('awaiting_plan')).toBe('plan')
-    expect(taskStatusFor('error')).toBe('error')
-    expect(taskStatusFor('limited')).toBe('limit')
-    expect(taskStatusFor('running')).toBe('running')
+    expect(sidebarStatusFor('awaiting')).toBe('question')
+    expect(sidebarStatusFor('approval')).toBe('approval')
+    expect(sidebarStatusFor('awaiting_plan')).toBe('plan')
+    expect(sidebarStatusFor('error')).toBe('error')
+    expect(sidebarStatusFor('limited')).toBe('limit')
+    expect(sidebarStatusFor('running')).toBe('running')
   })
 
   it('keeps a turn that connects apart from one that runs', () => {
     // Starting has its own mark (the S drawn backward) and no clock yet.
-    expect(taskStatusFor('starting')).toBe('starting')
-    expect(taskStatusFor('starting', true)).toBe('starting')
+    expect(sidebarStatusFor('starting')).toBe('starting')
+    expect(sidebarStatusFor('starting', true)).toBe('starting')
   })
 
   it('tells a background task apart from a running agent, without asking for the user', () => {
     // A turn that ended with a log tail still running used to read as running
     // forever. It has its own glyph, but it wants nothing from the user.
-    expect(taskStatusFor('background')).toBe('background')
-    expect(taskStatusFor('background', true)).toBe('background')
+    expect(sidebarStatusFor('background')).toBe('background')
+    expect(sidebarStatusFor('background', true)).toBe('background')
     expect(hasStatusMark('background')).toBe(true)
     expect(shouldEmphasizeTitle('background', false, false)).toBe(false)
   })
@@ -674,10 +674,10 @@ describe('taskStatusFor', () => {
     // Done is the user's verdict on a task at rest. The moment that task wants
     // something or starts working again, the check they ticked is out of date
     // and the sidebar has to report what is actually happening.
-    expect(taskStatusFor(null, true)).toBe('done')
-    expect(taskStatusFor('unread', true)).toBe('done')
-    expect(taskStatusFor('running', true)).toBe('running')
-    expect(taskStatusFor('awaiting', true)).toBe('question')
+    expect(sidebarStatusFor(null, true)).toBe('done')
+    expect(sidebarStatusFor('unread', true)).toBe('done')
+    expect(sidebarStatusFor('running', true)).toBe('running')
+    expect(sidebarStatusFor('awaiting', true)).toBe('question')
   })
 })
 
@@ -724,26 +724,26 @@ describe('title emphasis', () => {
   })
 })
 
-describe('taskRowBranchName', () => {
+describe('sessionRowBranchName', () => {
   it('states the lone session branch a durable row does not carry', () => {
     // A durable row has no branch of its own, and its one session has no row
     // of its own — so without this the worktree is nowhere in the column.
-    expect(taskRowBranchName(null, [{ branchName: 'solus/refine-sidebar' }]))
+    expect(sessionRowBranchName(null, [{ branchName: 'solus/refine-sidebar' }]))
       .toBe('solus/refine-sidebar')
   })
 
   it('states no branch for a row with several sessions', () => {
     // Each session answers for itself; one branch on the row would claim to
     // speak for work sitting on another.
-    expect(taskRowBranchName(null, [
+    expect(sessionRowBranchName(null, [
       { branchName: 'solus/one' },
       { branchName: 'solus/two' },
     ])).toBe(null)
   })
 
   it('keeps a loose row on its own branch when no session names one', () => {
-    expect(taskRowBranchName('main', [{ branchName: null }])).toBe('main')
-    expect(taskRowBranchName('main', [])).toBe('main')
+    expect(sessionRowBranchName('main', [{ branchName: null }])).toBe('main')
+    expect(sessionRowBranchName('main', [])).toBe('main')
   })
 })
 
@@ -763,11 +763,11 @@ describe('worktreeDisplayName', () => {
 })
 
 describe('open sessions the picker offers', () => {
-  const lookupOf = (byId: Record<string, Task>) => ({
+  const lookupOf = (byId: Record<string, Issue>) => ({
     taskForSession: (sessionId: string | null | undefined) =>
       (sessionId ? byId[sessionId] : null) ?? null,
   })
-  const taskWith = (category: Task['category']): Task => ({ category } as Task)
+  const taskWith = (category: Issue['category']): Issue => ({ category } as Issue)
 
   it('drops a session whose task the user finished, matching the Completed shelf', () => {
     // WHY: the picker's "Open" section and the sidebar list the same work. A
@@ -1044,7 +1044,7 @@ describe('isWorkingStatus', () => {
     // WHY: the Working section hides work that does not need you. A rate-limit
     // wait resumes without the user, so it folds too; a question, a plan, or an
     // error asks for the user and must stay in sight.
-    const statuses: TaskStatus[] = ['question', 'error', 'plan', 'limit', 'running', 'background', 'idle', 'done']
+    const statuses: SidebarStatus[] = ['question', 'error', 'plan', 'limit', 'running', 'background', 'idle', 'done']
     expect(statuses.filter(isWorkingStatus)).toEqual(['limit', 'running', 'background'])
   })
 })
@@ -1053,7 +1053,7 @@ describe('isInWorkingSection', () => {
   it('folds a busy row away and keeps a row that came back to the user', () => {
     // WHY: every row is one session, so a session linked to a task folds into
     // Working like any other while its agent is busy without the user.
-    for (const status of ['running', 'background', 'limit'] satisfies TaskStatus[]) {
+    for (const status of ['running', 'background', 'limit'] satisfies SidebarStatus[]) {
       expect(isInWorkingSection({ status })).toBe(true)
     }
     expect(isInWorkingSection({ status: 'question' })).toBe(false)

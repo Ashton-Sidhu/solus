@@ -130,7 +130,7 @@ async function finishRunSetup(
   const turnTask = await rt.sessionEmitter.runDispatch(
     request.sessionId,
     'task_dimension',
-    { taskId: run.options.taskId ?? '', fn: 'taskOfTurn', file: 'run-task-context.ts' },
+    { taskId: run.options.issueId ?? '', fn: 'taskOfTurn', file: 'run-task-context.ts' },
     async (annotate) => {
       const task = await taskOfTurn(run)
       annotate({ taskId: task?.id ?? '', title: task?.title ?? '' })
@@ -156,7 +156,7 @@ async function finishRunSetup(
   if (request.servedEnqueuedAt !== undefined) {
     rt.sessionEmitter.recordQueueWait(request.sessionId, request.servedEnqueuedAt, runStartedAt)
   }
-  if (handle.agentSessionId && (!run.input.agentSessionId || run.input.forked) && run.options.taskId) {
+  if (handle.agentSessionId && (!run.input.agentSessionId || run.input.forked) && run.options.issueId) {
     await linkPreparedTask(run, request.sessionId)
   }
   return observeRun(rt, pendingStarts, startedRun, request, trace)
@@ -167,7 +167,7 @@ function observeRun(
   request: SessionRunRequest, { runStartedAt, turnTraceId }: RunTrace,
 ): SessionRunLifecycle {
   const agentSessionId = handle.agentSessionId
-    ? Promise.resolve(startedSession(handle.agentSessionId, run.options.taskId))
+    ? Promise.resolve(startedSession(handle.agentSessionId, run.options.issueId))
     : new Promise<{ agentSessionId: string; taskId?: string }>((resolve, reject) => {
         pendingStarts.set(handle, {
           run,

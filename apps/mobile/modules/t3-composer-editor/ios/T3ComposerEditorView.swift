@@ -85,7 +85,7 @@ private final class ComposerTextView: UITextView {
     "undo:",
   ])
 
-  var onPasteImages: (([String]) -> Void)?
+  var onPasteImages: (([String], Int) -> Void)?
   /// Change in how many pasted images are still loading: +n when a paste is accepted, -n once it settles.
   var onPasteImagesPending: ((Int) -> Void)?
   var onPasteContext: (([String: String]) -> Void)?
@@ -248,7 +248,7 @@ private final class ComposerTextView: UITextView {
     if !images.isEmpty {
       let urls = images.compactMap(Self.writeTemporaryImage)
       if !urls.isEmpty {
-        onPasteImages?(urls)
+        onPasteImages?(urls, 0)
         return
       }
     }
@@ -351,9 +351,10 @@ private final class ComposerTextView: UITextView {
       let urls = images.compactMap { $0 }.compactMap {
         Self.writeTemporaryImage($0.data, fileExtension: $0.fileExtension)
       }
-      self.onPasteImagesPending?(-providers.count)
-      if !urls.isEmpty {
-        self.onPasteImages?(urls)
+      if urls.isEmpty {
+        self.onPasteImagesPending?(-providers.count)
+      } else {
+        self.onPasteImages?(urls, providers.count)
       }
     }
   }
@@ -562,8 +563,8 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
         edge.isHidden = true
       }
     }
-    textView.onPasteImages = { [weak self] urls in
-      self?.onComposerPasteImages(["uris": urls])
+    textView.onPasteImages = { [weak self] urls, reservedCount in
+      self?.onComposerPasteImages(["uris": urls, "reservedCount": reservedCount])
     }
     textView.onPasteImagesPending = { [weak self] delta in
       self?.onComposerPasteImagesPending(["delta": delta])

@@ -25,7 +25,7 @@ interface Fixture {
     activeTabId: string
     chatSurfaceTabId: string | null
     sessionFor(tabId: string): SourceSession
-    tasksStore: { taskForSession(sessionId: string): { id: string } | null }
+    issuesStore: { taskForSession(sessionId: string): { id: string } | null }
     openChatSurface(sessionId: string): void
   }
   forkTab(tabId: string, options: { activate: boolean; task: TaskTarget }): Promise<string>
@@ -44,7 +44,7 @@ async function ask(task: TaskTarget, boundTask?: { id: string }) {
     activeTabId: 'source-tab',
     chatSurfaceTabId: null,
     sessionFor: (tabId) => tabId === 'source-tab' ? original : forked,
-    tasksStore: { taskForSession: (sessionId) => { bindingId = sessionId; return boundTask ?? null } },
+    issuesStore: { taskForSession: (sessionId) => { bindingId = sessionId; return boundTask ?? null } },
     openChatSurface: (sessionId) => { openedSessionId = sessionId },
   }
   fixture.forkTab = async (tabId, options) => {
@@ -62,19 +62,19 @@ async function ask(task: TaskTarget, boundTask?: { id: string }) {
 describe('ask in new session task ownership', () => {
   test('uses the source task instead of requesting a new subtask', async () => {
     const result = await ask({ kind: 'none' }, { id: 'source-task' })
-    expect(result.requestedTask).toEqual({ kind: 'existing', taskId: 'source-task' })
+    expect(result.requestedTask).toEqual({ kind: 'existing', issueId: 'source-task' })
     expect(result.bindingId).toBe('stable-source')
   })
 
   test('keeps the bound task over the one the tab was aimed at', async () => {
-    const result = await ask({ kind: 'existing', taskId: 'old-task' }, { id: 'source-task' })
-    expect(result.requestedTask).toEqual({ kind: 'existing', taskId: 'source-task' })
+    const result = await ask({ kind: 'existing', issueId: 'old-task' }, { id: 'source-task' })
+    expect(result.requestedTask).toEqual({ kind: 'existing', issueId: 'source-task' })
     expect(result.bindingId).toBe('stable-source')
   })
 
   test('uses the saved task before the task store has its link', async () => {
-    expect((await ask({ kind: 'existing', taskId: 'saved-task' })).requestedTask)
-      .toEqual({ kind: 'existing', taskId: 'saved-task' })
+    expect((await ask({ kind: 'existing', issueId: 'saved-task' })).requestedTask)
+      .toEqual({ kind: 'existing', issueId: 'saved-task' })
   })
 
   test('preserves an explicit choice to have no task', async () => {

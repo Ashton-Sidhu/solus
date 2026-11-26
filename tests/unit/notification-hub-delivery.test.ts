@@ -60,7 +60,7 @@ const memberPrincipal = (userId: string): Extract<Principal, { kind: 'org-member
 const alice: WorkspaceRequestContext = {
   principal: memberPrincipal('alice'),
   home: { kind: 'organization', organizationId: 'org1', serviceId: 'api' },
-  scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read'],
+  scopes: ['issues:read', 'issues:write', 'works:read', 'works:write', 'sessions:read'],
 }
 const rows = async () => Number((await database.getDatabase().get<{ count: number }>(sql`SELECT COUNT(*) AS count FROM notifications`))?.count ?? 0)
 

@@ -1,6 +1,6 @@
 import type { TaskInvolvement } from '@solus/contracts/task-data'
-import type { TaskSource } from '@solus/contracts/task-sources'
-import type { TaskAssigneeCandidate, TaskColumn } from '@solus/contracts/task-types'
+import type { IssueSource } from '@solus/contracts/task-sources'
+import type { IssueAssigneeCandidate, IssueColumn } from '@solus/contracts/task-types'
 import { githubProjectOptionCategory } from '../status-category'
 import { githubUserId, readDraftItem } from '../providers/github'
 import { searchGithubIssues, withPlanningStatus } from '../providers/github-planning-status'
@@ -30,10 +30,10 @@ import {
   type TaskSourceAdapter,
 } from '../providers/types'
 
-type ProjectSource = Extract<TaskSource, { kind: 'github-project' }>
+type ProjectSource = Extract<IssueSource, { kind: 'github-project' }>
 type ProjectWriteState = Extract<SourceWriteState, { kind: 'github-project' }>
 
-function projectSource(source: TaskSource): ProjectSource {
+function projectSource(source: IssueSource): ProjectSource {
   if (source.kind !== 'github-project') {
     throw new Error(`The GitHub Project source cannot read a ${source.kind} source.`)
   }
@@ -69,7 +69,7 @@ export class GitHubProjectSource implements TaskSourceAdapter {
 
   constructor(private readonly run: GithubRun) {}
 
-  async read(source: TaskSource, continuation?: string): Promise<SourceRead> {
+  async read(source: IssueSource, continuation?: string): Promise<SourceRead> {
     const { owner, number } = projectSource(source)
     return this.run('read_github_project', async ({ graphql }) => {
       const items: SourceItem[] = []
@@ -100,7 +100,7 @@ export class GitHubProjectSource implements TaskSourceAdapter {
         }
         const statusField = project.fields.nodes.find((field) =>
           field?.dataType === 'SINGLE_SELECT' && field.name?.toLowerCase() === 'status')
-        const columns: TaskColumn[] = (statusField?.options ?? []).map((option) => ({
+        const columns: IssueColumn[] = (statusField?.options ?? []).map((option) => ({
           id: option.id,
           name: option.name,
           category: githubProjectOptionCategory(option.name),
@@ -118,7 +118,7 @@ export class GitHubProjectSource implements TaskSourceAdapter {
   }
 
   /** GitHub has no search of one Project, so the search is a filter of the source read. */
-  async search(source: TaskSource, query: string, involvement: TaskInvolvement = 'all'): Promise<ProviderTask[]> {
+  async search(source: IssueSource, query: string, involvement: TaskInvolvement = 'all'): Promise<ProviderTask[]> {
     if (involvement !== 'all') {
       const { owner, number } = projectSource(source)
       return this.run('search_github_project_involvement', async ({ rest, graphql }) => {
@@ -142,7 +142,7 @@ export class GitHubProjectSource implements TaskSourceAdapter {
   }
 
   async create(input: {
-    source: TaskSource
+    source: IssueSource
     writeState: SourceWriteState | null
     draft: TaskDraft
   }): Promise<SourceItem> {
@@ -198,7 +198,7 @@ export class GitHubProjectSource implements TaskSourceAdapter {
   }
 
   /** GitHub cannot list the people a draft item can be assigned to. */
-  async assignees(source: TaskSource): Promise<TaskAssigneeCandidate[]> {
+  async assignees(source: IssueSource): Promise<IssueAssigneeCandidate[]> {
     projectSource(source)
     return []
   }

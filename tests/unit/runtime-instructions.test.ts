@@ -279,7 +279,7 @@ describe('runtime instructions', () => {
     // WHY: guidance for tools a run does not have talks the agent out of the
     // automation it still has (raw simctl, a background wait).
     const deviceListTool = tool('device_list')
-    const createAutomationTool = tool('create_automation')
+    const createAutomationTool = tool('manage_automations')
     const codex = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [deviceListTool, createAutomationTool])
     const claude = await claudeAppend([deviceListTool, createAutomationTool])
     for (const prompt of [codex, claude]) {

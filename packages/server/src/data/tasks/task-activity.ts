@@ -1,5 +1,5 @@
 import type { Activity, TaskEventTarget } from '@solus/contracts/activity'
-import type { TaskEventKind } from '@solus/contracts/task-types'
+import type { IssueEventKind } from '@solus/contracts/task-types'
 import type { Attribution } from '@solus/contracts/user'
 import { newActivity } from '../activity/activity'
 
@@ -16,9 +16,9 @@ export const TASK_ACTIVITY_LIMIT = 200
 export function taskChanged(
   taskId: string,
   by: Attribution,
-  change: TaskEventKind,
+  change: IssueEventKind,
   fields: { from?: string | null; to?: string | null; target?: TaskEventTarget } = {},
   now = Date.now(),
 ): Activity {
-  return newActivity({ kind: 'task', id: taskId }, by, { kind: 'task_changed', change, ...fields }, now)
+  return newActivity({ kind: 'issue', id: taskId }, by, { kind: 'task_changed', change, ...fields }, now)
 }

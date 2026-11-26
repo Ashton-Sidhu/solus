@@ -3,12 +3,12 @@ import { TaskDataStore } from '@solus/client-core/task-data'
 //
 // GitHub and Jira own every task (docs/plans/provider-owned-tasks.md). A host
 // keeps a copy of it and the Solus attachments: session links, links to works,
-// plans, automations and pull requests, and snoozes. There is **one of these
-// per task key**, held in `TasksStore`'s index, so what one surface writes is
+// plans, automations and pull requests. There is **one of these
+// per task key**, held in `IssuesStore`'s index, so what one surface writes is
 // what every other surface reads.
 //
 // `TaskRecord` is the same shape as the wire, and this class implements it — a
-// Task *is* a task, so a surface reads `task.title`, not `task.record.title`.
+// Issue *is* a task, so a surface reads `task.title`, not `task.record.title`.
 // The fields are `$state`, so a snapshot that changes only `category` notifies
 // only what reads `category`.
 //
@@ -19,61 +19,60 @@ import { TaskDataStore } from '@solus/client-core/task-data'
 // request links are kept per host and read merged.
 
 import { SvelteMap } from 'svelte/reactivity'
-import { taskSnoozesStore } from './task-snoozes.store.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
 import type {
   SessionExecutionHost,
-  Task as TaskRecord,
-  TaskAttachments,
-  TaskDetails,
-  TaskEpic,
-  TaskField,
-  TaskKind,
-  TaskLink,
-  TaskLinkInput,
-  TaskLinkKind,
-  TaskMoveTarget,
-  TaskPlacement,
-  TaskPr,
-  TaskPriority,
-  TaskProviderId,
-  TaskSessionLink,
-  TaskSidebarPrLink,
-  TaskSnapshot,
-  TaskState,
-  TaskSummary,
-  TaskUpdatePatch,
+  Issue as TaskRecord,
+  IssueAttachments,
+  IssueDetails,
+  IssueEpic,
+  IssueField,
+  IssueKind,
+  IssueLink,
+  IssueLinkInput,
+  IssueLinkKind,
+  IssueMoveTarget,
+  IssuePlacement,
+  IssuePr,
+  IssuePriority,
+  IssueProviderId,
+  IssueSessionLink,
+  IssueSidebarPrLink,
+  IssueSnapshot,
+  IssueState,
+  IssueSummary,
+  IssueUpdatePatch,
 } from '@solus/contracts/task-types'
-import type { TaskStatusCategory } from '@solus/contracts/task-sources'
+import type { IssueStatusCategory } from '@solus/contracts/task-sources'
 import { sameEpic, samePlacements, samePr, samePrLinks, sameStrings } from './task-reconcile'
 import { hostOfSessionLink, mergePrLinks, mergeSessionLinks } from './task-links'
-import type { TasksStore } from './tasks.store.svelte'
+import type { IssuesStore } from './tasks.store.svelte'
 
-export class Task implements TaskRecord {
+export class Issue implements TaskRecord {
   // --- The task -----------------------------------------------------------
   // `TaskRecord`, field for field. Written only by `hydrate` and by a move
   // that waits for its host.
 
   readonly id: string
-  providerId = $state<TaskProviderId>('github')
-  kind = $state<TaskKind>('issue')
+  providerId = $state<IssueProviderId>('github')
+  kind = $state<IssueKind>('issue')
   reference = $state<string | undefined>()
   title = $state('')
   body = $state('')
   url = $state<string | null>(null)
-  state = $state<TaskState>({ name: '', category: 'open' })
-  category = $state<TaskStatusCategory>('open')
-  placements = $state<TaskPlacement[]>([])
+  state = $state<IssueState>({ name: '', category: 'open' })
+  category = $state<IssueStatusCategory>('open')
+  placements = $state<IssuePlacement[]>([])
   assignees = $state<TaskRecord['assignees']>([])
   assignee = $state<string | undefined>()
   assigneeAvatarUrl = $state<string | undefined>()
   labels = $state<string[]>([])
-  epic = $state<TaskEpic | undefined>()
+  epic = $state<IssueEpic | undefined>()
   dueDate = $state<string | undefined>()
-  priority = $state<TaskPriority | undefined>()
-  pr = $state<TaskPr | undefined>()
-  writableFields = $state<TaskField[]>([])
+  priority = $state<IssuePriority | undefined>()
+  pr = $state<IssuePr | undefined>()
+  writableFields = $state<IssueField[]>([])
   createdAt = $state<number | undefined>()
   updatedAt = $state(0)
   lastReadAt = $state<number | undefined>()
@@ -81,9 +80,9 @@ export class Task implements TaskRecord {
   // --- What this client knows besides the row -----------------------------
 
   readonly data: TaskDataStore
-  readonly #store: TasksStore
+  readonly #store: IssuesStore
 
-  /** Whether any host has described this task yet. `TasksStore.get` mints a task
+  /** Whether any host has described this task yet. `IssuesStore.get` mints a task
    *  on first mention — a deep link, a session link from a host that holds only
    *  attachments — so the fields above are defaults until this is true. */
   #known = $state(false)
@@ -92,16 +91,16 @@ export class Task implements TaskRecord {
    *  describes the task. */
   #serverId = $state<string | null>(null)
 
-  #details = $state<TaskDetails | null>(null)
+  #details = $state<IssueDetails | null>(null)
   /** Session links, by the host that holds them. */
-  #sessionsByHost = new SvelteMap<string, TaskSessionLink[]>()
+  #sessionsByHost = new SvelteMap<string, IssueSessionLink[]>()
   /** Pull request links, by the host that holds them. */
-  #prLinksByHost = new SvelteMap<string, TaskSidebarPrLink[]>()
+  #prLinksByHost = new SvelteMap<string, IssueSidebarPrLink[]>()
   /** The host that holds each link of `details.links` that another host than
    *  `serverId` answered, so an unlink goes back to that host. */
   #attachmentHosts = new Map<string, string>()
   #hiddenForUndo = $state(false)
-  #detailLoad: Promise<TaskDetails> | null = null
+  #detailLoad: Promise<IssueDetails> | null = null
 
   /**
    * How many visible surfaces are rendering this task's detail.
@@ -113,7 +112,7 @@ export class Task implements TaskRecord {
    */
   #watchCount = 0
 
-  constructor(store: TasksStore, id: string) {
+  constructor(store: IssuesStore, id: string) {
     this.#store = store
     this.id = id
     this.data = new TaskDataStore(id, () => {
@@ -149,25 +148,25 @@ export class Task implements TaskRecord {
 
   /** Comments, links and activity. Null until a detail surface has opened it;
    *  the sidebar row carries none of it. */
-  get details(): TaskDetails | null {
+  get details(): IssueDetails | null {
     return this.#details
   }
 
   /** This task's session links from every host that holds one, newest first. */
-  readonly sessions: TaskSessionLink[] = $derived(
+  readonly sessions: IssueSessionLink[] = $derived(
     mergeSessionLinks(this.#sessionsByHost, this.#hostOrder()),
   )
 
   /** Every durable pull request link, newest first. The task's own captured
    *  pull request answers when no host listed a link. */
-  readonly prLinks: TaskSidebarPrLink[] = $derived.by(() => {
+  readonly prLinks: IssueSidebarPrLink[] = $derived.by(() => {
     const links = mergePrLinks(this.#prLinksByHost, this.#hostOrder())
     if (links.length) return links
     return this.pr ? [{ number: this.pr.number, url: this.pr.url }] : []
   })
 
   /** The newest durable linked pull request, for callers that need only one. */
-  get prLink(): TaskSidebarPrLink | null {
+  get prLink(): IssueSidebarPrLink | null {
     return this.prLinks[0] ?? null
   }
 
@@ -177,7 +176,7 @@ export class Task implements TaskRecord {
   }
 
   /** Whether the provider takes a change of this field for this task. */
-  canWrite(field: TaskField): boolean {
+  canWrite(field: IssueField): boolean {
     return this.writableFields.includes(field)
   }
 
@@ -215,7 +214,7 @@ export class Task implements TaskRecord {
     if (this.#serverId) return this.#serverId
     for (const serverId of this.#store.taskReadHosts()) {
       try {
-        const details = await serverConnections.apiFor(serverId).tasksGet(this.id)
+        const details = await serverConnections.apiFor(serverId).issuesGet(this.id)
         if (details?.task) {
           this.hydrate(details.task, serverId)
           return serverId
@@ -239,15 +238,15 @@ export class Task implements TaskRecord {
    * The detail read behind the task page: the task from its provider, with its
    * comments, links and activity. A host that holds session links of this task
    * but does not read it (the organization's Solus API) adds its links and
-   * activity.
+   * activity. `cached` reads the host's copy with no provider call.
    */
-  loadDetails(): Promise<TaskDetails> {
+  loadDetails(options: { cached?: boolean } = {}): Promise<IssueDetails> {
     if (this.#detailLoad) return this.#detailLoad
     const load = (async () => {
       const serverId = await this.ownerHost()
       if (!serverId) throw new Error('No connected host has this task.')
       const [details, others] = await Promise.all([
-        this.data.loadDetails(),
+        this.data.loadDetails(options),
         this.#readOtherAttachments(serverId),
       ])
       if (this.serverId !== serverId) throw new Error('The task host changed during the read.')
@@ -279,11 +278,11 @@ export class Task implements TaskRecord {
     return load
   }
 
-  async #readOtherAttachments(readServerId: string): Promise<Array<{ serverId: string; attachments: TaskAttachments }>> {
+  async #readOtherAttachments(readServerId: string): Promise<Array<{ serverId: string; attachments: IssueAttachments }>> {
     const serverIds = [...this.#sessionsByHost.keys()].filter((serverId) => serverId !== readServerId)
     const answers = await Promise.all(serverIds.map(async (serverId) => {
       try {
-        return { serverId, attachments: await serverConnections.apiFor(serverId).tasksAttachments(this.id) }
+        return { serverId, attachments: await serverConnections.apiFor(serverId).issuesAttachments(this.id) }
       } catch {
         // The task page still shows the task; that host's links come with the next read.
         return null
@@ -303,7 +302,7 @@ export class Task implements TaskRecord {
    * The card moves on this frame, so a drag does not snap back while the
    * provider answers. A refused move puts it back and rethrows.
    */
-  async move(target: TaskMoveTarget): Promise<this> {
+  async move(target: IssueMoveTarget): Promise<this> {
     const previousCategory = this.category
     const placement = 'sourceKey' in target
       ? this.placements.find((held) => held.sourceKey === target.sourceKey)
@@ -312,7 +311,7 @@ export class Task implements TaskRecord {
     if ('category' in target) this.category = target.category
     else if ('columnId' in target && placement) placement.columnId = target.columnId
     try {
-      this.hydrate(await this.#api.tasksMove(this.id, target))
+      this.hydrate(await this.#api.issuesMove(this.id, target))
     } catch (error) {
       this.category = previousCategory
       if (placement && previousColumnId !== undefined) placement.columnId = previousColumnId
@@ -321,55 +320,37 @@ export class Task implements TaskRecord {
     return this
   }
 
-  async update(patch: TaskUpdatePatch): Promise<this> {
-    this.hydrate(await this.#api.tasksUpdate(this.id, patch))
+  async update(patch: IssueUpdatePatch): Promise<this> {
+    this.hydrate(await this.#api.issuesUpdate(this.id, patch))
     return this
   }
 
   async markRead(read: boolean): Promise<this> {
-    this.hydrate(await this.#api.tasksMarkRead(this.id, read))
+    this.hydrate(await this.#api.issuesMarkRead(this.id, read))
     return this
   }
 
-  /** The reader's own snooze: their lists hide the task until then. It is
-   *  not part of the task record; each person's host answers their own. */
-  get snoozedUntil(): number | undefined {
-    return taskSnoozesStore.get(this.id)?.snoozedUntil
-  }
-
-  get snoozeNote(): string | undefined {
-    return taskSnoozesStore.get(this.id)?.snoozeNote
-  }
-
-  /** Hide the task from the reader's task lists until `until`, or wake it now
-   *  with null. Nobody else's lists change, and its agents keep working. */
-  async snooze(until: number | null, note = ''): Promise<this> {
-    const serverId = await this.ownerHost()
-    if (!serverId) throw new Error('No connected host has this task.')
-    await taskSnoozesStore.snooze(serverId, this.id, until, note)
-    return this
-  }
 
   /** Delete a draft item from its GitHub Project. The host refuses an issue. */
   async delete(): Promise<void> {
-    await this.#api.tasksDelete(this.id)
+    await this.#api.issuesDelete(this.id)
   }
 
   /** Post a comment to the provider. A comment the provider did not take comes
    *  back in the details as `unsent`, with its error. */
   async comment(body: string): Promise<this> {
-    this.applyDetails(await this.#api.tasksComment(this.id, body))
+    this.applyDetails(await this.#api.issuesComment(this.id, body))
     return this
   }
 
   /** Send an unsent comment again. */
   async retryComment(commentId: string): Promise<void> {
-    this.applyDetails(await this.#api.tasksRetryComment(this.id, commentId))
+    this.applyDetails(await this.#api.issuesRetryComment(this.id, commentId))
   }
 
   /** Discard an unsent comment. */
   async discardComment(commentId: string): Promise<void> {
-    this.applyDetails(await this.#api.tasksDeleteComment(this.id, commentId))
+    this.applyDetails(await this.#api.issuesDeleteComment(this.id, commentId))
   }
 
   /**
@@ -379,8 +360,8 @@ export class Task implements TaskRecord {
    * a session's own task must come from where that session files it
    * (docs/plans/dispatch-parity.md).
    */
-  async dispatchSnapshot(serverId: string): Promise<TaskSnapshot | null> {
-    return serverConnections.apiFor(serverId).tasksSnapshot(this.id)
+  async dispatchSnapshot(serverId: string): Promise<IssueSnapshot | null> {
+    return serverConnections.apiFor(serverId).issuesSnapshot(this.id)
   }
 
   /**
@@ -403,29 +384,29 @@ export class Task implements TaskRecord {
     serverId?: string,
   ): Promise<void> {
     const api = serverId ? serverConnections.apiFor(serverId) : this.#api
-    await api.tasksLinkSession(this.id, sessionId, 'working', execution)
+    await api.issuesLinkSession(this.id, sessionId, 'working', execution)
   }
 
   /** Attach a doc, plan, pull request or automation to this task. */
-  async link(input: TaskLinkInput): Promise<void> {
-    this.#applyAttachments(this.#serverId, await this.#api.tasksLink(this.id, input))
+  async link(input: IssueLinkInput): Promise<void> {
+    this.#applyAttachments(this.#serverId, await this.#api.issuesLink(this.id, input))
     this.#store.noteLinked(
       { kind: input.kind, targetScope: input.targetScope ?? '', targetKey: input.targetKey },
       this,
     )
   }
 
-  async unlink(kind: TaskLinkKind, targetKey: string, targetScope = ''): Promise<void> {
+  async unlink(kind: IssueLinkKind, targetKey: string, targetScope = ''): Promise<void> {
     const heldBy = this.#attachmentHosts.get(attachmentKey({ kind, targetScope, targetKey }))
     const api = heldBy ? serverConnections.apiFor(heldBy) : this.#api
-    this.#applyAttachments(heldBy ?? this.#serverId, await api.tasksUnlink(this.id, kind, targetKey, targetScope))
+    this.#applyAttachments(heldBy ?? this.#serverId, await api.issuesUnlink(this.id, kind, targetKey, targetScope))
     this.#store.noteUnlinked({ kind, targetScope, targetKey }, this.id)
   }
 
   /** Post a linked artifact's still (and its HTML, where the provider takes
    *  files) as a comment on the task. The host renders the still. */
   async attachArtifact(workId: string): Promise<void> {
-    this.applyDetails(await this.#api.tasksAttachArtifact(this.id, workId))
+    this.applyDetails(await this.#api.issuesAttachArtifact(this.id, workId))
   }
 
   /**
@@ -433,7 +414,7 @@ export class Task implements TaskRecord {
    * other hosts hold stay; the detail read is what brings them all together
    * again.
    */
-  #applyAttachments(serverId: string | null, attachments: TaskAttachments): void {
+  #applyAttachments(serverId: string | null, attachments: IssueAttachments): void {
     const details = this.#details
     if (!details) return
     const fromOtherHosts = details.links.filter((link) => {
@@ -473,7 +454,7 @@ export class Task implements TaskRecord {
     const heldBy = serverId ?? this.#serverId ?? serverConnections.defaultServerId()
     if (!heldBy) return
     this.#sessionsByHost.set(heldBy, [...(this.#sessionsByHost.get(heldBy) ?? []), {
-      taskId: this.id,
+      issueId: this.id,
       sessionId,
       sessionTitle: null,
       provider: null,
@@ -491,7 +472,7 @@ export class Task implements TaskRecord {
    * from `trackSessionStart`, which carries no display metadata. A read that
    * names the session is authoritative, so it upgrades in place.
    */
-  applySessionLink(serverId: string, link: TaskSessionLink): void {
+  applySessionLink(serverId: string, link: IssueSessionLink): void {
     // A new array each time: the map notifies on `set`, not on a change inside
     // a list it holds. One task has few session links.
     const held = this.#sessionsByHost.get(serverId) ?? []
@@ -522,7 +503,7 @@ export class Task implements TaskRecord {
   async unlinkSession(sessionId: string): Promise<void> {
     const heldBy = hostOfSessionLink(this.#sessionsByHost, this.#hostOrder(), sessionId)
     const api = heldBy ? serverConnections.apiFor(heldBy) : this.#api
-    await api.tasksUnlinkSession(this.id, sessionId)
+    await api.issuesUnlinkSession(this.id, sessionId)
     for (const [serverId, held] of this.#sessionsByHost) {
       if (!held.some((link) => link.sessionId === sessionId)) continue
       const kept = held.filter((link) => link.sessionId !== sessionId)
@@ -534,7 +515,7 @@ export class Task implements TaskRecord {
 
   /** Take the session links and the pull request links that one host holds
    *  for this task. An empty answer forgets that host. */
-  applyHostAttachments(serverId: string, sessions: TaskSessionLink[], prLinks: TaskSidebarPrLink[]): void {
+  applyHostAttachments(serverId: string, sessions: IssueSessionLink[], prLinks: IssueSidebarPrLink[]): void {
     for (const link of this.#sessionsByHost.get(serverId) ?? []) this.unbindSession(link.sessionId)
     if (sessions.length) this.#sessionsByHost.set(serverId, sessions)
     else this.#sessionsByHost.delete(serverId)
@@ -571,7 +552,7 @@ export class Task implements TaskRecord {
   }
 
   // --- Ingest -------------------------------------------------------------
-  // Written by `TasksStore` as responses land.
+  // Written by `IssuesStore` as responses land.
 
   /**
    * Take a newly read row.
@@ -581,12 +562,12 @@ export class Task implements TaskRecord {
    * whole workspace — including the sidebar's pull request discovery inputs,
    * whose effect issued the read in the first place. An absent optional is
    * cleared rather than left standing: the row is authoritative about what it
-   * omits — except a list row (`TaskSummary`), which never carries the body or
+   * omits — except a list row (`IssueSummary`), which never carries the body or
    * the epic; only a full record speaks for those.
    *
    * `serverId` names the host that read the task from its provider.
    */
-  hydrate(record: TaskRecord | TaskSummary, serverId?: string): this {
+  hydrate(record: TaskRecord | IssueSummary, serverId?: string): this {
     if (serverId) this.serverId = serverId
     // A draft inside its Undo window still exists on the provider, so a refresh
     // landing here would otherwise put it straight back on screen.
@@ -634,14 +615,14 @@ export class Task implements TaskRecord {
    * are written by the sidebar snapshot and the focused session read and by
    * nothing else, so no surface can narrow them by opening a task.
    */
-  applyDetails(details: TaskDetails): void {
+  applyDetails(details: IssueDetails): void {
     this.data.adopt(details)
     this.hydrate(details.task)
     this.#details = details
     this.#applyDetailPrLinks(details)
   }
 
-  #applyDetailPrLinks(details: TaskDetails): void {
+  #applyDetailPrLinks(details: IssueDetails): void {
     const serverId = this.#serverId
     if (!serverId) return
     const held = this.#prLinksByHost.get(serverId) ?? []
@@ -658,20 +639,20 @@ export class Task implements TaskRecord {
   }
 }
 
-/** The identity of a link on one task (`TaskLink` identity). */
-function attachmentKey(link: Pick<TaskLink, 'kind' | 'targetScope' | 'targetKey'>): string {
+/** The identity of a link on one task (`IssueLink` identity). */
+function attachmentKey(link: Pick<IssueLink, 'kind' | 'targetScope' | 'targetKey'>): string {
   return `${link.kind}:${link.targetScope}:${link.targetKey}`
 }
 
 /** The sidebar's compact view of the pull request links that the task's own
  *  host answered in a detail read. */
-function prLinksOf(details: TaskDetails, attachmentHosts: ReadonlyMap<string, string>): TaskSidebarPrLink[] {
+function prLinksOf(details: IssueDetails, attachmentHosts: ReadonlyMap<string, string>): IssueSidebarPrLink[] {
   return details.links
     .filter((link) => link.kind === 'pr'
       && Number.isSafeInteger(Number(link.targetKey))
       && !attachmentHosts.has(attachmentKey(link)))
     .map((pr) => {
-      const prLink: TaskSidebarPrLink = {
+      const prLink: IssueSidebarPrLink = {
         number: Number(pr.targetKey),
         title: pr.liveTitle || pr.title,
         targetScope: pr.targetScope,

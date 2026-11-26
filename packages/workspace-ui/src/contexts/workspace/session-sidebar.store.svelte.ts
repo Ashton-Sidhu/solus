@@ -2,7 +2,7 @@ import { createAppContext } from '../app/create-app-context'
 import { SvelteSet } from 'svelte/reactivity'
 import { untrack } from 'svelte'
 import { worktreeProjectRoot, type AgentId, type PinnedSession, type RunConfig, type Session, type SessionMeta, type Tab } from '@solus/contracts/types'
-import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
+import type { Issue, IssueSessionLink } from '@solus/contracts/task-types'
 import type { AgentActivity } from '@solus/contracts/agent-activity'
 import { sessionRunKey } from '@solus/contracts/session-execution'
 import type { HostApi } from '@solus/client-core/host-api'
@@ -13,7 +13,7 @@ import { firstActivityAt, lastActivityAt, turnStartedAt, withLazyActivity } from
 import {
   buildProjectSummaries,
   dedupePrChoices,
-  reconcileSidebarTasks,
+  reconcileSidebarSessions,
   sessionRowLifecycle,
   sidebarSectionOf,
   sortSharedRows,
@@ -21,15 +21,15 @@ import {
   resolveProjectFilter,
   sortSidebarRowsByCreation,
   sortRowsByReturn,
-  sortTasks,
-  taskStatusFor,
+  sortSidebarSessions,
+  sidebarStatusFor,
   type ProjectFilterChoice,
   type ProjectSummary,
-  type SidebarLinkedTask,
-  type SidebarTask,
+  type SidebarLinkedIssue,
+  type SidebarSession,
   type MountedPrObservation,
-  type TaskPrChoice,
-} from '../../components/session/lib/task-list'
+  type PrChoice,
+} from '../../components/session/lib/sidebar-rows'
 import { draftTitle, sessionDraftTitle, type DraftRow } from '../../components/session/lib/draft-list'
 import { CHATS_GROUP_KEY, groupKeyFor } from '../projects/projects.store.svelte'
 import { CHAT_LABEL } from '../../lib/paths'
@@ -68,7 +68,7 @@ import { hostKey } from '@solus/client-core/host-key'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { mergeSessionHomes, type SessionHomeHosts } from '../../components/session/lib/session-home'
-import { snoozeWakeDelay } from '../../components/session/lib/task-snooze'
+import { snoozeWakeDelay } from '../../components/session/lib/snooze'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { sessionPrLink, sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import { sessionListStore, type ListedSession, type SessionListTarget } from './session-list.store.svelte'
@@ -103,7 +103,7 @@ const RESTED_PAGE_LIFE_MS = 10_000
 
 function restoredSessionActivityAt(
   liveActivityAt: number,
-  link: Pick<TaskSessionLink, 'lastActivityAt' | 'linkedAt'>,
+  link: Pick<IssueSessionLink, 'lastActivityAt' | 'linkedAt'>,
 ): number {
   return liveActivityAt || link.lastActivityAt || link.linkedAt
 }
@@ -216,7 +216,7 @@ export function registrySessionHomes(): SessionHomeHosts {
 }
 
 export class SessionSidebarStore {
-  private taskModelsById = new Map<string, SidebarTask>()
+  private taskModelsById = new Map<string, SidebarSession>()
   private hasSettledBootLocation = false
 
   /** Pinned sessions, most-recently-pinned first. Loaded on bootstrap, mutated by pin/unpin. */
@@ -259,10 +259,10 @@ export class SessionSidebarStore {
   /** The task an unlinked tab already belongs to: the one it was opened for.
    *  `session_init` assigns the provider id before the durable task link has
    *  finished hydrating, so the chip names the task from the first prompt. */
-  private pendingTaskFor(session: Session | null | undefined): Task | undefined {
+  private pendingTaskFor(session: Session | null | undefined): Issue | undefined {
     const taskId = session ? existingTaskId(session.task) : undefined
     if (!taskId) return undefined
-    return this.session.tasksStore.tasks.find((candidate) => candidate.id === taskId)
+    return this.session.issuesStore.tasks.find((candidate) => candidate.id === taskId)
   }
 
   automationName(automationId: string | undefined, serverId: string | null | undefined): string | undefined {
@@ -281,9 +281,9 @@ export class SessionSidebarStore {
     tabId: string,
     session: Session,
     tab: Tab,
-    linkedTask: SidebarLinkedTask | undefined,
+    linkedTask: SidebarLinkedIssue | undefined,
     key: string,
-  ): SidebarTask {
+  ): SidebarSession {
     // A task of the reader's around it keeps it out of Shared with you: the task is theirs.
     // Whose the session is decides its section, listed or not (docs/plans/shared-with-you.md §2, rule 1).
     const share = linkedTask ? undefined : sessionListStore.shareFacts(session.id)?.share
@@ -298,7 +298,7 @@ export class SessionSidebarStore {
     const automationId = session.startedBy?.kind === 'automation'
       ? session.startedBy.automationId
       : sessionListStore.listed(session.id)?.automationId
-    const row: SidebarTask = {
+    const row: SidebarSession = {
       id: tabId,
       key,
       title: sessionTitle(session),
@@ -311,7 +311,7 @@ export class SessionSidebarStore {
       branchName: environment.branch,
       worktreePath: environment.worktreePath,
       serverId,
-      status: taskStatusFor(attention, isSettled),
+      status: sidebarStatusFor(attention, isSettled),
       attention,
       unread: tab.hasUnread && !isSettled,
       createdAt: firstActivityAt(session),
@@ -335,16 +335,16 @@ export class SessionSidebarStore {
    * this client (docs/plans/session-archive.md). The host names it; selecting
    * the row opens the session.
    */
-  private buildListedSessionRow(listed: ListedSession): SidebarTask {
+  private buildListedSessionRow(listed: ListedSession): SidebarSession {
     const projectKey = worktreeProjectRoot(listed.projectPath ?? '~')
     const state = sessionListStore.stateFor(listed.sessionId)
     const execution = this.session.sessions.executionFor(listed.serverId, listed.sessionId)
     const attention = executionAttention(execution)
     const lifecycle = sessionRowLifecycle(state, attention, this.lifecycleNow)
     const rowId = `session:${listed.sessionId}`
-    const linkedTask = this.session.tasksStore.taskForSession(listed.sessionId)
+    const linkedTask = this.session.issuesStore.taskForSession(listed.sessionId)
     const share = listed.share
-    const row: SidebarTask = {
+    const row: SidebarSession = {
       id: rowId,
       key: rowId,
       sessionId: listed.sessionId,
@@ -357,7 +357,7 @@ export class SessionSidebarStore {
       codebaseId: listed.codebaseId,
       branchName: listed.branch,
       serverId: listed.serverId,
-      status: taskStatusFor(attention, !!state?.settledAt),
+      status: sidebarStatusFor(attention, !!state?.settledAt),
       attention,
       unread: isUnopenedShare(share, sessionListStore.openedGrantAt(listed.sessionId)),
       createdAt: listed.createdAt,
@@ -378,8 +378,8 @@ export class SessionSidebarStore {
   /** Every sidebar row, unfiltered and unsorted — the rail's counts and the
    *  one-project checks both have to see the whole column. Each row stands for
    *  one session; a session linked to a task names it on a chip. */
-  allTasks: SidebarTask[] = $derived.by(() => {
-    const mountedRows: SidebarTask[] = []
+  allRows: SidebarSession[] = $derived.by(() => {
+    const mountedRows: SidebarSession[] = []
     const mountedSessionIds = new Set<string>()
     for (const tabId of this.visibleTabIds) {
       const session = this.session.sessionFor(tabId)
@@ -389,7 +389,7 @@ export class SessionSidebarStore {
       // session keep their own keys.
       const key = mountedSessionIds.has(session.id) ? tabId : `session:${session.id}`
       mountedSessionIds.add(session.id)
-      const linkedTask = this.session.tasksStore.taskForSession(session.id)
+      const linkedTask = this.session.issuesStore.taskForSession(session.id)
         ?? this.pendingTaskFor(session)
       mountedRows.push(this.buildSessionRow(
         tabId,
@@ -407,7 +407,7 @@ export class SessionSidebarStore {
       .filter((listed) => !mountedSessionIds.has(listed.sessionId))
       .map((listed) => this.buildListedSessionRow(listed))
 
-    return reconcileSidebarTasks(
+    return reconcileSidebarSessions(
       this.taskModelsById,
       sortSidebarRowsByCreation([...mountedRows, ...listedSessions]),
     )
@@ -415,7 +415,7 @@ export class SessionSidebarStore {
 
   /** The sidebar aggregates every catalog host's rows into one list
    * (dispatch-client step 2); a row's own host still routes its actions. */
-  catalogTasks: SidebarTask[] = $derived(this.allTasks.filter((row) => {
+  catalogRows: SidebarSession[] = $derived(this.allRows.filter((row) => {
     const sessionId = this.sessionIdOfRow(row)
     return !sessionId || !sessionListStore.isCompletedShare(sessionId)
   }))
@@ -423,13 +423,13 @@ export class SessionSidebarStore {
   /**
    * The session rows that sit under another row (`nestedRowParents`): each
    * nested row id with the id of the row above it. A nested row stays in
-   * `catalogTasks`, so its menu, breadcrumb, and shelf actions are its own;
+   * `catalogRows`, so its menu, breadcrumb, and shelf actions are its own;
    * only its place in the list changes.
    */
   private nestedParentRowIds: Map<string, string> = $derived.by(() => {
     const parentSessionOf = new Map<string, string>()
     const rowOfSession = new Map<string, string>()
-    for (const row of this.catalogTasks) {
+    for (const row of this.catalogRows) {
       if (row.sessionId) rowOfSession.set(row.sessionId, row.id)
       for (const tabId of row.tabIds) {
         const session = this.session.sessionFor(tabId)
@@ -438,13 +438,13 @@ export class SessionSidebarStore {
         if (session.parentSessionId) parentSessionOf.set(row.id, session.parentSessionId)
       }
     }
-    return nestedRowParents(this.catalogTasks, parentSessionOf, rowOfSession)
+    return nestedRowParents(this.catalogRows, parentSessionOf, rowOfSession)
   })
 
   /** The sessions listed under each row that has nested rows, oldest first. */
   private nestedSessionsByRowId: Map<string, SidebarSessionChild[]> = $derived.by(() => {
     const byRowId = new Map<string, SidebarSessionChild[]>()
-    for (const row of this.catalogTasks) {
+    for (const row of this.catalogRows) {
       const parentRowId = this.nestedParentRowIds.get(row.id)
       const tabId = row.tabIds[0]
       if (!parentRowId || !tabId) continue
@@ -471,32 +471,32 @@ export class SessionSidebarStore {
 
   /** Every delegated session under a row, folded or not. The row decides
    *  which it draws (`visibleNestedSessions`). */
-  nestedSessionsFor(row: SidebarTask): SidebarSessionChild[] {
+  nestedSessionsFor(row: SidebarSession): SidebarSessionChild[] {
     return this.nestedSessionsByRowId.get(row.id) ?? []
   }
 
-  isNestedOpen(row: SidebarTask): boolean {
+  isNestedOpen(row: SidebarSession): boolean {
     const override = this.nestedFoldOverride
     if (override?.rowId === row.id && override.onScreenRowId === this.onScreenRowId) return override.isOpen
     return row.id === this.onScreenRowId
   }
 
-  toggleNestedSessions(row: SidebarTask): void {
+  toggleNestedSessions(row: SidebarSession): void {
     this.setNestedOpen(row, !this.isNestedOpen(row))
   }
 
-  setNestedOpen(row: SidebarTask, isOpen: boolean): void {
+  setNestedOpen(row: SidebarSession, isOpen: boolean): void {
     this.nestedFoldOverride = { rowId: row.id, onScreenRowId: this.onScreenRowId, isOpen }
   }
 
-  private withoutNested(rows: SidebarTask[]): SidebarTask[] {
+  private withoutNested(rows: SidebarSession[]): SidebarSession[] {
     return rows.filter((row) => !this.nestedParentRowIds.has(row.id))
   }
 
   /** Every open project, with the counts and the lead task the breadcrumb's
    *  picker lands on. */
   projectSummaries: ProjectSummary[] = $derived(
-    buildProjectSummaries(this.catalogTasks, (task) => this.activityAtFor(task), (keys) => this.projectOptionsFor(keys)),
+    buildProjectSummaries(this.catalogRows, (task) => this.activityAtFor(task), (keys) => this.projectOptionsFor(keys)),
   )
 
   /** The rows these group keys stand for, in order: the shared project rows
@@ -520,7 +520,7 @@ export class SessionSidebarStore {
    * message, so only a reader that shows or ranks by it may ask — the pickers'
    * ranking, or one phone row's timestamp — never the column's projection.
    */
-  activityAtFor(task: SidebarTask): number {
+  activityAtFor(task: SidebarSession): number {
     let latest = 0
     for (const tabId of task.tabIds) {
       const session = this.session.sessionFor(tabId)
@@ -534,7 +534,7 @@ export class SessionSidebarStore {
    * 0. It changes once per send, never per streamed message, so the project
    * view may order its folders by it.
    */
-  sentAtFor(task: SidebarTask): number {
+  sentAtFor(task: SidebarSession): number {
     let latest = 0
     for (const tabId of task.tabIds) {
       latest = Math.max(latest, this.session.sessionFor(tabId)?.lastSentAt ?? 0)
@@ -576,7 +576,7 @@ export class SessionSidebarStore {
    *  against the column's own contents so a project that has left it never
    *  keeps scoping the list to something no longer there. */
   private openProjectFilter: string | null = $derived.by(() =>
-    resolveProjectFilter(this.settings.sidebarProjectFilter, this.catalogTasks, this.catalogProjectKeys),
+    resolveProjectFilter(this.settings.sidebarProjectFilter, this.catalogRows, this.catalogProjectKeys),
   )
 
   /** The saved filter controls the list even when the focused composer is a draft. */
@@ -588,18 +588,18 @@ export class SessionSidebarStore {
 
   /** Every open row, before the filter. The order rows arrived in, held:
    *  lifecycle changes update a row in place. */
-  activeTasks: SidebarTask[] = $derived(this.catalogTasks.filter((task) => task.lifecycle === 'active'))
+  activeRows: SidebarSession[] = $derived(this.catalogRows.filter((task) => task.lifecycle === 'active'))
 
   private returnOrder = new SidebarReturnOrder()
 
   /** Open session rows. A session with unsent work and no pane is in Drafts
    *  instead. */
-  private openRows: SidebarTask[] = $derived.by(() => {
+  private openRows: SidebarSession[] = $derived.by(() => {
     const parked = this.parkedSessionTabIds
     // Every status change rebuilds this pass, so the return order sees each
     // row leave the Working section before the sections sort.
-    this.returnOrder.observe(this.activeTasks, Date.now())
-    return this.inFilter(this.withoutNested(this.activeTasks).filter((row) =>
+    this.returnOrder.observe(this.activeRows, Date.now())
+    return this.inFilter(this.withoutNested(this.activeRows).filter((row) =>
       !row.tabIds.some((tabId) => parked.has(tabId)),
     ))
   })
@@ -607,7 +607,7 @@ export class SessionSidebarStore {
   /** The sessions the list shows bare: active sessions that are not working.
    *  A settled or snoozed session is on its shelf. Another person's session is
    *  in Shared with you. */
-  sessionRows: SidebarTask[] = $derived(sortRowsByReturn(
+  sessionRows: SidebarSession[] = $derived(sortRowsByReturn(
     this.openRows.filter((row) => this.sectionOf(row) === 'sessions'),
     (row) => this.returnOrder.returnedAt(row),
   ))
@@ -615,26 +615,26 @@ export class SessionSidebarStore {
   /** The Working section: open sessions whose agent is busy without the user,
    *  in the order they arrived. A row leaves it when it comes back to the
    *  user, and lands on top of the sessions. */
-  workingRows: SidebarTask[] = $derived(this.openRows.filter((row) => this.sectionOf(row) === 'working'))
+  workingRows: SidebarSession[] = $derived(this.openRows.filter((row) => this.sectionOf(row) === 'working'))
 
   /** Shared with you (docs/plans/shared-with-you.md): other people's sessions
    *  in this person's list, until they complete it, newest grant first. A row with
    *  unsent work and no pane is in Drafts, as a session of their own is. A
    *  shared session nested under one of the reader's sessions stays nested. */
-  sharedRows: SidebarTask[] = $derived.by(() => {
+  sharedRows: SidebarSession[] = $derived.by(() => {
     const parked = this.parkedSessionTabIds
-    return sortSharedRows(this.inFilter(this.withoutNested(this.catalogTasks).filter((row) =>
+    return sortSharedRows(this.inFilter(this.withoutNested(this.catalogRows).filter((row) =>
       this.sectionOf(row) === 'shared' && !row.tabIds.some((tabId) => parked.has(tabId)),
     )))
   })
 
-  snoozedTasks: SidebarTask[] = $derived(
-    this.inFilter(this.withoutNested(this.catalogTasks).filter((task) => this.sectionOf(task) === 'snoozed'))
+  snoozedRows: SidebarSession[] = $derived(
+    this.inFilter(this.withoutNested(this.catalogRows).filter((task) => this.sectionOf(task) === 'snoozed'))
       .toSorted((a, b) => a.snoozedUntil - b.snoozedUntil || a.id.localeCompare(b.id)),
   )
   /** The Completed shelf: settled sessions, newest first. */
-  completedTasks: SidebarTask[] = $derived(
-    this.inFilter(this.withoutNested(this.catalogTasks).filter((task) => this.sectionOf(task) === 'completed'))
+  completedRows: SidebarSession[] = $derived(
+    this.inFilter(this.withoutNested(this.catalogRows).filter((task) => this.sectionOf(task) === 'completed'))
       .toSorted((a, b) => b.completedAt - a.completedAt || a.key.localeCompare(b.key)),
   )
 
@@ -643,8 +643,8 @@ export class SessionSidebarStore {
    *  A pinned session shows here and nowhere else, Drafts included. Pins are
    *  the person's own choice, so the project scope does not hide them. */
   pinnedEntries: PinnedEntry[] = $derived.by(() => {
-    const rowByPin = new Map<PinnedSession, SidebarTask>()
-    for (const row of this.withoutNested(this.catalogTasks)) {
+    const rowByPin = new Map<PinnedSession, SidebarSession>()
+    for (const row of this.withoutNested(this.catalogRows)) {
       const pin = this.pinFor(this.sessionIdOfRow(row), row.serverId)
       if (pin) rowByPin.set(pin, row)
     }
@@ -652,10 +652,10 @@ export class SessionSidebarStore {
   })
 
   /** The pinned rows at the top of the list, in pin order. */
-  pinnedRows: SidebarTask[] = $derived(this.pinnedEntries.flatMap((entry) => (entry.row ? [entry.row] : [])))
+  pinnedRows: SidebarSession[] = $derived(this.pinnedEntries.flatMap((entry) => (entry.row ? [entry.row] : [])))
 
   /** The one section a row is in (`sidebarSectionOf`). */
-  private sectionOf(row: SidebarTask): SidebarSection {
+  private sectionOf(row: SidebarSession): SidebarSection {
     return sidebarSectionOf(row, this.isPinned(this.sessionIdOfRow(row), row.serverId))
   }
 
@@ -664,13 +664,13 @@ export class SessionSidebarStore {
 
   projectFilterChoices: ProjectFilterChoice[] = $derived(
     projectFilterChoices(
-      this.catalogTasks,
+      this.catalogRows,
       (keys) => this.projectOptionsFor(keys),
       this.catalogProjectKeys,
     ),
   )
 
-  private inFilter(tasks: SidebarTask[]): SidebarTask[] {
+  private inFilter(tasks: SidebarSession[]): SidebarSession[] {
     const filter = this.scopedProject?.key ?? null
     return filter ? tasks.filter((task) => task.groupKey === filter) : tasks
   }
@@ -686,7 +686,7 @@ export class SessionSidebarStore {
       if (tabId) composing.add(tabId)
     }
     const parked = new Set<string>()
-    for (const row of this.activeTasks) {
+    for (const row of this.activeRows) {
       for (const tabId of row.tabIds) {
         if (composing.has(tabId)) continue
         const prompt = this.session.sessionFor(tabId)?.prompt
@@ -779,46 +779,46 @@ export class SessionSidebarStore {
   })
 
   /** The row holding a tab, whether that conversation is leading or split.
-   *  Every open tab is projected into `allTasks` as its own row, so a composer
+   *  Every open tab is projected into `allRows` as its own row, so a composer
    *  that has yet to dispatch needs no row of its own synthesized here. */
-  taskForTab(tabId: string): SidebarTask | null {
-    return this.catalogTasks.find((task) => task.tabIds.includes(tabId)) ?? null
+  rowForTab(tabId: string): SidebarSession | null {
+    return this.catalogRows.find((task) => task.tabIds.includes(tabId)) ?? null
   }
 
   /** The task the leading breadcrumb names. */
-  activeTask: SidebarTask | null = $derived.by(() => this.taskForTab(this.session.activeTabId))
+  activeRow: SidebarSession | null = $derived.by(() => this.rowForTab(this.session.activeTabId))
 
   /** The row holding the conversation on screen. Resolved once for the column;
    *  each row compares its own id against it rather than scanning the column. */
-  onScreenTaskId: string | null = $derived.by(() => this.taskForTab(this.session.onScreenTabId)?.id ?? null)
+  onScreenSessionRowId: string | null = $derived.by(() => this.rowForTab(this.session.onScreenTabId)?.id ?? null)
 
   /** The list row on the path to the conversation on screen: the row of that
    *  conversation, or the row it is nested under. */
   onScreenRowId: string | null = $derived(
-    (this.onScreenTaskId && this.nestedParentRowIds.get(this.onScreenTaskId)) || this.onScreenTaskId,
+    (this.onScreenSessionRowId && this.nestedParentRowIds.get(this.onScreenSessionRowId)) || this.onScreenSessionRowId,
   )
 
   /** The row a collapsed shelf keeps showing: the one on screen, so it never
    *  disappears into a shelf. */
-  shelfRevealTaskId: string | null = $derived(this.onScreenRowId)
+  shelfRevealRowId: string | null = $derived(this.onScreenRowId)
 
   /** The task choices for a breadcrumb scoped to either conversation pane. */
-  tasksForProject(groupKey: string | null | undefined): SidebarTask[] {
+  rowsForProject(groupKey: string | null | undefined): SidebarSession[] {
     if (!groupKey) return []
-    return sortTasks(
-      this.catalogTasks.filter((task) => task.groupKey === groupKey),
+    return sortSidebarSessions(
+      this.catalogRows.filter((task) => task.groupKey === groupKey),
       (task) => this.activityAtFor(task),
     )
   }
 
   /** The sessions inside the active task: what the session crumb drops down. */
-  activeTaskSessions: SidebarSessionChild[] = $derived.by(() => {
+  activeRowSessions: SidebarSessionChild[] = $derived.by(() => {
     return this.sessionsForTab(this.session.activeTabId)
   })
 
   /** The sibling sessions a breadcrumb for this tab can switch between. */
   sessionsForTab(tabId: string): SidebarSessionChild[] {
-    const task = this.taskForTab(tabId)
+    const task = this.rowForTab(tabId)
     return task ? this.sessionsFor(task) : []
   }
 
@@ -840,7 +840,7 @@ export class SessionSidebarStore {
    * whose list nothing has read yet — is still a pull request the user linked,
    * and the row shows it.
    */
-  prChoicesFor(task: SidebarTask): TaskPrChoice[] {
+  prChoicesFor(task: SidebarSession): PrChoice[] {
     const serverId = task.serverId
     if (!serverId) return []
     return this.withRequiredChecks(serverId, dedupePrChoices([
@@ -851,14 +851,14 @@ export class SessionSidebarStore {
 
   /** The same set for a surface that names a session rather than a sidebar
    *  row: the session menu, wherever it opens. */
-  prChoicesForSession(serverId: string, sessionId: string, tabId: string | null): TaskPrChoice[] {
+  prChoicesForSession(serverId: string, sessionId: string, tabId: string | null): PrChoice[] {
     return this.withRequiredChecks(serverId, dedupePrChoices([
       ...this.sessionPrChoices(sessionId, serverId, null),
       ...this.mountedPrChoices(tabId ? [tabId] : [], serverId, null),
     ]))
   }
 
-  private withRequiredChecks(serverId: string, choices: TaskPrChoice[]): TaskPrChoice[] {
+  private withRequiredChecks(serverId: string, choices: PrChoice[]): PrChoice[] {
     for (const choice of choices) choice.requiredChecksFail = this.requiredChecksFail(serverId, choice)
     return choices
   }
@@ -870,7 +870,7 @@ export class SessionSidebarStore {
    * the branch has moved past. Checks this client has not read are not a
    * failure.
    */
-  private requiredChecksFail(serverId: string, choice: TaskPrChoice): boolean {
+  private requiredChecksFail(serverId: string, choice: PrChoice): boolean {
     const pullRequest = choice.pullRequest
     if (!pullRequest) return false
     const summary = this.pullRequestChecks.summaryIn(serverId, repositoryKeyOf(pullRequest.baseRepo), choice.number)
@@ -883,7 +883,7 @@ export class SessionSidebarStore {
    * Removes a session's pull request, or null when the session has no link to
    * remove: a pull request read only from the checkout's branch is not linked.
    */
-  pullRequestUnlink(serverId: string | null, sessionId: string | null, choice: TaskPrChoice): (() => Promise<void>) | null {
+  pullRequestUnlink(serverId: string | null, sessionId: string | null, choice: PrChoice): (() => Promise<void>) | null {
     const link = sessionPullRequestsStore.linksFor(sessionId)
       .find((candidate) => candidate.number === choice.number && candidate.repository === choice.targetScope.toLowerCase())
     if (!link || !serverId) return null
@@ -891,7 +891,7 @@ export class SessionSidebarStore {
   }
 
   /** The one session a session row stands for. */
-  sessionIdOfRow(task: SidebarTask): string | null {
+  sessionIdOfRow(task: SidebarSession): string | null {
     const tabId = task.tabIds[0]
     return (tabId ? this.session.tabs[tabId]?.sessionId : undefined) ?? task.sessionId ?? null
   }
@@ -900,7 +900,7 @@ export class SessionSidebarStore {
    * The pull requests a session row's own session links
    * (docs/plans/session-pull-requests.md).
    */
-  private sessionPrChoices(sessionId: string | null, serverId: string, projectKey: string | null): TaskPrChoice[] {
+  private sessionPrChoices(sessionId: string | null, serverId: string, projectKey: string | null): PrChoice[] {
     return sessionPullRequestsStore.linksFor(sessionId).flatMap((link) => {
       const pr = this.pullRequestProjects.linkedPr(serverId, sessionPrLink(link), projectKey)
       return pr ? [pr] : []
@@ -917,7 +917,7 @@ export class SessionSidebarStore {
    * tab — a derived chip, not a claim. A worktree's observation is durable and
    * arrives through `sessionPrChoices` instead, where deduplication meets it.
    */
-  private mountedPrChoices(tabIds: readonly string[], serverId: string, projectKey: string | null): TaskPrChoice[] {
+  private mountedPrChoices(tabIds: readonly string[], serverId: string, projectKey: string | null): PrChoice[] {
     return this.mountedPrObservations(tabIds).flatMap((observation) => {
       const parsedUrl = observation.prUrl ? parseGitHubPullRequestUrl(observation.prUrl) : null
       if (!parsedUrl) return []
@@ -970,8 +970,8 @@ export class SessionSidebarStore {
     private readonly hostReadiness: (serverId: string) => HostReadiness = (serverId) => serverConnections.readinessFor(serverId).readiness,
   ) {
     this.session.setOpenTabPredicate((tabId) =>
-      !this.session.tasksStore.loaded
-      || this.activeTasks.some((task) => task.tabIds.includes(tabId)),
+      !this.session.issuesStore.loaded
+      || this.activeRows.some((task) => task.tabIds.includes(tabId)),
     )
 
     // Wake the next snoozed row exactly when it is due. Without this the shelf
@@ -994,7 +994,7 @@ export class SessionSidebarStore {
     $effect(() => {
       // Depend on the answer arriving, not on the rows it produces: this is a
       // one-shot boot decision, not a rule that keeps re-running as tasks move.
-      void this.session.tasksStore.loaded
+      void this.session.issuesStore.loaded
       untrack(() => this.settleBootLocation())
     })
   }
@@ -1188,13 +1188,13 @@ export class SessionSidebarStore {
    *  subtree keeps one array identity across unrelated invalidations. */
   private sessionsByRowId: Map<string, SidebarSessionChild[]> = $derived.by(() => {
     const byRowId = new Map<string, SidebarSessionChild[]>()
-    for (const row of this.catalogTasks) {
+    for (const row of this.catalogRows) {
       byRowId.set(row.id, row.tabIds.map((tabId) => this.childForTab(tabId)))
     }
     return byRowId
   })
 
-  sessionsFor(task: SidebarTask): SidebarSessionChild[] {
+  sessionsFor(task: SidebarSession): SidebarSessionChild[] {
     // Callers can hold a row the last derived pass hasn't caught up with, so a
     // miss still answers rather than reporting the row as empty.
     return this.sessionsByRowId.get(task.id) ?? task.tabIds.map((tabId) => this.childForTab(tabId))
@@ -1206,19 +1206,19 @@ export class SessionSidebarStore {
    */
   private pickerSessionsByTaskId: Map<string, SidebarSessionChild[]> = $derived.by(() => {
     const byTaskId = new Map<string, SidebarSessionChild[]>()
-    for (const task of this.session.tasksStore.tasks) {
+    for (const task of this.session.issuesStore.tasks) {
       byTaskId.set(task.id, this.linkedSessionsOf(task))
     }
     return byTaskId
   })
 
-  sessionsForPickableTask(task: Task): SidebarSessionChild[] {
+  sessionsForPickableIssue(task: Issue): SidebarSessionChild[] {
     return this.pickerSessionsByTaskId.get(task.id) ?? this.linkedSessionsOf(task)
   }
 
   /** Opening a session whose snooze ended is the read that clears the woken
    *  mark: the host forgets the snooze. */
-  acknowledgeRow(row: SidebarTask): void {
+  acknowledgeRow(row: SidebarSession): void {
     if (row.woke) this.snoozeRow(row.key, null)
   }
 
@@ -1226,7 +1226,7 @@ export class SessionSidebarStore {
    * The session a row stands for, on its host. Null for a session that has
    * not started: its host does not know it yet.
    */
-  private sessionOfRow(row: SidebarTask): { serverId: string; sessionId: string } | null {
+  private sessionOfRow(row: SidebarSession): { serverId: string; sessionId: string } | null {
     if (row.sessionId) return row.serverId ? { serverId: row.serverId, sessionId: row.sessionId } : null
     const tabId = row.tabIds[0]
     const session = tabId ? this.session.sessionFor(tabId) : null
@@ -1237,7 +1237,7 @@ export class SessionSidebarStore {
   /** Whether the row's session can be settled, snoozed, and archived: a
    *  session that has not started cannot, and neither can a member who may
    *  only read a shared session (the host requires an editor). */
-  canShelve(row: SidebarTask): boolean {
+  canShelve(row: SidebarSession): boolean {
     const target = this.sessionOfRow(row)
     return target !== null && canDriveSession(target.serverId, target.sessionId)
   }
@@ -1245,7 +1245,7 @@ export class SessionSidebarStore {
   /** Whether the row's session can be archived. Archive writes the reader's
    *  own view, so a session shared with them to view archives too
    *  (docs/plans/shared-with-you.md §2, rule 4). */
-  canArchive(row: SidebarTask): boolean {
+  canArchive(row: SidebarSession): boolean {
     return this.canShelve(row) || (!!row.share && this.sessionOfRow(row) !== null)
   }
 
@@ -1253,7 +1253,7 @@ export class SessionSidebarStore {
    *  is what the row's own Wake button and the undo toast both call. A prompt
    *  also wakes a session, on the host. */
   snoozeRow(rowKey: string, until: number | null, note = ''): void {
-    const row = this.catalogTasks.find((task) => task.key === rowKey)
+    const row = this.catalogRows.find((task) => task.key === rowKey)
     if (!row) return
     const wasActive = row.lifecycle === 'active'
     const target = this.sessionOfRow(row)
@@ -1275,7 +1275,7 @@ export class SessionSidebarStore {
 
   /** Start the reads opening a listed session needs at the click, before the
    *  deferred switch: its metadata, then its first history page. */
-  prepareOpen(row: SidebarTask): void {
+  prepareOpen(row: SidebarSession): void {
     if (row.tabIds.length || !row.sessionId || !row.serverId || sessionListStore.listed(row.sessionId)?.cloudOnly) return
     // Pointer down and the click both ask; one read serves both.
     if (this.preparedOpen?.rowKey === row.key && Date.now() - this.preparedOpen.at < 2_000) return
@@ -1301,7 +1301,7 @@ export class SessionSidebarStore {
    * while that run goes on. When a run starts or ends before the click, the
    * page is stale and the open reads it again.
    */
-  restOn(row: SidebarTask, isResting: boolean): void {
+  restOn(row: SidebarSession, isResting: boolean): void {
     if (this.restTimer) clearTimeout(this.restTimer)
     this.restTimer = null
     if (!isResting || row.tabIds.length || !row.sessionId) return
@@ -1319,7 +1319,7 @@ export class SessionSidebarStore {
   }
 
   /** Open a listed session that has no conversation here. */
-  private async openListedSession(row: SidebarTask): Promise<void> {
+  private async openListedSession(row: SidebarSession): Promise<void> {
     if (!row.sessionId || !row.serverId) return
     // No connected host has it: it opens with no conversation until a machine is chosen.
     if (sessionListStore.listed(row.sessionId)?.cloudOnly) {
@@ -1356,10 +1356,10 @@ export class SessionSidebarStore {
    * conversation of it is here. A session that has not started has nothing on
    * its host, so its row is only closed.
    */
-  async completeTask(row: SidebarTask): Promise<void> {
+  async completeTask(row: SidebarSession): Promise<void> {
     const target = this.canShelve(row) ? this.sessionOfRow(row) : null
     if (!target) {
-      this.closeTask(row)
+      this.closeRow(row)
       return
     }
     // The list changes before the home answers, so the row moves at once.
@@ -1372,7 +1372,7 @@ export class SessionSidebarStore {
     // The sessions it delegated are finished with it: they settle and close too.
     const targets = [target, ...this.closeDelegatedRows(row, (child) => this.canShelve(child))]
     const settling = Promise.all(targets.map((settled) => sessionListStore.setSettled(settled, true)))
-    this.closeTask(row)
+    this.closeRow(row)
     const { toasts } = await import('../../lib/toasts')
     try {
       await settling
@@ -1394,10 +1394,10 @@ export class SessionSidebarStore {
    * the closed rows that `canChange` accepts, so the row's settle or archive
    * applies to them too.
    */
-  private closeDelegatedRows(row: SidebarTask, canChange: (child: SidebarTask) => boolean): SessionListTarget[] {
+  private closeDelegatedRows(row: SidebarSession, canChange: (child: SidebarSession) => boolean): SessionListTarget[] {
     const target = this.sessionOfRow(row)
     if (!target) return []
-    const children = delegatedRows(target.sessionId, this.catalogTasks, (candidate) => {
+    const children = delegatedRows(target.sessionId, this.catalogRows, (candidate) => {
       const tabId = candidate.tabIds[0]
       return tabId ? this.session.sessionFor(tabId) ?? null : null
     })
@@ -1405,14 +1405,14 @@ export class SessionSidebarStore {
     for (const child of children) {
       const childTarget = canChange(child) ? this.sessionOfRow(child) : null
       if (childTarget) targets.push(childTarget)
-      this.closeTask(child)
+      this.closeRow(child)
     }
     return targets
   }
 
   /** Every session linked to a task, in the order they were linked. */
-  private linkedSessionsOf(record: Task): SidebarSessionChild[] {
-    const taskModel = this.session.tasksStore.get(record.id)
+  private linkedSessionsOf(record: Issue): SidebarSessionChild[] {
+    const taskModel = this.session.issuesStore.get(record.id)
     const seenSessionIds = new Set<string>()
     const children: SidebarSessionChild[] = []
     for (const link of taskModel.sessions.toSorted((a, b) => a.linkedAt - b.linkedAt)) {
@@ -1427,7 +1427,7 @@ export class SessionSidebarStore {
 
   /** One linked session: a mounted one as its tab states it, any other from
    *  its link and the status feed. */
-  private linkedSessionChild(record: Task, link: TaskSessionLink, linkServerId: string | null): SidebarSessionChild {
+  private linkedSessionChild(record: Issue, link: IssueSessionLink, linkServerId: string | null): SidebarSessionChild {
     // The folder of the session's own project: a task names no folder. The host
     // names it, because the path of a checkout in a task folder does not.
     const projectKey = link.projectRoot ?? (link.checkoutPath ? worktreeProjectRoot(link.checkoutPath) : undefined)
@@ -1482,7 +1482,7 @@ export class SessionSidebarStore {
     this.session.selectTab(tabId)
   }
 
-  async selectTask(task: SidebarTask): Promise<void> {
+  async selectTask(task: SidebarSession): Promise<void> {
     // A row stands for one conversation: the mounted one, or the one its host
     // names for a listed session.
     const tabId = task.tabIds[0]
@@ -1500,7 +1500,7 @@ export class SessionSidebarStore {
     const next = index === -1
       ? rows[delta === 1 ? 0 : rows.length - 1]
       : rows[(index + delta + rows.length) % rows.length]
-    if (next.id === this.onScreenTaskId) return
+    if (next.id === this.onScreenSessionRowId) return
     await this.selectTask(next)
   }
 
@@ -1525,8 +1525,8 @@ export class SessionSidebarStore {
     const openRows = [...this.pinnedRows, ...this.sessionRows, ...this.sharedRows, ...this.workingRows]
     const sidebarTasks = [
       ...openRows,
-      ...this.snoozedTasks,
-      ...this.completedTasks,
+      ...this.snoozedRows,
+      ...this.completedRows,
     ]
     const sidebarTabIds = sidebarTasks.flatMap((task) =>
       this.sessionsFor(task).flatMap((child) => child.tabId ? [child.tabId] : []),
@@ -1556,8 +1556,8 @@ export class SessionSidebarStore {
   /** Ending the column's last live row must not drop the pane onto a shelved
    * one. Keep this lifecycle fallback separate from `closeTabs` because a
    * snooze can remove the row before its mounted tabs are closed. */
-  private composeNextPromptIfNoActiveTask(endedTask: SidebarTask): void {
-    if (endedTask.lifecycle !== 'active' || this.activeTasks.length) return
+  private composeNextPromptIfNoActiveTask(endedTask: SidebarSession): void {
+    if (endedTask.lifecycle !== 'active' || this.activeRows.length) return
     if (!this.session.showsConversation) return
     this.session.drafts.openSessionDraft({ freshTask: true, via: 'click' })
   }
@@ -1567,17 +1567,17 @@ export class SessionSidebarStore {
    *  answer is the one chance to decide — after that, opening finished work is
    *  deliberate. Nothing is revealed, so this never changes the startup route. */
   private settleBootLocation(): void {
-    if (this.hasSettledBootLocation || !this.session.tasksStore.loaded) return
+    if (this.hasSettledBootLocation || !this.session.issuesStore.loaded) return
     this.hasSettledBootLocation = true
-    if (this.activeTasks.length || !this.session.showsConversation) return
+    if (this.activeRows.length || !this.session.showsConversation) return
     this.session.drafts.openSessionDraft({ freshTask: true, reveal: false })
   }
 
   /** Close a row's mounted tabs while keeping its session available to resume
    *  from history. */
-  closeTask(task: SidebarTask): void {
+  closeRow(task: SidebarSession): void {
     const tabIdsToClose = task.tabIds.filter((tabId) =>
-      !this.catalogTasks.some((candidate) =>
+      !this.catalogRows.some((candidate) =>
         candidate.id !== task.id && candidate.tabIds.includes(tabId),
       ),
     )
@@ -1592,11 +1592,11 @@ export class SessionSidebarStore {
    * has not started, and a session the reader may not drive, only leave this
    * client.
    */
-  removeRow(row: SidebarTask): void {
+  removeRow(row: SidebarSession): void {
     const target = this.canArchive(row) ? this.sessionOfRow(row) : null
     // The sessions it delegated leave the list with it.
     const delegated = this.closeDelegatedRows(row, (child) => this.canArchive(child))
-    this.closeTask(row)
+    this.closeRow(row)
     if (!target) return
     void this.archiveOnHost([target, ...delegated])
   }
@@ -1627,12 +1627,12 @@ export class SessionSidebarStore {
 
   /** Keyboard dismissal targets a mounted row by tab id. */
   closeSidebarTab(tabId: string): void {
-    const row = this.taskForTab(tabId)
-    if (row) this.closeTask(row)
+    const row = this.rowForTab(tabId)
+    if (row) this.closeRow(row)
   }
 
   /** Toggle the row's host-owned pin, including a session with no open tab. */
-  async toggleRowPin(row: SidebarTask): Promise<void> {
+  async toggleRowPin(row: SidebarSession): Promise<void> {
     const sessionId = this.sessionIdOfRow(row)
     if (!sessionId || !row.serverId || !this.canPinSession(sessionId)) return
     const existing = this.pinFor(sessionId, row.serverId)

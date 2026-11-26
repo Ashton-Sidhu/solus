@@ -178,6 +178,8 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   // The provider returns every tool result through the same shape. Remember
   // which calls launched subagents so their final answer can be marked before
   // the server projects ordinary output away.
+  private readonly launchByTask = new Map<string, string>()
+  private readonly launchByResumeCall = new Map<string, string>()
   private readonly subagentToolIds = new Set<string>()
   // TaskStop kills a backgrounded task out-of-band: no `task_updated` patch and
   // no `task_notification` follow it, so the task never settles on its own and
@@ -302,6 +304,25 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
       normalized.push({ type: 'context_compaction', state: 'stop', trigger: 'auto', failed: true })
     }
     for (const event of normalized) {
+      if (event.type === 'background_task_started' && event.kind === 'subagent' && event.toolUseId) {
+        const launch = this.launchByTask.get(event.taskId)
+        if (launch && launch !== event.toolUseId) {
+          events.push({ type: 'subagent_running', toolUseId: launch })
+          this.launchByResumeCall.set(event.toolUseId, launch)
+          event.toolUseId = launch
+        } else if (this.subagentToolIds.has(event.toolUseId)) {
+          this.launchByTask.set(event.taskId, event.toolUseId)
+        }
+      } else if (event.type === 'background_task_progress' || event.type === 'background_task_settled') {
+        const launch = this.launchByTask.get(event.taskId)
+        if (launch) event.toolUseId = launch
+      } else if ('parentToolUseId' in event && event.parentToolUseId) {
+        const launch = this.launchByResumeCall.get(event.parentToolUseId)
+        if (launch) {
+          if (event.type === 'tool_result' && event.toolUseId === event.parentToolUseId) event.toolUseId = launch
+          event.parentToolUseId = launch
+        }
+      }
       if (event.type === 'task_complete') {
         if (forkPointId) event.forkPointId = forkPointId
         event.costUsd = this.takeTurnCostUsd(event.costUsd) ?? 0

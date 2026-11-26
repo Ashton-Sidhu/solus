@@ -121,8 +121,8 @@ async function fileEvidence(
     // The capture is a provider comment: the asset is published to GitHub or
     // Jira first. A file the provider cannot hold is refused with the reason,
     // so the capture control can say so; nothing stays on this host only.
-    const details = await commentOnTask(ANY_ORGANIZATION, target.taskId, { body: `![${caption}](asset://${assetId})\n\n${caption}`, by })
-    return { attachedTo: `task ${details.task.reference ?? target.taskId}` }
+    const details = await commentOnTask(ANY_ORGANIZATION, target.issueId, { body: `![${caption}](asset://${assetId})\n\n${caption}`, by })
+    return { attachedTo: `task ${details.task.reference ?? target.issueId}` }
   }
 
   const repo = await resolveRepoRef(target.cwd)

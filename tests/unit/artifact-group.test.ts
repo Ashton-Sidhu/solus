@@ -65,13 +65,20 @@ describe('artifact group card', () => {
     expect(lastWrittenWorkId(group.messages)).toBe('a')
   })
 
-  test('one work in a turn makes no group: each write keeps its own row', () => {
-    // WHY: a single artifact is a flush render with its version line. A card
-    // around one work would add chrome and hide nothing.
+  test('one work written three times in a turn is one row, not two earlier-version cards and a render', () => {
+    // WHY: an agent that keeps a checklist up to date writes one work many
+    // times in a turn. Each write was its own row, so the turn showed v1 and
+    // v2 as "earlier version" cards above the v3 render. The render's version
+    // line already reaches the earlier writes.
     const once = groupMessages([prompt(), saved('a', 1)])
-    expect(once.map((item) => item.kind)).toEqual(['user', 'artifact'])
-    const twice = groupMessages([prompt(), saved('a', 1), prose('Fixed it.'), saved('a', 2)])
-    expect(twice.map((item) => item.kind)).toEqual(['user', 'artifact', 'assistant', 'artifact'])
+    expect(once.map((item) => item.kind)).toEqual(['user', 'artifact-group'])
+    const messages = [prompt(), call(), saved('a', 1), prose('Step one done.'), call(), saved('a', 2), call(), saved('a', 3)]
+    const items = groupMessages(messages)
+    expect(items.map((item) => item.kind)).toEqual(['user', 'tool-group', 'artifact-group', 'assistant', 'tool-group', 'tool-group'])
+    const card = items[2]
+    if (card.kind !== 'artifact-group') throw new Error('no card')
+    const works = artifactGroupTabs(card.messages)
+    expect(works.map((work) => [work.workId, work.message.workRef?.contentVersion])).toEqual([['a', 3]])
   })
 
   test('a second work turns the rows of the first into the card, and later cards keep their place', () => {
@@ -85,7 +92,7 @@ describe('artifact group card', () => {
 
   test('a new turn closes the group', () => {
     const items = groupMessages([prompt(), saved('a', 1), saved('b', 1), prompt('More'), saved('c', 1)])
-    expect(items.map((item) => item.kind)).toEqual(['user', 'artifact-group', 'user', 'artifact'])
+    expect(items.map((item) => item.kind)).toEqual(['user', 'artifact-group', 'user', 'artifact-group'])
   })
 
   test('a fence artifact is reply text and stays out of the group', () => {

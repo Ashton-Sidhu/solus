@@ -4,10 +4,10 @@ import {
   customSnoozeUntil,
   snoozeWakeDelay,
   snoozePickerValue,
-  taskSnoozeAnchorTarget,
-  taskSnoozeToastLabel,
-  taskSnoozeUntil,
-} from "@solus/workspace-ui/components/session/lib/task-snooze";
+  snoozeAnchorTarget,
+  snoozeToastLabel,
+  snoozeUntilFor,
+} from "@solus/workspace-ui/components/session/lib/snooze";
 
 const dom = new JSDOM("<button id=\"snooze\"></button>");
 Object.assign(globalThis, {
@@ -18,11 +18,11 @@ Object.assign(globalThis, {
 /** The snooze menu is a dropdown now, so it must hang off whatever opened it:
  *  a row's button positions from the button, and a context menu — which has no
  *  element to point at — positions from the point the user clicked. */
-describe("taskSnoozeAnchorTarget", () => {
+describe("snoozeAnchorTarget", () => {
   test("follows the button that opened the menu", () => {
     const button = dom.window.document.getElementById("snooze")!;
     button.getBoundingClientRect = () => new DOMRect(10, 20, 24, 24);
-    const target = taskSnoozeAnchorTarget(button);
+    const target = snoozeAnchorTarget(button);
     button.getBoundingClientRect = () => new DOMRect(10, 60, 24, 24);
     expect(target.getBoundingClientRect().top).toBe(60);
   });
@@ -32,21 +32,21 @@ describe("taskSnoozeAnchorTarget", () => {
   test("holds the last seen position once the button is hidden", () => {
     const button = dom.window.document.getElementById("snooze")!;
     button.getBoundingClientRect = () => new DOMRect(10, 60, 24, 24);
-    const target = taskSnoozeAnchorTarget(button);
+    const target = snoozeAnchorTarget(button);
     button.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
     const rect = target.getBoundingClientRect();
     expect([rect.left, rect.top, rect.width]).toEqual([10, 60, 24]);
   });
 
   test("turns a context-menu point into a rect at that point", () => {
-    const rect = taskSnoozeAnchorTarget({ x: 120, y: 240 }).getBoundingClientRect();
+    const rect = snoozeAnchorTarget({ x: 120, y: 240 }).getBoundingClientRect();
     expect([rect.left, rect.top, rect.width, rect.height]).toEqual([120, 240, 0, 0]);
   });
 });
 
 /** "Not now, soon" is the common snooze, so the short presets must wake exactly
  *  that span from now — never at a clock time that could already have passed. */
-describe("taskSnoozeUntil", () => {
+describe("snoozeUntilFor", () => {
   const now = new Date("2026-08-21T14:37:12.500Z");
 
   const relative = [
@@ -61,13 +61,13 @@ describe("taskSnoozeUntil", () => {
 
   for (const { preset, minutes } of relative) {
     test(`${preset} wakes ${minutes} minutes from now`, () => {
-      expect(taskSnoozeUntil(preset, now) - now.getTime()).toBe(minutes * 60 * 1000);
+      expect(snoozeUntilFor(preset, now) - now.getTime()).toBe(minutes * 60 * 1000);
     });
   }
 
   test("clock-time presets stay in the future", () => {
     for (const preset of ["evening", "tomorrow", "week"] as const) {
-      expect(taskSnoozeUntil(preset, now)).toBeGreaterThan(now.getTime());
+      expect(snoozeUntilFor(preset, now)).toBeGreaterThan(now.getTime());
     }
   });
 });
@@ -75,16 +75,16 @@ describe("taskSnoozeUntil", () => {
 /** Snoozing a running task leaves the agent running. The user has no way to see
  *  that from the row leaving the list, so the confirmation has to say it — or
  *  they are left guessing whether their work was paused or thrown away. */
-describe("taskSnoozeToastLabel", () => {
+describe("snoozeToastLabel", () => {
   test("says the agent keeps working when a turn is in flight", () => {
-    expect(taskSnoozeToastLabel({ count: 1, hasNote: false, keepsRunning: true }))
+    expect(snoozeToastLabel({ count: 1, hasNote: false, keepsRunning: true }))
       .toBe("Session snoozed — the agent keeps working");
-    expect(taskSnoozeToastLabel({ count: 3, hasNote: false, keepsRunning: true }))
+    expect(snoozeToastLabel({ count: 3, hasNote: false, keepsRunning: true }))
       .toBe("3 sessions snoozed — their agents keep working");
   });
 
   test("claims nothing about work that is not running", () => {
-    expect(taskSnoozeToastLabel({ count: 1, hasNote: true, keepsRunning: false }))
+    expect(snoozeToastLabel({ count: 1, hasNote: true, keepsRunning: false }))
       .toBe("Session snoozed with a reminder");
   });
 });

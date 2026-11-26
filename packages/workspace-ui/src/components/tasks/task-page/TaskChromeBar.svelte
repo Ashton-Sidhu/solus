@@ -6,7 +6,7 @@
     Maximize2 as ArrowsOutSimpleIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
-  import type { Task } from "@solus/contracts/task-types";
+  import type { Issue } from "@solus/contracts/task-types";
   import { PAGE_PILL_ICON_BTN } from "../../../lib/page-chrome";
   import { Button } from "../../ui/button";
   import { PROVIDER_NAMES, taskRef } from "../lib/tasks-api";
@@ -18,7 +18,7 @@
    * slot. `TaskRecordBar` is the phone-width counterpart.
    */
   interface Props {
-    task: Task;
+    task: Issue;
     /** A read of the task from its provider is on its way. */
     refreshing: boolean;
     /** Read the task from its provider again. */

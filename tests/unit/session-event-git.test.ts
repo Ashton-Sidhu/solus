@@ -101,7 +101,7 @@ describe('SessionEventReducer Git events', () => {
         tabIdsBySession: new Map([['session-1', ['tab-1']]]),
       },
       settings: { rateLimitBehavior: 'ask' },
-      tasksStore: {
+      issuesStore: {
         refreshSessionBinding: async () => null,
       },
       log: () => {},
@@ -155,7 +155,7 @@ describe('SessionEventReducer Git events', () => {
         tabIdsBySession: new Map([['session-1', ['tab-1']]]),
       },
       settings: { rateLimitBehavior: 'ask' },
-      tasksStore: { refreshSessionBinding: async () => null },
+      issuesStore: { refreshSessionBinding: async () => null },
       log: () => {},
     } as any)
     const folders: SessionFolder[] = [{ path: '/shop/web', name: 'web', state: 'git', repositoryPath: '/shop/web', source: 'codebase', granted: true }]
@@ -213,7 +213,7 @@ describe('SessionEventReducer Git events', () => {
         tabIdsBySession: new Map([['session-1', ['tab-1']]]),
       },
       settings: { rateLimitBehavior: 'ask' },
-      tasksStore: { refreshSessionBinding: async () => null },
+      issuesStore: { refreshSessionBinding: async () => null },
       log: () => {},
     } as any)
 

@@ -21,7 +21,7 @@ import { type PlanStore } from '../plans/plan.store.svelte'
 import { WorksStore, type WorkListing } from '../works/works.store.svelte'
 import { AutomationsStore } from '../automations/automations.store.svelte'
 import { automationDraftSessionRequest } from '../automations/automation-draft-session'
-import { TasksStore } from '../tasks/tasks.store.svelte'
+import { IssuesStore } from '../tasks/tasks.store.svelte'
 import { OutboxStore } from '../outbox/outbox.store.svelte'
 import type { PullRequestsContext } from '../prs/pull-requests.context.svelte'
 import type { PrReviewTab } from '../prs/pr-view.svelte'
@@ -108,7 +108,7 @@ export interface PullRequestOpenTarget {
 }
 
 const devSessionLogging = Boolean(import.meta.env.DEV)
-const outboxTaskPayloadSchema = z.object({ taskId: z.string().optional() })
+const outboxTaskPayloadSchema = z.object({ issueId: z.string().optional() })
 
 export interface PersistedSessionDrafts {
   version: 2
@@ -209,7 +209,7 @@ export class WorkspaceContext implements SurfaceContext {
   planStore: PlanStore
   worksStore: WorksStore
   automationsStore = new AutomationsStore()
-  tasksStore = new TasksStore()
+  issuesStore = new IssuesStore()
   /** The outbox courier: drains cross-host writes recorded on any connected
    *  host to the host that owns each resource (ADR-0007). */
   outboxStore = new OutboxStore()
@@ -292,7 +292,7 @@ export class WorkspaceContext implements SurfaceContext {
     })
     // The courier stays domain-blind; each domain contributes only the answer
     // to "which connected host owns this resource id".
-    this.outboxStore.registerOwnerResolver('tasks', (taskId) => this.tasksStore.get(taskId).ownerHost())
+    this.outboxStore.registerOwnerResolver('tasks', (taskId) => this.issuesStore.get(taskId).ownerHost())
     // A dispatched session's works ops carry their task's id — the work row may
     // not exist on any host yet (a create in flight), so the task locates the
     // owner.
@@ -300,10 +300,10 @@ export class WorkspaceContext implements SurfaceContext {
       const taskId = ops
         .flatMap((op) => {
           const parsed = outboxTaskPayloadSchema.safeParse(op.payload)
-          return parsed.success && parsed.data.taskId ? [parsed.data.taskId] : []
+          return parsed.success && parsed.data.issueId ? [parsed.data.issueId] : []
         })
         .at(0)
-      return taskId ? this.tasksStore.get(taskId).ownerHost() : Promise.resolve(undefined)
+      return taskId ? this.issuesStore.get(taskId).ownerHost() : Promise.resolve(undefined)
     })
     // A goal belongs to a thread, so GoalSync names sessions. The RPC surface
     // and IPC context are still reached through a tab — they describe where the
@@ -370,7 +370,7 @@ export class WorkspaceContext implements SurfaceContext {
       settings: this.settings,
       planStore: this.planStore,
       worksStore: this.worksStore,
-      tasksStore: this.tasksStore,
+      issuesStore: this.issuesStore,
       automationsStore: this.automationsStore,
       workStreamTracker: this.workStreamTracker,
       isSessionVisible: (sessionId) => this.isSessionVisible(sessionId),
@@ -594,7 +594,7 @@ export class WorkspaceContext implements SurfaceContext {
    *  project, so null when the task names no repository or that host holds no
    *  checkout of it. */
   projectRootOfTask(taskId: string): string | null {
-    const task = this.tasksStore.get(taskId)
+    const task = this.issuesStore.get(taskId)
     const repositoryKey = taskRepositoryKey(task)
     if (!repositoryKey || !task.serverId) return null
     return projectsStore.checkoutsOf(repositoryKey)
@@ -1113,7 +1113,7 @@ export class WorkspaceContext implements SurfaceContext {
     const session = makeSession(this.settings, {
       run,
       pluginCommands: this.pluginCommands,
-      task: options.taskId ? { kind: 'existing', taskId: options.taskId } : { kind: 'none' },
+      task: options.taskId ? { kind: 'existing', issueId: options.taskId } : { kind: 'none' },
     })
     const tab = makeTab(session.id)
     const tabId = tab.id
@@ -1143,7 +1143,7 @@ export class WorkspaceContext implements SurfaceContext {
     if (draftTaskId) return draftTaskId
     const anchor = sourceId ? this.sessionFor(sourceId) : undefined
     if (!anchor) return null
-    return this.tasksStore.taskForSession(anchor.id)?.id
+    return this.issuesStore.taskForSession(anchor.id)?.id
       ?? existingTaskId(anchor.task)
       ?? null
   }
@@ -1837,13 +1837,13 @@ export class WorkspaceContext implements SurfaceContext {
 
     const linkTarget = { kind: 'work' as const, targetScope: '', targetKey: workId }
     const taskServerId = this.worksStore.hostFor(workId) ?? undefined
-    await this.tasksStore.ensureLinkedTasks([linkTarget], taskServerId)
-    const owningTask = this.tasksStore.linkedTasksFor(linkTarget)?.[0]
+    await this.issuesStore.ensureLinkedTasks([linkTarget], taskServerId)
+    const owningTask = this.issuesStore.linkedTasksFor(linkTarget)?.[0]
 
     void this.worksStore.ensureContent(workId, 'send-message-to-work')
 
     const draft = this.drafts.createSessionDraft(
-      owningTask ? { taskId: owningTask.taskId, workId } : { withoutTask: true, workId },
+      owningTask ? { taskId: owningTask.issueId, workId } : { withoutTask: true, workId },
       work.cwd,
     )
     if (taskServerId) draft.moveTo(fileTasksOn(draft.run.location, taskServerId))
@@ -1989,7 +1989,7 @@ export class WorkspaceContext implements SurfaceContext {
    *  deep-links and joins history. */
   goToTask(taskId: string, via: Via = 'palette'): void {
     this.showPage(
-      { name: 'task', params: { taskId, serverId: this.tasksStore.get(taskId).serverId ?? undefined } },
+      { name: 'task', params: { taskId, serverId: this.issuesStore.get(taskId).serverId ?? undefined } },
       via,
       'tasks',
     )

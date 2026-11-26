@@ -4,17 +4,16 @@ import { z } from 'zod'
 import { getDatabase, type Db } from '../../db/database'
 import { createLogger } from '../../logger'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
-import { parseTaskKey, taskKey } from '@solus/contracts/task-sources'
-import { taskSourceAccess, taskSourceItems, taskSources, tasks } from './schema'
+import { parseIssueKey, issueKey } from '@solus/contracts/task-sources'
+import { issueSourceAccess, issueSourceItems, issueSources, issues } from './schema'
 import { commentThreads } from '../comments/schema'
-import { personalResourceState } from '../personal-state/schema'
 import { resourceLinks } from '../links/schema'
 import { scopeClause } from '../scope'
 import { recordTaskChange } from './task-revisions'
 import { taskCategory } from './status-category'
 import type { RecordScope } from '../../admission/principal'
 import type { ProviderTask, TaskHome } from './providers/types'
-import type { Task, TaskColumn, TaskPlacement, TaskSummary } from '@solus/contracts/task-types'
+import type { Issue, IssueColumn, IssuePlacement, IssueSummary } from '@solus/contracts/task-types'
 
 /**
  * The task cache: the host's copy of the tasks that GitHub and Jira own
@@ -41,7 +40,7 @@ export const taskHomeSchema: z.ZodType<TaskHome> = z.union([
   z.object({ provider: z.literal('jira'), cloudId: z.string(), key: z.string() }),
   z.object({ provider: z.literal('linear'), workspaceId: z.string(), issueId: z.string(), teamId: z.string() }),
 ])
-export const taskColumnsSchema: z.ZodType<TaskColumn[]> = z.array(z.object({ id: z.string(), name: z.string(), category: categorySchema }))
+export const taskColumnsSchema: z.ZodType<IssueColumn[]> = z.array(z.object({ id: z.string(), name: z.string(), category: categorySchema }))
 
 const taskRowSchema = z.object({
   id: z.string(),
@@ -124,11 +123,11 @@ export function normalizedOptional(value: string | null | undefined): string | n
 /** Refuse an id that is not a task key, such as an id from before tasks were
  *  provider-owned. An attachment needs no row in `tasks`, only a real key. */
 export function assertTaskKey(taskId: string): void {
-  if (!parseTaskKey(taskId)) throw new Error(`"${taskId}" is not a task of GitHub or Jira.`)
+  if (!parseIssueKey(taskId)) throw new Error(`"${taskId}" is not a task of GitHub or Jira.`)
 }
 
-function taskSummaryFromRow(row: TaskSummaryRow, placements: TaskPlacement[]): TaskSummary {
-  const task: TaskSummary = {
+function taskSummaryFromRow(row: TaskSummaryRow, placements: IssuePlacement[]): IssueSummary {
+  const task: IssueSummary = {
     id: row.id,
     providerId: row.provider,
     kind: row.kind,
@@ -159,8 +158,8 @@ function taskSummaryFromRow(row: TaskSummaryRow, placements: TaskPlacement[]): T
   return task
 }
 
-function taskFromRow(row: TaskRow, placements: TaskPlacement[]): Task {
-  const task: Task = { ...taskSummaryFromRow(row, placements), body: row.body }
+function taskFromRow(row: TaskRow, placements: IssuePlacement[]): Issue {
+  const task: Issue = { ...taskSummaryFromRow(row, placements), body: row.body }
   const epic = jsonValue(row.epic, taskEpicSchema)
   if (epic) task.epic = epic
   return task
@@ -168,52 +167,52 @@ function taskFromRow(row: TaskRow, placements: TaskPlacement[]): Task {
 
 /** The task's compact pull request (`Task.pr`): the URL of its newest own pull request link, one index seek per row. */
 const TASK_PR_URL = sql`(SELECT resource_links.url FROM ${resourceLinks}
-    WHERE resource_links.source_kind = 'task' AND resource_links.source_id = tasks.id AND resource_links.target_kind = 'pr' AND resource_links.url IS NOT NULL
+    WHERE resource_links.source_kind = 'issue' AND resource_links.source_id = issues.id AND resource_links.target_kind = 'pr' AND resource_links.url IS NOT NULL
     ORDER BY resource_links.created_at DESC LIMIT 1) AS pr_url`
 
 function columnsOf(names: readonly string[]): SQL {
-  return sql.join(names.map((name) => sql`${sql.identifier('tasks')}.${sql.identifier(name)}`), sql`, `)
+  return sql.join(names.map((name) => sql`${sql.identifier('issues')}.${sql.identifier(name)}`), sql`, `)
 }
 const TASK_COLUMNS = taskRowSchema.keyof().options.filter((name) => name !== 'pr_url')
-const TASK_SELECT = sql`SELECT ${columnsOf(TASK_COLUMNS)}, ${TASK_PR_URL} FROM ${tasks}`
+const TASK_SELECT = sql`SELECT ${columnsOf(TASK_COLUMNS)}, ${TASK_PR_URL} FROM ${issues}`
 /** A list never shows a body or an epic, so the list statement selects neither. */
-const TASK_SUMMARY_SELECT = sql`SELECT ${columnsOf(TASK_COLUMNS.filter((name) => name !== 'body' && name !== 'epic'))}, ${TASK_PR_URL} FROM ${tasks}`
+const TASK_SUMMARY_SELECT = sql`SELECT ${columnsOf(TASK_COLUMNS.filter((name) => name !== 'body' && name !== 'epic'))}, ${TASK_PR_URL} FROM ${issues}`
 
-const placementRowSchema = z.object({ task_id: z.string(), source_key: z.string(), column_id: z.string().nullable() })
+const placementRowSchema = z.object({ issue_id: z.string(), source_key: z.string(), column_id: z.string().nullable() })
 
 /** Where each task is in the sources that list it. `personKey` keeps only the
  *  sources that person's own connection read. */
-async function placementsOf(db: Db, taskIds: readonly string[], personKey?: string): Promise<Map<string, TaskPlacement[]>> {
-  const placements = new Map<string, TaskPlacement[]>()
+async function placementsOf(db: Db, taskIds: readonly string[], personKey?: string): Promise<Map<string, IssuePlacement[]>> {
+  const placements = new Map<string, IssuePlacement[]>()
   if (!taskIds.length) return placements
   const readByPerson = personKey === undefined
     ? sql``
-    : sql` AND EXISTS (SELECT 1 FROM ${taskSourceAccess} WHERE task_source_access.source_key = task_source_items.source_key
-        AND task_source_access.user_id = ${personKey} AND task_source_access.checked_at IS NOT NULL)`
+    : sql` AND EXISTS (SELECT 1 FROM ${issueSourceAccess} WHERE issue_source_access.source_key = issue_source_items.source_key
+        AND issue_source_access.user_id = ${personKey} AND issue_source_access.checked_at IS NOT NULL)`
   const rows = placementRowSchema.array().parse(await db.all(sql`
-    SELECT task_id, source_key, column_id FROM ${taskSourceItems}
-    WHERE task_id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)})${readByPerson}
+    SELECT issue_id, source_key, column_id FROM ${issueSourceItems}
+    WHERE issue_id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)})${readByPerson}
     ORDER BY source_key
   `))
   for (const row of rows) {
     const placement = { sourceKey: row.source_key, columnId: row.column_id }
-    const held = placements.get(row.task_id)
+    const held = placements.get(row.issue_id)
     if (held) held.push(placement)
-    else placements.set(row.task_id, [placement])
+    else placements.set(row.issue_id, [placement])
   }
   return placements
 }
 
 /** The host's copy of a task, or null when the host never read it. */
-export async function loadTask(id: string, db: Db = database()): Promise<Task | null> {
-  const row = taskRowSchema.nullish().parse(await db.get(sql`${TASK_SELECT} WHERE tasks.id = ${id}`))
+export async function loadTask(id: string, db: Db = database()): Promise<Issue | null> {
+  const row = taskRowSchema.nullish().parse(await db.get(sql`${TASK_SELECT} WHERE issues.id = ${id}`))
   if (!row) return null
   return taskFromRow(row, (await placementsOf(db, [id])).get(id) ?? [])
 }
 
 /** What the adapter needs to write to a task, from its copy. */
 export async function taskHomeOf(id: string, db: Db = database()): Promise<TaskHome | null> {
-  const row = z.object({ home: z.string() }).nullish().parse(await db.get(sql`SELECT home FROM ${tasks} WHERE id = ${id}`))
+  const row = z.object({ home: z.string() }).nullish().parse(await db.get(sql`SELECT home FROM ${issues} WHERE id = ${id}`))
   return row ? jsonValue(row.home, taskHomeSchema) ?? null : null
 }
 
@@ -226,7 +225,7 @@ export interface TaskReader {
 
 /** A task a session of the reader's scope is linked to shows to the reader. */
 function linkedToSession(scope: RecordScope): SQL {
-  return sql`EXISTS (SELECT 1 FROM ${resourceLinks} WHERE resource_links.source_kind = 'task' AND resource_links.source_id = tasks.id
+  return sql`EXISTS (SELECT 1 FROM ${resourceLinks} WHERE resource_links.source_kind = 'issue' AND resource_links.source_id = issues.id
     AND resource_links.target_kind = 'session' AND resource_links.status = 'active' AND ${scopeClause(scope, sql`resource_links.organization_id`)})`
 }
 
@@ -236,31 +235,31 @@ function linkedToSession(scope: RecordScope): SQL {
  * to. Two people on one host with different provider access do not see each
  * other's tasks. `taskIds` narrows the list to those tasks.
  */
-export async function listTasks(reader: TaskReader, taskIds?: readonly string[]): Promise<TaskSummary[]> {
+export async function listTasks(reader: TaskReader, taskIds?: readonly string[]): Promise<IssueSummary[]> {
   if (taskIds && !taskIds.length) return []
   const db = database()
   const named = taskIds
-    ? sql`tasks.id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)}) AND `
+    ? sql`issues.id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)}) AND `
     : sql``
   const rows = taskSummaryRowSchema.array().parse(await db.all(sql`
     ${TASK_SUMMARY_SELECT}
     WHERE ${named}(
-      EXISTS (SELECT 1 FROM ${taskSourceItems} JOIN ${taskSourceAccess} ON task_source_access.source_key = task_source_items.source_key
-        WHERE task_source_items.task_id = tasks.id AND task_source_access.user_id = ${reader.personKey} AND task_source_access.checked_at IS NOT NULL)
+      EXISTS (SELECT 1 FROM ${issueSourceItems} JOIN ${issueSourceAccess} ON issue_source_access.source_key = issue_source_items.source_key
+        WHERE issue_source_items.issue_id = issues.id AND issue_source_access.user_id = ${reader.personKey} AND issue_source_access.checked_at IS NOT NULL)
       OR ${linkedToSession(reader.scope)}
     )
-    ORDER BY tasks.updated_at DESC, tasks.id
+    ORDER BY issues.updated_at DESC, issues.id
   `))
   const placements = await placementsOf(db, rows.map((row) => row.id), reader.personKey)
   return rows.map((row) => taskSummaryFromRow(row, placements.get(row.id) ?? []))
 }
 
 /** The copies of the named tasks, whoever read them: for a caller that holds the keys already. */
-export async function loadTaskSummaries(taskIds: readonly string[]): Promise<TaskSummary[]> {
+export async function loadTaskSummaries(taskIds: readonly string[]): Promise<IssueSummary[]> {
   if (!taskIds.length) return []
   const db = database()
   const rows = taskSummaryRowSchema.array().parse(await db.all(sql`
-    ${TASK_SUMMARY_SELECT} WHERE tasks.id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)})
+    ${TASK_SUMMARY_SELECT} WHERE issues.id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)})
   `))
   const placements = await placementsOf(db, rows.map((row) => row.id))
   return rows.map((row) => taskSummaryFromRow(row, placements.get(row.id) ?? []))
@@ -269,8 +268,8 @@ export async function loadTaskSummaries(taskIds: readonly string[]): Promise<Tas
 /** One change of a task's `category`, which decides whether its sessions settle. */
 export interface TaskCategoryChange {
   taskId: string
-  from: Task['category'] | null
-  to: Task['category']
+  from: Issue['category'] | null
+  to: Issue['category']
 }
 
 /** What one write of a provider answer did to the host's copy. */
@@ -311,10 +310,10 @@ function assigneesJsonOf(task: ProviderTask): string {
 }
 
 export async function upsertProviderTask(db: Db, task: ProviderTask, now: number): Promise<TaskUpsert> {
-  const id = taskKey(task.ref)
+  const id = issueKey(task.ref)
   const existing = storedFactsRowSchema.nullish().parse(await db.get(sql`
     SELECT epic, title, body, state_name, state_category, state_id, assignees, assignee, labels, priority, due_date, reference, updated_at
-    FROM ${tasks} WHERE id = ${id}
+    FROM ${issues} WHERE id = ${id}
   `))
   let epic = task.epic ?? null
   const heldEpic = existing ? jsonValue(existing.epic, taskEpicSchema) : undefined
@@ -323,7 +322,7 @@ export async function upsertProviderTask(db: Db, task: ProviderTask, now: number
   const assignees = assigneesJsonOf(task)
   const stateId = task.stateId ?? null
   await db.run(sql`
-    INSERT INTO ${tasks}(
+    INSERT INTO ${issues}(
       id, provider, kind, reference, url, title, body, state_name, state_category, state_id, category,
       assignees, assignee, assignee_avatar_url, labels, priority, due_date, epic, writable_fields, home,
       created_at, updated_at, fetched_at
@@ -340,7 +339,7 @@ export async function upsertProviderTask(db: Db, task: ProviderTask, now: number
       assignees = excluded.assignees, assignee = excluded.assignee, assignee_avatar_url = excluded.assignee_avatar_url, labels = excluded.labels,
       priority = excluded.priority, due_date = excluded.due_date, epic = excluded.epic,
       writable_fields = excluded.writable_fields, home = excluded.home,
-      created_at = COALESCE(excluded.created_at, tasks.created_at), updated_at = excluded.updated_at, fetched_at = excluded.fetched_at
+      created_at = COALESCE(excluded.created_at, issues.created_at), updated_at = excluded.updated_at, fetched_at = excluded.fetched_at
   `)
   if (!existing) return { changed: true, previousAssignee: undefined }
   const changed = listFactsOf(existing) !== JSON.stringify([
@@ -359,7 +358,7 @@ function listFactsOf(stored: z.infer<typeof storedFactsRowSchema>): string {
 }
 
 const categoryFactsRowSchema = z.object({ id: z.string(), state_category: categorySchema, category: categorySchema })
-const itemColumnRowSchema = z.object({ task_id: z.string(), column_id: z.string().nullable(), columns: z.string() })
+const itemColumnRowSchema = z.object({ issue_id: z.string(), column_id: z.string().nullable(), columns: z.string() })
 
 /**
  * Set `Task.category` of the named tasks from their state and their columns
@@ -372,27 +371,27 @@ export async function refreshTaskCategories(db: Db, taskIds: readonly string[], 
   if (!ids.length) return []
   const named = sql.join(ids.map((taskId) => sql`${taskId}`), sql`, `)
   const facts = categoryFactsRowSchema.array().parse(await db.all(sql`
-    SELECT id, state_category, category FROM ${tasks} WHERE id IN (${named})
+    SELECT id, state_category, category FROM ${issues} WHERE id IN (${named})
   `))
   const items = itemColumnRowSchema.array().parse(await db.all(sql`
-    SELECT task_source_items.task_id, task_source_items.column_id, task_sources.columns
-    FROM ${taskSourceItems} JOIN ${taskSources} ON task_sources.source_key = task_source_items.source_key
-    WHERE task_source_items.task_id IN (${named}) AND task_source_items.column_id IS NOT NULL
+    SELECT issue_source_items.issue_id, issue_source_items.column_id, issue_sources.columns
+    FROM ${issueSourceItems} JOIN ${issueSources} ON issue_sources.source_key = issue_source_items.source_key
+    WHERE issue_source_items.issue_id IN (${named}) AND issue_source_items.column_id IS NOT NULL
   `))
-  const columnCategories = new Map<string, Task['category'][]>()
+  const columnCategories = new Map<string, Issue['category'][]>()
   for (const item of items) {
     const column = (jsonValue(item.columns, taskColumnsSchema) ?? []).find((candidate) => candidate.id === item.column_id)
     if (!column) continue
-    const held = columnCategories.get(item.task_id)
+    const held = columnCategories.get(item.issue_id)
     if (held) held.push(column.category)
-    else columnCategories.set(item.task_id, [column.category])
+    else columnCategories.set(item.issue_id, [column.category])
   }
   const changes: TaskCategoryChange[] = []
   for (const fact of facts) {
     const category = taskCategory(fact.state_category, columnCategories.get(fact.id) ?? [])
     const isNew = created.has(fact.id)
     if (category === fact.category && !isNew) continue
-    if (category !== fact.category) await db.run(sql`UPDATE ${tasks} SET category = ${category} WHERE id = ${fact.id}`)
+    if (category !== fact.category) await db.run(sql`UPDATE ${issues} SET category = ${category} WHERE id = ${fact.id}`)
     changes.push({ taskId: fact.id, from: isNew ? null : fact.category, to: category })
   }
   return changes
@@ -402,7 +401,7 @@ export async function refreshTaskCategories(db: Db, taskIds: readonly string[], 
 export async function storedTaskIds(db: Db, taskIds: readonly string[]): Promise<Set<string>> {
   if (!taskIds.length) return new Set()
   const rows = z.object({ id: z.string() }).array().parse(await db.all(sql`
-    SELECT id FROM ${tasks} WHERE id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)})
+    SELECT id FROM ${issues} WHERE id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)})
   `))
   return new Set(rows.map((row) => row.id))
 }
@@ -411,7 +410,7 @@ export async function storedTaskIds(db: Db, taskIds: readonly string[]): Promise
 export async function finishedTaskIds(taskIds: readonly string[]): Promise<Set<string>> {
   if (!taskIds.length) return new Set()
   const rows = z.object({ id: z.string() }).array().parse(await database().all(sql`
-    SELECT id FROM ${tasks} WHERE category = 'done' AND id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)})
+    SELECT id FROM ${issues} WHERE category = 'done' AND id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)})
   `))
   return new Set(rows.map((row) => row.id))
 }
@@ -431,17 +430,16 @@ const PRUNE_LIMIT = 500
  * provider still has the task; a later read or search makes a new copy.
  */
 export async function pruneUnheldTasks(db: Db, leftSource: readonly string[], staleBefore: number): Promise<string[]> {
-  const stale = sql`tasks.fetched_at < ${staleBefore}`
+  const stale = sql`issues.fetched_at < ${staleBefore}`
   const candidates = leftSource.length
-    ? sql`(tasks.id IN (${sql.join(leftSource.map((taskId) => sql`${taskId}`), sql`, `)}) OR ${stale})`
+    ? sql`(issues.id IN (${sql.join(leftSource.map((taskId) => sql`${taskId}`), sql`, `)}) OR ${stale})`
     : stale
   const rows = z.object({ id: z.string() }).array().parse(await db.all(sql`
-    SELECT tasks.id FROM ${tasks}
+    SELECT issues.id FROM ${issues}
     WHERE ${candidates}
-      AND NOT EXISTS (SELECT 1 FROM ${taskSourceItems} WHERE task_source_items.task_id = tasks.id)
-      AND NOT EXISTS (SELECT 1 FROM ${resourceLinks} WHERE resource_links.source_kind = 'task' AND resource_links.source_id = tasks.id)
-      AND NOT EXISTS (SELECT 1 FROM ${personalResourceState} WHERE personal_resource_state.resource_kind = 'task' AND personal_resource_state.resource_id = tasks.id)
-      AND NOT EXISTS (SELECT 1 FROM ${commentThreads} WHERE comment_threads.subject_kind = 'task' AND comment_threads.subject_id = tasks.id
+      AND NOT EXISTS (SELECT 1 FROM ${issueSourceItems} WHERE issue_source_items.issue_id = issues.id)
+      AND NOT EXISTS (SELECT 1 FROM ${resourceLinks} WHERE resource_links.source_kind = 'issue' AND resource_links.source_id = issues.id)
+      AND NOT EXISTS (SELECT 1 FROM ${commentThreads} WHERE comment_threads.subject_kind = 'issue' AND comment_threads.subject_id = issues.id
         AND comment_threads.delivery_state = 'pending')
     LIMIT ${PRUNE_LIMIT}
   `))
@@ -449,7 +447,7 @@ export async function pruneUnheldTasks(db: Db, leftSource: readonly string[], st
   if (!pruned.length) return []
   const named = sql.join(pruned.map((taskId) => sql`${taskId}`), sql`, `)
   // The copies of the provider's comments go with the copy of the task.
-  await db.run(sql`DELETE FROM ${commentThreads} WHERE subject_kind = 'task' AND subject_id IN (${named})`)
-  await db.run(sql`DELETE FROM ${tasks} WHERE id IN (${named})`)
+  await db.run(sql`DELETE FROM ${commentThreads} WHERE subject_kind = 'issue' AND subject_id IN (${named})`)
+  await db.run(sql`DELETE FROM ${issues} WHERE id IN (${named})`)
   return pruned
 }

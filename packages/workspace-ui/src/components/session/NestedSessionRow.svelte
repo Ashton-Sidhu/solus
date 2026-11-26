@@ -16,8 +16,8 @@
     resolveSidebarRowMark,
     shouldEmphasizeTitle,
     shouldRecedeRow,
-    taskStatusFor,
-  } from "./lib/task-list";
+    sidebarStatusFor,
+  } from "./lib/sidebar-rows";
 
   interface Props {
     /** A session the row's session delegated, listed under that row. */
@@ -26,7 +26,7 @@
     isCurrent: boolean;
     /** The parent's card is raised: a hover takes a wash, not a second plate. */
     inRaisedCard: boolean;
-    /** The project of the row this session is listed under (`SidebarTask.groupKey`). */
+    /** The project of the row this session is listed under (`SidebarSession.groupKey`). */
     groupKey: string;
     projectLabel: string;
     /** A share link's guest is not told which host runs the session (host-sharing.md §10). */
@@ -63,7 +63,7 @@
     onDragStart,
   }: Props = $props();
 
-  const status = $derived(taskStatusFor(session.attention));
+  const status = $derived(sidebarStatusFor(session.attention));
   // The session you are reading leads in weight, except for a read error,
   // whose glyph already states it.
   const titleIsEmphasized = $derived(

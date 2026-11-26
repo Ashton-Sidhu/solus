@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { Task } from '@solus/contracts/task-types'
+import type { Issue } from '@solus/contracts/task-types'
 import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
 import type { PickerSort } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-search'
 import type { SidebarSessionChild } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
@@ -14,7 +14,7 @@ import {
   selectedRowIndex,
 } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-rows'
 
-function task(id: string, title: string, body = ''): Task {
+function task(id: string, title: string, body = ''): Issue {
   return {
     id,
     providerId: 'github',
@@ -46,7 +46,7 @@ function child(sessionId: string, label: string): SidebarSessionChild {
 }
 
 function build(
-  tasks: Task[],
+  tasks: Issue[],
   sessions: Record<string, SidebarSessionChild[]>,
   query = '',
 ) {
@@ -68,7 +68,7 @@ describe('unified picker rows', () => {
     // WHY: the picker mixes task sources, whose columns do not line up. The
     // status category is the one grouping every task has, with the work in
     // progress first.
-    const todo: Task = { ...task('c', 'Gamma'), category: 'open', state: { name: 'Todo', category: 'open' } }
+    const todo: Issue = { ...task('c', 'Gamma'), category: 'open', state: { name: 'Todo', category: 'open' } }
     const { rows } = buildPickerRows({
       tasks: [...tasks, todo],
       query: '',
@@ -174,8 +174,8 @@ describe('unified picker rows', () => {
 
   test('a task found by its reference says so with the reference, not a note', () => {
     // WHY: a person names a task by what the provider shows: `#42`, `SOL-7`.
-    const issue: Task = { ...task('github:I_9f', 'Rollout'), reference: 'acme/app#42' }
-    const jira: Task = { ...task('jira:c1:10007', 'Cutover'), reference: 'SOL-7' }
+    const issue: Issue = { ...task('github:I_9f', 'Rollout'), reference: 'acme/app#42' }
+    const jira: Issue = { ...task('jira:c1:10007', 'Cutover'), reference: 'SOL-7' }
     const [row] = build([issue, jira], {}, '#42').rows.filter((row) => row.kind === 'task')
     expect(row).toMatchObject({ matchedIn: 'id', task: { id: 'github:I_9f' } })
     expect(build([issue, jira], {}, 'SOL-7').entries.map((entry) => entry.kind === 'task' && entry.task.id)).toEqual(['jira:c1:10007'])
@@ -456,7 +456,7 @@ describe('sessions-only picker', () => {
   test('an empty query lists sessions directly', () => {
     const input = {
       tasks, query: '', resultType: 'sessions' as const,
-      sessionsFor: (item: Task) => item.id === 'a' ? sessions : [],
+      sessionsFor: (item: Issue) => item.id === 'a' ? sessions : [],
     }
     const result = buildPickerRows(input)
     expect(result.entries.map((entry) => entry.kind)).toEqual(['session', 'session'])
@@ -593,10 +593,10 @@ describe('search across tasks and sessions', () => {
     expect(result.entries[1]).toMatchObject({ bodySnippet: 'the sentry breadcrumb shows a checkpoint' })
   })
 
-  test('Updated narrows both kinds, Task status narrows tasks, Agent narrows sessions', () => {
+  test('Updated narrows both kinds, Issue status narrows tasks, Agent narrows sessions', () => {
     const fresh = { ...task('fresh', 'Fresh task'), updatedAt: now - day / 2 }
     const stale = { ...task('stale', 'Stale task'), updatedAt: now - 40 * day }
-    const done: Task = { ...task('done', 'Done task'), category: 'done', state: { name: 'Closed', category: 'done' }, updatedAt: now - day / 2 }
+    const done: Issue = { ...task('done', 'Done task'), category: 'done', state: { name: 'Closed', category: 'done' }, updatedAt: now - day / 2 }
     const session = (sessionId: string, provider: string, at: number) =>
       ({ sessionId, serverId: 'local', provider, customTitle: `Task talk ${sessionId}`, firstMessage: sessionId, lastTimestamp: new Date(at).toISOString() }) as unknown as SessionMeta
     const build = (filters: { updated?: 'any' | 'day'; status?: 'any' | 'open' | 'done'; agent?: 'any' | 'codex' }) => buildPickerRows({

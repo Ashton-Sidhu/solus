@@ -179,8 +179,8 @@ describe('runner intake', () => {
     const { registerCloudUploadHandlers } = await import('@solus/server/transport/solus-api/cloud-uploads')
     const apiMode = await import('@solus/server/host/api-mode')
     // The API holds no copy of the task: the link needs only its key.
-    const taskKey = 'github:I_1'
-    await taskAttachments.linkTaskSession('org1', taskKey, 'thread-1')
+    const issueKey = 'github:I_1'
+    await taskAttachments.linkTaskSession('org1', issueKey, 'thread-1')
     const work = await works.createWork('local', 'Published', 'doc', '# Published', '', 'thread-1', 'claude-code', '/repo')
     const transfer = await works.exportWorkForCloud('local', work.id)
     // This fixture uses one database to represent the service; delete the
@@ -203,7 +203,7 @@ describe('runner intake', () => {
       else process.env.SOLUS_API = previous
       apiMode.resetApiModeForTests()
     }
-    const links = (await taskAttachments.taskAttachments('org1', taskKey)).links.filter((link) => link.targetKey === work.id)
+    const links = (await taskAttachments.taskAttachments('org1', issueKey)).links.filter((link) => link.targetKey === work.id)
     expect(links).toHaveLength(1)
     expect(links[0]).toMatchObject({ kind: 'work', title: 'Published', originSessionId: 'thread-1' })
     expect((await shares.homeOf({ kind: 'work', id: work.id }))?.ownerKey).toBe('alice')

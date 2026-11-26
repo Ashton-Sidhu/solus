@@ -158,7 +158,7 @@ describe('range conditions in generated SQL', () => {
     // A task is asked by id, not by title: the title is a point-in-time capture
     // that a rename leaves behind, and one task is often several sessions.
     const task = generatedSql({ kind: 'task', taskId: "o'neill" }, RELATIVE)
-    expect(task).toContain("task_id = 'o''neill'")
+    expect(task).toContain("issue_id = 'o''neill'")
     expect(task).toContain(rangeCondition(RELATIVE))
 
     expect(generatedSql({ kind: 'preset', presetId: 'slowest-tools' }, ABSOLUTE)).toContain(

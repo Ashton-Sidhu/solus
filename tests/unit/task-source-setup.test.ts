@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { MAX_TASK_SOURCES, taskSourceKey, type TaskSource } from '@solus/contracts/task-sources'
-import type { TaskSourceHealth, TaskSourceOptions, TaskSourceState } from '@solus/contracts/task-types'
+import { MAX_ISSUE_SOURCES, issueSourceKey, type IssueSource } from '@solus/contracts/task-sources'
+import type { IssueSourceHealth, IssueSourceOptions, IssueSourceState } from '@solus/contracts/task-types'
 import {
   manualSourceChoice,
   manualSourceKey,
@@ -18,38 +18,38 @@ import {
   withoutTaskSource,
 } from '@solus/workspace-ui/components/tasks/sources/lib/task-source-setup'
 
-const REPO: TaskSource = { kind: 'github-repo', owner: 'acme', repo: 'app' }
-const BOARD: TaskSource = { kind: 'github-project', owner: 'acme', number: 7 }
-const JIRA: TaskSource = { kind: 'jira-project', cloudId: 'cloud-1', projectKey: 'SOL' }
-const JIRA_BOARD: TaskSource = { kind: 'jira-board', cloudId: 'cloud-1', boardId: 4 }
+const REPO: IssueSource = { kind: 'github-repo', owner: 'acme', repo: 'app' }
+const BOARD: IssueSource = { kind: 'github-project', owner: 'acme', number: 7 }
+const JIRA: IssueSource = { kind: 'jira-project', cloudId: 'cloud-1', projectKey: 'SOL' }
+const JIRA_BOARD: IssueSource = { kind: 'jira-board', cloudId: 'cloud-1', boardId: 4 }
 
 describe('adding a task source', () => {
   test('a source is added after the ones the person has', () => {
-    expect(withTaskSource({ taskSources: [REPO] }, BOARD)).toEqual({ taskSources: [REPO, BOARD] })
+    expect(withTaskSource({ issueSources: [REPO] }, BOARD)).toEqual({ issueSources: [REPO, BOARD] })
   })
 
   test('a source the person has already is refused, also in another case', () => {
     // WHY: GitHub names do not distinguish case. The same repository twice
     // would show each of its tasks from two sources with one key.
-    expect(withTaskSource({ taskSources: [REPO] }, { kind: 'github-repo', owner: 'ACME', repo: 'App' })).toBeNull()
+    expect(withTaskSource({ issueSources: [REPO] }, { kind: 'github-repo', owner: 'ACME', repo: 'App' })).toBeNull()
     // Another Project of the same owner is another source.
-    expect(withTaskSource({ taskSources: [BOARD] }, { kind: 'github-project', owner: 'acme', number: 8 })).not.toBeNull()
+    expect(withTaskSource({ issueSources: [BOARD] }, { kind: 'github-project', owner: 'acme', number: 8 })).not.toBeNull()
   })
 
   test('a person has at most the number of sources the settings accept', () => {
     // WHY: the settings schema refuses a longer list, so the setup must not let a person
     // build one and then lose it on save.
-    const full = Array.from({ length: MAX_TASK_SOURCES }, (_, index): TaskSource => ({ kind: 'github-project', owner: 'acme', number: index + 1 }))
-    expect(withTaskSource({ taskSources: full }, REPO)).toBeNull()
-    expect(withTaskSource({ taskSources: full.slice(1) }, REPO)?.taskSources).toHaveLength(MAX_TASK_SOURCES)
+    const full = Array.from({ length: MAX_ISSUE_SOURCES }, (_, index): IssueSource => ({ kind: 'github-project', owner: 'acme', number: index + 1 }))
+    expect(withTaskSource({ issueSources: full }, REPO)).toBeNull()
+    expect(withTaskSource({ issueSources: full.slice(1) }, REPO)?.issueSources).toHaveLength(MAX_ISSUE_SOURCES)
   })
 })
 
 describe('removing a task source', () => {
-  const config = { taskSources: [REPO, BOARD, JIRA] }
+  const config = { issueSources: [REPO, BOARD, JIRA] }
 
   test('the other sources stay, in their order', () => {
-    expect(withoutTaskSource(config, taskSourceKey(BOARD))).toEqual({ taskSources: [REPO, JIRA] })
+    expect(withoutTaskSource(config, issueSourceKey(BOARD))).toEqual({ issueSources: [REPO, JIRA] })
   })
 
   test('a source key the person does not have changes nothing', () => {
@@ -66,7 +66,7 @@ describe('what a source row says about its last read', () => {
     // WHY: the fix is different for each: connect, connect again for a
     // missing permission, ask for access, or wait. One "error" label would
     // send a person to the wrong place.
-    const labels: Array<[Exclude<TaskSourceHealth, 'ok'>, string]> = [
+    const labels: Array<[Exclude<IssueSourceHealth, 'ok'>, string]> = [
       ['not_connected', 'Not connected'],
       ['reconnect', 'Needs sign-in'],
       ['no_access', 'No access'],
@@ -103,13 +103,13 @@ describe('what a source row says about its last read', () => {
 })
 
 describe('the strip of sources', () => {
-  function state(source: TaskSource, label: string, health: TaskSourceHealth = 'ok'): TaskSourceState {
-    return { sourceKey: taskSourceKey(source), source, label, columns: [], health }
+  function state(source: IssueSource, label: string, health: IssueSourceHealth = 'ok'): IssueSourceState {
+    return { sourceKey: issueSourceKey(source), source, label, columns: [], health }
   }
 
   test('each source shows in the order the person added it, with the label the host read', () => {
     const rows = sourceStripRows(
-      { taskSources: [REPO, BOARD] },
+      { issueSources: [REPO, BOARD] },
       [state(BOARD, 'Roadmap'), state(REPO, 'acme/app', 'reconnect')],
     )
     expect(rows.map((row) => [row.label, row.state?.health])).toEqual([
@@ -121,7 +121,7 @@ describe('the strip of sources', () => {
   test('a source the host has not read yet shows at once, in its own words', () => {
     // WHY: a person who adds a source sees it on the strip before the host's
     // first read ends, not a strip that ignores what they just did.
-    const [row] = sourceStripRows({ taskSources: [JIRA_BOARD] }, [])
+    const [row] = sourceStripRows({ issueSources: [JIRA_BOARD] }, [])
     expect(row.label).toBe('Board 4')
     expect(row.state).toBeNull()
   })
@@ -129,13 +129,13 @@ describe('the strip of sources', () => {
   test('a source that the host still names after the person removed it does not show', () => {
     // WHY: the settings say which sources the person has. The host's last
     // answer can name a removed source until it reads again.
-    const rows = sourceStripRows({ taskSources: [REPO] }, [state(REPO, 'acme/app'), state(BOARD, 'Roadmap')])
+    const rows = sourceStripRows({ issueSources: [REPO] }, [state(REPO, 'acme/app'), state(BOARD, 'Roadmap')])
     expect(rows.map((row) => row.label)).toEqual(['acme/app'])
   })
 })
 
 describe('what can be added', () => {
-  const options: TaskSourceOptions = {
+  const options: IssueSourceOptions = {
     github: {
       connected: true,
       login: 'octocat',
@@ -151,7 +151,7 @@ describe('what can be added', () => {
       boards: [{ boardId: 4, name: 'Sprint board', projectKey: 'SOL' }],
     },
   }
-  const groupOf = (groups: ReturnType<typeof sourceChoiceGroups>, kind: TaskSource['kind']) => {
+  const groupOf = (groups: ReturnType<typeof sourceChoiceGroups>, kind: IssueSource['kind']) => {
     const group = groups.find((candidate) => candidate.kind === kind)
     if (!group) throw new Error(`No group for ${kind}`)
     return group
@@ -361,7 +361,7 @@ describe('a source that a person types or pastes', () => {
     // WHY: a source key does not distinguish case, so `Acme/App` is the same
     // source; a second copy would be dropped by the host and confuse the list.
     expect(manualSourceChoice('https://github.com/Acme/App', [REPO], [])).toBeNull()
-    expect(manualSourceKey('https://github.com/Acme/App')).toBe(taskSourceKey(REPO))
+    expect(manualSourceKey('https://github.com/Acme/App')).toBe(issueSourceKey(REPO))
     expect(manualSourceKey('not a source')).toBeNull()
   })
 
@@ -371,7 +371,7 @@ describe('a source that a person types or pastes', () => {
     // "nothing matches" for a Project it lists.
     const offered = {
       source: BOARD,
-      sourceKey: taskSourceKey(BOARD),
+      sourceKey: issueSourceKey(BOARD),
       label: 'Roadmap',
       detail: 'acme #7',
       searchText: 'github project roadmap acme #7',
@@ -395,7 +395,7 @@ describe('the first-source setup', () => {
       project('gitlab.com/acme/tools', '2026-04-01'),
       project(null, '2026-05-01'),
     ]
-    const web: TaskSource = { kind: 'github-repo', owner: 'acme', repo: 'web' }
+    const web: IssueSource = { kind: 'github-repo', owner: 'acme', repo: 'web' }
     expect(projectSourceRows(projects, [web]).map((row) => [row.label, row.isAdded, row.isFork])).toEqual([
       ['berriai/litellm', false, true],
       ['Acme/Web', true, false],
@@ -410,10 +410,10 @@ describe('the first-source setup', () => {
   test('adds several sources in one write, skipping what is held and stopping at the limit', () => {
     // WHY: "Add all" adds every project at once; a held source or a full list
     // must not lose the others.
-    const web: TaskSource = { kind: 'github-repo', owner: 'acme', repo: 'web' }
-    expect(withTaskSources({ taskSources: [REPO] }, [web, REPO])?.taskSources).toEqual([REPO, web])
-    expect(withTaskSources({ taskSources: [REPO] }, [REPO])).toBeNull()
-    const almostFull = Array.from({ length: MAX_TASK_SOURCES - 1 }, (_, index): TaskSource => ({ kind: 'github-project', owner: 'acme', number: index + 1 }))
-    expect(withTaskSources({ taskSources: almostFull }, [web, REPO])?.taskSources).toHaveLength(MAX_TASK_SOURCES)
+    const web: IssueSource = { kind: 'github-repo', owner: 'acme', repo: 'web' }
+    expect(withTaskSources({ issueSources: [REPO] }, [web, REPO])?.issueSources).toEqual([REPO, web])
+    expect(withTaskSources({ issueSources: [REPO] }, [REPO])).toBeNull()
+    const almostFull = Array.from({ length: MAX_ISSUE_SOURCES - 1 }, (_, index): IssueSource => ({ kind: 'github-project', owner: 'acme', number: index + 1 }))
+    expect(withTaskSources({ issueSources: almostFull }, [web, REPO])?.issueSources).toHaveLength(MAX_ISSUE_SOURCES)
   })
 })

@@ -12,7 +12,7 @@
   import { toasts } from "../../lib/toasts";
   import { checkPullRequestUrl } from "./lib/link-pull-request";
   import { pullRequestMenuRows } from "./lib/pull-requests-menu";
-  import type { TaskPrChoice } from "./lib/task-list";
+  import type { PrChoice } from "./lib/sidebar-rows";
 
   /**
    * A session's pull requests, as one menu's content: the chip's dropdown and
@@ -21,11 +21,11 @@
    * It is content only: the caller owns the menu it sits in.
    */
   interface Props {
-    choices: readonly TaskPrChoice[];
-    onOpen: (choice: TaskPrChoice) => void;
+    choices: readonly PrChoice[];
+    onOpen: (choice: PrChoice) => void;
     /** Removes a link, or null for a pull request the session only reads from
      *  its checkout's branch, which has no link to remove. */
-    onUnlink?: (choice: TaskPrChoice) => (() => void) | null;
+    onUnlink?: (choice: PrChoice) => (() => void) | null;
     /** Links a pull request by its URL. Absent where the viewer may not
      *  change the session. */
     onLink?: (url: string) => Promise<void>;
@@ -58,7 +58,7 @@
     }
   }
 
-  function openOnWeb(choice: TaskPrChoice) {
+  function openOnWeb(choice: PrChoice) {
     const pageUrl = choice.url ?? choice.pullRequest?.url;
     if (pageUrl) void localApi.openExternal(pageUrl);
   }

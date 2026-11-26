@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { delegatedRows, nestedRequestMark, nestedRowParents, nestedStateMarks, visibleNestedSessions } from '@solus/workspace-ui/components/session/lib/session-tree'
-import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
+import type { SidebarSession } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 
-type Row = Pick<SidebarTask, 'id' | 'lifecycle'>
+type Row = Pick<SidebarSession, 'id' | 'lifecycle'>
 
 function active(id: string): Row {
   return { id, lifecycle: 'active' }

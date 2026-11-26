@@ -456,6 +456,9 @@ export class TranscriptModel {
           secretOutcomes: event.secretOutcomes ?? tool.secretOutcomes,
         }))
         return true
+      case 'subagent_running':
+        this.patchToolById(event.toolUseId, false, tool => ({ ...tool, status: 'running', completedAt: undefined, report: null }))
+        return true
       case 'subagent_report':
         this.patchToolById(event.toolUseId, false, (tool) => ({
           ...tool,
@@ -520,6 +523,13 @@ export class TranscriptModel {
         return true
       }
       case 'background_task_settled':
+        if (event.toolUseId) {
+          const id = this.toolRows.find(this, event.toolUseId, true)
+          const tool = id ? this.items.get(id) : undefined
+          if (tool?.kind === 'tool' && tool.subagent) {
+            this.replace({ ...tool, status: event.status === 'completed' ? 'completed' : 'error', completedAt: Date.now() })
+          }
+        }
         this.backgroundTasks = this.backgroundTasks.filter(task => task.taskId !== event.taskId)
         this.metaChanged = true
         return true

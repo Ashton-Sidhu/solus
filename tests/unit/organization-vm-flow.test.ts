@@ -170,10 +170,10 @@ describe('an organization run on a VM, through the real Solus API', () => {
       await expect(operations.publishWork(context, work.id, {})).rejects.toMatchObject({ status: 400, message: expect.stringContaining('never been published') })
       await expect(operations.pullWorkUpstream(context, work.id)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('not linked to an upstream document') })
       // A task is GitHub's or Jira's: the API holds only what Solus attaches to it. The link is made in Bob's organization, with no copy of the task.
-      const taskKey = 'github:I_flow'
-      await operations.putLink(context, { from: { kind: 'task', id: taskKey }, to: { kind: 'work', id: work.id }, originSessionId: 'solus-flow' })
+      const issueKey = 'github:I_flow'
+      await operations.putLink(context, { from: { kind: 'task', id: issueKey }, to: { kind: 'work', id: work.id }, originSessionId: 'solus-flow' })
       const { taskAttachments } = await import('@solus/server/data/tasks/task-attachments')
-      expect((await taskAttachments('org_a', taskKey)).links).toMatchObject([{ kind: 'work', targetKey: work.id, createdBy: { kind: 'agent', sessionId: 'solus-flow', for: { id: { kind: 'account', accountId: 'bob' } } } }])
+      expect((await taskAttachments('org_a', issueKey)).links).toMatchObject([{ kind: 'work', targetKey: work.id, createdBy: { kind: 'agent', sessionId: 'solus-flow', for: { id: { kind: 'account', accountId: 'bob' } } } }])
 
       // 4. The API's record of the session: owned by Bob from the admission, never by the facts or the linker.
       for (let attempt = 0; attempt < 400 && queue.deliveryDestinations().length > 0; attempt++) await new Promise((resolve) => setTimeout(resolve, 5))

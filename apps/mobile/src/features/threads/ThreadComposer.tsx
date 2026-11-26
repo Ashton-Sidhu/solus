@@ -275,7 +275,6 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
   const [isFocused, setIsFocused] = useState(false);
   const pendingPastedTextAttachmentCountRef = useRef(0);
   const pendingNativeImagePasteCountRef = useRef(0);
-  const [nativeLoadingImageCount, setNativeLoadingImageCount] = useState(0);
   const [pendingPastedTextAttachmentCount, setPendingPastedTextAttachmentCount] = useState(0);
   const settingsRoutePresentedRef = useRef(false);
   const settingsSheetPresentation = useThreadSettingsSheetPresentation({
@@ -604,7 +603,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     onSubmit: (followUp) => void handleSend(followUp),
   });
 
-  const pendingNativeImageCount = nativeLoadingImageCount + nativeImageSubmit.preparingImageCount;
+  const pendingNativeImageCount = nativeImageSubmit.preparingImageCount;
   const hasEditingAttachments =
     (queuedEdit !== null && queuedEdit.existingAttachments.length > 0) ||
     stripAttachments.length > 0 ||
@@ -916,16 +915,17 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                     if (!isSubmissionLocked) props.onChangeDraftMessage(text);
                   }}
                   onSelectionChange={composerMenu.onSelectionChange}
-                  onPasteImages={(uris) => {
-                    if (isSubmissionLocked) return;
+                  onPasteImages={(uris, reservedCount = 0) => {
+                    if (isSubmissionLocked) {
+                      nativeImageSubmit.adjustImageReservations(-reservedCount);
+                      return;
+                    }
                     pendingNativeImagePasteCountRef.current += 1;
-                    void nativeImageSubmit.pasteImages(uris).finally(() => {
+                    void nativeImageSubmit.pasteImages(uris, reservedCount).finally(() => {
                       pendingNativeImagePasteCountRef.current -= 1;
                     });
                   }}
-                  onPasteImagesPending={(delta) =>
-                    setNativeLoadingImageCount((count) => count + delta)
-                  }
+                  onPasteImagesPending={nativeImageSubmit.adjustImageReservations}
                   onPasteText={(paste) => {
                     if (isSubmissionLocked) return;
                     const insertPaste = () => {

@@ -17,7 +17,7 @@ import { resourceLinks } from './schema'
  * agree on, not a second store.
  */
 
-export type LinkSourceKind = 'task' | 'session'
+export type LinkSourceKind = 'issue' | 'session'
 export type LinkTargetKind = 'work' | 'plan' | 'pr' | 'automation' | 'session' | 'file' | 'app'
 export type LinkRelation = 'works-on' | 'reference' | 'output' | 'member' | 'pull-request'
 /** Who or what made an edge: a person, an agent, Solus itself; a pull request also by its branch or its creation. */
@@ -109,12 +109,12 @@ export function canonicalPullRequest(url: string | null | undefined, targetScope
  * are polymorphic, so no foreign key does this. A session takes its plans'
  * edges with it, since a plan is the session's.
  */
-export async function deleteEdgesOf(db: Db, kind: 'task' | 'work' | 'session', id: string): Promise<void> {
+export async function deleteEdgesOf(db: Db, kind: 'issue' | 'work' | 'session', id: string): Promise<void> {
   const target = sql`(resource_links.target_kind = ${kind} AND resource_links.target_key = ${id})`
   const clause = kind === 'work'
     ? target
-    : kind === 'task'
-      ? sql`${sourceClause('task', id)} OR ${target}`
+    : kind === 'issue'
+      ? sql`${sourceClause('issue', id)} OR ${target}`
       : sql`${sourceClause('session', id)} OR ${target} OR (resource_links.target_kind = 'plan' AND resource_links.target_scope = ${id})`
   await db.run(sql`DELETE FROM ${resourceLinks} WHERE ${clause}`)
 }

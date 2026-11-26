@@ -1,6 +1,6 @@
 import type { SolusAPI } from '@solus/contracts/host-api'
-import type { TaskComment, TaskDetails } from '@solus/contracts/task-types'
-import type { TaskSource } from '@solus/contracts/task-sources'
+import type { IssueComment, IssueDetails } from '@solus/contracts/task-types'
+import type { IssueSource } from '@solus/contracts/task-sources'
 import { withTaskProviderMetadata } from '@solus/contracts/task-data'
 import type {
   TaskProviderData,
@@ -18,13 +18,13 @@ export interface TaskProviderState extends TaskDataSection<TaskProviderData> {
   loadingMore: boolean
 }
 export interface TaskDataState {
-  details: TaskDataSection<TaskDetails>
+  details: TaskDataSection<IssueDetails>
   provider: TaskProviderState
 }
-type TaskDataApi = Pick<SolusAPI, 'tasksGet' | 'tasksReact'>
+type TaskDataApi = Pick<SolusAPI, 'issuesGet' | 'issuesReact'>
 
 /** A copy from the task detail includes local attribution and delivery state. */
-export function mergeTaskComments(details: readonly TaskComment[], timeline: readonly TaskComment[]): TaskComment[] {
+export function mergeTaskComments(details: readonly IssueComment[], timeline: readonly IssueComment[]): IssueComment[] {
   const comments = new Map(timeline.map((comment) => [comment.providerCommentId ?? comment.id, comment]))
   for (const comment of details) comments.set(comment.providerCommentId ?? comment.id, comment)
   return [...comments.values()]
@@ -40,11 +40,11 @@ export class TaskDataStore {
   #identity = 0
   #detailsGeneration = 0
   #providerGeneration = 0
-  #detailsRead: Promise<TaskDetails> | null = null
+  #detailsRead: Promise<IssueDetails> | null = null
   #providerRead: Promise<void> | null = null
   #write = Promise.resolve()
   constructor(
-    readonly taskId: string,
+    readonly issueId: string,
     private readonly api: () => TaskDataApi
   ) {}
   get current(): TaskDataState {
@@ -76,7 +76,7 @@ export class TaskDataStore {
     })
   }
   /** Adopt a successful write or URL read without another provider request. */
-  adopt(details: TaskDetails, provider?: TaskProviderData): void {
+  adopt(details: IssueDetails, provider?: TaskProviderData): void {
     this.#detailsGeneration++
     this.#detailsRead = null
     const patch: Partial<TaskDataState> = {
@@ -89,12 +89,16 @@ export class TaskDataStore {
     }
     this.#set(patch)
   }
-  loadDetails(options: { refresh?: boolean } = {}): Promise<TaskDetails> {
+  /** `cached` reads the host's copy with no provider call. That copy holds no
+   *  status options or provider metadata, so the ones from the last full read stay. */
+  loadDetails(options: { refresh?: boolean; cached?: boolean } = {}): Promise<IssueDetails> {
     if (!options.refresh && this.#detailsRead) return this.#detailsRead
     const generation = ++this.#detailsGeneration
     this.#set({ details: { ...this.#state.details, pending: true, error: null } })
     const read = Promise.resolve()
-      .then(() => this.api().tasksGet(this.taskId))
+      .then(() => options.cached
+        ? this.api().issuesGet(this.issueId, { section: 'details', cached: true }).then((fresh) => withHeldProviderFacts(fresh, this.#state.details.value))
+        : this.api().issuesGet(this.issueId))
       .then(
         (value) => {
           if (generation === this.#detailsGeneration)
@@ -120,7 +124,7 @@ export class TaskDataStore {
     return read
   }
   async #readProvider(cursor?: string, metadata?: TaskProviderMetadata): Promise<TaskProviderData> {
-    const value = await this.api().tasksGet(this.taskId, {
+    const value = await this.api().issuesGet(this.issueId, {
       section: 'provider', cursor, ...(metadata && { timelineOnly: true as const })
     })
     if ('task' in value)
@@ -189,7 +193,7 @@ export class TaskDataStore {
       .catch(() => {})
       .then(async () => {
         if (identity !== this.#identity) throw new Error('The task account changed.')
-        await this.api().tasksReact(this.taskId, targetId, content, add)
+        await this.api().issuesReact(this.issueId, targetId, content, add)
         await this.#providerRead
         if (identity === this.#identity) await this.loadProvider()
       })
@@ -209,13 +213,13 @@ export class TaskTemplateStore {
     this.error = null
     this.pending = false
   }
-  async load(api: Pick<SolusAPI, 'tasksTemplates'>, source: TaskSource): Promise<void> {
+  async load(api: Pick<SolusAPI, 'issuesTemplates'>, source: IssueSource): Promise<void> {
     const generation = ++this.#generation
     this.pending = true
     this.templates = []
     this.error = null
     try {
-      const templates = await api.tasksTemplates(source)
+      const templates = await api.issuesTemplates(source)
       if (generation === this.#generation) this.templates = templates
     } catch (error) {
       if (generation === this.#generation)
@@ -223,5 +227,15 @@ export class TaskTemplateStore {
     } finally {
       if (generation === this.#generation) this.pending = false
     }
+  }
+}
+
+/** A cached read keeps what only a provider read answers. */
+function withHeldProviderFacts(fresh: IssueDetails, held: IssueDetails | null): IssueDetails {
+  if (!held) return fresh
+  return {
+    ...fresh,
+    ...(fresh.statusOptions === undefined && held.statusOptions && { statusOptions: held.statusOptions }),
+    ...(fresh.providerMetadata === undefined && held.providerMetadata && { providerMetadata: held.providerMetadata }),
   }
 }

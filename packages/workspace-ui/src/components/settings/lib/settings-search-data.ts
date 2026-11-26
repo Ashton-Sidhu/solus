@@ -297,6 +297,7 @@ export const sourceControlSettings: SettingItem[] = [
   { id: "templates", ...settingsDefinitions["source-control.follow-pull-request-templates"], keywords: [] },
   { id: "writer-model", ...settingsDefinitions["source-control.source-control-writer-model"], keywords: [] },
   { id: "branch-names", ...settingsDefinitions["source-control.branch-names"], keywords: ["worktree", "branch naming"] },
+  { id: "managed-worktrees", ...settingsDefinitions["source-control.managed-worktrees"], keywords: ["worktree", "delete", "clean up", "disk space"] },
   { id: "project-branch-names", ...settingsDefinitions["source-control.override-branch-names"], keywords: ["worktree"] },
   { id: "project-codebase-names", ...settingsDefinitions["source-control.override-codebase-names"], keywords: ["codebase", "naming"] },
   { id: "copied-files", ...settingsDefinitions["source-control.files-copied-to-other-hosts"], keywords: [] },

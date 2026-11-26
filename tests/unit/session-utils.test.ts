@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { TaskSessionLink } from '@solus/contracts/task-types'
+import type { IssueSessionLink } from '@solus/contracts/task-types'
 import type { DiffComment, Session, SessionStatus } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
@@ -157,7 +157,7 @@ describe('findOpenTabForSession', () => {
 })
 
 describe('sessionDisplayName', () => {
-  const link = (overrides: Partial<TaskSessionLink> = {}): TaskSessionLink => ({
+  const link = (overrides: Partial<IssueSessionLink> = {}): IssueSessionLink => ({
     sessionId: 'e1dbb2b0-3c2f-4f7a-9a51-0c4a1f2b7d33',
     sessionTitle: null,
     provider: null,
@@ -205,7 +205,7 @@ describe('sessionDisplayName', () => {
 })
 
 describe('attemptServerId', () => {
-  const link = (executionServerId: string | null): TaskSessionLink => ({
+  const link = (executionServerId: string | null): IssueSessionLink => ({
     sessionId: 'e1dbb2b0-3c2f-4f7a-9a51-0c4a1f2b7d33',
     sessionTitle: null,
     provider: null,

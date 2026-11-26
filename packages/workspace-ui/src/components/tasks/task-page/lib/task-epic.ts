@@ -1,11 +1,11 @@
 // The epic row of the task page's properties.
-import type { Task, TaskProviderId } from '@solus/contracts/task-types'
+import type { Issue, IssueProviderId } from '@solus/contracts/task-types'
 import { PROVIDER_NAMES } from '../../lib/tasks-api'
 
 /** The epic as the properties rail names it. Null hides the row: a task with
  *  no epic has nothing to say there, not an empty value. */
 export interface TaskEpicRow {
-  providerId: TaskProviderId
+  providerId: IssueProviderId
   title: string
   ref: string
   url: string
@@ -13,7 +13,7 @@ export interface TaskEpicRow {
   hint: string
 }
 
-export function taskEpicRow(task: Pick<Task, 'epic'>): TaskEpicRow | null {
+export function taskEpicRow(task: Pick<Issue, 'epic'>): TaskEpicRow | null {
   const epic = task.epic
   if (!epic) return null
   const ref = epicRef(epic.provider, epic.externalId)
@@ -28,7 +28,7 @@ export function taskEpicRow(task: Pick<Task, 'epic'>): TaskEpicRow | null {
 
 /** How each provider writes a reference: GitHub numbers its issues and
  *  prefixes them with `#`; a Jira key (`ACME-12`) already reads as one. */
-function epicRef(provider: TaskProviderId, externalId: string): string {
+function epicRef(provider: IssueProviderId, externalId: string): string {
   if (provider !== 'github') return externalId
   return /^\d+$/.test(externalId) ? `#${externalId}` : externalId
 }

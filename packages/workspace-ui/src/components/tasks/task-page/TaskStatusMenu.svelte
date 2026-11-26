@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import type { TaskMoveTarget } from "@solus/contracts/task-types";
+  import type { IssueMoveTarget } from "@solus/contracts/task-types";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import { CATEGORY_META } from "../lib/tasks-api";
   import { statusTextColor } from "./lib/task-page";
@@ -18,7 +18,7 @@
   interface Props {
     /** `taskMoveGroups` of the task. */
     groups: TaskMoveGroup[];
-    onSelect: (target: TaskMoveTarget) => void;
+    onSelect: (target: IssueMoveTarget) => void;
     align?: "start" | "end";
     triggerClass: string;
     trigger: Snippet;

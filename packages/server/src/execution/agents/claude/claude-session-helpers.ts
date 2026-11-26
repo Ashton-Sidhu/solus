@@ -131,6 +131,7 @@ const claudeTranscriptLineSchema = z.object({
     model: z.string().optional(),
   }).optional(),
   toolUseResult: z.object({
+    agentId: z.string().optional(),
     isAsync: z.boolean().optional(),
     status: z.string().optional(),
   }).optional().catch(undefined),
@@ -281,6 +282,7 @@ function claudeHistoryRow(obj: z.infer<typeof claudeTranscriptLineSchema>): Sess
         role: 'tool_result',
         content: text,
         toolResultForId: result.tool_use_id,
+        ...(obj.toolUseResult?.agentId && { providerTaskId: obj.toolUseResult.agentId }),
         toolResultIsError: result.is_error,
         toolImages: storeToolResultImages(result.content),
         ...toolResultMedia(text),
@@ -300,6 +302,7 @@ function claudeHistoryRow(obj: z.infer<typeof claudeTranscriptLineSchema>): Sess
           role: 'assistant',
           content: notification.result,
           parentToolUseId: notification.toolUseId,
+          ...(notification.taskId && { providerTaskId: notification.taskId }),
           timestamp: new Date(obj.timestamp ?? 0).getTime(),
         }
       }

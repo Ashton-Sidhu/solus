@@ -90,14 +90,14 @@ async function membersStep(proof: Proof): Promise<{ alice: LabClient; bob: LabCl
   // GitHub and Jira own every task (docs/plans/provider-owned-tasks.md §6): the
   // service keeps what Solus attaches to a task key, and no task.
   ctx.step(`${tag} alice attaches a link to a task key on the service; bob sees it live`)
-  const heard = bob.waitForEvent('tasks.invalidated')
-  await expectOk(ctx, `${tag} alice links an automation to the task`, alice.rpc('tasksLink', TASK_KEY, { kind: 'automation', targetKey: 'lab-automation', title: 'Nightly check' }))
+  const heard = bob.waitForEvent('issues.invalidated')
+  await expectOk(ctx, `${tag} alice links an automation to the task`, alice.rpc('issuesLink', TASK_KEY, { kind: 'automation', targetKey: 'lab-automation', title: 'Nightly check' }))
   await expectOk(ctx, `${tag} bob hears the tasks change`, heard)
-  const bobAttachments = await expectOk(ctx, `${tag} bob reads the attachments of the task`, bob.rpc('tasksAttachments', TASK_KEY))
+  const bobAttachments = await expectOk(ctx, `${tag} bob reads the attachments of the task`, bob.rpc('issuesAttachments', TASK_KEY))
   ctx.check(`${tag} bob sees alice's link`, bobAttachments?.links.some((link) => link.targetKey === 'lab-automation') === true, JSON.stringify(bobAttachments?.links))
-  const bobTasks = await expectOk(ctx, `${tag} bob lists tasks`, bob.rpc('tasksSidebarSnapshot'))
+  const bobTasks = await expectOk(ctx, `${tag} bob lists tasks`, bob.rpc('issuesSidebarSnapshot'))
   ctx.check(`${tag} the service holds no copy of a task`, bobTasks?.tasks.length === 0, JSON.stringify(bobTasks?.tasks.map((row) => row.id)))
-  await expectNotServed(ctx, `${tag} a task read is refused: the service reads no provider`, bob.rpc('tasksGet', TASK_KEY))
+  await expectNotServed(ctx, `${tag} a task read is refused: the service reads no provider`, bob.rpc('issuesGet', TASK_KEY))
   return { alice, bob, taskId: TASK_KEY }
 }
 
@@ -151,7 +151,7 @@ async function otherOrganizationStep(proof: Proof, taskId: string): Promise<void
   const carol = workspaceClient(proof, 'carol')
   ctx.check(`${tag} carol connects`, (await carol.connect()).ok)
   // The task key is the provider's, so carol can name it; the attachments are alice's organization's.
-  const carolAttachments = await expectOk(ctx, `${tag} carol reads the attachments of the same task key`, carol.rpc('tasksAttachments', taskId))
+  const carolAttachments = await expectOk(ctx, `${tag} carol reads the attachments of the same task key`, carol.rpc('issuesAttachments', taskId))
   ctx.check(`${tag} carol sees no link of alice's organization`, carolAttachments?.links.length === 0 && carolAttachments.activity.length === 0, JSON.stringify(carolAttachments))
   const carolWorks = await expectOk(ctx, `${tag} carol lists works`, carol.records.listWorks())
   ctx.check(`${tag} carol's work list is empty`, carolWorks?.length === 0)

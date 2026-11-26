@@ -245,7 +245,6 @@ import { onWorkReviewsChanged } from './data/works/work-reviews'
 import { registerWorkReviewHandlers } from './transport/handlers/work-review-handlers'
 import { registerNotificationHubHandlers } from './transport/handlers/notification-hub-handlers'
 import { publishNotificationChanges } from './notifications/hub-events'
-import { publishTaskSnoozeChanges } from './transport/events/task-snooze-events'
 import { PersonConnections } from './transport/events/person-connections'
 import { publishSessionViewChanges } from './transport/events/session-view-events'
 import { StreamedProse } from './transport/events/streamed-prose'
@@ -759,7 +758,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onWorkReviewsChanged((change) => events.broadcast('workReviews.changed', change)),
     // A client with no socket principal is the desktop's own IPC connection: the local owner.
     publishNotificationChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL),
-    publishTaskSnoozeChanges(events, personConnections),
     publishSessionViewChanges(events, personConnections),
     publishPersonHistoryChanges(events, personConnections),
     publishPersonalDocumentChanges(events, personConnections),
@@ -774,10 +772,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onTasksChanged((taskId) => {
       // A task's links reach sessions and works: room members are checked again.
       events.forgetRoomAdmissions()
-      void events.broadcast('tasks.invalidated', taskId ? { taskId } : {})
+      void events.broadcast('issues.invalidated', taskId ? { issueId: taskId } : {})
     }),
     // The end of a source read: a client reads the state of its sources again.
-    onTaskSourcesChanged((sourceKeys) => { void events.broadcast('tasks.sourcesChanged', { sourceKeys }) }),
+    onTaskSourcesChanged((sourceKeys) => { void events.broadcast('issues.sourcesChanged', { sourceKeys }) }),
     // `registerTasksHandlers` starts the timer that keeps the wanted sources fresh.
     stopTaskSourcePolling,
     // A task reads the pull requests of its sessions, so a session's change is

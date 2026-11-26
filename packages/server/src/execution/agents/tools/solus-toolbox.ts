@@ -19,13 +19,8 @@ import { renderArtifactAgentTool } from './artifact-tools'
 import { checkoutAppAgentTool, deployAppAgentTool, inspectAppAgentTool, listAppsAgentTool, previewAppAgentTool, publishAppAgentTool, exportAppAgentTool, retryAppRunAgentTool, saveAppAgentTool, setAppSignalActionAgentTool, unpublishAppAgentTool } from './app-tools'
 import { requestWorkReviewAgentTool } from './work-review-tools'
 import {
-  createAutomationAgentTool,
-  deleteAutomationAgentTool,
-  listAutomationRunsAgentTool,
-  listAutomationsAgentTool,
-  readAutomationAgentTool,
-  runAutomationAgentTool,
-  updateAutomationAgentTool,
+  manageAutomationsAgentTool,
+  readAutomationsAgentTool,
 } from './automation-tools'
 import {
   listAgentTargetsAgentTool,
@@ -88,13 +83,8 @@ import { organizeSessionAgentTool } from './session-organize-tool'
 import { backgroundWaitAgentTool } from './background-wait-tool'
 import { requestSecretAgentTool } from './secret-request-tool'
 import {
-  createWebhookAgentTool,
-  deleteWebhookAgentTool,
-  dryRunWebhookAgentTool,
-  listWebhooksAgentTool,
-  readWebhookDeliveryAgentTool,
-  rotateWebhookAgentTool,
-  updateWebhookAgentTool,
+  manageWebhooksAgentTool,
+  readWebhooksAgentTool,
 } from './webhook-tools'
 
 export const solusToolbox = {
@@ -128,22 +118,12 @@ export const solusToolbox = {
     setSignalAction: setAppSignalActionAgentTool,
   },
   automations: {
-    create: createAutomationAgentTool,
-    list: listAutomationsAgentTool,
-    read: readAutomationAgentTool,
-    update: updateAutomationAgentTool,
-    delete: deleteAutomationAgentTool,
-    run: runAutomationAgentTool,
-    listRuns: listAutomationRunsAgentTool,
+    read: readAutomationsAgentTool,
+    manage: manageAutomationsAgentTool,
   },
   webhooks: {
-    create: createWebhookAgentTool,
-    update: updateWebhookAgentTool,
-    delete: deleteWebhookAgentTool,
-    rotate: rotateWebhookAgentTool,
-    list: listWebhooksAgentTool,
-    readDelivery: readWebhookDeliveryAgentTool,
-    dryRun: dryRunWebhookAgentTool,
+    read: readWebhooksAgentTool,
+    manage: manageWebhooksAgentTool,
   },
   /**
    * Every host the person reaches (plans/036-host-tools.md). A tool that acts through

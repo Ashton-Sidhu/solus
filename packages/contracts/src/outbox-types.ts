@@ -87,7 +87,7 @@ export interface TaskLinkOpPayload {
 
 export interface WorkCreateOpPayload {
   /** The dispatched session's task — owner resolution and the owner-side link. Absent on a cloud-owned op. */
-  taskId?: string
+  issueId?: string
   title: string
   docType: WorkType
   content: string
@@ -100,7 +100,7 @@ export interface WorkCreateOpPayload {
 
 export interface WorkUpdateOpPayload {
   /** Same role as on create: how the courier finds the owner host. Absent on a cloud-owned op. */
-  taskId?: string
+  issueId?: string
   content: string
   title?: string
   /** The `contentVersion` the agent read, from the shipped copy. The owner

@@ -76,20 +76,20 @@ describe('host event fan-out', () => {
     }
 
     try {
-      const unsubscribe = subscribeAllHosts('tasks.invalidated', (serverId) => {
+      const unsubscribe = subscribeAllHosts('issues.invalidated', (serverId) => {
         received.push(serverId)
       })
-      existingEvents.receive(hostEvent('tasks.invalidated', {}))
+      existingEvents.receive(hostEvent('issues.invalidated', {}))
 
       const notifyConnectionCreated = connectionCreated as ((connection: { serverId: string }) => void) | null
       notifyConnectionCreated?.({ serverId: 'fan-out-later' })
-      laterEvents.receive(hostEvent('tasks.invalidated', {}))
+      laterEvents.receive(hostEvent('issues.invalidated', {}))
 
       expect(received).toEqual(['fan-out-existing', 'fan-out-later'])
 
       unsubscribe()
-      existingEvents.receive(hostEvent('tasks.invalidated', {}))
-      laterEvents.receive(hostEvent('tasks.invalidated', {}))
+      existingEvents.receive(hostEvent('issues.invalidated', {}))
+      laterEvents.receive(hostEvent('issues.invalidated', {}))
       expect(received).toEqual(['fan-out-existing', 'fan-out-later'])
       expect(connectionCreated).toBeNull()
     } finally {
@@ -100,6 +100,6 @@ describe('host event fan-out', () => {
   })
 })
 
-function hostEvent<K extends 'tasks.invalidated'>(type: K, payload: Record<string, never>) {
+function hostEvent<K extends 'issues.invalidated'>(type: K, payload: Record<string, never>) {
   return { type, payload, occurredAt: Date.now() }
 }

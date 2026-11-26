@@ -44,7 +44,7 @@ function workspaceWith(location: RunLocation = folderLocation(HOME)) {
     messages: [],
     status: 'idle',
     run: { location },
-    task: { kind: 'existing', taskId: 'old-project-task' },
+    task: { kind: 'existing', issueId: 'old-project-task' },
   } as Session
   const refreshRequests: [string, string, boolean][] = []
   return {
@@ -147,7 +147,7 @@ describe('choosing which host a tab will run on', () => {
 
     expect(runHost(dispatched.session.run)).toBe('studio')
     expect(projectHome(dispatched.session.run).serverId).toBe('local')
-    expect(dispatched.session.task).toEqual({ kind: 'existing', taskId: 'old-project-task' })
+    expect(dispatched.session.task).toEqual({ kind: 'existing', issueId: 'old-project-task' })
     expect(isDispatch(dispatched.session.run)).toBe(true)
     expect(startsWorktree(dispatched.session.run)).toBe(true)
 

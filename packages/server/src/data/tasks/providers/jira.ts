@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
-import type { TaskRef, TaskStatusCategory } from '@solus/contracts/task-sources'
-import type { TaskAssigneeCandidate, TaskEpic, TaskUpdatePatch } from '@solus/contracts/task-types'
+import type { IssueRef, IssueStatusCategory } from '@solus/contracts/task-sources'
+import type { IssueAssigneeCandidate, IssueEpic, IssueUpdatePatch } from '@solus/contracts/task-types'
 import { adfToMarkdown, markdownToAdf } from '../../../atlassian/adf'
 import { createLogger } from '../../../logger'
 import { storedAssetPath } from '../../assets/asset-paths'
@@ -59,7 +59,7 @@ async function readEpic(
   cloudId: string,
   issue: JiraIssue,
   siteUrl: string | null,
-): Promise<TaskEpic | undefined> {
+): Promise<IssueEpic | undefined> {
   const named = parentEpic(issue, siteUrl)
   if (!named) return undefined
   try {
@@ -194,12 +194,12 @@ export class JiraTaskProvider implements TaskProviderAdapter {
 
   constructor(private readonly jira: JiraTransport) {}
 
-  async fetch(ref: TaskRef): Promise<ProviderTaskDetails> {
+  async fetch(ref: IssueRef): Promise<ProviderTaskDetails> {
     if (ref.provider !== 'jira') throw new Error(`The Jira task provider cannot read a ${ref.provider} task.`)
     return readJiraTask(this.jira, ref.cloudId, ref.id)
   }
 
-  async update(home: TaskHome, patch: TaskUpdatePatch): Promise<ProviderTask> {
+  async update(home: TaskHome, patch: IssueUpdatePatch): Promise<ProviderTask> {
     const { cloudId, key } = jiraHome(home)
     if (patch.assignees !== undefined || patch.assignee !== undefined || patch.dueDate !== undefined) {
       throw new Error('Solus cannot change the assignee or the due date of a Jira issue. Change them in Jira.')
@@ -218,7 +218,7 @@ export class JiraTaskProvider implements TaskProviderAdapter {
   }
 
   /** A transition to a status of the category. Each such destination is good. */
-  async setState(home: TaskHome, category: TaskStatusCategory): Promise<ProviderTask> {
+  async setState(home: TaskHome, category: IssueStatusCategory): Promise<ProviderTask> {
     const target = jiraHome(home)
     await transitionJiraIssue(
       this.jira,
@@ -239,7 +239,7 @@ export class JiraTaskProvider implements TaskProviderAdapter {
   }
 
   /** Solus does not write the assignee of a Jira issue, so it lists no candidates. */
-  async assignees(home: TaskHome): Promise<TaskAssigneeCandidate[]> {
+  async assignees(home: TaskHome): Promise<IssueAssigneeCandidate[]> {
     jiraHome(home)
     return []
   }

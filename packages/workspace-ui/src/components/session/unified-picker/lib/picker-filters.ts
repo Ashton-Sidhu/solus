@@ -1,11 +1,11 @@
-import type { Task } from '@solus/contracts/task-types'
+import type { Issue } from '@solus/contracts/task-types'
 import type { AgentId } from '@solus/contracts/types'
 import { isDone } from '../../../tasks/lib/tasks-list-view'
 
 /**
  * The picker's filters (docs/plans/unified-search.md): how recently a row was
  * active, a task's status, and a session's agent, host, and whether it is
- * archived (docs/plans/session-archive.md). Updated narrows both kinds; Task
+ * archived (docs/plans/session-archive.md). Updated narrows both kinds; Issue
  * status narrows tasks only; Agent, Host, and Archived narrow sessions only.
  */
 export type PickerUpdatedFilter = 'any' | 'day' | 'week' | 'month'
@@ -65,7 +65,7 @@ export function activeFilterCount(filters: PickerFilters): number {
 }
 
 /** Whether the filters keep a task: its last update, and its status. */
-export function keepsTask(task: Task, filters: PickerFilters, since: number | undefined): boolean {
+export function keepsTask(task: Issue, filters: PickerFilters, since: number | undefined): boolean {
   if (since !== undefined && task.updatedAt < since) return false
   return filters.status === 'any' || (filters.status === 'done') === isDone(task)
 }

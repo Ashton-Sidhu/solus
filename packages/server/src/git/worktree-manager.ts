@@ -1085,34 +1085,37 @@ export async function fetchAndCheckoutPr(
   return { worktreePath: resolvedWorktreePath, branch: resolvedBranch, baseSha, headSha, reused: !!existingWorktreePath }
 }
 
+/** One entry of `git worktree list --porcelain`. `branch` is null for a detached HEAD. */
+export interface ListedWorktree {
+  path: string
+  branch: string | null
+  isBare: boolean
+}
+
+export function parseWorktreeList(projectPath: string, output: string): ListedWorktree[] {
+  const entries: ListedWorktree[] = []
+  let current: ListedWorktree | null = null
+  for (const line of output.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      if (current) entries.push(current)
+      current = { path: gitOutputPath(projectPath, line.slice(9)), branch: null, isBare: false }
+    } else if (current && line.startsWith('branch ')) {
+      current.branch = line.slice(7).replace('refs/heads/', '')
+    } else if (current && line === 'bare') {
+      current.isBare = true
+    } else if (line === '') {
+      if (current) entries.push(current)
+      current = null
+    }
+  }
+  if (current) entries.push(current)
+  return entries
+}
+
 export function listProjectWorktrees(projectPath: string): WorktreeEntry[] {
   try {
-    const output = git(['worktree', 'list', '--porcelain'], projectPath)
-    interface ParsedWorktree {
-      path?: string
-      branch?: string
-      isBare?: boolean
-    }
-    const entries: ParsedWorktree[] = []
-    let current: ParsedWorktree = {}
-
-    for (const line of output.split('\n')) {
-      if (line.startsWith('worktree ')) {
-        if (current.path) entries.push(current)
-        current = { path: gitOutputPath(projectPath, line.slice(9)), branch: '', isBare: false }
-      } else if (line.startsWith('branch ')) {
-        current.branch = line.slice(7).replace('refs/heads/', '')
-      } else if (line === 'bare') {
-        current.isBare = true
-      } else if (line === '') {
-        if (current.path) entries.push(current)
-        current = {}
-      }
-    }
-    if (current.path) entries.push(current)
-
-    return entries
-      .filter((e): e is { path: string; branch: string; isBare: boolean } => !e.isBare && !!e.branch && !!e.path && existsSync(e.path))
+    return parseWorktreeList(projectPath, git(['worktree', 'list', '--porcelain'], projectPath))
+      .filter((e): e is ListedWorktree & { branch: string } => !e.isBare && !!e.branch && existsSync(e.path))
       .map(e => {
         let lastModified: number | undefined
         try { lastModified = statSync(e.path).mtimeMs } catch { /* ignore */ }

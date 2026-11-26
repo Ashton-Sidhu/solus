@@ -1,4 +1,4 @@
-import type { TaskStatus } from '../../session/lib/task-list'
+import type { SidebarStatus } from '../../session/lib/sidebar-rows'
 
 // Logic for the breadcrumb that replaced the session tab strip — one line that
 // always says exactly where you are (project › task › session) instead of a
@@ -20,7 +20,7 @@ export interface BreadcrumbLeafLabels {
 /** Keep the breadcrumb picker easy to scan without changing the urgency order
  * it receives from the sidebar store. Work that can still continue comes first;
  * completed work stays available in a separate section below it. */
-export function breadcrumbTaskGroups<T extends { status: TaskStatus }>(tasks: readonly T[]): BreadcrumbTaskGroups<T> {
+export function breadcrumbTaskGroups<T extends { status: SidebarStatus }>(tasks: readonly T[]): BreadcrumbTaskGroups<T> {
   const open: T[] = []
   const completed: T[] = []
   for (const task of tasks) {
@@ -70,7 +70,7 @@ export function breadcrumbLeafLabels(
 
 /** The app's own status palette, not the chart/brand ramps that happen to sit
  *  near it. Menu notes use the same colours as session status icons elsewhere. */
-export function statusColor(status: TaskStatus): string | null {
+export function statusColor(status: SidebarStatus): string | null {
   switch (status) {
     // Stopped and waiting on a person — the same terracotta the permission
     // prompts use.
@@ -104,7 +104,7 @@ export interface StatusNote {
   color: string
 }
 
-const STATUS_TEXT = new Map<TaskStatus, string>([
+const STATUS_TEXT = new Map<SidebarStatus, string>([
   ['question', 'Needs you'],
   ['approval', 'Needs approval'],
   ['plan', 'Plan ready'],
@@ -116,7 +116,7 @@ const STATUS_TEXT = new Map<TaskStatus, string>([
 ])
 
 /** `needs` replaces "Needs you" when the open session knows whose turn waits ("Needs Alice"). */
-export function statusNote(status: TaskStatus, needs?: string): StatusNote | null {
+export function statusNote(status: SidebarStatus, needs?: string): StatusNote | null {
   const text = status === 'question' && needs ? needs : STATUS_TEXT.get(status)
   const color = statusColor(status)
   if (!text || !color) return null

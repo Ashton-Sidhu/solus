@@ -1,5 +1,5 @@
 /** Relative presets wake a fixed span from now; the rest wake at a clock time. */
-export type TaskSnoozePreset =
+export type SnoozePreset =
   | '15m'
   | '30m'
   | '1h'
@@ -11,7 +11,7 @@ export type TaskSnoozePreset =
   | 'tomorrow'
   | 'week'
 
-const RELATIVE_MINUTES = new Map<TaskSnoozePreset, number>([
+const RELATIVE_MINUTES = new Map<SnoozePreset, number>([
   ['15m', 15],
   ['30m', 30],
   ['1h', 60],
@@ -21,8 +21,8 @@ const RELATIVE_MINUTES = new Map<TaskSnoozePreset, number>([
   ['24h', 1440],
 ])
 
-export interface TaskSnoozeChoice {
-  preset: TaskSnoozePreset
+export interface SnoozeChoice {
+  preset: SnoozePreset
   label: string
   /** Relative spans read as a clock; clock times read as a moon. The callers
    *  own the icon components so this module stays free of Svelte imports. */
@@ -32,7 +32,7 @@ export interface TaskSnoozeChoice {
 /** The offered wake times, shared by the snooze popover and the context
  *  submenu so both surfaces always list the same choices in the same order:
  *  relative spans first — the common "not now, soon" case — then clock times. */
-export const TASK_SNOOZE_CHOICES: TaskSnoozeChoice[] = [
+export const SNOOZE_CHOICES: SnoozeChoice[] = [
   { preset: '15m', label: '15 minutes', isRelative: true },
   { preset: '30m', label: '30 minutes', isRelative: true },
   { preset: '1h', label: '1 hour', isRelative: true },
@@ -54,7 +54,7 @@ export const TASK_SNOOZE_CHOICES: TaskSnoozeChoice[] = [
  * was paused, abandoned, or is still running. Nothing needs resuming, and that
  * is the part the sentence must carry.
  */
-export function taskSnoozeToastLabel(input: {
+export function snoozeToastLabel(input: {
   count: number
   hasNote: boolean
   /** True when any snoozed task has a turn in flight. */
@@ -68,7 +68,7 @@ export function taskSnoozeToastLabel(input: {
 
 /** Where the snooze menu hangs from. A row's snooze button gives its element;
  *  the context menu only knows the point the user right-clicked at. */
-export type TaskSnoozeAnchor = HTMLElement | { x: number; y: number }
+export type SnoozeAnchor = HTMLElement | { x: number; y: number }
 
 /**
  * Popover anchors accept an element or anything that can measure itself, so a
@@ -81,11 +81,11 @@ export type TaskSnoozeAnchor = HTMLElement | { x: number; y: number }
  * has gone. So keep tracking the button while it can be seen, and hold its last
  * known position once it cannot.
  */
-export interface TaskSnoozeAnchorTarget { getBoundingClientRect: () => DOMRect }
+export interface SnoozeAnchorTarget { getBoundingClientRect: () => DOMRect }
 
-export function taskSnoozeAnchorTarget(
-  anchor: TaskSnoozeAnchor,
-): TaskSnoozeAnchorTarget {
+export function snoozeAnchorTarget(
+  anchor: SnoozeAnchor,
+): SnoozeAnchorTarget {
   if (!(anchor instanceof HTMLElement)) {
     const { x, y } = anchor
     return { getBoundingClientRect: () => new DOMRect(x, y, 0, 0) }
@@ -100,7 +100,7 @@ export function taskSnoozeAnchorTarget(
   }
 }
 
-export function taskSnoozeUntil(preset: TaskSnoozePreset, now = new Date()): number {
+export function snoozeUntilFor(preset: SnoozePreset, now = new Date()): number {
   const minutes = RELATIVE_MINUTES.get(preset)
   if (minutes) return now.getTime() + minutes * 60 * 1000
   const target = new Date(now)

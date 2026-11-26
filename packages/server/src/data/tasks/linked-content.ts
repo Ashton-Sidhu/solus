@@ -1,7 +1,7 @@
 import { createLogger } from '../../logger'
 import { loadWork } from '../works/works'
 import { findSession, getSessionController } from '../../execution/agents/tools/session-tools'
-import type { TaskLinkedItemSnapshot, TaskSnapshot } from '@solus/contracts/task-types'
+import type { IssueLinkedItemSnapshot, IssueSnapshot } from '@solus/contracts/task-types'
 import type { RecordScope } from '../../admission/principal'
 
 const log = createLogger('main', 'linked-content.ts')
@@ -19,8 +19,8 @@ const log = createLogger('main', 'linked-content.ts')
  *
  * `scope` is what the reader of the snapshot may see: a linked work is read in it.
  */
-export async function attachLinkedContent(scope: RecordScope, snapshot: TaskSnapshot): Promise<TaskSnapshot> {
-  const linked: TaskLinkedItemSnapshot[] = []
+export async function attachLinkedContent(scope: RecordScope, snapshot: IssueSnapshot): Promise<IssueSnapshot> {
+  const linked: IssueLinkedItemSnapshot[] = []
   for (const link of snapshot.details.links) {
     if (link.kind === 'work') {
       const work = await loadWork(scope, link.targetKey).catch(() => null)

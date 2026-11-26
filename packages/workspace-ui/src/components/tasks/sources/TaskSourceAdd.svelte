@@ -1,8 +1,8 @@
 <script lang="ts">
   import { Plus as PlusIcon } from "@lucide/svelte";
   import { untrack } from "svelte";
-  import type { taskSourceProvider } from "@solus/contracts/task-sources";
-  import { connectionsStore, getSurfaceContext, taskHostId, taskSourcesStore } from "../../../contexts";
+  import type { issueSourceProvider } from "@solus/contracts/task-sources";
+  import { connectionsStore, getSurfaceContext, taskHostId, issueSourcesStore } from "../../../contexts";
   import { atlassianStore } from "../../../contexts/atlassian/atlassian.store.svelte";
   import AtlassianConnectForm from "../../atlassian/AtlassianConnectForm.svelte";
   import GitHubConnectForm from "../../connections/GitHubConnectForm.svelte";
@@ -31,7 +31,7 @@
   }
   let { look, onChanged }: Props = $props();
 
-  type SourceProvider = ReturnType<typeof taskSourceProvider>;
+  type SourceProvider = ReturnType<typeof issueSourceProvider>;
   const PROVIDERS: { id: SourceProvider; label: string; detail: string }[] = [
     { id: "github", label: "GitHub", detail: "Repositories and Projects" },
     { id: "jira", label: "Jira", detail: "Projects and boards" },
@@ -51,7 +51,7 @@
 
   // ── Connecting a provider from its card ──
   const serverId = $derived(taskHostId());
-  const options = $derived(taskSourcesStore.options);
+  const options = $derived(issueSourcesStore.options);
   // The connections as Settings reads them: quick, so a card opens the
   // connect dialog before the providers have listed any choice. The choices answer only
   // while a connection has not.
@@ -100,7 +100,7 @@
   async function connected(shown: SourceProvider) {
     connecting = null;
     if (shown === "jira" && serverId) void atlassianStore.refreshStatus(serverId);
-    await taskSourcesStore.loadOptions();
+    await issueSourcesStore.loadOptions();
     const card = cards[shown];
     if (card) openFor(shown, card);
     else open = true;

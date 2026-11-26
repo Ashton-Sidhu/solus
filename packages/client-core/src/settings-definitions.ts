@@ -309,6 +309,10 @@ export const settingsDefinitions = {
   "source-control.branch-names": {
     label: "Branch names",
   },
+  "source-control.managed-worktrees": {
+    label: "Solus worktrees",
+    description: "Each session that works in its own worktree keeps a copy of its project on this host. Delete one to free its space. Solus tells you first if you lose work.",
+  },
   "source-control.override-branch-names": {
     label: "Override branch names",
     description: "Use a different naming for this project. Saved in .solus/config.json, so you can commit it.",

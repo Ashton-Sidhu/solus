@@ -270,7 +270,7 @@ export interface SessionReport {
   messageId?: string
   /** The child session. */
   sessionId: string
-  taskId?: string
+  issueId?: string
   provider?: AgentId
   /** The model the run asked for. */
   model?: string
@@ -301,7 +301,7 @@ export function formatSessionReport(report: SessionReport): string {
     ['message', report.messageId],
     ['also', report.alsoMessageIds?.join(',')],
     ['session', report.sessionId],
-    ['task', report.taskId],
+    ['task', report.issueId],
     ['provider', report.provider],
     ['model', report.model],
     ['executed_model', report.executedModel],
@@ -317,7 +317,7 @@ export function formatSessionReport(report: SessionReport): string {
   if (shown.length) {
     lines.push('Outputs:', ...shown.map(formatSessionOutput))
     const more = report.outputs.length - shown.length
-    if (more > 0) lines.push(`- +${more} more; call read_task then read_session`)
+    if (more > 0) lines.push(`- +${more} more; call read_session with session_id=${report.sessionId}`)
   }
   lines.push('Reply:', clipReply(report.reply, report.messageId))
   return lines.join('\n')
@@ -334,7 +334,7 @@ function parseReport(headText: string, body: string): SessionReport | null {
   const also = values.get('also')?.split(',').filter(Boolean)
   if (also?.length) report.alsoMessageIds = also
   const taskId = values.get('task')
-  if (taskId) report.taskId = taskId
+  if (taskId) report.issueId = taskId
   const provider = agentIdOf(values.get('provider'))
   if (provider) report.provider = provider
   const model = values.get('model')
@@ -363,7 +363,7 @@ function parseReport(headText: string, body: string): SessionReport | null {
 interface NoticeTarget {
   messageId?: string
   sessionId: string
-  taskId?: string
+  issueId?: string
   provider?: AgentId
 }
 
@@ -380,7 +380,7 @@ export function formatSessionNotice(notice: SessionNotice): string {
   const target: Array<[string, string | number | undefined]> = [
     ['message', notice.messageId],
     ['session', notice.sessionId],
-    ['task', notice.taskId],
+    ['task', notice.issueId],
     ['provider', notice.provider],
     ['kind', notice.kind],
   ]
@@ -426,7 +426,7 @@ function parseNotice(headText: string, body: string): SessionNotice | null {
   const messageId = values.get('message')
   if (messageId) target.messageId = messageId
   const taskId = values.get('task')
-  if (taskId) target.taskId = taskId
+  if (taskId) target.issueId = taskId
   const provider = agentIdOf(values.get('provider'))
   if (provider) target.provider = provider
   switch (kind) {
@@ -504,7 +504,7 @@ export function formatOrchestrationItem(item: OrchestrationItem): string {
 /**
  * The one prompt that carries every item waiting for a parent, oldest first.
  * Past the merged limit, the oldest reports keep only their head line; the
- * parent reads them in full with `read_task` followed by `read_session`.
+ * parent reads them in full with `read_session_exchange`.
  */
 export function formatParentPrompt(items: readonly OrchestrationItem[]): string {
   let shorten = Math.max(0, items.length - ORCHESTRATION_LIMITS.mergedItems)
@@ -520,7 +520,7 @@ export function formatParentPrompt(items: readonly OrchestrationItem[]): string 
     }
   }
   const lines = [PARENT_PROMPT_GUIDANCE, '', blocks.join('\n\n')]
-  if (shortened) lines.push('', `${shortened} earlier ${shortened === 1 ? 'report was' : 'reports were'} shortened to their first line; call read_task then read_session for them.`)
+  if (shortened) lines.push('', `${shortened} earlier ${shortened === 1 ? 'report was' : 'reports were'} shortened to their first line; call read_session_exchange with the message id of each for its full report.`)
   return lines.join('\n')
 }
 

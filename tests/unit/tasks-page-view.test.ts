@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, jest, test } from 'bun:test'
-import type { Task, TaskSourceState } from '@solus/contracts/task-types'
+import type { Issue, IssueSourceState } from '@solus/contracts/task-types'
 import { SvelteRunes } from './helpers/svelte-runes'
 
 // The Tasks page view and its provider search run on Svelte's runtime here:
@@ -28,7 +28,7 @@ const NOW = Date.parse('2026-08-04T13:00:00Z')
 const REPO = 'github-repo:acme/app'
 const BOARD = 'github-project:acme/7'
 
-const repo: TaskSourceState = {
+const repo: IssueSourceState = {
   sourceKey: REPO,
   source: { kind: 'github-repo', owner: 'acme', repo: 'app' },
   label: 'acme/app',
@@ -39,7 +39,7 @@ const repo: TaskSourceState = {
   health: 'ok',
   fetchedAt: NOW - 60_000,
 }
-const board: TaskSourceState = {
+const board: IssueSourceState = {
   sourceKey: BOARD,
   source: { kind: 'github-project', owner: 'acme', number: 7 },
   label: 'Roadmap',
@@ -52,7 +52,7 @@ const board: TaskSourceState = {
   fetchedAt: NOW - 30_000,
 }
 
-function task(id: string, fields: Partial<Task>): Task {
+function task(id: string, fields: Partial<Issue>): Issue {
   return {
     id,
     providerId: 'github',
@@ -85,26 +85,26 @@ const noColumn = task('no-column', { kind: 'draft', reference: undefined, placem
 const projectTasks = [repoOnly, onBoth, shipped, noColumn]
 
 interface Scene {
-  tasks?: Task[]
-  sources?: TaskSourceState[]
+  tasks?: Issue[]
+  sources?: IssueSourceState[]
   running?: string[]
   homes?: Map<string, string>
 }
 
 function scene(options: Scene = {}) {
   const searches: string[] = []
-  const answers = new Map<string, PromiseWithResolvers<Task[]>>()
+  const answers = new Map<string, PromiseWithResolvers<Issue[]>>()
   const providerSearch = new ProviderTaskSearch({
     // SAFETY: the search reads only `search` of the store.
     search: (query: string) => {
       searches.push(query)
-      const answer = Promise.withResolvers<Task[]>()
+      const answer = Promise.withResolvers<Issue[]>()
       answers.set(query, answer)
       return answer.promise
     },
   } as unknown as ConstructorParameters<ProviderTaskSearchClass>[0])
   const view = new TasksPageView({
-    // SAFETY: the view reads the record fields of a task and `snoozedUntil`.
+    // SAFETY: the view reads the record fields of a task.
     tasks: () => (options.tasks ?? projectTasks) as unknown as PageTask[],
     sources: () => options.sources ?? [repo, board],
     now: () => NOW,
@@ -261,7 +261,7 @@ describe('one source on screen', () => {
   test('the failure and the freshness are those of the source on screen', () => {
     // WHY: a broken board must not put its failure on the view of the
     // repository, which is read and complete.
-    const brokenBoard: TaskSourceState = { ...board, health: 'reconnect', truncated: true, fetchedAt: NOW - 3_600_000 }
+    const brokenBoard: IssueSourceState = { ...board, health: 'reconnect', truncated: true, fetchedAt: NOW - 3_600_000 }
     const { view } = scene({ sources: [repo, brokenBoard] })
 
     expect(view.failure?.key).toBe(`${BOARD}:reconnect`)
@@ -285,26 +285,13 @@ describe('the filters', () => {
     expect(view.visibleTasks.map((row) => row.id)).toEqual(['repo-only'])
   })
 
-  test('a snoozed task is out of the list until the Snoozed filter asks for it', () => {
-    // WHY: a snooze hides the task from the reader's lists. The Snoozed
-    // filter is the way back to it.
-    const sleeping = { ...repoOnly, snoozedUntil: NOW + 60_000 }
-    const { view } = scene({ tasks: [sleeping, onBoth] })
-
-    expect(view.flatVisibleIds).toEqual(['on-both'])
-    expect(view.filterCounts.snoozed).toBe(1)
-
-    view.snoozedOnly = true
-    expect(view.flatVisibleIds).toEqual(['repo-only'])
-  })
-
   test('each chip counts what it would show, and narrows the list when on', () => {
     const overdue = { ...repoOnly, dueDate: '2026-08-01' }
     const doneAndPastDue = { ...shipped, dueDate: '2026-08-01' }
     const { view } = scene({ tasks: [overdue, onBoth, doneAndPastDue], running: ['on-both'] })
 
     // A finished task is not overdue.
-    expect(view.filterCounts).toEqual({ running: 1, overdue: 1, assigned: 1, snoozed: 0 })
+    expect(view.filterCounts).toEqual({ running: 1, overdue: 1, assigned: 1 })
 
     view.runningOnly = true
     expect(view.flatVisibleIds).toEqual(['on-both'])
@@ -359,7 +346,7 @@ describe('where a row says it lives', () => {
 })
 
 describe('search of the provider', () => {
-  const truncatedRepo: TaskSourceState = { ...repo, truncated: true }
+  const truncatedRepo: IssueSourceState = { ...repo, truncated: true }
   const fromProvider = task('found-by-github', { title: 'Old payment bug', placements: [{ sourceKey: REPO, columnId: 'open' }] })
 
   test('an empty list waiting for the provider is loading, not a miss', async () => {

@@ -246,16 +246,16 @@ describe('Solus tools act on the person\'s preferences, not the host\'s', () => 
     const { installTestWorkspaceTools } = await import('./helpers/workspace-tools')
     await installTestWorkspaceTools()
     const { BOARD, boardRead, FakeTaskProviders, REPO, repoRead } = await import('./helpers/task-fixtures')
-    const { taskSourceKey } = await import('@solus/contracts/task-sources')
+    const { issueSourceKey } = await import('@solus/contracts/task-sources')
     const { useTaskAdaptersForTests } = await import('@solus/server/data/tasks/providers/registry')
     const providers = new FakeTaskProviders()
     providers.answer(REPO, repoRead([]))
     providers.answer(BOARD, boardRead([]))
     useTaskAdaptersForTests(providers.adapters())
     const taskTools = await import('@solus/server/execution/agents/tools/task-tools')
-    sessionSettings.recordSessionSettings('tasks-mine', { organizationId: 'local', preferences: { taskSources: [REPO, BOARD] } })
-    sessionSettings.recordSessionSettings('tasks-board', { organizationId: 'local', preferences: { taskSources: [BOARD] } })
-    sessionSettings.recordSessionSettings('tasks-none', { organizationId: 'local', preferences: { taskSources: [] } })
+    sessionSettings.recordSessionSettings('tasks-mine', { organizationId: 'local', preferences: { issueSources: [REPO, BOARD] } })
+    sessionSettings.recordSessionSettings('tasks-board', { organizationId: 'local', preferences: { issueSources: [BOARD] } })
+    sessionSettings.recordSessionSettings('tasks-none', { organizationId: 'local', preferences: { issueSources: [] } })
 
     // There is no default source. With several sources and nothing in the
     // session (its task, its repository) that names one, the agent chooses:
@@ -263,18 +263,18 @@ describe('Solus tools act on the person\'s preferences, not the host\'s', () => 
     const unnamed = await taskTools.createTaskAgentTool.execute({ title: 'Somewhere' }, toolContext('tasks-mine') as never)
     expect(unnamed.ok).toBe(false)
     expect(unnamed.text).toContain('Name the issue source')
-    expect(unnamed.text).toContain(`${taskSourceKey(REPO)} (`)
-    expect(unnamed.text).toContain(`${taskSourceKey(BOARD)} (`)
+    expect(unnamed.text).toContain(`${issueSourceKey(REPO)} (`)
+    expect(unnamed.text).toContain(`${issueSourceKey(BOARD)} (`)
     // A person with one source needs no choice.
     expect((await taskTools.createTaskAgentTool.execute({ title: 'Plan' }, toolContext('tasks-board') as never)).ok).toBe(true)
     // The agent can name one of the person's sources, and no source of somebody else.
-    expect((await taskTools.createTaskAgentTool.execute({ title: 'Fix', source: taskSourceKey(REPO) }, toolContext('tasks-mine') as never)).ok).toBe(true)
+    expect((await taskTools.createTaskAgentTool.execute({ title: 'Fix', source: issueSourceKey(REPO) }, toolContext('tasks-mine') as never)).ok).toBe(true)
     const elsewhere = await taskTools.createTaskAgentTool.execute({ title: 'Elsewhere', source: 'jira-project:site/OTHER' }, toolContext('tasks-mine') as never)
     expect(elsewhere).toMatchObject({ ok: false, text: expect.stringContaining('is not one of your issue sources') })
-    expect(providers.callsOf('create:')).toEqual([`create:${taskSourceKey(BOARD)}`, `create:${taskSourceKey(REPO)}`])
+    expect(providers.callsOf('create:')).toEqual([`create:${issueSourceKey(BOARD)}`, `create:${issueSourceKey(REPO)}`])
 
     const listed = await taskTools.listTasksAgentTool.execute({}, toolContext('tasks-mine') as never)
-    expect(listed.text).toContain(`Issue sources: ${taskSourceKey(REPO)}, ${taskSourceKey(BOARD)}`)
+    expect(listed.text).toContain(`Issue sources: ${issueSourceKey(REPO)}, ${issueSourceKey(BOARD)}`)
     expect(listed.text).toContain('Plan')
     expect(listed.text).toContain('Fix')
 

@@ -75,7 +75,7 @@ describe('a card, live', () => {
         { kind: 'question', question: 'Which branch?', answer: 'main' },
         { kind: 'pull_request', number: 7, url: 'https://example.test/pr/7' },
       ],
-      taskId: 'task-1', settledAt: 2,
+      issueId: 'task-1', settledAt: 2,
     })
     expect(agentConversationCardState(ref())).toBe('replied')
     // Question, answer and reply are one exchange.
@@ -85,7 +85,7 @@ describe('a card, live', () => {
     // The live answers stand; the outputs and task come with the settle.
     expect(ref().exchanges[0]).toMatchObject({
       answers: ['Which branch? → main'],
-      taskId: 'task-1',
+      issueId: 'task-1',
       outputs: [{ kind: 'question' }, { kind: 'pull_request', number: 7, url: 'https://example.test/pr/7' }],
     })
   })
@@ -134,8 +134,8 @@ describe('a card whose other session is rate limited', () => {
 
 describe("a card's link to the other session's task", () => {
   test('comes from the latest report that named one', () => {
-    const ref = cardRef({ status: 'done', taskId: 'task-old' })
-    ref.exchanges.push({ messageId: 'm2', index: 2, prompt: 'next', dispatchedAt: 1, status: 'done', taskId: 'task-new' })
+    const ref = cardRef({ status: 'done', issueId: 'task-old' })
+    ref.exchanges.push({ messageId: 'm2', index: 2, prompt: 'next', dispatchedAt: 1, status: 'done', issueId: 'task-new' })
     ref.exchanges.push({ messageId: 'm3', index: 3, prompt: 'again', dispatchedAt: 2, status: 'running' })
     expect(cardTaskId(ref)).toBe('task-new')
     expect(cardTaskId(cardRef({}))).toBeUndefined()
@@ -149,7 +149,7 @@ describe('a card rebuilt from its transcript', () => {
     transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), [{ messageId: first }], 1)
     transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'two' }), [{ messageId: second }], 2)
     const report = formatParentPrompt([{ type: 'report', report: {
-      messageId: second, sessionId: child, taskId: 'task-1', provider: 'codex', status: 'completed', durationMs: 4_200,
+      messageId: second, sessionId: child, issueId: 'task-1', provider: 'codex', status: 'completed', durationMs: 4_200,
       outputs: [
         { kind: 'question', question: 'Which branch?', answer: 'main' },
         { kind: 'work', workId: 'w1', title: 'Notes', workType: 'doc' },
@@ -164,7 +164,7 @@ describe('a card rebuilt from its transcript', () => {
       [first, 'lost', undefined],
       [second, 'done', 'two done'],
     ])
-    expect(ref.exchanges[1]).toMatchObject({ answers: ['Which branch? → main'], taskId: 'task-1', durationMs: 4_200, outputs: [{ kind: 'question' }, { kind: 'work', workId: 'w1' }] })
+    expect(ref.exchanges[1]).toMatchObject({ answers: ['Which branch? → main'], issueId: 'task-1', durationMs: 4_200, outputs: [{ kind: 'question' }, { kind: 'work', workId: 'w1' }] })
   })
 
   test('a call that waited for its reply settles its card from the tool row alone', () => {

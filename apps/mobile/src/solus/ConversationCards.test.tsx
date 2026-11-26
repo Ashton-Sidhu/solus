@@ -33,6 +33,7 @@ vi.mock("../features/pull-requests/guide/ReviewGuideExcerpt", () => ({
 }));
 
 const host = vi.hoisted(() => ({
+  navigate: vi.fn(),
   inspect: vi.fn(() => false),
   dispatch: vi.fn(),
   remember: vi.fn(),
@@ -40,7 +41,7 @@ const host = vi.hoisted(() => ({
   recordOpen: vi.fn(),
 }));
 vi.mock("@react-navigation/native", () => ({
-  useNavigation: () => ({ dispatch: host.dispatch, getState: () => undefined }),
+  useNavigation: () => ({ dispatch: host.dispatch, navigate: host.navigate, getState: () => undefined }),
   useRoute: () => ({ name: "Thread", params: { environmentId: "host", threadId: "session" } }),
   StackActions: {
     push: (name: string, params: { environmentId: string; threadId: string }) => ({ name, params }),
@@ -52,8 +53,8 @@ vi.mock("react-native", () => ({
   Modal: ({ children }: { children: ReactNode }) => <section>{children}</section>,
   View: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   ScrollView: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
-  Pressable: ({ onPress, children, accessibilityLabel }: { onPress: () => void; children: ReactNode; accessibilityLabel?: string }) => (
-    <button aria-label={accessibilityLabel} onClick={onPress}>{children}</button>
+  Pressable: ({ onPress, children, accessibilityLabel, disabled }: { disabled?: boolean; onPress: () => void; children: ReactNode; accessibilityLabel?: string }) => (
+    <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>
   ),
   Alert: { alert: vi.fn() },
   useWindowDimensions: () => ({ height: 800, width: 360 }),
@@ -457,6 +458,13 @@ it("expands an upstream group to one row per provider agent and collapses it aga
   await act(async () => header.click());
   expect(container.textContent).toContain("Read policy");
   expect(container.textContent).toContain("Check clients");
+  const agent = Array.from(container.querySelectorAll("button")).find(row => row.textContent?.includes("Check clients"))!;
+  await act(async () => agent.click());
+  expect(host.navigate).toHaveBeenCalledWith("ProviderAgentTranscript", {
+    environmentId: "host", threadId: "session", toolId: "call-1", title: "Check clients",
+  });
+  expect(agent.textContent).toContain("Claude");
+  expect(agent.textContent).not.toContain("Not reported");
   await act(async () => header.click());
   expect(container.textContent).not.toContain("Check clients");
 });

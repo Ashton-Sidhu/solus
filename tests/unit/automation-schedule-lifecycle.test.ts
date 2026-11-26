@@ -58,7 +58,7 @@ describe('automation schedule lifecycle', () => {
     expect((await store.updateAutomation(saved.id, { enabled: true }))?.nextRunAt).toBeDefined()
     const run = await store.startRun(saved.id)
     await store.finishRun(saved.id, run.id, { status: 'succeeded' })
-    const result = await automationTools.executeAutomationTool('update_automation', {
+    const result = await automationTools.executeAutomationTool('update', {
       automation_id: saved.id, archived: true,
     })
     expect(result.ok).toBe(true)
@@ -100,7 +100,7 @@ describe('automation schedule lifecycle', () => {
   })
 
   test('agents set an end, and cannot set one that has passed or is not a date', async () => {
-    const create = (ends_at: string) => automationTools.executeAutomationTool('create_automation', {
+    const create = (ends_at: string) => automationTools.executeAutomationTool('create', {
       name: 'Tool end', prompt: 'Check CI', cwd: directory, agent_provider: 'codex', trigger: { type: 'interval', every_minutes: 30, ends_at },
     })
     expect((await create('2020-01-01T00:00:00Z')).ok).toBe(false)

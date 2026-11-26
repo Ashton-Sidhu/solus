@@ -21,7 +21,7 @@
   import SessionPinButton from "./SessionPinButton.svelte";
   import SessionNameInput from "./SessionNameInput.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
-  import TaskSessionRow from "./TaskSessionRow.svelte";
+  import NestedSessionRow from "./NestedSessionRow.svelte";
   import DotMatrix from "../ui/DotMatrix.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
   import * as TooltipUI from "../ui/tooltip";
@@ -30,26 +30,26 @@
   import { getSessionSidebarStore, type SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import {
     resolveSidebarRowMark,
-    taskRowBranchName,
+    sessionRowBranchName,
     shouldEmphasizeTitle,
     shouldRecedeRow,
     type PrChip as PrChipModel,
-    type TaskPrChoice,
-    type SidebarTask,
-  } from "./lib/task-list";
+    type PrChoice,
+    type SidebarSession,
+  } from "./lib/sidebar-rows";
   import { nestedRequestMark, nestedStateMarks, visibleNestedSessions } from "./lib/session-tree";
   import UserAvatar from "../users/UserAvatar.svelte";
   import type { User } from "@solus/contracts/user";
   import { shareRoleText } from "../../contexts/workspace/shared-sessions";
 
   interface Props {
-    task: SidebarTask;
+    task: SidebarSession;
     isPinned?: boolean;
     onTogglePin?: () => void;
     /** The owner of a shared row's session, when the directory names them. */
     shareOwner?: User | null;
     prChip: PrChipModel | null;
-    prChoices: TaskPrChoice[];
+    prChoices: PrChoice[];
     /** True while the session you are reading is this row's session or one it
      *  delegated. That row leads with full ink and weight; the rest rest at a
      *  legible tone. */
@@ -95,10 +95,10 @@
     onWake: () => void;
     onComplete: () => void;
     onClose: () => void;
-    onOpenPr: (choice: TaskPrChoice) => void;
-    onWarmPr?: (choice: TaskPrChoice) => void;
+    onOpenPr: (choice: PrChoice) => void;
+    onWarmPr?: (choice: PrChoice) => void;
     /** The way to unlink a pull request from this row, or null when it has none. */
-    onUnlinkPr?: (choice: TaskPrChoice) => (() => void) | null;
+    onUnlinkPr?: (choice: PrChoice) => (() => void) | null;
     /** Links another pull request to the row's session; absent when the
      *  viewer may not change it. */
     onLinkPr?: (url: string) => Promise<void>;
@@ -194,7 +194,7 @@
   );
   // Which branch or worktree the work sits on. The row itself stays as it is;
   // the tooltip is where the answer belongs.
-  const branchName = $derived(taskRowBranchName(task.branchName, sessions));
+  const branchName = $derived(sessionRowBranchName(task.branchName, sessions));
   const tooltipSession = $derived(sessions.length === 1 ? sessions[0] : null);
 
   // Which machine, on the same rule as the elapsed readout: with one session
@@ -617,7 +617,7 @@
  : 'text-foreground'}"
     role="treeitem"
     tabindex="0"
-    data-task-key={task.key}
+    data-row-key={task.key}
     aria-selected={isCurrentSession}
     aria-expanded={hasStartedSessions ? isNestedOpen : undefined}
     aria-label={`${task.automationName ?? task.title}${task.automationId ? ", automation" : ""}${nestedRequest ? " — a session it started needs you" : mark?.kind === "glyph" || mark?.kind === "dot" ? ` — ${stateLabel || "unread"}` : ""}`}
@@ -806,7 +806,7 @@
         : 'ml-[calc(0.625rem-0.5px)]'}"
     >
       {#each shownSessions as listed (listed.tabId ?? listed.sessionId)}
-        <TaskSessionRow
+        <NestedSessionRow
           session={listed}
           isCurrent={!!listed.tabId && listed.tabId === onScreenTabId}
           inRaisedCard={isCardRaised}

@@ -19,13 +19,13 @@ const SOLUS_TABLES = [
   'app_workflow_runs', 'app_workflow_steps', 'apps',
   'asset_publications', 'async_questions', 'automation_runs',
   'automations', 'browser_profiles', 'codebases', 'comment_threads', 'delivery_queue', 'host_device', 'host_list', 'indexed_plans', 'insight_log_events',
-  'insight_span_texts', 'insight_spans', 'integration', 'integration_connection', 'integration_resource_watch', 'integration_server_facts', 'kv', 'mcp_task', 'member_folder',
+  'insight_span_texts', 'insight_spans', 'integration', 'integration_connection', 'integration_resource_watch', 'integration_server_facts', 'issue_source_access', 'issue_source_items', 'issue_sources', 'issues', 'kv', 'mcp_task', 'member_folder',
   'notification_pr_observations', 'notifications', 'operation_receipts', 'outbox_ops', 'personal_resource_state',
   'plan_annotations', 'plan_index_providers', 'projects', 'pull_request_observations',
   'resource_links', 'run_exchanges', 'run_queue', 'runner_delivery_cursors', 'runs', 'saved_metrics_queries',
   'session_files', 'session_fts', 'session_keys', 'session_lineage_members', 'session_messages', 'session_records', 'session_repositories',
-  'session_storage', 'session_storage_turns', 'session_thread_aliases', 'session_transcripts', 'session_transcripts_fts', 'session_turn_diffs', 'task_folders', 'task_source_access', 'task_source_items',
-  'task_sources', 'tasks', 'transcript_index', 'transcript_mirror_rows', 'turn_flags', 'webhook_deliveries',
+  'session_storage', 'session_storage_turns', 'session_thread_aliases', 'session_transcripts', 'session_transcripts_fts', 'session_turn_diffs', 'task_folders',
+  'transcript_index', 'transcript_mirror_rows', 'turn_flags', 'webhook_deliveries',
   'webhooks', 'work_live_docs', 'work_reviewers', 'work_revisions', 'work_storage', 'work_storage_bodies', 'works',
   'works_fts', 'works_fts_rows', 'workspace_projects',
 ]
@@ -64,10 +64,10 @@ const POSTGRES_TABLES = [
   'acl_entry', 'activity', 'app_calls', 'app_files', 'app_schedules', 'app_signal_actions', 'app_signals', 'app_versions', 'app_workflow_runs',
   'app_workflow_steps', 'apps', 'asset_publications',
   'codebases', 'comment_threads', 'indexed_plans', 'insight_log_events',
-  'insight_span_texts', 'insight_spans', 'notifications', 'operation_receipts', 'personal_resource_state',
+  'insight_span_texts', 'insight_spans', 'issue_source_access', 'issue_source_items', 'issue_sources', 'issues', 'notifications', 'operation_receipts', 'personal_resource_state',
   'plan_annotations', 'plan_index_providers', 'pull_request_observations', 'resource_links',
-  'runner_delivery_cursors', 'session_records', 'session_repositories', 'session_transcripts', 'session_turn_diffs', 'task_source_access', 'task_source_items',
-  'task_sources', 'tasks', 'webhook_deliveries', 'webhooks', 'work_live_docs', 'work_reviewers',
+  'runner_delivery_cursors', 'session_records', 'session_repositories', 'session_transcripts', 'session_turn_diffs',
+  'webhook_deliveries', 'webhooks', 'work_live_docs', 'work_reviewers',
   'work_revisions', 'work_storage', 'work_storage_bodies', 'works', 'workspace_projects',
 ]
 
@@ -117,8 +117,13 @@ describe('the data model of each database', () => {
 
   test('Postgres holds exactly the ported tables', () => {
     const text = readMigrationFiles({ migrationsFolder: join(drizzle, 'postgres') }).flatMap((migration) => migration.sql).join('\n')
-    const tables = [...text.matchAll(/^CREATE TABLE "([a-z_]+)"/gm)].map((match) => match[1]).sort()
-    expect(tables).toEqual(POSTGRES_TABLES)
+    // The tables after every migration: each one created, under its latest name.
+    const tables = new Set<string>()
+    for (const match of text.matchAll(/^(?:CREATE TABLE "([a-z_]+)"|ALTER TABLE "([a-z_]+)" RENAME TO "([a-z_]+)")/gm)) {
+      if (match[1]) tables.add(match[1])
+      else if (tables.delete(match[2]!)) tables.add(match[3]!)
+    }
+    expect([...tables].sort()).toEqual(POSTGRES_TABLES)
   })
 
   test('no record table takes a name of the cloud account tables', () => {

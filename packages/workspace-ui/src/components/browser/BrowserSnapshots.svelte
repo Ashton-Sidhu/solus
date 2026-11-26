@@ -8,6 +8,7 @@
   import BrowserSnapshotLightbox from "./BrowserSnapshotLightbox.svelte";
   import * as Carousel from "../ui/carousel";
   import { galleryTiles } from "./lib/snapshot-gallery";
+  import { browserSnapshotLabel } from "@solus/client-core/browser-snapshot-label";
 
   interface Props {
     snapshots: BrowserSnapshotRef[];
@@ -80,7 +81,7 @@
       <div class="h-14 overflow-hidden rounded-sm [&_img]:h-full [&_img]:w-full [&_img]:object-contain">
         <MarkdownImage href={`asset://${tile.snapshot.assetId}`} text={tile.alt} />
       </div>
-      <span class="mt-1.5 block truncate text-chrome-dense" title={tile.alt}>{tile.snapshot.title || "Browser screenshot"}</span>
+      <span class="mt-1.5 block truncate text-chrome-dense" title={tile.alt}>{browserSnapshotLabel(tile.snapshot)}</span>
       <span class="block text-chrome-dense text-muted-foreground">PNG</span>
     </button>
     </Carousel.Item>

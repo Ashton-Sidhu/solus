@@ -6,6 +6,7 @@ import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { createLogger } from '../../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
 import { solusToolbox } from '../agents/tools/solus-toolbox'
+import { updateAutomationAgentTool } from '../agents/tools/automation-tools'
 import { instructionsFor, unattendedModelInputFor, runInputFromContext } from '../agents/run-input'
 import { actingPreferences } from '../person-settings'
 import { sessionExecutionPreferences } from '../../data/sessions/session-states'
@@ -532,7 +533,6 @@ export class PromptDispatch {
       executionPreferences: lockedPreferences,
     }
     const sessionId = crypto.randomUUID()
-    const { list, read, update } = solusToolbox.automations
     const lifecycle = await this.rt.runTurn({
       input,
       target: { kind: 'new-session' },
@@ -554,7 +554,7 @@ export class PromptDispatch {
         solusToolbox.projects,
         solusToolbox.tasks,
         solusToolbox.config,
-        req.startedBy.kind === 'automation' ? { list, read, update } : {},
+        req.startedBy.kind === 'automation' ? { read: solusToolbox.automations.read, update: updateAutomationAgentTool } : {},
       ),
       // `promptSource: 'automation'` is the source of every unattended prompt: it waits out a rate limit and a pending update the same way.
       options: req.startedBy.kind === 'automation'

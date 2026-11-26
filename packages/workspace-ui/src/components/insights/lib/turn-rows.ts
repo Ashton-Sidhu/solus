@@ -85,7 +85,7 @@ export function toTurnRows(result: MetricsQueryResult | null): TurnRow[] {
       origin: asString(cell(row, 'origin')),
       promptSource: asString(cell(row, 'prompt_source')),
       prompt: asString(cell(row, 'prompt')) ?? '',
-      taskTitle: asString(cell(row, 'task')),
+      taskTitle: asString(cell(row, 'issue')),
       costUsd: asFiniteNumber(cell(row, 'cost_usd')),
       inputTokens: asFiniteNumber(cell(row, 'input_tokens')),
       outputTokens: asFiniteNumber(cell(row, 'output_tokens')),

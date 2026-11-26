@@ -36,6 +36,36 @@ import { artifactHtmlRender, type ArtifactRender } from "@solus-mobile/features/
 import { HTML_RENDER_TOOL_NAME } from "@t3tools/shared/htmlRender";
 
 const empty = [] as const;
+type Tool = Extract<TranscriptItem, { kind: "tool" }>;
+
+function needsToolCard(item: Tool): boolean {
+  if (item.images?.length || item.audio?.length || item.leftOut?.length ||
+      item.secretOutcomes?.length || mcpAppLiveToolName(item.toolName)) return true;
+  if (!item.children) return false;
+  for (const child of item.children.items.values()) {
+    if (child.kind === "tool" && needsToolCard(child)) return true;
+  }
+  return false;
+}
+
+// Older hosts and partial pages can have a child reply without its original
+// launch. Keep that output available in the standard disclosure on tap.
+function toolReply(item: Tool): string | null {
+  const lines: string[] = [];
+  if (item.errorHead) lines.push(item.errorHead);
+  for (const id of item.children?.order ?? empty) {
+    const child = item.children?.items.get(id);
+    if (child?.kind === "assistant" || child?.kind === "user" || child?.kind === "notice") lines.push(child.text);
+    if (child?.kind === "tool") {
+      lines.push(child.toolName);
+      if (child.input) lines.push(child.input);
+      const output = toolReply(child);
+      if (output) lines.push(output);
+    }
+  }
+  if (item.report && item.report !== lines.at(-1)) lines.push(item.report);
+  return lines.join("\n\n") || null;
+}
 
 function projectedUserBody(item: Extract<TranscriptItem, { kind: "user" }>) {
   const saved = savedTurnItems.get(item);
@@ -189,16 +219,7 @@ export function conversationFeed(
       item.kind === "tool" ? item.viewedImagePath ?? viewedImagePath(item.toolName, item.input, item.status) : undefined;
     // Ordinary calls use the same activity projection and disclosures as T3.
     // Calls with Solus resources keep their interactive card.
-    if (
-      item.kind === "tool" &&
-      !item.children &&
-      !item.report &&
-      !item.images?.length &&
-      !item.audio?.length &&
-      !item.leftOut?.length &&
-      !item.secretOutcomes?.length &&
-      !mcpAppLiveToolName(item.toolName)
-    ) {
+    if (item.kind === "tool" && !needsToolCard(item)) {
       const time = DateTime.makeUnsafe(date && createdAt ? date : 0);
       const base = {
         id: TurnItemId.make(key),
@@ -216,21 +237,20 @@ export function conversationFeed(
         completedAt: item.status === "running" || !createdAt ? null : time,
         updatedAt: time,
       };
-      const toolItem = (input: string | null, body = toolFeedBody(item.toolName, input)): OrchestrationV2TurnItem =>
+      const toolItem = (input: string | null, body = toolFeedBody(item.toolName, input), output = item.errorHead): OrchestrationV2TurnItem =>
         body.type === "command_execution"
-          ? { ...base, ...body, ...(item.errorHead && { output: item.errorHead }) }
-          : { ...base, ...body, output: item.errorHead, ...(viewedImage && { viewedImagePath: viewedImage }) };
+          ? { ...base, ...body, ...(output && { output }) }
+          : { ...base, ...body, output, ...(viewedImage && { viewedImagePath: viewedImage }) };
       const projected = toolItem(item.input, saved?.type === "command_execution" || saved?.type === "dynamic_tool" ? saved : undefined);
       const detailKey = item.toolInputKey;
       let detail: Promise<OrchestrationV2TurnItem> | undefined;
-      const loadHostDetail = detailKey
-        ? () =>
-            (detail ??= readToolInput(detailKey)
-              .then(toolItem)
-              .catch((error) => {
-                detail = undefined;
-                throw error;
-              }))
+      const loadHostDetail = detailKey || item.report || item.childCount
+        ? () => detail ??= (detailKey ? readToolInput(detailKey) : Promise.resolve(item.input))
+            .then(input => toolItem(input, undefined, toolReply(item)))
+            .catch(error => {
+              detail = undefined;
+              throw error;
+            })
         : undefined;
       return [
         {
@@ -447,7 +467,7 @@ export function conversationFeed(
               item.audio === before.audio &&
               item.leftOut === before.leftOut &&
               item.secretOutcomes === before.secretOutcomes &&
-              item.children === before.children &&
+              (item.subagent || (!item.children && !before.children)) &&
               item.report === before.report
             ) {
               observed.set(key, item);

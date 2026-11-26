@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import type { TaskStatusCategory } from '@solus/contracts/task-sources'
+import type { IssueStatusCategory } from '@solus/contracts/task-sources'
 import { taskPickerSections } from '@solus/workspace-ui/components/tasks/lib/task-picker-sections'
 
 interface PickerTask {
   id: string
-  category: TaskStatusCategory
+  category: IssueStatusCategory
 }
 
-function task(id: string, category: TaskStatusCategory): PickerTask {
+function task(id: string, category: IssueStatusCategory): PickerTask {
   return { id, category }
 }
 

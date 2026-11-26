@@ -1,8 +1,8 @@
 <script lang="ts">
   import { Check as CheckIcon, Plus as PlusIcon, X as XIcon } from "@lucide/svelte";
   import { untrack, type Snippet } from "svelte";
-  import { taskSourceProvider } from "@solus/contracts/task-sources";
-  import { getSettingsContext, projectsStore, serversStore, taskHostId, taskSourcesStore } from "../../../contexts";
+  import { issueSourceProvider } from "@solus/contracts/task-sources";
+  import { getSettingsContext, projectsStore, serversStore, taskHostId, issueSourcesStore } from "../../../contexts";
   import { Button } from "../../ui/button";
   import { SourceLogo } from "../../ui/list-page";
   import TaskSourceAdd from "./TaskSourceAdd.svelte";
@@ -35,7 +35,7 @@
   let { onChanged, onDone }: Props = $props();
 
   const settings = getSettingsContext();
-  const config = $derived({ taskSources: settings.taskSources });
+  const config = $derived({ issueSources: settings.issueSources });
   // The repositories of the projects on the task host, from the project list
   // the client holds already: they show at once, without waiting for GitHub,
   // Jira and Linear to list what else can be added.
@@ -48,7 +48,7 @@
       lastUsedAt: project.lastUsedAt,
       originKey: identities.find((identity) => identity.path === project.path)?.repoKey ?? null,
     }));
-    return projectSourceRows(projects, config.taskSources);
+    return projectSourceRows(projects, config.issueSources);
   });
   const notAddedProjects = $derived(projectRows.filter((row) => !row.isAdded));
   // The store keeps the list it last read, so the repositories show from that
@@ -59,7 +59,7 @@
   // What the person added from a provider's menu: every source that is not
   // one of the project rows, which say "Added" themselves.
   const otherAdded = $derived(
-    sourceStripRows(config, taskSourcesStore.sources).filter(
+    sourceStripRows(config, issueSourcesStore.sources).filter(
       (row) => !projectRows.some((project) => project.sourceKey === row.sourceKey),
     ),
   );
@@ -67,7 +67,7 @@
   // The providers' choices are read as the setup opens, so a provider's menu
   // has them when the person opens it. Nothing on the page waits for them.
   $effect(() => {
-    untrack(() => void taskSourcesStore.loadOptions());
+    untrack(() => void issueSourcesStore.loadOptions());
   });
 
   function save(patch: Parameters<typeof saveTaskSources>[1]) {
@@ -76,7 +76,7 @@
 
   // The page's action. With every project repository added already, it only
   // ends the setup.
-  const hasSource = $derived(config.taskSources.length > 0);
+  const hasSource = $derived(config.issueSources.length > 0);
   function addProjects() {
     if (notAddedProjects.length > 0) {
       save(withTaskSources(config, notAddedProjects.map((project) => project.source)));
@@ -195,7 +195,7 @@
               <XIcon size={14} aria-hidden="true" />
             </Button>
           {/snippet}
-          {@render card(taskSourceProvider(added.source), added.label, SOURCE_KIND_SHORT_NAMES[added.source.kind], removeAction)}
+          {@render card(issueSourceProvider(added.source), added.label, SOURCE_KIND_SHORT_NAMES[added.source.kind], removeAction)}
         {/each}
       </div>
     </section>

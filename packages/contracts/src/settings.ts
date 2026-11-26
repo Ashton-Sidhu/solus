@@ -20,7 +20,7 @@ import { prSavedViewsSchema } from './pr-views'
 // not make. Device storage heals one bad key to its default.
 
 import { z } from 'zod'
-import { taskSavedViewsSchema } from './task-views'
+import { issueSavedViewsSchema } from './task-views'
 import { DEFAULT_VOICE_DICTIONARY, voiceDictionarySchema } from './voice-dictionary'
 import type { SavedLens } from './review'
 import { DEFAULT_MODEL_ROUTING, modelRoutingSchema } from './model-routing'
@@ -43,7 +43,7 @@ import {
 } from './types'
 import { DEFAULT_WORKTREE_BRANCH_NAMING, worktreeBranchNamingSchema } from './worktree-branch-naming'
 import { DEFAULT_CODEBASE_NAMING, codebaseNamingSchema } from './codebases'
-import { MAX_TASK_SOURCES, taskSourceSchema } from './task-sources'
+import { MAX_ISSUE_SOURCES, issueSourceSchema } from './task-sources'
 import { THEME_CSS_MAX_LENGTH, themeCssLoadsFiles } from './theme-css'
 
 // ─── Vocabulary ───
@@ -231,9 +231,9 @@ export const PERSONAL_SETTING_SCHEMAS = {
     host: z.string().min(1).max(MAX_SIDEBAR_APP_REF),
     appId: z.string().min(1).max(MAX_SIDEBAR_APP_REF),
   }).strict()).max(MAX_SIDEBAR_APPS).describe('The apps pinned in the places column of the sidebar on desktop and web, below the Solus places, in order. host: the installation id of the host that runs the app.'),
-  taskSources: z.array(taskSourceSchema).max(MAX_TASK_SOURCES).describe('Where the person reads issues from: GitHub repositories, GitHub Projects, Jira projects, Jira boards and Linear teams. Tasks belong to no Solus project (docs/tasks.md).'),
+  issueSources: z.array(issueSourceSchema).max(MAX_ISSUE_SOURCES).describe('Where the person reads issues from: GitHub repositories, GitHub Projects, Jira projects, Jira boards and Linear teams. Tasks belong to no Solus project (docs/tasks.md).'),
   prSavedViews: prSavedViewsSchema.describe('Named personal PR filters, synced across clients.'),
-  taskSavedViews: taskSavedViewsSchema.describe('Named personal issue filters, synced across clients.'),
+  issueSavedViews: issueSavedViewsSchema.describe('Named personal issue filters, synced across clients.'),
   delegationInstructions: z.string().max(MAX_INSTRUCTIONS).describe('Additional instructions for an agent when it delegates work.'),
   workerModel: workerModelSelectionSchema.nullable().describe('The default provider, model, and reasoning for child sessions. Applies when the caller specifies neither a provider nor a model.'),
   fallbackModel: workerModelSelectionSchema.nullable().describe('The provider, model, and reasoning for a session that start_sessions starts with neither a provider nor a model while the provider of its default model is out of usage. Null: no fallback.'),
@@ -331,8 +331,8 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   projectPanelHiddenItems: [],
   sidebarPlaces: { order: [], hidden: [] },
   sidebarApps: [],
-  taskSources: [],
-  taskSavedViews: [],
+  issueSources: [],
+  issueSavedViews: [],
   prSavedViews: [],
   delegationInstructions: '',
   workerModel: null,
@@ -377,7 +377,7 @@ export const EXECUTION_PREFERENCE_KEYS = [
   'extraInstructions',
   'modelInstructions',
   // An agent on the host lists and creates tasks in the person's own sources.
-  'taskSources',
+  'issueSources',
   'delegationInstructions',
   'workerModel',
   'fallbackModel',

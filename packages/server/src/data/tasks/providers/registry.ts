@@ -1,5 +1,5 @@
 import { LinearTaskProvider, LinearTeamSource } from './linear'
-import type { TaskRef, TaskSource } from '@solus/contracts/task-sources'
+import type { IssueRef, IssueSource } from '@solus/contracts/task-sources'
 import { atlassianRequest, connectedSite, connectedSiteUrl } from '../../../atlassian/api'
 import { githubCredentials } from '../../../providers/github/credentials'
 import { runGithubRequest } from '../../../providers/github/request'
@@ -40,8 +40,8 @@ export const jiraTransport: JiraTransport = {
 
 /** The provider adapters of tasks: one for each source kind, one for each provider. */
 export interface TaskAdapters {
-  source(kind: TaskSource['kind']): TaskSourceAdapter
-  provider(id: TaskRef['provider']): TaskProviderAdapter
+  source(kind: IssueSource['kind']): TaskSourceAdapter
+  provider(id: IssueRef['provider']): TaskProviderAdapter
 }
 
 function createTaskAdapters(github: GithubRun, jira: JiraTransport): TaskAdapters {

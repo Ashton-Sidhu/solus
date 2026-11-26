@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { SearchQuery } from '@solus/contracts/search-query'
 import type { PullRequest } from '@solus/contracts/providers'
-import type { Task } from '@solus/contracts/task-types'
+import type { Issue } from '@solus/contracts/task-types'
 import type { Automation, SessionMeta } from '@solus/contracts/types'
 import type { SidebarSessionChild } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import { PR_LIST_ROW_HEIGHT } from '@solus/workspace-ui/components/prs/lib/prs-list-view'
@@ -33,7 +33,7 @@ import {
 const NOW = Date.UTC(2026, 10, 11)
 const DAY = 86_400_000
 
-function task(id: string, title: string): Task {
+function task(id: string, title: string): Issue {
   return {
     id, providerId: 'github', kind: 'issue', title, body: '', url: null,
     state: { name: 'In progress', category: 'active' }, category: 'active', placements: [], labels: [], writableFields: [],

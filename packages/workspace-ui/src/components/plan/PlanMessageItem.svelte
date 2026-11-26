@@ -13,7 +13,7 @@
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import WorkGeneratingSkeleton from "../work/WorkGeneratingSkeleton.svelte";
   import type { PlanMessageRef } from "@solus/contracts/types";
-  import type { TaskLinkTarget } from "@solus/contracts/task-types";
+  import type { IssueLinkTarget } from "@solus/contracts/task-types";
   import TaskLinkControl from "../tasks/link-control/TaskLinkControl.svelte";
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
   import WorkPublishMenu from "../work/WorkPublishMenu.svelte";
@@ -23,7 +23,7 @@
     ref: PlanMessageRef;
     /** The task-link identity of what the card shows, once it has a stable
      *  id: a work id, or a plan's session and tool-use ids. */
-    linkTarget?: TaskLinkTarget;
+    linkTarget?: IssueLinkTarget;
     linkContext?: TaskLinkContext;
     skipMotion?: boolean;
   }

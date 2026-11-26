@@ -26,7 +26,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
-import type { Task, TaskStatus } from '@solus/contracts/task-types'
+import type { Issue, SidebarStatus } from '@solus/contracts/task-types'
 import { encodePathAsFolder, type SessionSearchResult } from '@solus/contracts/types'
 import type { SidebarSessionChild } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import { buildPickerRows, type PickerEntry } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-rows'
@@ -98,7 +98,7 @@ const FILLER = [
   'The test covers the {area} but not the case where it {problem}.', 'Can you fix the {area} and run the focused tests?',
   'Done. The {area} no longer {problem}, and the tests pass.', 'The session and the task both show the {area} state.',
 ]
-const STATUSES: TaskStatus[] = ['in_progress', 'in_progress', 'todo', 'todo', 'inbox', 'done', 'done', 'done']
+const STATUSES: SidebarStatus[] = ['in_progress', 'in_progress', 'todo', 'todo', 'inbox', 'done', 'done', 'done']
 
 function sentence(): string {
   return pick(FILLER)
@@ -111,7 +111,7 @@ function title(): string {
   return `${pick(VERBS)} ${pick(AREAS)} ${pick(QUALIFIERS)}`.trim()
 }
 
-function makeTask(index: number, fields: Partial<Task> = {}): Task {
+function makeTask(index: number, fields: Partial<Issue> = {}): Issue {
   const updatedAt = NOW - Math.floor(rand() * 180 * DAY)
   return {
     id: `task-${index}`,
@@ -125,7 +125,7 @@ function makeTask(index: number, fields: Partial<Task> = {}): Task {
     createdAt: updatedAt - DAY,
     updatedAt,
     ...fields,
-  } as Task
+  } as Issue
 }
 
 function makeChild(sessionId: string, label: string, lastActivityAt: number): SidebarSessionChild {
@@ -135,12 +135,12 @@ function makeChild(sessionId: string, label: string, lastActivityAt: number): Si
   }
 }
 
-const tasks: Task[] = []
+const tasks: Issue[] = []
 const sessionsByTaskId = new Map<string, SidebarSessionChild[]>()
 const transcripts = new Map<string, string[]>()
 let sessionCounter = 0
 
-function addSession(task: Task | null, label: string, lines: string[] = [], lastActivityAt = task?.updatedAt ?? NOW): string {
+function addSession(task: Issue | null, label: string, lines: string[] = [], lastActivityAt = task?.updatedAt ?? NOW): string {
   const sessionId = `session-${sessionCounter++}`
   const count = 16 + Math.floor(rand() * 30)
   const texts = Array.from({ length: count }, () => Array.from({ length: 1 + Math.floor(rand() * 4) }, sentence).join(' '))
@@ -173,7 +173,7 @@ const sessionNames = new Map<string, { title?: string; branch?: string }>()
 
 // ── planted targets ──
 let plantedIndex = 5000
-function plant(fields: Partial<Task>): Task {
+function plant(fields: Partial<Issue>): Issue {
   const task = makeTask(plantedIndex++, fields)
   tasks.push(task)
   return task

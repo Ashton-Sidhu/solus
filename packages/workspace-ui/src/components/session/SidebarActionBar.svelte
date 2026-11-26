@@ -4,7 +4,7 @@
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import ListProjectRows from "../ui/list-page/ListProjectRows.svelte";
-  import type { ProjectFilterChoice } from "./lib/task-list";
+  import type { ProjectFilterChoice } from "./lib/sidebar-rows";
 
   interface Props {
     /** The project scope, when one is set. */

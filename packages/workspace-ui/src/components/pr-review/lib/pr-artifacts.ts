@@ -1,6 +1,6 @@
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
-import type { TaskSidebarPrLink } from '@solus/contracts/task-types'
-import type { TaskLink } from '@solus/contracts/task-types'
+import type { IssueSidebarPrLink } from '@solus/contracts/task-types'
+import type { IssueLink } from '@solus/contracts/task-types'
 
 /**
  * The artifacts a pull request has behind it.
@@ -25,12 +25,12 @@ export interface PrArtifact {
 export interface PrArtifactSource {
   taskId: string
   taskTitle: string
-  links: TaskLink[]
+  links: IssueLink[]
 }
 
 /** `liveStatus` on a `work` link is the work's type, kept live by the host so a
  *  link row can say what it points at without a second read. */
-const ARTIFACT_LINK = (link: TaskLink) => link.kind === 'work' && link.liveStatus === 'artifact'
+const ARTIFACT_LINK = (link: IssueLink) => link.kind === 'work' && link.liveStatus === 'artifact'
 
 /** Deduped by work id, newest task first. Two tasks on the same pull request
  *  frequently link the same artifact — a review and its follow-up — and the
@@ -54,7 +54,7 @@ export function prArtifactsFrom(sources: PrArtifactSource[]): PrArtifact[] {
 
 /** A PR number is only unique within its repository on its owning host. */
 export function taskLinksToPr(
-  links: TaskSidebarPrLink[],
+  links: IssueSidebarPrLink[],
   taskServerId: string | null,
   serverId: string,
   prUrl: string | null,

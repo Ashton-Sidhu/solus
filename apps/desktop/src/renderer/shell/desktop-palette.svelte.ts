@@ -179,7 +179,7 @@ export function createDesktopPalette(
       });
     void session.worksStore.loadAll();
     void session.automationsStore.loadAll();
-    void session.tasksStore.ensureLoaded();
+    void session.issuesStore.ensureLoaded();
   }
 
   // Seed command set for the editor command palette. Intentionally a small,
@@ -601,8 +601,8 @@ export function createDesktopPalette(
     // Open any existing task (opens its detail). Like the other parent
     // commands, surface this the instant the palette opens so it never waits on
     // the tasks provider; children stream in once the store loads.
-    const goToTaskChildren: Command[] = session.tasksStore.loaded
-      ? session.tasksStore.tasks.map((t) => ({
+    const goToTaskChildren: Command[] = session.issuesStore.loaded
+      ? session.issuesStore.tasks.map((t) => ({
           id: `go-to-task:${t.id}`,
           label: t.title,
           group: "Issues",

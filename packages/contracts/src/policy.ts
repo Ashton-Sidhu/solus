@@ -6,7 +6,7 @@
 // person's own. The host enforces every key; clients only show the locks.
 
 import { z } from 'zod'
-import { CONFIGURABLE_SOLUS_TOOL_NAMES } from './agent-tools'
+import { CONFIGURABLE_SOLUS_TOOL_NAMES, withRenamedSolusTools } from './agent-tools'
 import { PERSONAL_SETTING_SCHEMAS } from './settings'
 import { PERMISSION_MODES, type AgentId, type PermissionMode } from './types'
 
@@ -200,9 +200,18 @@ export type PolicyDocument = z.output<typeof policyDocumentFields>
 
 export type PolicyValidation = { ok: true; document: PolicyDocument } | { ok: false; issues: string[] }
 
+const documentWithToolSwitches = z.looseObject({ host: z.looseObject({ solusTools: z.record(z.string(), z.boolean()) }) })
+
+/** A document written before tools were grouped names the old tools; it still decodes, and an old tool that was off turns its new tool off. */
+function withRenamedPolicyTools(input: unknown): unknown {
+  const document = documentWithToolSwitches.safeParse(input)
+  if (!document.success) return input
+  return { ...document.data, host: { ...document.data.host, solusTools: withRenamedSolusTools(document.data.host.solusTools) } }
+}
+
 /** The one validator: the host, the cloud, the editor, and `solus policy check` all call it. */
 export function validatePolicyDocument(input: unknown, kind: PolicyKind): PolicyValidation {
-  const parsed = policyDocumentSchema(kind).safeParse(input)
+  const parsed = policyDocumentSchema(kind).safeParse(withRenamedPolicyTools(input))
   if (parsed.success) return { ok: true, document: parsed.data }
   return { ok: false, issues: parsed.error.issues.map((issue) => `${issue.path.length ? issue.path.join('.') : '(document)'}: ${issue.message}`) }
 }

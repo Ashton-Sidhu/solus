@@ -2,9 +2,9 @@ import { taskReadOptionsSchema } from '@solus/contracts/task-read'
 import { inspectTask, reactToTask, taskTemplates, resolveTaskUrl } from '../../data/tasks/task-inspection'
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
-import type { PrepareSessionTaskResult } from '@solus/contracts/task-types'
-import { MAX_SIDEBAR_TASK_IDS } from '@solus/contracts/task-types'
-import { MAX_TASK_SOURCES, taskSourceSchema } from '@solus/contracts/task-sources'
+import type { PrepareSessionIssueResult } from '@solus/contracts/task-types'
+import { MAX_SIDEBAR_ISSUE_IDS } from '@solus/contracts/task-types'
+import { MAX_ISSUE_SOURCES, issueSourceSchema } from '@solus/contracts/task-sources'
 import {
   commentOnTask,
   createTask,
@@ -16,6 +16,7 @@ import {
   moveTask,
   retryTaskComment,
   searchTasks,
+  taskDetails,
   taskSnapshot,
   updateTask,
 } from '../../data/tasks/task'
@@ -24,12 +25,11 @@ import { readTasksLinkingTargets } from '../../data/tasks/task-links'
 import { attachLinkedContent } from '../../data/tasks/linked-content'
 import { attachArtifactToTask } from '../../data/tasks/task-artifacts'
 import { prepareSessionTask } from '../../data/tasks/session-task'
-import { taskIdsForSessions, taskSessions, tasksForSession } from '../../data/tasks/task-sessions'
+import { taskIdsForSessions, issuesForSession } from '../../data/tasks/task-sessions'
 import { stopPullRequestWatch } from '../../data/sessions/pull-request-watches'
 import { readSessionArtifacts } from '../../data/sessions/session-artifacts'
 import { organizationOfSession } from '../../data/sessions/session-records'
 import { startSessionPullRequestWatch } from '../../prs/start-pull-request-watch'
-import { readTaskSnoozes, snoozeTaskFor } from '../../data/tasks/task-snoozes'
 import { getDatabase } from '../../db/database'
 import { readTaskSidebarSnapshot } from '../../data/tasks/task-sidebar'
 import { taskListChangesSince, taskListRevision } from '../../data/tasks/task-revisions'
@@ -38,11 +38,11 @@ import { defaultTaskSourceOptionsDeps, taskSourceOptions } from '../../data/task
 import { listProjects } from '../../project-config/projects-manifest'
 import { isForkCheckout, resolveRepositoryKey } from '../../git/git-helpers'
 import { projectsVisibleTo } from './setup-handlers'
-import { loadMoreTaskSource, startTaskSourcePolling, tasksSources } from '../../data/tasks/task-sources'
+import { loadMoreTaskSource, startTaskSourcePolling, issuesSources } from '../../data/tasks/task-sources'
 import type { TaskReader } from '../../data/tasks/task-store'
 import type { HandlerCtx, SolusServer } from '../server'
 import { organizationForNew, recordScopeOf, type Principal } from '../../admission/principal'
-import { attributionOf, ownerKeyOf, type Actor } from '../../admission/actor'
+import { attributionOf, ownerKeyOf } from '../../admission/actor'
 import { hostUserKey } from '../../host/host-user'
 import { createLogger, isDebugEnabled } from '../../logger'
 
@@ -53,11 +53,11 @@ const RECENT_PROJECTS_FOR_SOURCES = 8
 /** The most changed sessions a resume looks up; more, and it sends the whole list. */
 const MAX_RESUMED_SESSION_IDS = 1000
 const taskSidebarFilterSchema = z.object({
-  taskIds: z.array(z.string()).max(MAX_SIDEBAR_TASK_IDS).optional(),
+  issueIds: z.array(z.string()).max(MAX_SIDEBAR_ISSUE_IDS).optional(),
   since: z.string().max(200).optional(),
 }).nullish()
 /** The task sources a client sends from the person's settings: the host reads each one with a provider. */
-const taskSourcesSchema = z.array(taskSourceSchema).max(MAX_TASK_SOURCES)
+const taskSourcesSchema = z.array(issueSourceSchema).max(MAX_ISSUE_SOURCES)
 const taskMoveTargetSchema = z.union([
   z.strictObject({ sourceKey: z.string().min(1), columnId: z.string().min(1) }),
   z.strictObject({ category: z.enum(['open', 'active', 'done']) }),
@@ -72,14 +72,6 @@ const taskMoveTargetSchema = z.union([
  * caller may see (`recordScopeOf`), and a new one is made in the caller's
  * organization (`organizationForNew`), or in the session's for a session link.
  */
-
-/** The person a task snooze belongs to. The host itself and a runner are no
- *  person, so they cannot snooze. */
-function personKeyFor(actor: Actor): string {
-  const personKey = ownerKeyOf(actor)
-  if (!personKey) throw new Error('A snooze belongs to a person, and this connection acts for none.')
-  return personKey
-}
 
 /** Whose provider connections decide which task sources the caller sees. The
  *  host's own work reads as the host's user. */
@@ -109,14 +101,14 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
   if (deps.attachmentsOnly) return
   startTaskSourcePolling()
 
-  server.register('tasksSources', (args, ctx) => {
+  server.register('issuesSources', (args, ctx) => {
     const [sources, opts] = args
-    return tasksSources(taskSourcesSchema.parse(sources), readerOf(ctx).personKey, { refresh: opts?.refresh })
+    return issuesSources(taskSourcesSchema.parse(sources), readerOf(ctx).personKey, { refresh: opts?.refresh })
   })
 
-  server.register('tasksLoadMore', ([source], ctx) => loadMoreTaskSource(taskSourceSchema.parse(source), readerOf(ctx).personKey))
+  server.register('issuesLoadMore', ([source], ctx) => loadMoreTaskSource(issueSourceSchema.parse(source), readerOf(ctx).personKey))
   // The caller's own projects lead the GitHub choices: a member sees only theirs.
-  server.register('tasksSourceOptions', (_args, ctx) => taskSourceOptions({
+  server.register('issuesSourceOptions', (_args, ctx) => taskSourceOptions({
     ...defaultTaskSourceOptionsDeps,
     projectRepositories: async () => {
       const recent = projectsVisibleTo(ctx.principal, await listProjects())
@@ -129,70 +121,71 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
       return read.flat()
     },
   }))
-  server.register('tasksReact', ([id, targetId, content, add]) => reactToTask(id, targetId, content, add))
-  server.register('tasksTemplates', ([source]) => taskTemplates(taskSourceSchema.parse(source)))
-  server.register('tasksResolve', ([url, options], ctx) =>
+  server.register('issuesReact', ([id, targetId, content, add]) => reactToTask(id, targetId, content, add))
+  server.register('issuesTemplates', ([source]) => taskTemplates(issueSourceSchema.parse(source)))
+  server.register('issuesResolve', ([url, options], ctx) =>
     resolveTaskUrl(recordScopeOf(ctx.principal), url, readerOf(ctx).personKey, options?.detailsOnly === true))
 
-  server.register('tasksSearch', (args) => {
+  server.register('issuesSearch', (args) => {
     const [sources, query, involvement] = args
     return searchTasks(taskSourcesSchema.parse(sources), query, z.enum(['all', 'authored', 'assigned', 'mentioned']).default('all').parse(involvement))
   })
 
-  server.register('tasksGet', (args, ctx) => {
+  server.register('issuesGet', (args, ctx) => {
     const [id, options] = args
     const read = taskReadOptionsSchema.parse(options ?? { section: 'details' })
     const taskId = z.string().min(1).max(512).parse(id)
     if (read.section === 'provider') return inspectTask(taskId, read.cursor, read.timelineOnly)
+    if (read.cached) return taskDetails(recordScopeOf(ctx.principal), taskId)
     return getTask(recordScopeOf(ctx.principal), taskId, readerOf(ctx).personKey, { providerMetadata: true })
   })
 
-  server.register('tasksCreate', (args, ctx) => {
+  server.register('issuesCreate', (args, ctx) => {
     const [input] = args
-    return createTask({ ...input, source: taskSourceSchema.parse(input.source) }, readerOf(ctx).personKey)
+    return createTask({ ...input, source: issueSourceSchema.parse(input.source) }, readerOf(ctx).personKey)
   })
 
-  server.register('tasksUpdate', (args) => {
+  server.register('issuesUpdate', (args) => {
     const [id, patch] = args
     return updateTask(id, patch)
   })
 
-  server.register('tasksMove', (args) => {
+  server.register('issuesMove', (args) => {
     const [id, target] = args
     return moveTask(id, taskMoveTargetSchema.parse(target))
   })
 
-  server.register('tasksDelete', (args) => {
+  server.register('issuesDelete', (args) => {
     const [id] = args
     return deleteTask(id)
   })
 
-  server.register('tasksMarkRead', (args) => {
+  server.register('issuesMarkRead', (args) => {
     const [id, read] = args
     return markTaskRead(id, read)
   })
 
-  server.register('tasksComment', (args, ctx) => {
+  server.register('issuesComment', (args, ctx) => {
     const [id, body] = args
     return commentOnTask(recordScopeOf(ctx.principal), id, { body, by: attributionOf(ctx.actor) })
   })
 
-  server.register('tasksRetryComment', (args, ctx) => {
+  server.register('issuesRetryComment', (args, ctx) => {
     const [id, commentId] = args
     return retryTaskComment(recordScopeOf(ctx.principal), id, commentId)
   })
 
-  server.register('tasksDeleteComment', (args, ctx) => {
+  server.register('issuesDeleteComment', (args, ctx) => {
     const [id, commentId] = args
     return deleteTaskComment(recordScopeOf(ctx.principal), id, commentId)
   })
 
-  server.register('tasksListAssigneeCandidates', (args) => {
+  server.register('issuesListAssigneeCandidates', (args) => {
     const [target] = args
-    return listTaskAssignees('taskId' in target ? target : { source: taskSourceSchema.parse(target.source) })
+    return listTaskAssignees('issueId' in target ? target : { source: issueSourceSchema.parse(target.source) })
   })
 
-  server.register('tasksAttachArtifact', (args, ctx) => {
+  server.register('issuesAttachArtifact', (args, ctx) => {
     const [taskId, workId] = args
     return attachArtifactToTask(recordScopeOf(ctx.principal), taskId, workId, attributionOf(ctx.actor))
   })
@@ -222,20 +215,20 @@ function registerAttachmentHandlers(server: SolusServer, attachmentsOnly: boolea
     return [...new Set([...changes.taskIds, ...linked])]
   }
 
-  server.register('tasksSidebarSnapshot', async (args, ctx) => {
+  server.register('issuesSidebarSnapshot', async (args, ctx) => {
     const parsed = taskSidebarFilterSchema.safeParse(args[0])
-    if (!parsed.success) throw new Error(`A sidebar read names at most ${MAX_SIDEBAR_TASK_IDS} task ids and one revision.`)
+    if (!parsed.success) throw new Error(`A sidebar read names at most ${MAX_SIDEBAR_ISSUE_IDS} task ids and one revision.`)
     const filter = parsed.data
     const reader = readerOf(ctx)
     // A narrowed read covers only its rows, so it gives no revision. The
     // revision is read before the rows: a change that commits during the read
     // is then in the next resume (docs/plans/task-snapshot-resume.md).
     const readerKey = taskListReaderKey(ctx.principal, reader.personKey)
-    const revision = filter?.taskIds ? undefined : taskListRevision(readerKey)
-    const changed = !filter?.taskIds && filter?.since ? await changedTasksSince(ctx, filter.since, readerKey) : null
-    const changedTaskIds = changed && changed.length <= MAX_SIDEBAR_TASK_IDS ? changed : undefined
+    const revision = filter?.issueIds ? undefined : taskListRevision(readerKey)
+    const changed = !filter?.issueIds && filter?.since ? await changedTasksSince(ctx, filter.since, readerKey) : null
+    const changedTaskIds = changed && changed.length <= MAX_SIDEBAR_ISSUE_IDS ? changed : undefined
     if (changedTaskIds?.length === 0) return { tasks: [], sessionsByTask: {}, revision, changedTaskIds }
-    const taskIds = filter?.taskIds ?? changedTaskIds
+    const taskIds = filter?.issueIds ?? changedTaskIds
     const startedAt = performance.now()
     const snapshot = await readTaskSidebarSnapshot(reader, taskIds)
     // The whole list is large (1,000+ tasks is over 1 MB), so a client reads it
@@ -256,34 +249,22 @@ function registerAttachmentHandlers(server: SolusServer, attachmentsOnly: boolea
     return snapshot
   })
 
-  server.register('tasksSearchComments', (args, ctx) => {
+  server.register('issuesSearchComments', (args, ctx) => {
     const [query] = args
     return searchTaskComments(readerOf(ctx), query)
   })
 
-  server.register('tasksAttachments', (args, ctx) => {
+  server.register('issuesAttachments', (args, ctx) => {
     const [id] = args
     return taskAttachments(recordScopeOf(ctx.principal), id)
   })
 
-  // A snooze is the caller's own: the person comes from the connection, never
-  // from the request, so nobody can read or write another person's snoozes.
-  server.register('tasksSnooze', (args, ctx) => {
-    const [id, until, note] = args
-    return snoozeTaskFor(organizationForNew(ctx.principal), personKeyFor(ctx.actor), id, until, note)
-  })
-
-  server.register('tasksSnoozes', (_args, ctx) => {
-    const personKey = ownerKeyOf(ctx.actor)
-    return personKey ? readTaskSnoozes(recordScopeOf(ctx.principal), personKey) : Promise.resolve([])
-  })
-
-  server.register('tasksLinkSession', (args, ctx) => {
+  server.register('issuesLinkSession', (args, ctx) => {
     const [taskId, sessionId, role, execution] = args
     return linkTaskSession(organizationForNew(ctx.principal), taskId, sessionId, role ?? 'working', { execution, startedBy: attributionOf(ctx.actor) })
   })
 
-  server.register('tasksUnlinkSession', (args, ctx) => {
+  server.register('issuesUnlinkSession', (args, ctx) => {
     const [taskId, sessionId] = args
     return unlinkTaskSession(recordScopeOf(ctx.principal), taskId, sessionId, attributionOf(ctx.actor))
   })
@@ -296,32 +277,27 @@ function registerAttachmentHandlers(server: SolusServer, attachmentsOnly: boolea
     return readSessionArtifacts(await organizationOfSession(sessionId), sessionId)
   })
 
-  server.register('tasksLink', async (args, ctx) => {
+  server.register('issuesLink', async (args, ctx) => {
     const [taskId, input] = args
     await linkTask(organizationForNew(ctx.principal), taskId, input, attributionOf(ctx.actor))
     return taskAttachments(recordScopeOf(ctx.principal), taskId)
   })
 
-  server.register('tasksUnlink', async (args, ctx) => {
+  server.register('issuesUnlink', async (args, ctx) => {
     const [taskId, kind, targetKey, targetScope] = args
     const scope = recordScopeOf(ctx.principal)
     await unlinkTask(scope, taskId, kind, targetKey, targetScope ?? '', attributionOf(ctx.actor))
     return taskAttachments(scope, taskId)
   })
 
-  server.register('tasksLinkedTo', (args, ctx) => {
+  server.register('issuesLinkedTo', (args, ctx) => {
     const [targets] = args
     return readTasksLinkingTargets(getDatabase(), recordScopeOf(ctx.principal), targets)
   })
 
-  server.register('tasksSessions', (args, ctx) => {
-    const [taskId] = args
-    return taskSessions(recordScopeOf(ctx.principal), taskId)
-  })
-
-  server.register('tasksForSession', (args, ctx) => {
+  server.register('issuesForSession', (args, ctx) => {
     const [sessionId] = args
-    return tasksForSession(recordScopeOf(ctx.principal), sessionId)
+    return issuesForSession(recordScopeOf(ctx.principal), sessionId)
   })
 
   /**
@@ -331,12 +307,12 @@ function registerAttachmentHandlers(server: SolusServer, attachmentsOnly: boolea
    * client knows both hosts and must name this one. The session link follows
    * separately, once the execution host has issued a session id.
    */
-  server.register('tasksPrepareForSession', async (args, ctx) => {
+  server.register('issuesPrepareForSession', async (args, ctx) => {
     const [input] = args
     const scope = recordScopeOf(ctx.principal)
     // A host that reads no provider has no task to answer and none to move:
-    // the link follows with `tasksLinkSession`, which needs no copy.
-    if (attachmentsOnly) return { task: null, snapshot: null } satisfies PrepareSessionTaskResult
+    // the link follows with `issuesLinkSession`, which needs no copy.
+    if (attachmentsOnly) return { task: null, snapshot: null } satisfies PrepareSessionIssueResult
     const task = await prepareSessionTask(organizationForNew(ctx.principal), input)
     // The snapshot rides the same round trip a dispatching client already makes
     // (docs/plans/dispatch-parity.md): the execution host cannot read this
@@ -345,12 +321,12 @@ function registerAttachmentHandlers(server: SolusServer, attachmentsOnly: boolea
     const snapshot = task && input.includeSnapshot
       ? await attachLinkedContent(scope, await taskSnapshot(scope, task.id))
       : null
-    return { task, snapshot } satisfies PrepareSessionTaskResult
+    return { task, snapshot } satisfies PrepareSessionIssueResult
   })
 
   /** A dispatched session's follow-up prompts re-ship the packet, so the client
    *  re-reads the task's live state from this host before each send. */
-  server.register('tasksSnapshot', async (args, ctx) => {
+  server.register('issuesSnapshot', async (args, ctx) => {
     const [taskId] = args
     if (attachmentsOnly) throw new Error('This host holds the links of the task, not the task. Read it from the host that has its project.')
     const scope = recordScopeOf(ctx.principal)

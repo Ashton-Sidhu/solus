@@ -1,16 +1,16 @@
 // What the task page's move menu offers.
-import type { Task, TaskMoveTarget, TaskSourceState, TaskState, TaskStatusOptions } from '@solus/contracts/task-types'
-import type { TaskStatusCategory } from '@solus/contracts/task-sources'
+import type { Issue, IssueMoveTarget, IssueSourceState, IssueState, IssueStatusOptions } from '@solus/contracts/task-types'
+import type { IssueStatusCategory } from '@solus/contracts/task-sources'
 import { CATEGORY_META, TASK_CATEGORIES, taskPlacementLabels } from '../../lib/tasks-api'
 
 export interface TaskMoveOption {
   id: string
   label: string
   /** Draws the option's glyph and colour. */
-  category: TaskStatusCategory
+  category: IssueStatusCategory
   /** The task is here now. */
   current: boolean
-  target: TaskMoveTarget
+  target: IssueMoveTarget
 }
 
 export interface TaskMoveGroup {
@@ -30,9 +30,9 @@ export interface TaskMoveGroup {
  * the three status categories and the host chooses the column.
  */
 export function taskMoveGroups(
-  task: Pick<Task, 'category' | 'placements'> & { state?: TaskState },
-  sourceByKey: ReadonlyMap<string, Pick<TaskSourceState, 'label' | 'columns'> & Partial<Pick<TaskSourceState, 'source'>>>,
-  statusOptions?: TaskStatusOptions,
+  task: Pick<Issue, 'category' | 'placements'> & { state?: IssueState },
+  sourceByKey: ReadonlyMap<string, Pick<IssueSourceState, 'label' | 'columns'> & Partial<Pick<IssueSourceState, 'source'>>>,
+  statusOptions?: IssueStatusOptions,
 ): TaskMoveGroup[] {
   const groups = taskPlacementLabels(task, sourceByKey)
     .filter((placement) => placement.columns.length > 0 &&

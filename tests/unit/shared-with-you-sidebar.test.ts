@@ -8,7 +8,7 @@ import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import type { SessionRecord } from '@solus/contracts/types'
 import { notificationDestination } from '@solus/workspace-ui/components/notifications/lib/notification-actions'
 import { buildSidebarListItems } from '@solus/workspace-ui/components/session/lib/sidebar-list-items'
-import { sidebarSectionOf, sortSharedRows, type SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
+import { sidebarSectionOf, sortSharedRows, type SidebarSession } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
 import { SessionListStore, sessionListStore, type ListedSession } from '@solus/workspace-ui/contexts/workspace/session-list.store.svelte'
 import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import {
@@ -26,8 +26,8 @@ import {
 const share = (fields: Partial<SessionShare> = {}): SessionShare =>
   ({ ownerKey: 'user:ana', role: 'editor', sharedBy: 'user:ana', grantedAt: 100, lastActivityAt: 50, ...fields })
 
-function row(id: string, fields: Partial<SidebarTask> = {}): SidebarTask {
-  return { id, key: id, title: id, tabIds: [], status: 'idle', lifecycle: 'active', ...fields } as SidebarTask
+function row(id: string, fields: Partial<SidebarSession> = {}): SidebarSession {
+  return { id, key: id, title: id, tabIds: [], status: 'idle', lifecycle: 'active', ...fields } as SidebarSession
 }
 
 const record = (sessionId: string, fields: Partial<SessionRecord> = {}) =>
@@ -85,7 +85,7 @@ describe('the section a row is in', () => {
       isWorkingOpen: true,
       isSnoozedOpen: false,
       isCompletedOpen: false,
-      shelfRevealTaskId: null,
+      shelfRevealRowId: null,
     })
     expect(items.map((item) => item.key)).toEqual([
       'mine:card', 'header:shared', 'theirs:card', 'header:working', 'busy:card',
@@ -95,7 +95,7 @@ describe('the section a row is in', () => {
 })
 
 describe('a listed session\'s row', () => {
-  type Harness = { session: unknown; lifecycleNow: number; buildListedSessionRow(listed: ListedSession): SidebarTask }
+  type Harness = { session: unknown; lifecycleNow: number; buildListedSessionRow(listed: ListedSession): SidebarSession }
   const listed = (sessionId: string): ListedSession => ({
     serverId: 'host', homeServerId: 'host', runnerOffline: false, sessionId, title: sessionId, projectPath: '/repo', createdAt: 1,
     opensWith: { provider: 'claude', projectPath: '-repo', cwd: '/repo' }, share: share(),
@@ -106,7 +106,7 @@ describe('a listed session\'s row', () => {
     // the row moves to, so the share still decides the section.
     const store = Object.create(SessionSidebarStore.prototype) as Harness
     store.lifecycleNow = 0
-    store.session = { tasksStore: { taskForSession: (sessionId: string) => sessionId === 'linked' ? { id: 'task', title: 'Task' } : undefined } }
+    store.session = { issuesStore: { taskForSession: (sessionId: string) => sessionId === 'linked' ? { id: 'task', title: 'Task' } : undefined } }
     const linked = store.buildListedSessionRow(listed('linked'))
     expect(sidebarSectionOf(linked, false)).toBe('shared')
     expect(linked.linkedTask).toEqual({ taskId: 'task', title: 'Task' })
@@ -141,7 +141,7 @@ describe('a new share tells the reader once', () => {
   test('personal completion removes a shared session until Undo, including after a reload', async () => {
     const events = new HostEventSubscriber()
     let refuse = false
-    const shared = record('shared', { ownerKey: 'user:ana', role: 'editor', state: { ...UNSETTLED_SESSION_STATE, settledAt: 10, settledBy: 'task' } })
+    const shared = record('shared', { ownerKey: 'user:ana', role: 'editor', state: { ...UNSETTLED_SESSION_STATE, settledAt: 10, settledBy: 'issue' } })
     const api = spyOn(serverConnections, 'apiFor').mockReturnValue(asHostApi({
       sessionRecordList: async () => ({ records: [shared], indexing: false }),
       sessionUpdate: async (_sessionId, change) => {

@@ -9,7 +9,7 @@ import type { CloudMachineAsk } from './cloud-machine-card'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState } from './git-types'
-import type { TaskSnapshot } from './task-types'
+import type { IssueSnapshot } from './task-types'
 import type { PrReviewTarget, PullRequest } from './providers'
 import type { BrowserRecordingRef, BrowserSnapshotRef } from './browser-types'
 import type { DeviceRunProfile } from './device-types'
@@ -1071,7 +1071,7 @@ export type CloneStart =
  * membership is the task's session edge (`resource_links`) written once the session exists.
  */
 export type TaskTarget =
-  | { kind: 'existing'; taskId: string }
+  | { kind: 'existing'; issueId: string }
   | { kind: 'none' }
 
 /**
@@ -1560,7 +1560,7 @@ export interface Message {
   automationRef?: { automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
   /** Reference to a task the agent created in this thread, rendered as a card
    *  that opens the task board focused on the new task. */
-  taskRef?: { taskId: string; title: string; url: string | null }
+  taskRef?: { issueId: string; title: string; url: string | null }
   /** A capture the agent took of a browser page, rendered as the picture it saw
    *  rather than a line saying it looked. */
   browserSnapshot?: BrowserSnapshotRef
@@ -1979,7 +1979,7 @@ export interface AgentExchange {
    *  changed files, a pull request, sessions it started. */
   outputs?: SessionOutput[]
   /** The child's task, from the report. */
-  taskId?: string
+  issueId?: string
   durationMs?: number
   toolCallCount?: number
   settledAt?: number
@@ -2046,7 +2046,7 @@ export type AgentConversationUpdate =
   /** The target's turn is parked on a provider limit and resumes on its own at
    *  `resetsAt`; `accepted` with `running` follows when it does. */
   | { phase: 'rate_limited'; sessionId: string; messageId: string; resetsAt?: number; limitType?: string }
-  | { phase: 'settled'; sessionId: string; messageId: string; status: ExchangeOutcome; replyText: string; outputs?: SessionOutput[]; taskId?: string; durationMs?: number; toolCallCount?: number; settledAt: number }
+  | { phase: 'settled'; sessionId: string; messageId: string; status: ExchangeOutcome; replyText: string; outputs?: SessionOutput[]; issueId?: string; durationMs?: number; toolCallCount?: number; settledAt: number }
   | { phase: 'stopped'; sessionId: string }
 
 // ─── Canonical Events (normalized from raw stream) ───
@@ -2190,7 +2190,7 @@ export type NormalizedEvent =
    *  `contentVersion` and `layout` name the saved version and its measured frame. */
   | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string; organizationId?: string | null; contentVersion?: number; layout?: import('./artifact-page').ArtifactLayout }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
-  | { type: 'task_created'; taskId: string; title: string; url: string | null }
+  | { type: 'task_created'; issueId: string; title: string; url: string | null }
   | { type: 'browser_snapshot_captured'; snapshot: BrowserSnapshotRef }
   | { type: 'browser_recording_captured'; recording: BrowserRecordingRef }
   | { type: 'agent_conversation_update'; update: AgentConversationUpdate }
@@ -2268,13 +2268,13 @@ export interface PromptOptions {
   /** Set when a prompt is dispatched on a task-bound session. The main process
    *  hydrates the ticket into the run's system prompt, so the agent works from
    *  the task's live state without it entering the transcript. */
-  taskId?: string
+  issueId?: string
   /** The task's live state, shipped by the client when `taskId` names a task on
    *  a different host than the one executing this prompt (a dispatch). The
    *  execution host renders the system-prompt packet from it and serves
    *  `read_issue` from the same shape; without it a foreign `taskId` is
    *  unreadable — hosts never talk to each other. */
-  taskSnapshot?: TaskSnapshot
+  taskSnapshot?: IssueSnapshot
   /** Goal objective attached to a fresh session dispatch. Main persists it as
    *  soon as the provider issues the session id, before a fast turn can finish. */
   goalObjective?: string

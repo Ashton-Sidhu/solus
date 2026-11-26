@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { SearchQuery } from '@solus/contracts/search-query'
-import type { Task } from '@solus/contracts/task-types'
-import type { TaskStatusCategory } from '@solus/contracts/task-sources'
+import type { Issue } from '@solus/contracts/task-types'
+import type { IssueStatusCategory } from '@solus/contracts/task-sources'
 import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
 import type { SidebarSessionChild } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import {
@@ -15,7 +15,7 @@ import type { PickerSort } from '@solus/workspace-ui/components/session/unified-
 const NOW = 1_800_000_000_000
 const DAY = 86_400_000
 
-function task(id: string, title: string, options: { ageDays?: number; category?: TaskStatusCategory; reference?: string; body?: string } = {}): Task {
+function task(id: string, title: string, options: { ageDays?: number; category?: IssueStatusCategory; reference?: string; body?: string } = {}): Issue {
   const updatedAt = NOW - (options.ageDays ?? 0) * DAY
   const category = options.category ?? 'active'
   return {
@@ -38,7 +38,7 @@ function orphan(sessionId: string, firstMessage: string): SessionSearchResult {
 }
 
 function build(
-  tasks: Task[],
+  tasks: Issue[],
   sessions: Record<string, SidebarSessionChild[]>,
   query: string,
   options: { sort?: PickerSort; conversations?: SessionSearchResult[]; recentSessions?: SessionMeta[] } = {},

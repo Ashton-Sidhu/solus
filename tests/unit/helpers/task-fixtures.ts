@@ -1,5 +1,5 @@
-import { taskKey, taskSourceKey, type TaskSource, type TaskStatusCategory } from '@solus/contracts/task-sources'
-import type { TaskColumn } from '@solus/contracts/task-types'
+import { issueKey, issueSourceKey, type IssueSource, type IssueStatusCategory } from '@solus/contracts/task-sources'
+import type { IssueColumn } from '@solus/contracts/task-types'
 import type { TaskAdapters } from '@solus/server/data/tasks/providers/registry'
 import type {
   ProviderComment,
@@ -16,20 +16,20 @@ import type {
  * makes a network call and never needs a token.
  */
 
-export const REPO: TaskSource = { kind: 'github-repo', owner: 'acme', repo: 'app' }
-export const BOARD: TaskSource = { kind: 'github-project', owner: 'acme', number: 7 }
-export const JIRA: TaskSource = { kind: 'jira-project', cloudId: 'site', projectKey: 'SOL' }
+export const REPO: IssueSource = { kind: 'github-repo', owner: 'acme', repo: 'app' }
+export const BOARD: IssueSource = { kind: 'github-project', owner: 'acme', number: 7 }
+export const JIRA: IssueSource = { kind: 'jira-project', cloudId: 'site', projectKey: 'SOL' }
 
-export const REPO_COLUMNS: TaskColumn[] = [
+export const REPO_COLUMNS: IssueColumn[] = [
   { id: 'open', name: 'Open', category: 'open' },
   { id: 'closed', name: 'Closed', category: 'done' },
 ]
-export const BOARD_COLUMNS: TaskColumn[] = [
+export const BOARD_COLUMNS: IssueColumn[] = [
   { id: 'opt-todo', name: 'Todo', category: 'open' },
   { id: 'opt-doing', name: 'In progress', category: 'active' },
   { id: 'opt-done', name: 'Done', category: 'done' },
 ]
-export const JIRA_COLUMNS: TaskColumn[] = [
+export const JIRA_COLUMNS: IssueColumn[] = [
   { id: '1', name: 'To Do', category: 'open' },
   { id: '3', name: 'In Progress', category: 'active' },
   { id: '5', name: 'Done', category: 'done' },
@@ -119,7 +119,7 @@ export function jiraRead(tasks: ProviderTask[]): SourceRead {
   }
 }
 
-function stateOf(category: TaskStatusCategory, provider: 'github' | 'jira'): Pick<ProviderTask, 'state' | 'stateId'> {
+function stateOf(category: IssueStatusCategory, provider: 'github' | 'jira'): Pick<ProviderTask, 'state' | 'stateId'> {
   if (provider === 'github') return { state: category === 'done' ? { name: 'Closed', category: 'done' } : { name: 'Open', category: 'open' } }
   const column = JIRA_COLUMNS.find((candidate) => candidate.category === category)!
   return { state: { name: column.name, category }, stateId: column.id }
@@ -131,7 +131,7 @@ export class FakeTaskProviders {
   readonly comments = new Map<string, ProviderComment[]>()
   /** What a read of each source answers, by source key. An `Error` is a read that fails. */
   readonly reads = new Map<string, SourceRead | Error>()
-  /** Each call that reached a provider, in order: `read:<sourceKey>`, `update:<taskKey>`, ... */
+  /** Each call that reached a provider, in order: `read:<sourceKey>`, `update:<issueKey>`, ... */
   readonly calls: string[] = []
   /** While set, each provider call fails with it. */
   failure: Error | null = null
@@ -143,12 +143,12 @@ export class FakeTaskProviders {
 
   /** Put tasks on the provider. */
   hold(...tasks: ProviderTask[]): void {
-    for (const task of tasks) this.tasks.set(taskKey(task.ref), task)
+    for (const task of tasks) this.tasks.set(issueKey(task.ref), task)
   }
 
   /** Set what a read of a source answers, and put its tasks on the provider. */
-  answer(source: TaskSource, read: SourceRead | Error): void {
-    this.reads.set(taskSourceKey(source), read)
+  answer(source: IssueSource, read: SourceRead | Error): void {
+    this.reads.set(issueSourceKey(source), read)
     if (!(read instanceof Error)) this.hold(...read.items.map((item) => item.task))
   }
 
@@ -173,10 +173,10 @@ export class FakeTaskProviders {
   }
 
   adapters(): TaskAdapters {
-    const source = (kind: TaskSource['kind']): TaskSourceAdapter => ({
+    const source = (kind: IssueSource['kind']): TaskSourceAdapter => ({
       kind,
       read: async (which) => {
-        const sourceKey = taskSourceKey(which)
+        const sourceKey = issueSourceKey(which)
         this.calls.push(`read:${sourceKey}`)
         if (this.readGate) await this.readGate
         if (this.failure) throw this.failure
@@ -186,11 +186,11 @@ export class FakeTaskProviders {
         return answer
       },
       search: async (which, query) => {
-        this.call(`search:${taskSourceKey(which)}:${query}`)
+        this.call(`search:${issueSourceKey(which)}:${query}`)
         return [...this.tasks.values()].filter((task) => task.title.toLowerCase().includes(query.toLowerCase()))
       },
       create: async ({ source: which, draft }): Promise<SourceItem> => {
-        this.call(`create:${taskSourceKey(which)}`)
+        this.call(`create:${issueSourceKey(which)}`)
         const number = 900 + ++this.created
         const task = which.kind === 'github-project'
           ? githubDraft(`DI_${number}`, { title: draft.title, body: draft.body ?? '' })
@@ -203,7 +203,7 @@ export class FakeTaskProviders {
       },
       move: async ({ source: which, home, columnId }) => {
         const key = this.keyOf(home)
-        this.call(`move:${taskSourceKey(which)}:${key}:${columnId}`)
+        this.call(`move:${issueSourceKey(which)}:${key}:${columnId}`)
         if (which.kind === 'github-project') return null
         const columns = which.kind === 'github-repo' ? REPO_COLUMNS : JIRA_COLUMNS
         const category = columns.find((column) => column.id === columnId)?.category ?? 'open'
@@ -212,14 +212,14 @@ export class FakeTaskProviders {
         return moved
       },
       assignees: async (which) => {
-        this.call(`assignees:${taskSourceKey(which)}`)
+        this.call(`assignees:${issueSourceKey(which)}`)
         return [{ login: 'octocat' }]
       },
     })
     const provider = (id: 'github' | 'jira'): TaskProviderAdapter => ({
       id,
       fetch: async (ref) => {
-        const key = taskKey(ref)
+        const key = issueKey(ref)
         this.call(`fetch:${key}`)
         return { task: this.held(key), comments: this.comments.get(key) ?? [], commentsTruncated: false }
       },
@@ -267,7 +267,7 @@ export class FakeTaskProviders {
         this.tasks.delete(key)
       },
     })
-    const sources = new Map<TaskSource['kind'], TaskSourceAdapter>()
+    const sources = new Map<IssueSource['kind'], TaskSourceAdapter>()
     const providers = { github: provider('github'), jira: provider('jira') }
     return {
       source: (kind) => {

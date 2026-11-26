@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import type { SessionArtifact, SessionArtifacts } from '@solus/contracts/session-artifacts'
 import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
-import type { TaskPrSnapshot } from '@solus/contracts/task-types'
+import type { IssuePrSnapshot } from '@solus/contracts/task-types'
 import type { WorkType } from '@solus/contracts/types'
 import { artifactChip, cardChips, chipTotals, sessionArtifactItems, turnArtifacts } from '@solus/client-core/session-artifact-chips'
 
-function snapshot(state: TaskPrSnapshot['state'], draft = false): TaskPrSnapshot {
+function snapshot(state: IssuePrSnapshot['state'], draft = false): IssuePrSnapshot {
   return { number: 1, url: '', title: '', state, draft, updatedAt: '', baseRepo: { host: 'github.com', owner: 'acme', repo: 'app' } }
 }
 

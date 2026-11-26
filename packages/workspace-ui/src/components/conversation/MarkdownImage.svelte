@@ -116,17 +116,19 @@
     {/if}
   {/key}
 {:else if isMissing}
-  <!-- Spans, not divs: Markdown puts an image inside a paragraph. -->
+  <!-- Spans, not divs: Markdown puts an image inside a paragraph. An empty
+       frame where the picture was. It fits a thumbnail's fixed height, and
+       there only the icon shows. -->
   <span
     role="img"
     aria-label={text ? `Image not found: ${text}` : "Image not found"}
     title={path ?? href}
-    class="my-1 inline-flex max-w-full items-center gap-2 rounded-lg border border-dashed border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+    class="@container flex h-28 max-h-full w-full max-w-[22rem] flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border border-border/50 bg-muted/30 px-4 text-muted-foreground"
   >
-    <ImageOffIcon class="size-4 shrink-0" aria-hidden="true" />
-    <span class="shrink-0 font-medium">Image not found</span>
+    <ImageOffIcon class="mb-0.5 size-5 shrink-0 opacity-50" aria-hidden="true" />
+    <span class="text-sm @max-[10rem]:hidden">Image not found</span>
     {#if text || fileName}
-      <span class="min-w-0 truncate opacity-80">{text || fileName}</span>
+      <span class="max-w-full truncate text-xs opacity-60 @max-[10rem]:hidden">{text || fileName}</span>
     {/if}
   </span>
 {:else if src && expandable}
