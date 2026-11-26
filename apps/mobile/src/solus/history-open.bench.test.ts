@@ -27,8 +27,10 @@ function page(rowCount: number): SessionHistoryPage {
         : name === "Edit" ? JSON.stringify({ file_path: `/repo/src/module-${turn}.ts`, old_string: "a".repeat(200), new_string: "b".repeat(220) })
           : JSON.stringify({ file_path: `/repo/src/module-${turn}-${step}.ts` });
       const body = toolFeedBody(name, input);
-      push({ role: "tool", content: "", timestamp: ++clock, messageId: `m${toolId}`, toolId, toolName: name, status: "ok",
-        ...(body.type === "dynamic_tool" ? {} : { toolInput: input }), turnItem: body });
+      const call: WireSessionLoadMessage = { role: "tool", content: "", timestamp: ++clock, messageId: `m${toolId}`, toolId, toolName: name, status: "ok", turnItem: body };
+      // The host leaves out a dynamic tool's raw input: its body carries it.
+      if (body.type !== "dynamic_tool") call.toolInput = input;
+      push(call);
       push({ role: "tool_result", content: "", timestamp: ++clock, toolResultForId: toolId, status: step === 5 && turn % 4 === 0 ? "error" : "ok",
         contentBytes: 2_400, ...(step === 5 && turn % 4 === 0 && { errorHead: "Error: expected 1 to be 2" }) });
     }
@@ -63,7 +65,7 @@ function page(rowCount: number): SessionHistoryPage {
     push({ role: "assistant", content: "", timestamp: ++clock, messageId: `a${turn}`, turnItem: { type: "assistant_message", streaming: false,
       text: `I fixed module ${turn}.\n\n- The cache now reads through.\n- The test passes.\n\n\`\`\`ts\nconst value = cache.get(key) ?? load(key)\n\`\`\`` } });
   }
-  return { before: null, messages: messages.slice(0, rowCount) as WireSessionLoadMessage[] };
+  return { before: null, messages: messages.slice(0, rowCount) };
 }
 
 function median(values: number[]) {
