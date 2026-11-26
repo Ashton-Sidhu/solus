@@ -21,6 +21,3 @@ class AccessTabRequest {
 
 /** Make a pairing code: the Add machine card's "Show the code on <name>" and the palette's "Show pairing code" (docs/plans/add-machine-card.md). */
 export const pairCodeRequest = new AccessTabRequest()
-
-/** Show "Use Solus in other apps": the palette's command of that name (plans/035 §10). */
-export const outsideAppsRequest = new AccessTabRequest()

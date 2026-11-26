@@ -6,11 +6,13 @@ import {
   openOutsideApp,
   outsideAppAction,
   outsideAppAddress,
+  outsideAppAddressKind,
   outsideAppChoices,
-  outsideAppFallbackLink,
+  outsideAppFallback,
   type LinkOpener,
 } from '@solus/workspace-ui/components/connections/lib/outside-apps'
 import { allowedOutsideApps, toggledOutsideApp, withAllowedOutsideApps } from '@solus/workspace-ui/components/settings/policy/lib/policy-outside-apps'
+import type { AppEndpoint } from '@solus/workspace-ui/contexts/connections/connections.store.svelte'
 import { outsideAppLinkUrl } from '../../apps/desktop/src/main/outside-app-links'
 
 // The outside app picker on a host's Access tab (plans/035 §10). What a person
@@ -29,14 +31,28 @@ function guide(id: string): OutsideAppGuide {
 }
 
 describe('the address an app gets', () => {
+  const address = (id: string | null, onHostComputer: boolean, endpoint: AppEndpoint = WITH_TUNNEL) =>
+    outsideAppAddress(outsideAppAddressKind(id === null ? null : guide(id), onHostComputer), endpoint)
+
   test('a cloud app gets only the public address, and none on a host without one', () => {
-    expect(outsideAppAddress(guide('chatgpt'), WITH_TUNNEL)).toBe('https://box.solus.dev/mcp')
-    expect(outsideAppAddress(guide('chatgpt'), LOCAL_ONLY)).toBeNull()
+    expect(address('chatgpt', true)).toBe('https://box.solus.dev/mcp')
+    expect(address('chatgpt', true, LOCAL_ONLY)).toBeNull()
   })
 
-  test('an app on a computer gets the public address when there is one, else the local one', () => {
-    expect(outsideAppAddress(guide('cursor'), WITH_TUNNEL)).toBe('https://box.solus.dev/mcp')
-    expect(outsideAppAddress(guide('claude-code'), LOCAL_ONLY)).toBe('http://localhost:4810/mcp')
+  test('an app on the host computer gets the local address, where the owner can approve it in Solus', () => {
+    expect(address('cursor', true)).toBe('http://localhost:4810/mcp')
+    expect(address('claude-code', true, LOCAL_ONLY)).toBe('http://localhost:4810/mcp')
+  })
+
+  test('on another computer, every app needs the public address: localhost there is that computer', () => {
+    expect(address('claude-code', false)).toBe('https://box.solus.dev/mcp')
+    expect(address('codex', false, LOCAL_ONLY)).toBeNull()
+  })
+
+  test('Something else on the host computer gets the public address when there is one, else the local one', () => {
+    expect(address(null, true)).toBe('https://box.solus.dev/mcp')
+    expect(address(null, true, LOCAL_ONLY)).toBe('http://localhost:4810/mcp')
+    expect(address(null, false, LOCAL_ONLY)).toBeNull()
   })
 })
 
@@ -53,7 +69,7 @@ describe('the primary action of each handoff', () => {
   test('ChatGPT copies the address, then opens its page', () => {
     const action = outsideAppAction(guide('chatgpt'), url)
     if (action.kind !== 'open') throw new Error('expected open')
-    expect(action.copy?.text).toBe(url)
+    expect(action.copy).toEqual({ text: url, title: 'Address copied' })
     expect(action.link).toBe('https://chatgpt.com/plugins')
     expect(action.appLink).toBeNull()
   })
@@ -62,6 +78,7 @@ describe('the primary action of each handoff', () => {
     const action = outsideAppAction(guide('grok-bot'), url)
     if (action.kind !== 'open') throw new Error('expected open')
     expect(action.copy?.text).toContain(url)
+    expect(action.copy?.title).toBe('Message copied')
     expect(action.appLink).toBe(`grokbot://app/v1/prompt?text=${encodeURIComponent(action.copy?.text ?? '')}`)
     expect(action.link).toBe('https://x.ai/bot')
   })
@@ -104,11 +121,17 @@ describe('opening an app', () => {
     expect(await openOutsideApp(grok, web.value)).toBe(true)
     expect(web.assigned).toEqual([grok.appLink])
     expect(web.opened).toEqual([])
-    expect(outsideAppFallbackLink({ ...grok, copy: { text: 'hi', done: '' } }, true)).toBe(grok.link)
+    expect(outsideAppFallback({ ...grok, copy: { text: 'hi', title: '' } }, 'Grok Bot', true)).toEqual({ label: 'Get Grok Bot', link: grok.link })
   })
 
-  test('a page that opens on the desktop needs no fallback', () => {
-    expect(outsideAppFallbackLink({ link: 'https://chatgpt.com/plugins', appLink: null, copy: { text: 'x', done: '' } }, false)).toBeNull()
+  test('the copy toast keeps the app link\'s page on the desktop too, as no platform reports an app link nothing opens', () => {
+    expect(outsideAppFallback({ ...grok, copy: { text: 'hi', title: '' } }, 'Grok Bot', false)).toEqual({ label: 'Get Grok Bot', link: grok.link })
+  })
+
+  test('a page that opens on the desktop needs no fallback; a browser may block the open after a copy', () => {
+    const chatgpt = { link: 'https://chatgpt.com/plugins', appLink: null, copy: { text: 'x', title: '' } }
+    expect(outsideAppFallback(chatgpt, 'ChatGPT', false)).toBeNull()
+    expect(outsideAppFallback(chatgpt, 'ChatGPT', true)).toEqual({ label: 'Open ChatGPT', link: chatgpt.link })
   })
 
   test('says when nothing opened', async () => {

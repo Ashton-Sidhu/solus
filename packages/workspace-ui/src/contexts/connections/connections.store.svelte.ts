@@ -237,6 +237,15 @@ export class ConnectionsStore {
     hosts.get(serverId).patchCapabilities(result)
   }
 
+  /** Revokes several devices or apps ("Revoke all apps"), then reads the list once. False when one revoke failed. */
+  async revokeDevices(serverId: string, deviceIds: readonly string[]): Promise<boolean> {
+    const api = serverConnections.apiFor(serverId)
+    const results = await Promise.allSettled(deviceIds.map((deviceId) => api.connectionsRevokeDevice({ deviceId })))
+    for (const result of results) if (result.status === 'rejected') console.error('revoke failed', result.reason)
+    await this.refreshServerMetadata(serverId)
+    return results.every((result) => result.status === 'fulfilled')
+  }
+
   async revokeDevice(serverId: string, deviceId: string): Promise<void> {
     try {
       await serverConnections.apiFor(serverId).connectionsRevokeDevice({ deviceId })

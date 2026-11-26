@@ -1,7 +1,9 @@
 import { AppWindow, KeyRound, Radar, Unplug } from '@lucide/svelte'
 import type { Command } from '../command-palette/lib/commands'
 import { connectionsNav } from '../connections/connections-nav.svelte'
-import { outsideAppsRequest, pairCodeRequest } from '../connections/lib/access-tab-requests.svelte'
+import { pairCodeRequest } from '../connections/lib/access-tab-requests.svelte'
+import { outsideAppsKeywords } from '../connections/lib/outside-apps'
+import { outsideAppsDialog } from '../connections/outside-apps/outside-apps-dialog.svelte'
 import { hosts } from '../../contexts/hosts/hosts.svelte'
 import { discoverStore } from './discover.store.svelte'
 
@@ -10,8 +12,8 @@ import { discoverStore } from './discover.store.svelte'
  * web alike: "Add machine" opens the Add page, and "Find hosts nearby" opens the
  * fleet and scans. "Show pairing code" opens this device's host on its Access
  * tab with a code made (docs/plans/add-machine-card.md). "Use Solus in other
- * apps" opens the same tab at that section (plans/035 §10). `showHosts` opens
- * Settings › Hosts in the shell that asks.
+ * apps" opens its dialog for this device's host, else the Run on host
+ * (plans/035 §10). `showHosts` opens Settings › Hosts in the shell that asks.
  */
 export function fleetPaletteCommands(showHosts: () => void): Command[] {
   return [
@@ -59,14 +61,11 @@ export function fleetPaletteCommands(showHosts: () => void): Command[] {
       label: 'Use Solus in other apps',
       group: 'Servers',
       icon: AppWindow,
-      keywords: ['mcp', 'claude', 'claude desktop', 'chatgpt', 'grok', 'poke', 'cursor', 'claude code', 'codex', 'outside app', 'connect app', 'pairing code', 'tools'],
+      keywords: outsideAppsKeywords(),
       run: () => {
         const serverId = (hosts.device ?? hosts.runOn)?.id
-        if (serverId) {
-          outsideAppsRequest.ask(serverId)
-          connectionsNav.open(serverId, 'access')
-        }
-        showHosts()
+        if (serverId) outsideAppsDialog.open(serverId)
+        else showHosts()
       },
     },
   ]

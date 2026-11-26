@@ -1,6 +1,8 @@
 import type { AppEndpoint } from '../../../contexts/connections/connections.store.svelte'
+import type { AppAccess } from '@solus/contracts/host-api'
 import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { OUTSIDE_APP_GUIDES, type OutsideAppGuide } from '@solus/contracts/outside-apps'
+import { appAccessLabel } from './paired-devices'
 
 /** One address of a host's MCP endpoint, and where it works. */
 export interface AppEndpointAddress {
@@ -16,33 +18,73 @@ export function appEndpointAddresses(endpoint: AppEndpoint): AppEndpointAddress[
   return [local, { kind: 'public', label: 'From anywhere', url: endpoint.publicUrl }]
 }
 
-/** The Claude Code command that adds the host as an MCP server. It uses the public address when there is one, as it works from every computer. */
-export function claudeMcpAddCommand(endpoint: AppEndpoint): string {
-  return `claude mcp add --transport http solus ${endpoint.publicUrl ?? endpoint.localUrl}`
+/** The example in the "MCP address copied" toast: the Claude Code command that adds the host with this address. */
+export function claudeMcpAddCommand(address: string): string {
+  return `claude mcp add --transport http solus ${address}`
 }
 
-/** When a pairing code stops working: "Expires in 9:41", or "Expired". */
-export function pairingCodeExpiry(expiresAt: number, now: number): string {
+/** The countdown of a pairing code: "Expires 9:41 · one use". Null once it expired. */
+export function pairingCodeCountdown(expiresAt: number, now: number): string | null {
   const msLeft = expiresAt - now
-  if (msLeft <= 0) return 'Expired'
+  if (msLeft <= 0) return null
   const totalSeconds = Math.ceil(msLeft / 1000)
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
-  return `Expires in ${minutes}:${seconds.toString().padStart(2, '0')}`
+  return `Expires ${minutes}:${seconds.toString().padStart(2, '0')} · one use`
 }
 
-/** The address an app gets: a cloud app only the public one, any other app the public one when there is one, as it works from every computer. Null when the app needs a public address and the host has none. */
-export function outsideAppAddress(guide: Pick<OutsideAppGuide, 'needsPublicUrl'>, endpoint: AppEndpoint): string | null {
-  return guide.needsPublicUrl ? endpoint.publicUrl : endpoint.publicUrl ?? endpoint.localUrl
+/**
+ * Which address an app gets (plans/035 §10). A cloud app, and every app on
+ * another computer than the host, needs the public address. An app on the
+ * host's own computer uses the local address: it needs no tunnel, and there the
+ * owner can approve it in Solus. "Something else…" on the host's computer may be
+ * either kind, so it gets the public address when there is one.
+ */
+export type OutsideAppAddressKind = 'public' | 'local' | 'public-or-local'
+
+/** `guide` is null for "Something else…". `onHostComputer`: this client runs on the host's computer. */
+export function outsideAppAddressKind(guide: Pick<OutsideAppGuide, 'needsPublicUrl'> | null, onHostComputer: boolean): OutsideAppAddressKind {
+  if (!onHostComputer || guide?.needsPublicUrl) return 'public'
+  return guide ? 'local' : 'public-or-local'
 }
+
+/** The address of that kind; null when it is the public one and the host has none. */
+export function outsideAppAddress(kind: OutsideAppAddressKind, endpoint: AppEndpoint): string | null {
+  switch (kind) {
+    case 'public': return endpoint.publicUrl
+    case 'local': return endpoint.localUrl
+    case 'public-or-local': return endpoint.publicUrl ?? endpoint.localUrl
+  }
+}
+
+/** The address "Copy MCP address" copies: the local one on the host's computer, else the public one; null when that is missing. */
+export function copiedMcpAddress(endpoint: AppEndpoint, onHostComputer: boolean): string | null {
+  return outsideAppAddress(onHostComputer ? 'local' : 'public', endpoint)
+}
+
+/** One access level a person can give an app, with what it lets the app do (docs/outside-apps.md, Access). */
+export interface OutsideAppAccessLevel {
+  access: AppAccess
+  label: string
+  effect: string
+}
+
+export const OUTSIDE_APP_ACCESS_LEVELS: readonly OutsideAppAccessLevel[] = [
+  { access: 'read', label: appAccessLabel('read'), effect: 'Reads works, projects, tasks, automations, sessions, and pull requests. Changes nothing.' },
+  { access: 'write', label: appAccessLabel('write'), effect: 'Also creates and changes records, starts, messages, and stops sessions, and reruns checks.' },
+  { access: 'full', label: appAccessLabel('full'), effect: 'Also uses tools that ask for approval in Solus, such as running an automation or merging a pull request.' },
+]
+
+/** The level the Access step starts at. */
+export const DEFAULT_OUTSIDE_APP_ACCESS: AppAccess = 'write'
 
 /** The primary action of an app's setup, from its handoff, with the address filled in. */
 export type OutsideAppAction =
   | {
     kind: 'open'
     label: string
-    /** What is copied before the app opens, and the line that says so. */
-    copy: { text: string; done: string } | null
+    /** What is copied before the app opens, and the toast that says so. */
+    copy: { text: string; title: string } | null
     /** The web page or app page the action opens. */
     link: string
     /** The app's own link, tried first. The page `link` is the way when nothing opens it. */
@@ -56,10 +98,10 @@ export function outsideAppAction(guide: Pick<OutsideAppGuide, 'name' | 'handoff'
     case 'open':
       return { kind: 'open', label: `Add to ${name}`, copy: null, link: handoff.link(mcpUrl), appLink: null }
     case 'copy-url':
-      return { kind: 'open', label: `Copy address and open ${name}`, copy: { text: mcpUrl, done: 'The address is copied. Paste it in the form that opened.' }, link: handoff.link, appLink: null }
+      return { kind: 'open', label: `Copy address and open ${name}`, copy: { text: mcpUrl, title: 'Address copied' }, link: handoff.link, appLink: null }
     case 'copy-message': {
       const message = handoff.message(mcpUrl)
-      return { kind: 'open', label: `Copy message and open ${name}`, copy: { text: message, done: `The message is copied. Send it in ${name}.` }, link: handoff.link, appLink: handoff.appLink?.(message) ?? null }
+      return { kind: 'open', label: `Copy message and open ${name}`, copy: { text: message, title: 'Message copied' }, link: handoff.link, appLink: handoff.appLink?.(message) ?? null }
     }
     case 'commands':
       return { kind: 'commands', commands: handoff.commands(mcpUrl) }
@@ -105,10 +147,17 @@ export async function openOutsideApp(action: { link: string; appLink: string | n
 }
 
 /**
- * The app's page, offered after the handoff when this client cannot know it
- * reached the app: a browser cannot tell whether an app link opened, and may
- * block an open that follows a copy. Null where the open is known.
+ * The toast action after a copy: the app's page, when this client cannot know
+ * the app opened. A browser may block an open that follows a copy, and no
+ * platform reliably reports an app link that nothing handles. Null on the
+ * desktop app for a plain page, which it opens itself, and with no copy.
  */
-export function outsideAppFallbackLink(action: { link: string; appLink: string | null; copy: unknown }, isWeb: boolean): string | null {
-  return isWeb && (action.appLink !== null || action.copy !== null) ? action.link : null
+export function outsideAppFallback(action: { link: string; appLink: string | null; copy: unknown }, name: string, isWeb: boolean): { label: string; link: string } | null {
+  if (action.copy === null || (!isWeb && action.appLink === null)) return null
+  return { label: action.appLink === null ? `Open ${name}` : `Get ${name}`, link: action.link }
+}
+
+/** What finds "Use Solus in other apps" in the palette: MCP words, and the name of each app it sets up. */
+export function outsideAppsKeywords(guides: readonly OutsideAppGuide[] = OUTSIDE_APP_GUIDES): string[] {
+  return ['mcp', 'connector', 'another app', 'outside app', 'connect app', 'pairing code', ...guides.map((guide) => guide.name.toLowerCase())]
 }

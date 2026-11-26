@@ -4,6 +4,7 @@
   import { hostUpdatesStore } from "@solus/workspace-ui/contexts/updates/host-updates.store.svelte";
   import { onMount, untrack } from "svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
+  import OutsideAppsDialogHost from "@solus/workspace-ui/components/connections/outside-apps/OutsideAppsDialogHost.svelte";
   import BackgroundSessionAnnouncer from "@solus/workspace-ui/components/notifications/BackgroundSessionAnnouncer.svelte";
   import { Download as DownloadSimpleIcon } from "@lucide/svelte";
   import { setPopoverLayer } from "@solus/workspace-ui/components/popoverLayer.svelte";
@@ -750,6 +751,7 @@
 </LazyDialog>
 
 <SessionLinkPrompts />
+<OutsideAppsDialogHost />
 <BackgroundSessionAnnouncer />
 
 {#if isDraggingFile}
