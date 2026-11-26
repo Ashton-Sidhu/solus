@@ -108,6 +108,11 @@ another organization; a revoked grant cannot write; a member cannot delete.
 
 ## 5. Agent tools
 
+Replaced by the host tools of [036](036-host-tools.md): `list_cloud_machines`
+is part of `list_hosts`, `join_cloud_machine` is `add_host` with `organization`,
+and the other tools have host names (`create_host`, `update_host`, and so on).
+The rules below stay.
+
 A new group `cloud` in `solus-toolbox.ts`, in
 `packages/server/src/execution/agents/tools/cloud-machine-tools.ts`. Each request
 goes through `accountReadsOfServer.fetch(userId, scope, path, init)` with the

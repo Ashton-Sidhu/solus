@@ -1,14 +1,6 @@
 import { addHostAgentTool, removeHostAgentTool } from './host-pairing-tools'
-import {
-  createCloudMachineAgentTool,
-  deleteCloudMachineAgentTool,
-  joinCloudMachineAgentTool,
-  listCloudMachinesAgentTool,
-  restartCloudMachineAgentTool,
-  startCloudMachineAgentTool,
-  stopCloudMachineAgentTool,
-  updateCloudMachineAgentTool,
-} from './cloud-machine-tools'
+import { createHostAgentTool, deleteHostAgentTool, restartHostAgentTool, startHostAgentTool, stopHostAgentTool } from './cloud-machine-tools'
+import { checkHostAgentTool, listHostsAgentTool, shareHostAgentTool, unshareHostAgentTool, updateHostAgentTool } from './host-tools'
 import { createShareLinkAgentTool, readSharingAgentTool, removeShareLinkAgentTool, shareAgentTool } from './sharing-tools'
 import { listOrganizationMembersAgentTool, readOrganizationPolicyAgentTool, updateOrganizationPolicyAgentTool } from './organization-tools'
 import { startSessionsAgentTool } from './start-sessions-tool'
@@ -37,7 +29,6 @@ import {
 } from './automation-tools'
 import {
   listAgentTargetsAgentTool,
-  listHostsAgentTool,
   readSessionAgentTool,
   readSessionExchangeAgentTool,
   searchSessionsAgentTool,
@@ -154,24 +145,31 @@ export const solusToolbox = {
     readDelivery: readWebhookDeliveryAgentTool,
     dryRun: dryRunWebhookAgentTool,
   },
+  /**
+   * Every host the person reaches (plans/036-host-tools.md). A tool that acts through
+   * Solus Cloud is offered only to a person this host holds a delegation for (035 §7).
+   */
+  hosts: {
+    list: listHostsAgentTool,
+    add: addHostAgentTool,
+    create: createHostAgentTool,
+    start: startHostAgentTool,
+    stop: stopHostAgentTool,
+    restart: restartHostAgentTool,
+    update: updateHostAgentTool,
+    check: checkHostAgentTool,
+    share: shareHostAgentTool,
+    unshare: unshareHostAgentTool,
+    remove: removeHostAgentTool,
+    delete: deleteHostAgentTool,
+  },
   connections: {
-    listHosts: listHostsAgentTool,
-    addHost: addHostAgentTool,
-    removeHost: removeHostAgentTool,
     status: connectionStatusAgentTool,
     connectIntegration: connectIntegrationAgentTool,
     addMcpServer: addMcpServerAgentTool,
   },
   /** Offered only to a person this host holds a delegation for (plans/035-cloud-machine-tools.md §7). */
-  cloud: {
-    listMachines: listCloudMachinesAgentTool,
-    createMachine: createCloudMachineAgentTool,
-    updateMachine: updateCloudMachineAgentTool,
-    startMachine: startCloudMachineAgentTool,
-    stopMachine: stopCloudMachineAgentTool,
-    restartMachine: restartCloudMachineAgentTool,
-    deleteMachine: deleteCloudMachineAgentTool,
-    joinMachine: joinCloudMachineAgentTool,
+  organization: {
     listMembers: listOrganizationMembersAgentTool,
     readPolicy: readOrganizationPolicyAgentTool,
     updatePolicy: updateOrganizationPolicyAgentTool,

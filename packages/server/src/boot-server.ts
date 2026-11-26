@@ -1649,7 +1649,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     adopt: (sessionId, path, addToCodebase) => {
       return opts.sessionRuntime.sessionFolders.adoptCreated(sessionId, path, addToCodebase, opts.sessionRuntime.actorOfSession(sessionId) ?? HOST_ACTOR)
     },
-    // The project, codebase, and sharing tools send the RPC of a person's client, through its gate.
+    // The project, codebase, sharing, and host tools send the RPC of a person's client, through its gate.
     rpc: {
       listProjects: (args, caller) => server.handle('listProjects', args, caller),
       projectConfigLoad: (args, caller) => server.handle('projectConfigLoad', args, caller),
@@ -1663,6 +1663,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       shareSet: (args, caller) => server.handle('shareSet', args, caller),
       shareSetLink: (args, caller) => server.handle('shareSetLink', args, caller),
       shareLinkOrigin: (args, caller) => server.handle('shareLinkOrigin', args, caller),
+      hostSelfTest: (args, caller) => server.handle('hostSelfTest', args, caller),
+      hostResources: (args, caller) => server.handle('hostResources', args, caller),
     },
   })
   // A Run on prompt copies its repository before its run starts (docs/run-on.md).

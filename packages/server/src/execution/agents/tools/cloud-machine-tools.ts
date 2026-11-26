@@ -13,7 +13,6 @@ import {
   enrollmentTicketResponseSchema,
   formatLinkCode,
   managedHostRestartResponseSchema,
-  managedHostSpecChangeResponseSchema,
   managedHostSpecResponseSchema,
   managedHostStartResponseSchema,
   managedHostStopResponseSchema,
@@ -36,12 +35,13 @@ import { answerToolQuestionWith } from '../../sessions/input-requests'
 import type { AgentTool, AgentToolContext, AgentToolResult } from './agent-tool'
 
 /**
- * The cloud machine tools (plans/035-cloud-machine-tools.md §5): an agent lists, makes,
- * changes, starts, stops, restarts, and deletes the cloud machines of the person's
- * organizations. This host sends each request to Solus Cloud with the token it holds
- * for the person of the turn (`AccountReads.fetch`). A turn whose person has no
- * delegation here does not get the tools (§7). A tool never changes, stops, restarts,
- * or deletes this host (decisions 2 and 6).
+ * The host tools that act through Solus Cloud (plans/035-cloud-machine-tools.md §4,
+ * plans/036-host-tools.md §3): an agent creates, starts, stops, restarts, and deletes
+ * the cloud machines of the person's organizations, and joins a machine to one. This
+ * host sends each request to Solus Cloud with the token it holds for the person of the
+ * turn (`AccountReads.fetch`). A turn whose person has no delegation here does not get
+ * these tools (035 §7). A tool never changes, stops, restarts, or deletes this host
+ * (035 decisions 2 and 6). `host-tools.ts` has the tools that apply to every host.
  */
 
 export interface CloudMachineToolsDeps {
@@ -110,6 +110,19 @@ export async function cloudPerson(context: AgentToolContext): Promise<CloudPerso
   return personOf(organizationId === LOCAL_ORGANIZATION_ID ? null : organizationId)
 }
 
+/**
+ * The person with their personal delegation, or null. Sharing a personal host needs it:
+ * Solus Cloud refuses an organization's delegation there (plans/036 §5).
+ */
+export async function personalPerson(context: AgentToolContext): Promise<CloudPerson | null> {
+  const person = await cloudPerson(context)
+  if (!person || person.scope === 'personal') return person
+  return deps?.holders().some((holder) => holder.userId === person.userId && holder.scope === 'personal') ? { ...person, scope: 'personal' } : null
+}
+
+/** This host's id at the control plane; null when it is not registered. */
+export const thisHostId = (): string | null => deps?.thisHost().hostId ?? null
+
 export type CloudAnswer<T> = { ok: true; value: T } | { ok: false; status: number | null; text: string; body?: unknown }
 
 /** The sentence a person can act on for a refusal of Solus Cloud. */
@@ -126,7 +139,7 @@ function refusalText(status: number, code: string | null, message: string | null
     case 'organization_not_found':
       return 'Solus Cloud does not know this organization.'
     case 'host_not_found':
-      return 'Solus Cloud does not know this machine. Call list_cloud_machines to see the machines.'
+      return 'Solus Cloud does not know this host. Call list_hosts to see the hosts.'
     case 'refused_by_host_policy':
       return 'This organization\'s owners turned cloud hosts off. read_organization_policy shows its rules.'
     case 'managed_hosts_not_configured':
@@ -230,14 +243,12 @@ export async function choiceOnCard(context: AgentToolContext, ask: CloudMachineA
   return answer.choice
 }
 
-const cloudMachinesOf = (directory: DirectoryResponse) => directory.hosts.filter((host) => host.kind === 'cloud')
-
-const isThisHost = (host: DirectoryHost): boolean => {
+export const isThisHost = (host: DirectoryHost): boolean => {
   const self = deps?.thisHost()
   return !!self && (host.hostId === self.hostId || host.installationId === self.installationId)
 }
 
-const machineFacts = (host: DirectoryHost) => ({
+export const machineFacts = (host: DirectoryHost) => ({
   id: host.hostId,
   installationId: host.installationId,
   name: host.label,
@@ -247,43 +258,53 @@ const machineFacts = (host: DirectoryHost) => ({
   isThisHost: isThisHost(host),
 })
 
-const NOT_THIS_HOST = 'This is the host that runs this session. A host never changes, stops, restarts, or deletes itself: it would end this turn. Do it from another host, or in Settings → Machines.'
+export const NOT_THIS_HOST = 'This is the host that runs this session. A host never changes, stops, restarts, updates, or deletes itself: it would end this turn. Do it from another host, or in Settings → Machines.'
 
-/** The machine a call names: an id, an installation id, or an exact name; a sentence when there is none, or it is this host. */
-async function namedMachine(person: CloudPerson, named: string): Promise<{ host: DirectoryHost; directory: DirectoryResponse } | AgentToolResult> {
-  const name = named.trim()
+/** Whether a name is this host's id or installation id: refused before any request. */
+export const namesThisHost = (named: string): boolean => {
   const self = deps?.thisHost()
-  // Refused before any request: a host never acts on itself (decisions 2 and 6).
-  if (self && (name === self.hostId || name === self.installationId)) return failed(NOT_THIS_HOST)
+  return !!self && (named.trim() === self.hostId || named.trim() === self.installationId)
+}
+
+/**
+ * The host a call names in the person's directory: an id, an installation id, or an
+ * exact name; a sentence when there is none. `kind` limits it to one kind of host, and
+ * `mayBeThisHost` lets a call name this host (sharing it does not end the turn).
+ */
+async function namedHost(person: CloudPerson, named: string, rules: { kind?: DirectoryHost['kind']; mayBeThisHost: boolean }): Promise<{ host: DirectoryHost; directory: DirectoryResponse } | AgentToolResult> {
+  const name = named.trim()
+  // Refused before any request: a host never acts on itself (035 decisions 2 and 6).
+  if (!rules.mayBeThisHost && namesThisHost(name)) return failed(NOT_THIS_HOST)
   const directory = await readDirectory(person)
   if (!directory.ok) return failed(directory.text)
   const lower = name.toLowerCase()
-  const matches = cloudMachinesOf(directory.value).filter((host) => host.hostId === name || host.installationId === name || host.label.toLowerCase() === lower)
-  if (matches.length === 0) return failed(`No cloud machine is named "${name}". Call list_cloud_machines to see the machines.`)
-  if (matches.length > 1) return failed(`Several cloud machines are named "${name}". Give the id from list_cloud_machines.`)
+  const matches = directory.value.hosts.filter((host) => (!rules.kind || host.kind === rules.kind) && (host.hostId === name || host.installationId === name || host.label.toLowerCase() === lower))
+  const kind = rules.kind === 'cloud' ? 'cloud machine' : rules.kind === 'personal' ? 'personal host' : 'host'
+  if (matches.length === 0) return failed(`No ${kind} is named "${name}". Call list_hosts to see the hosts.`)
+  if (matches.length > 1) return failed(`Several hosts are named "${name}". Give the id from list_hosts.`)
   const host = matches[0]!
-  if (isThisHost(host)) return failed(NOT_THIS_HOST)
+  if (!rules.mayBeThisHost && isThisHost(host)) return failed(NOT_THIS_HOST)
   return { host, directory: directory.value }
 }
 
-/** The person and the machine of a call, or the sentence that says why not. */
-async function personAndMachine(context: AgentToolContext, named: string): Promise<{ person: CloudPerson; host: DirectoryHost; directory: DirectoryResponse } | AgentToolResult> {
+/** The person and the host of a call, or the sentence that says why not. */
+export async function personAndHost(context: AgentToolContext, named: string, rules: { kind?: DirectoryHost['kind']; mayBeThisHost: boolean } = { kind: 'cloud', mayBeThisHost: false }): Promise<{ person: CloudPerson; host: DirectoryHost; directory: DirectoryResponse } | AgentToolResult> {
   const person = await cloudPerson(context)
   if (!person) return failed(SIGN_IN)
-  const found = await namedMachine(person, named)
+  const found = await namedHost(person, named, rules)
   return 'host' in found ? { person, ...found } : found
 }
 
-const hostPath = (hostId: string, action: string) => `/v1/hosts/${encodeURIComponent(hostId)}/${action}`
-const NOT_MADE_BY_SOLUS = 'Solus Cloud does not run this machine; only delete applies to it.'
+export const hostPath = (hostId: string, action: string) => `/v1/hosts/${encodeURIComponent(hostId)}/${action}`
+export const NOT_MADE_BY_SOLUS = 'Solus Cloud does not run this host, so this does not apply to it. list_hosts shows what applies to each host.'
 
-const packagesField = z.array(z.string().max(128)).max(64).optional()
-const setupScriptField = z.string().max(MAX_MANAGED_HOST_SETUP_SCRIPT_LENGTH).optional()
-const hostField = z.string().min(1).max(200).describe('The machine: its id, installation id, or exact name from list_cloud_machines.')
-const reasonField = z.string().min(1).max(300).describe('Why, in one sentence; a card shows it.')
+export const packagesField = z.array(z.string().max(128)).max(64).optional()
+export const setupScriptField = z.string().max(MAX_MANAGED_HOST_SETUP_SCRIPT_LENGTH).optional()
+export const hostField = z.string().min(1).max(200).describe('The host: its id, installation id, or exact name from list_hosts.')
+export const reasonField = z.string().min(1).max(300).describe('Why, in one sentence; a card shows it.')
 
 /** Why packages or a script cannot go to Solus Cloud; null when they can. */
-function specProblem(packages: string[] | undefined, catalog: ManagedHostCatalog | undefined, size?: string): string | null {
+export function specProblem(packages: string[] | undefined, catalog: ManagedHostCatalog | undefined, size?: string): string | null {
   if (packages) {
     const problem = cloudMachinePackagesProblem(packages)
     if (problem) return problem
@@ -307,50 +328,18 @@ async function listedSoon(person: CloudPerson, matches: (host: DirectoryHost) =>
 
 const NO_CATALOG: ManagedHostCatalog = { sizes: [], defaultSize: null, supportsPackages: true, supportsSetupScript: true }
 
-const listFields = {
-  organization: z.string().max(200).optional().describe('An organization id or name; all of them when absent.'),
-}
-
-export const listCloudMachinesAgentTool: AgentTool<typeof listFields> = {
-  name: 'list_cloud_machines',
-  description: 'List the cloud machines of your organizations: id, name, state, and whether Solus runs it. Also lists your organizations and the sizes a new machine can have. Call it before you change a machine.',
-  inputFields: listFields,
-  requiresApproval: false,
-  isOffered: isCloudPersonOffered,
-  async execute(input, context) {
-    const person = await cloudPerson(context)
-    if (!person) return failed(SIGN_IN)
-    const directory = await readDirectory(person)
-    if (!directory.ok) return failed(directory.text)
-    const organizations = organizationsOf(directory.value)
-    let machines = cloudMachinesOf(directory.value)
-    if (input.organization?.trim()) {
-      const chosen = chosenOrganization(person, organizations, input.organization)
-      if ('problem' in chosen) return failed(chosen.problem)
-      const { organization } = chosen
-      if (organization) machines = machines.filter((host) => host.organizationIds.includes(organization.id))
-    }
-    const catalog = directory.value.managedHostCatalog
-    return answered({
-      machines: machines.map(machineFacts),
-      organizations,
-      sizes: catalog?.sizes.map(({ id, label, detail }) => ({ id, label, detail, isDefault: id === catalog.defaultSize })) ?? [],
-    })
-  },
-}
-
 const createFields = {
   organization: z.string().max(200).optional().describe('An organization id or name. Leave it out when the person did not say: a card asks when they have several.'),
   name: z.string().trim().min(1).max(120).optional(),
-  size: z.string().max(64).optional().describe('A size id from list_cloud_machines; the default when absent.'),
+  size: z.string().max(64).optional().describe('A size id from list_hosts; the default when absent.'),
   packages: packagesField.describe('apt packages to install, e.g. ["docker.io"].'),
   setup_script: setupScriptField.describe('A shell script that runs at the first boot, after the packages.'),
   reason: reasonField,
 }
 
-export const createCloudMachineAgentTool: AgentTool<typeof createFields> = {
-  name: 'create_cloud_machine',
-  description: 'Create a cloud machine that Solus runs for an organization, when the person asks for one (e.g. "make me a cloud machine with Docker"). Give the packages and script they asked for. Waits until the machine is listed, then returns it; use it with start_sessions.',
+export const createHostAgentTool: AgentTool<typeof createFields> = {
+  name: 'create_host',
+  description: 'Create a cloud machine that Solus runs for an organization, when the person asks for one (e.g. "make me a cloud machine with Docker"). Give the packages and script they asked for. Waits until it is listed, then returns it; use it with start_sessions.',
   inputFields: createFields,
   requiresApproval: false,
   isOffered: isCloudPersonOffered,
@@ -382,12 +371,12 @@ export const createCloudMachineAgentTool: AgentTool<typeof createFields> = {
     if (!created.ok) return failed(created.text)
     const listed = await listedSoon(person, (host) => host.hostId === created.value.hostId)
     if (listed) return answered({ created: true, machine: machineFacts(listed), note: 'Use it with start_sessions.' })
-    return answered({ created: true, machine: { id: created.value.hostId }, note: 'Solus Cloud made the machine, but the directory does not list it yet. Call list_cloud_machines in a minute.' })
+    return answered({ created: true, machine: { id: created.value.hostId }, note: 'Solus Cloud made the machine, but the directory does not list it yet. Call list_hosts in a minute.' })
   },
 }
 
 /** The change of packages and script; null when it changes nothing. */
-function specChange(packages: string[] | undefined, setupScript: string | undefined): ManagedHostSpecChangeRequest | null {
+export function specChange(packages: string[] | undefined, setupScript: string | undefined): ManagedHostSpecChangeRequest | null {
   if (packages === undefined && setupScript === undefined) return null
   const change: ManagedHostSpecChangeRequest = {}
   if (packages !== undefined) change.packages = packages
@@ -396,7 +385,7 @@ function specChange(packages: string[] | undefined, setupScript: string | undefi
 }
 
 /** The edit card, with the machine's current spec; the person's choice, or the result that ends the call. */
-async function changeOnCard(context: AgentToolContext, person: CloudPerson, host: DirectoryHost, directory: DirectoryResponse, reason: string): Promise<CloudMachineChoice | AgentToolResult> {
+export async function changeOnCard(context: AgentToolContext, person: CloudPerson, host: DirectoryHost, directory: DirectoryResponse, reason: string): Promise<CloudMachineChoice | AgentToolResult> {
   const current = await cloudRequest(person, hostPath(host.hostId, 'spec'), managedHostSpecResponseSchema)
   if (!current.ok) return failed(current.text)
   const size = current.value.size
@@ -409,41 +398,6 @@ async function changeOnCard(context: AgentToolContext, person: CloudPerson, host
   })
 }
 
-const updateFields = {
-  host: hostField,
-  packages: packagesField.describe('The full list of apt packages; [] clears it. Leave it and setup_script out to let the person choose on a card.'),
-  setup_script: setupScriptField.describe('The full setup script; "" clears it.'),
-  reason: reasonField,
-}
-
-export const updateCloudMachineAgentTool: AgentTool<typeof updateFields> = {
-  name: 'update_cloud_machine',
-  description: 'Change the packages or setup script of a cloud machine that Solus runs. Give what the person asked for; with neither, a card shows the current ones so the person can edit them. A running machine restarts to take the change. Organization owners only. Never this host.',
-  inputFields: updateFields,
-  requiresApproval: false,
-  isOffered: isCloudPersonOffered,
-  async execute(input, context) {
-    const found = await personAndMachine(context, input.host)
-    if ('ok' in found) return found
-    const { person, host, directory } = found
-    if (!host.hasManagedCompute) return failed(NOT_MADE_BY_SOLUS)
-    const problem = specProblem(input.packages, undefined)
-    if (problem) return failed(problem)
-    let change = specChange(input.packages, input.setup_script)
-    if (!change) {
-      const onCard = await changeOnCard(context, person, host, directory, input.reason.trim())
-      if ('ok' in onCard) return onCard
-      change = specChange(onCard.packages, onCard.setupScript)
-      if (!change) return answered({ changed: false, note: 'The person chose nothing to change.' })
-    }
-    const result = await cloudRequest(person, hostPath(host.hostId, 'spec'), managedHostSpecChangeResponseSchema, { method: 'PATCH', body: change })
-    if (!result.ok) return failed(result.text)
-    if (!result.value.changed) return answered({ changed: false, note: 'The machine has these already. Nothing changed.' })
-    const running = host.managedState === 'ready' || host.managedState === 'starting'
-    return answered({ changed: true, machine: machineFacts(host), note: running ? 'The machine restarts to take the change.' : 'The machine takes the change when it next starts.' })
-  },
-}
-
 /** A lifecycle action on a machine that Solus runs. */
 function lifecycleTool(name: string, action: 'start' | 'stop' | 'restart', description: string, schema: typeof managedHostStartResponseSchema): AgentTool<{ host: typeof hostField }> {
   return {
@@ -453,7 +407,7 @@ function lifecycleTool(name: string, action: 'start' | 'stop' | 'restart', descr
     requiresApproval: false,
     isOffered: isCloudPersonOffered,
     async execute(input, context) {
-      const found = await personAndMachine(context, input.host)
+      const found = await personAndHost(context, input.host)
       if ('ok' in found) return found
       if (!found.host.hasManagedCompute) return failed(NOT_MADE_BY_SOLUS)
       const result = await cloudRequest(found.person, hostPath(found.host.hostId, action), schema, { method: 'POST' })
@@ -463,19 +417,19 @@ function lifecycleTool(name: string, action: 'start' | 'stop' | 'restart', descr
   }
 }
 
-export const startCloudMachineAgentTool = lifecycleTool('start_cloud_machine', 'start', 'Start a stopped cloud machine that Solus runs. It keeps its disk. It is ready for start_sessions when list_cloud_machines shows "ready".', managedHostStartResponseSchema)
-export const stopCloudMachineAgentTool = lifecycleTool('stop_cloud_machine', 'stop', 'Stop a cloud machine that Solus runs, to save cost. It keeps its disk; start_cloud_machine brings it back. Never this host.', managedHostStopResponseSchema)
-export const restartCloudMachineAgentTool = lifecycleTool('restart_cloud_machine', 'restart', 'Restart the Solus service of a running cloud machine that Solus runs, e.g. when it does not answer. The machine and its disk stay. Never this host.', managedHostRestartResponseSchema)
+export const startHostAgentTool = lifecycleTool('start_host', 'start', 'Start a stopped cloud machine that Solus runs. It keeps its disk. It is ready for start_sessions when list_hosts shows "ready".', managedHostStartResponseSchema)
+export const stopHostAgentTool = lifecycleTool('stop_host', 'stop', 'Stop a cloud machine that Solus runs, to save cost. It keeps its disk; start_host brings it back. Never this host.', managedHostStopResponseSchema)
+export const restartHostAgentTool = lifecycleTool('restart_host', 'restart', 'Restart a running cloud machine that Solus runs, e.g. when it does not answer. Its disk stays. Never this host.', managedHostRestartResponseSchema)
 
-export const deleteCloudMachineAgentTool: AgentTool<{ host: typeof hostField }> = {
-  name: 'delete_cloud_machine',
-  description: 'Delete a cloud machine from its organization. A machine that Solus runs is destroyed with its disk; this cannot be undone. Only when the person asks. Organization owners only. Never this host.',
+export const deleteHostAgentTool: AgentTool<{ host: typeof hostField }> = {
+  name: 'delete_host',
+  description: 'Delete a cloud machine from its organization. A machine that Solus runs is destroyed with its disk; this cannot be undone. Only when the person asks. Organization owners only. Never this host. To forget a personal host here, use remove_host.',
   inputFields: { host: hostField },
   // Deletion destroys the disk (decision 7).
   requiresApproval: true,
   isOffered: isCloudPersonOffered,
   async execute(input, context) {
-    const found = await personAndMachine(context, input.host)
+    const found = await personAndHost(context, input.host)
     if ('ok' in found) return found
     const result = await cloudRequest(found.person, hostPath(found.host.hostId, 'machine'), z.null(), { method: 'DELETE' })
     if (!result.ok) return failed(result.text)
@@ -493,12 +447,13 @@ export const JOIN_COMMAND = 'PATH="$HOME/.local/bin:$PATH" SOLUS_LINK_CODE="$(ca
 const JOIN_TIMEOUT_MS = 5 * 60_000
 const MAX_OUTPUT = 4_000
 
-const joinFields = {
-  organization: z.string().max(200).optional().describe('An organization id or name; a card asks when it is not clear.'),
-  address: z.string().min(1).max(2048).describe('The https:// address where members reach the machine.'),
-  ssh_target: z.string().min(1).max(512).describe('e.g. ubuntu@3.91.20.4 or a ~/.ssh/config alias.'),
-  identity_file: z.string().max(1024).optional().describe('A private key path on this host. Only the path.'),
-  reason: reasonField,
+/** What a join of `add_host` gives (plans/036 §3): the organization and the machine. */
+export interface JoinInput {
+  organization?: string
+  address: string
+  ssh_target: string
+  identity_file?: string
+  reason: string
 }
 
 /** The machine's origin, only when it is https. */
@@ -510,7 +465,7 @@ function httpsOrigin(address: string): string | null {
 }
 
 /** The machine a join names: its https address and its SSH target; the sentence that refuses it otherwise. */
-async function joinTarget(input: { address: string; ssh_target: string; identity_file?: string }, ssh: CloudMachineToolsDeps['ssh']): Promise<{ address: string; target: SshTarget } | AgentToolResult> {
+async function joinTarget(input: Pick<JoinInput, 'address' | 'ssh_target' | 'identity_file'>, ssh: CloudMachineToolsDeps['ssh']): Promise<{ address: string; target: SshTarget } | AgentToolResult> {
   const address = httpsOrigin(input.address)
   if (!address) return failed('address must be an https:// origin with no path, for example https://build.example.com.')
   const resolved = resolveSshTarget(undefined, input.ssh_target)
@@ -526,13 +481,14 @@ async function joinTarget(input: { address: string; ssh_target: string; identity
   return { address, target }
 }
 
-export const joinCloudMachineAgentTool: AgentTool<typeof joinFields> = {
-  name: 'join_cloud_machine',
-  description: 'Join a Linux machine that the organization runs as its cloud machine: over SSH from this host, it runs `solus setup` with a new link code. The machine needs Solus installed, a new data directory, and an HTTPS address in front of it, and the organization must allow cloud hosts. Local owner of this host only.',
-  inputFields: joinFields,
-  requiresApproval: false,
-  isOffered: isCloudPersonOffered,
-  async execute(input, context) {
+/**
+ * Joins a Linux machine that the organization runs as its cloud machine: over SSH from
+ * this host, `solus setup` with a new link code (`add_host` with an organization). The
+ * machine needs Solus installed, a new data directory, and an HTTPS address in front of
+ * it, and the organization must allow cloud hosts. Local owner of this host only.
+ */
+export const joinMachine = {
+  async execute(input: JoinInput, context: AgentToolContext): Promise<AgentToolResult> {
     const principal = workspaceToolAuthority()
     // The join uses this host's SSH keys: only its owner, at this host, as add_host.
     if (!principal || !isHostOwner(principal) || principal.via !== 'local' || !deps) return failed('Only the owner of this host, at this host, can join a machine over SSH.')
@@ -570,7 +526,7 @@ export const joinCloudMachineAgentTool: AgentTool<typeof joinFields> = {
       joined: true,
       machine: listed ? machineFacts(listed) : null,
       output,
-      note: listed ? 'Use it with start_sessions.' : 'The command finished, but the directory does not list the machine yet. Call list_cloud_machines in a minute.',
+      note: listed ? 'Use it with start_sessions.' : 'The command finished, but the directory does not list the machine yet. Call list_hosts in a minute.',
     })
   },
 }

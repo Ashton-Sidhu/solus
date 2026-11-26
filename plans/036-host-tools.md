@@ -1,6 +1,6 @@
 # 036 One set of host tools
 
-Status: PLAN (2026-11-26), signed off by the maintainer. It replaces the machine
+Status: BUILT (2026-11-26), signed off by the maintainer. It replaces the machine
 tools of [035](035-cloud-machine-tools.md) §5 with host tools. The organization
 tools (035 §10), the sharing tools (035 §11), the machine card (035 §6), and the
 Solus Cloud admission (035 §4) stay.
