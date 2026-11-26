@@ -21,10 +21,12 @@ export interface RunToolBinding {
   permissionMode: () => PermissionMode
   /** Asks the person before a tool that needs approval runs. Resolves to whether they allowed it. */
   approve(tool: AgentTool, input: ToolArguments, toolUseId: string | undefined): Promise<boolean>
+  /** The id of the provider's item for a call whose request names none (Codex: its `mcpToolCall` item). */
+  toolUseIdOf?(toolName: string, input: ToolArguments): Promise<string | undefined>
 }
 
 /** A tool call's arguments as MCP carries them, before the tool's fields parse them. */
-type ToolArguments = CallToolRequest['params']['arguments']
+export type ToolArguments = CallToolRequest['params']['arguments']
 
 /** What a harness needs to reach its run's tools. */
 export interface RunToolAccess {
@@ -35,7 +37,10 @@ export interface RunToolAccess {
   release(): void
 }
 
-const bindings = new Map<string, RunToolBinding>()
+/** The run behind each token, by the token's hash. A token of no current run has none. */
+const bindings = new Map<string, RunToolBinding | undefined>()
+/** The token of a session whose harness keeps its MCP config across runs. */
+const sessionTokens = new Map<string, string>()
 let endpointUrl: string | null = null
 
 function tokenHash(token: string): string {
@@ -51,19 +56,34 @@ export function setAgentToolEndpointUrl(url: string): void {
  * Gives a run a token for its tools. The host keeps only the token's hash, in
  * memory: a restart ends every token, and restart recovery starts the run
  * again with a new one.
+ *
+ * With `sessionId`, every run of that session gets the same token: a harness
+ * that keeps a thread loaded (Codex) keeps the MCP config of its first run.
+ * Between runs the token reaches no tools.
  */
-export function bindRunTools(binding: RunToolBinding): RunToolAccess {
+export function bindRunTools(binding: RunToolBinding, sessionId?: string): RunToolAccess {
   if (!endpointUrl) throw new Error('The host has no MCP endpoint yet.')
   assertUniqueAgentTools(binding.tools)
-  const token = randomBytes(32).toString('base64url')
+  const token = (sessionId ? sessionTokens.get(sessionId) : undefined) ?? randomBytes(32).toString('base64url')
+  if (sessionId) sessionTokens.set(sessionId, token)
   const hash = tokenHash(token)
   bindings.set(hash, binding)
-  return { url: endpointUrl, authorization: `Bearer ${token}`, release: () => { bindings.delete(hash) } }
+  const release = () => {
+    if (bindings.get(hash) !== binding) return
+    if (sessionId) bindings.set(hash, undefined)
+    else bindings.delete(hash)
+  }
+  return { url: endpointUrl, authorization: `Bearer ${token}`, release }
 }
 
 /** The run a token belongs to, while its run lasts. */
 export function runToolBindingFor(token: string): RunToolBinding | undefined {
   return bindings.get(tokenHash(token))
+}
+
+/** Whether the host made this token: a token of a session between runs is still the host's. */
+export function isRunToolToken(token: string): boolean {
+  return bindings.has(tokenHash(token))
 }
 
 /** The Claude CLI names the tool-use block a call belongs to under this `_meta` key. */
@@ -115,8 +135,8 @@ export function runToolServer(binding: RunToolBinding | undefined): Server {
     if (!binding) return refused('This run has ended.')
     const agentTool = binding.tools.find((candidate) => candidate.name === request.params.name)
     if (!agentTool) return refused(`Unknown tool: ${request.params.name}`)
-    const toolUseId = callToolUseId(request.params._meta)
     const input = request.params.arguments
+    const toolUseId = callToolUseId(request.params._meta) ?? await binding.toolUseIdOf?.(agentTool.name, input)
     if (agentTool.requiresApproval) {
       if (binding.permissionMode() === 'plan') return refused(`Cannot run ${agentTool.name} in plan mode. Exit plan mode to apply changes.`)
       if (!await binding.approve(agentTool, input, toolUseId)) return refused(`The user declined ${agentTool.name}.`)

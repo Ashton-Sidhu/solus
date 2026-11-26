@@ -8,7 +8,6 @@ import { createAssetUrl, serveAssetToken } from '@solus/server/data/assets/asset
 import { toolResultMedia } from '@solus/server/data/assets/tool-result-media'
 import { ClaudeTurnNormalizer } from '@solus/server/execution/agents/claude/claude-event-normalizer'
 import { mcpToolResult } from '@solus/server/execution/agents/tools/agent-tool-endpoint'
-import { codexToolContentItems } from '@solus/server/execution/agents/codex/codex-tool-adapter'
 import { upstreamToolToAgentTool } from '@solus/server/integrations/integration-tools'
 import {
   agentResultOf,
@@ -67,16 +66,10 @@ describe('images', () => {
     expect(result.images?.map((each) => each.mimeType)).toEqual(['image/png', 'image/jpeg', 'image/webp'])
     expect(result.images?.map((each) => each.data)).toEqual(parts.map((bytes) => bytes.toString('base64')))
 
-    // WHY: both providers get the same content (§3 rule 1).
+    // WHY: both providers get the same content (§3 rule 1): one MCP result from the host's endpoint.
     const claude = mcpToolResult(result).content
     expect(claude.map((block) => block.type)).toEqual(['text', 'image', 'image', 'image'])
-    const codex = codexToolContentItems(result.text, result.images)
-    expect(codex.map((item) => item.type)).toEqual(['inputText', 'inputImage', 'inputImage', 'inputImage'])
-    expect(codex.slice(1).map((item) => item.type === 'inputImage' && item.imageUrl)).toEqual([
-      `data:image/png;base64,${parts[0].toString('base64')}`,
-      `data:image/jpeg;base64,${parts[1].toString('base64')}`,
-      `data:image/webp;base64,${parts[2].toString('base64')}`,
-    ])
+    expect(claude.slice(1).map((block) => block.type === 'image' && block.data)).toEqual(parts.map((bytes) => bytes.toString('base64')))
 
     // WHY: the person sees each image the agent got, for either provider.
     const claudeEvent = new ClaudeTurnNormalizer().push(claudeToolResult(claude)).find((event) => event.type === 'tool_result')
@@ -125,7 +118,6 @@ describe('audio', () => {
     // WHY: no provider model takes audio in a tool result (§1 item 8), so neither adapter sends it.
     expect(result.images).toBeUndefined()
     expect(mcpToolResult(result).content).toEqual([{ type: 'text', text: result.text }])
-    expect(codexToolContentItems(result.text, result.images)).toEqual([{ type: 'inputText', text: result.text }])
 
     expect(result.text).toMatch(/^\[Audio: audio\/mpeg, 67 B, saved at .+\.mp3\]$/)
     const path = /saved at (.+)\]$/.exec(result.text)![1]

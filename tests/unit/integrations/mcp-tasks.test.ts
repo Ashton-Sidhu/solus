@@ -21,7 +21,6 @@ const { McpTaskStore } = await import('@solus/server/integrations/mcp-task-store
 const { withActingScope } = await import('@solus/server/vault/acting-scope')
 const { HOST_IDENTITY } = await import('@solus/server/execution/seats/acting-identity')
 const { mcpToolResult } = await import('@solus/server/execution/agents/tools/agent-tool-endpoint')
-const { codexToolContentItems } = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
 const { getDb, closeDb } = await import('@solus/server/db')
 const { SessionWake } = await import('@solus/server/execution/sessions/session-wake')
 const { useHostUser } = await import('@solus/server/host/host-user')
@@ -298,7 +297,6 @@ describe('MCP tasks', () => {
     expect(w.owner.holdsSession(SESSION)).toBe(true)
     // Both providers get the same answer.
     expect(mcpToolResult(answer).content).toEqual([{ type: 'text', text: answer.text }])
-    expect(codexToolContentItems(answer.text)).toEqual([{ type: 'inputText', text: answer.text }])
     await w.clock.advance(60_000)
     complete('the report')
     await w.clock.advance(30_000)

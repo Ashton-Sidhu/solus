@@ -68,16 +68,16 @@ describe('the MCP endpoint', () => {
 describe('approval', () => {
   test('a tool that needs approval runs only when the person allows it', async () => {
     const seen: Array<string | undefined> = []
-    const declined = await runToolClient([echoTool(seen, true)], context, 'supervised', async () => false)
+    const declined = await runToolClient([echoTool(seen, true)], context, { approve: async () => false })
     expect((await declined.callTool({ name: 'echo', arguments: { text: 'x' } })).isError).toBe(true)
-    const allowed = await runToolClient([echoTool(seen, true)], context, 'supervised', async () => true)
+    const allowed = await runToolClient([echoTool(seen, true)], context, { approve: async () => true })
     expect((await allowed.callTool({ name: 'echo', arguments: { text: 'x' } })).isError).toBeFalsy()
     expect(seen).toHaveLength(1)
   })
 
   test('plan mode refuses a tool that needs approval', async () => {
     const seen: Array<string | undefined> = []
-    const client = await runToolClient([echoTool(seen, true)], context, 'plan')
+    const client = await runToolClient([echoTool(seen, true)], context, { permissionMode: () => 'plan' })
     const result = await client.callTool({ name: 'echo', arguments: { text: 'x' } })
     expect(result.isError).toBe(true)
     expect(seen).toEqual([])

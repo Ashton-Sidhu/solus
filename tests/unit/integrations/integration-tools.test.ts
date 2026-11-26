@@ -1,10 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { executeAgentTool, type AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
-import { adaptCodexTools } from '@solus/server/execution/agents/codex/codex-tool-adapter'
 import { runToolClient } from '../helpers/run-tool-client'
-import { Client } from '@modelcontextprotocol/client'
-import { InMemoryTransport } from '@modelcontextprotocol/client'
 import { upstreamToolToAgentTool } from '@solus/server/integrations/integration-tools'
 import type { UpstreamTool } from '@solus/server/integrations/gateway'
 
@@ -103,9 +100,10 @@ describe('integration tool bridge', () => {
     await executeAgentTool(tool, { doc: { title: 't' }, extra: 2 }, context())
     expect(calls[0]?.input).toEqual({ doc: { title: 't' }, extra: 2 })
     expect((await executeAgentTool(tool, 'not an object', context())).ok).toBe(false)
-    // Codex still sees an object that takes any key.
-    const [namespace] = adaptCodexTools([tool])
-    expect(namespace?.tools[0]?.inputSchema).toEqual({ type: 'object', additionalProperties: true })
+    // Every harness still sees an object that takes any key.
+    const client = await runToolClient([tool], context())
+    expect((await client.listTools()).tools[0]?.inputSchema).toEqual({ type: 'object', additionalProperties: true })
+    await client.close()
   })
 
   test('Claude hands a passthrough tool every key the agent sent', async () => {

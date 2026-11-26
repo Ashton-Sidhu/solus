@@ -1,5 +1,5 @@
 import { createMcpHandler } from '@modelcontextprotocol/server'
-import { runToolBindingFor, runToolServer } from '../execution/agents/tools/agent-tool-endpoint'
+import { isRunToolToken, runToolBindingFor, runToolServer } from '../execution/agents/tools/agent-tool-endpoint'
 
 /**
  * The host's MCP endpoint, `/mcp` (plans/035 §3). One handler serves every
@@ -20,7 +20,7 @@ export async function serveMcp(request: Request): Promise<Response> {
   // A browser page may not call the endpoint: an agent's client sends no Origin (DNS rebinding, CSRF).
   if (request.headers.has('origin')) return Response.json({ error: 'forbidden' }, { status: 403 })
   const token = bearerToken(request)
-  if (!token || !runToolBindingFor(token)) {
+  if (!token || !isRunToolToken(token)) {
     return Response.json({ error: 'unauthorized' }, { status: 401, headers: { 'WWW-Authenticate': 'Bearer' } })
   }
   return handler.fetch(request, { authInfo: { token, clientId: 'solus-run', scopes: [] } })

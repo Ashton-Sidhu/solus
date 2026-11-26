@@ -4,7 +4,6 @@ import { runToolClient } from './helpers/run-tool-client'
 import type { AgentTool, AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import { SOLUS_TOOL_GROUPS } from '@solus/contracts/agent-tools'
-import { adaptCodexTools } from '@solus/server/execution/agents/codex/codex-tool-adapter'
 import { SECRET_FILE_TTL_MS } from '@solus/contracts/agent-tools'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { actAsHostForTests, hostSecretFilesFolder } from '@solus/server/execution/seats/acting-identity'
@@ -48,7 +47,6 @@ describe('request_secret as a session tool', () => {
     expect((await client.listTools()).tools.map((tool) => tool.name)).toContain('request_secret')
     await client.close()
 
-    expect(adaptCodexTools(sessionTools())[0]?.tools.map((tool) => tool.name)).toContain('request_secret')
   })
 
   test('its description names no webhook; it and the shared guidance keep the never-ask-in-chat rule', () => {
