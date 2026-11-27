@@ -16,12 +16,15 @@ function weekdayLabel(index: number, locale: string): string {
   );
 }
 
+// A stored wall time has no date or time zone.
 export function formatTime(value: string): string {
   const [hours, minutes] = value.split(":").map(Number);
   if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return value;
-  const time = new Date();
-  time.setHours(hours ?? 9, minutes ?? 0, 0, 0);
-  return time.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return new Date(Date.UTC(2000, 0, 1, hours ?? 9, minutes ?? 0)).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+  });
 }
 
 export function formatRunAtDate(value: Date): string {
@@ -34,7 +37,8 @@ export function formatRunAtTime(value: Date): string {
 
 function timePickerValue(value: string): Date {
   const [hours, minutes] = value.split(":").map(Number);
-  const time = new Date();
+  // The native picker reads local hours. Use a date away from the DST change.
+  const time = new Date(2000, 0, 1);
   time.setHours(
     Number.isInteger(hours) ? (hours ?? 9) : 9,
     Number.isInteger(minutes) ? (minutes ?? 0) : 0,

@@ -68,6 +68,8 @@ export interface DeviceHost {
   /** Inventory and tool versions. Never installs or starts anything. */
   summary(): Promise<DeviceHostSummary>
   platformAvailability(platform: DevicePlatform): Promise<DevicePlatformAvailability>
+  /** Local Android can support phones without the tools for virtual devices. */
+  androidEmulatorsAvailable?(): boolean
   /** Install the hub on first use and start it. Concurrent callers share one start. */
   ensureReady(onPhase: DeviceHostPhaseListener): Promise<DeviceHostReady>
   /** Install and start agent-device after agent access is granted. */

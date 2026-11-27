@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { RefreshCw, RotateCw, Smartphone } from "@lucide/svelte";
+  import { RefreshCw, RotateCw, Smartphone, Square } from "@lucide/svelte";
   import AppleLogoIcon from "../ui/AppleLogoIcon.svelte";
   import type { DeviceState, DeviceSummary } from "@solus/contracts/device-types";
   import { devicesStore, deviceErrorMessage } from "../../contexts/devices/devices.store.svelte";
@@ -46,6 +46,14 @@
   const groups = $derived(addableDevices(deviceState, sessionId));
   const reasons = $derived(unavailablePlatformReasons(deviceState));
   const connected = $derived(deviceState?.devices.filter((device) => device.physical).length ?? 0);
+  const running = $derived(devicesStore.runningVirtualDevices(serverId));
+  const isStopping = $derived(devicesStore.isStoppingFromList(serverId));
+  const stopFailures = $derived(devicesStore.stopFailures.get(serverId));
+
+  function stop(devices: readonly DeviceSummary[], question: string) {
+    if (opening !== null || isStopping || discovering || !devices.length || !confirm(question)) return;
+    void devicesStore.stopFromList(serverId, devices);
+  }
 </script>
 
 <div
@@ -62,10 +70,18 @@
 >
   <div class="flex min-h-0 flex-1 justify-center overflow-y-auto px-6 py-8">
     <div class="my-auto w-full max-w-md">
-      <div class="mb-2 flex items-center justify-between">
-        <h2 class="text-(--solus-text-primary)">Simulators and emulators</h2>
+      <div class="mb-2 flex flex-wrap items-center gap-1">
+        <h2 class="mr-auto text-(--solus-text-primary)">Simulators and emulators</h2>
+        {#if running.length || isStopping}
+          <button type="button"
+            class="rounded-md px-2 py-0.5 text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50"
+            disabled={opening !== null || isStopping || discovering}
+            onclick={() => stop(running, "Stop all running simulators and emulators on this host? This also closes their open previews.")}>
+            Stop all
+          </button>
+        {/if}
         {#if onCancel}
-          <button type="button" class="mr-1 ml-auto rounded-md px-2 py-0.5 text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)" onclick={onCancel}>
+          <button type="button" class="rounded-md px-2 py-0.5 text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)" onclick={onCancel}>
             Cancel
           </button>
         {/if}
@@ -74,7 +90,7 @@
             {#snippet child({ props })}
               <button {...props} type="button"
                 class="flex size-6 items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
-                aria-label="Scan again" onclick={discover}>
+                aria-label="Scan again" disabled={isStopping} onclick={discover}>
                 <RefreshCw class="size-3.5 {discovering ? 'animate-spin' : ''}" />
               </button>
             {/snippet}
@@ -83,6 +99,20 @@
         </TooltipUI.Root>
       </div>
 
+      {#if isStopping}
+        <p class="mb-2 text-(--solus-text-tertiary)" role="status">Stopping devices…</p>
+      {/if}
+      {#if stopFailures?.length}
+        <div class="mb-2 text-[var(--failure)]" role="alert">
+          <p>Could not stop these devices.</p>
+          <ul class="list-disc pl-5">
+            {#each stopFailures as failure}
+              <li>{failure}</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+
       {#if groups.length}
         <div class="flex flex-col gap-3">
           {#each groups as group (group.deviceHostId)}
@@ -90,26 +120,44 @@
               {#if groups.length > 1}<p class="px-1 text-(--solus-text-tertiary)">{group.label}</p>{/if}
               {#each group.devices as device (device.deviceId)}
                 {@const key = `${device.deviceHostId}:${device.deviceId}`}
-                <button
-                  type="button"
-                  class="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md border border-(--solus-container-border) px-3 py-2 text-left transition-colors hover:bg-(--solus-surface-hover) disabled:hover:bg-transparent"
-                  disabled={opening !== null}
-                  onclick={() => onOpen(device)}
-                >
-                  {#if device.platform === "ios"}
-                    <AppleLogoIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
-                  {:else}
-                    <Smartphone class="size-3.5 shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
+                <div class="flex min-w-0 items-center rounded-md border border-(--solus-container-border)">
+                  <button
+                    type="button"
+                    class="flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md px-3 py-2 text-left transition-colors hover:bg-(--solus-surface-hover) disabled:hover:bg-transparent"
+                    disabled={opening !== null || isStopping}
+                    onclick={() => onOpen(device)}
+                  >
+                    {#if device.platform === "ios"}
+                      <AppleLogoIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
+                    {:else}
+                      <Smartphone class="size-3.5 shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
+                    {/if}
+                    <span class="min-w-0 flex-1 truncate text-(--solus-text-primary)">{device.name}</span>
+                    {#if opening === key}
+                      <RotateCw class="size-3 shrink-0 animate-spin text-(--solus-text-tertiary)" aria-hidden="true" />
+                      <span class="shrink-0 text-(--solus-text-tertiary)">Opening…</span>
+                    {:else}
+                      {#if device.booted}<span class="size-1.5 shrink-0 rounded-full bg-[var(--success)]" title="Running"></span><span class="sr-only">running</span>{/if}
+                      <span class="shrink-0 text-(--solus-text-tertiary) tabular-nums">{device.version}</span>
+                    {/if}
+                  </button>
+                  {#if device.booted}
+                    <TooltipUI.Root>
+                      <TooltipUI.Trigger>
+                        {#snippet child({ props })}
+                          <button {...props} type="button"
+                            class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50 pointer-coarse:size-9"
+                            aria-label={`Stop ${device.name}`}
+                            disabled={opening !== null || isStopping || discovering}
+                            onclick={() => stop([device], `Stop ${device.name}? This also closes its open previews.`)}>
+                            <Square class="size-3.5" aria-hidden="true" />
+                          </button>
+                        {/snippet}
+                      </TooltipUI.Trigger>
+                      <TooltipUI.Content side="bottom" value={`Stop ${device.name}`} />
+                    </TooltipUI.Root>
                   {/if}
-                  <span class="min-w-0 flex-1 truncate text-(--solus-text-primary)">{device.name}</span>
-                  {#if opening === key}
-                    <RotateCw class="size-3 shrink-0 animate-spin text-(--solus-text-tertiary)" aria-hidden="true" />
-                    <span class="shrink-0 text-(--solus-text-tertiary)">Opening…</span>
-                  {:else}
-                    {#if device.booted}<span class="size-1.5 shrink-0 rounded-full bg-[var(--success)]" title="Running"></span><span class="sr-only">running</span>{/if}
-                    <span class="shrink-0 text-(--solus-text-tertiary) tabular-nums">{device.version}</span>
-                  {/if}
-                </button>
+                </div>
               {/each}
             </section>
           {/each}

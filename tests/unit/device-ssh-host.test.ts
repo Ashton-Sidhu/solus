@@ -81,6 +81,34 @@ describe('SSH device host', () => {
     expect(probeBranch).not.toContain('spawn(')
   })
 
+  test.each([
+    { missing: 'adb', reason: 'Platform-Tools' },
+    { missing: 'emulator', reason: 'Android Emulator' },
+    { missing: 'sh', reason: 'Command-line Tools' },
+    { missing: '', reason: '' },
+  ])('SSH Android discovery checks the full SDK (missing: $missing)', async ({ missing, reason }) => {
+    const home = mkdtempSync(join(tmpdir(), 'solus-ssh-device-'))
+    const output: string[] = []
+    try {
+      await runInNewContext(sshDeviceScript('owner', 'probe'), {
+        require: (name: string) => {
+          if (name === 'node:os') return { homedir: () => home }
+          if (name === 'node:child_process') return {
+            spawnSync: (command: string) => ({ status: command === missing ? 1 : 0 }),
+          }
+          return require(name)
+        },
+        process: { platform: 'linux', versions: process.versions },
+        console: { log: (line: string) => output.push(line) },
+      })
+      const android = parseScriptReply(output.join('\n')).platforms?.find((entry) => entry.platform === 'android')
+      expect(android?.available).toBe(!missing)
+      if (missing) expect(android?.reason).toContain(reason)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
   test('agent-start replaces a healthy daemon from an older install', async () => {
     const home = mkdtempSync(join(tmpdir(), 'solus-ssh-device-'))
     const root = join(home, '.solus', 'devices')

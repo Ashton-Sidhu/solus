@@ -233,6 +233,7 @@ export function usePullRequestList(requests: readonly ListTarget[]) {
   return {
     data: listing,
     entries,
+    targets,
     error: errors.map((error) => error.message).join("\n") || null,
     isPending: sources.some(({ result }) => result.waiting) && !data.entries.length,
     continued: data.continued,
