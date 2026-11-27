@@ -57,18 +57,38 @@ export async function copyMarkdownTable(table: HTMLTableElement): Promise<void> 
       // Some browsers accept clipboard text but reject rich clipboard items.
     }
   }
+  await copyTableText(text, table.ownerDocument)
+}
+
+export async function copyTableText(text: string, document: Document): Promise<void> {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text)
     return
   }
-  const textarea = table.ownerDocument.createElement('textarea')
+  const textarea = document.createElement('textarea')
   textarea.value = text
   textarea.style.cssText = 'position:fixed;opacity:0'
-  table.ownerDocument.body.append(textarea)
+  document.body.append(textarea)
   try {
     textarea.select()
-    if (!table.ownerDocument.execCommand('copy')) throw new Error('Clipboard unavailable')
+    if (!document.execCommand('copy')) throw new Error('Clipboard unavailable')
   } finally {
     textarea.remove()
   }
+}
+
+export function canCopyTablePng(): boolean {
+  const clipboard: Partial<Clipboard> | undefined = globalThis.navigator?.clipboard
+  return Boolean(clipboard?.write &&
+    globalThis.ClipboardItem && (ClipboardItem.supports?.('image/png') ?? true))
+}
+
+export async function copyTablePng(renderPng: () => Promise<Blob>): Promise<void> {
+  if (!canCopyTablePng()) throw new Error('Image clipboard unavailable')
+
+  // Safari requires the write to start during the selection event.
+  const png = Promise.resolve().then(renderPng)
+  // A clipboard that denies access may reject before it reads the PNG.
+  void png.catch(() => {})
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })])
 }
