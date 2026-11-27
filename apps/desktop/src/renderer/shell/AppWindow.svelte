@@ -7,12 +7,14 @@
   import { SettingsContext, setSettingsContext } from "@solus/workspace-ui/contexts/app/settings.context.svelte";
   import { appsStore } from "@solus/workspace-ui/contexts/apps/apps.store.svelte";
   import { appShortcutsStore } from "@solus/workspace-ui/contexts/apps/app-shortcuts.store.svelte";
+  import { removalMessage, shortcutCommandLabel, trashName } from "@solus/workspace-ui/contexts/apps/app-shortcut-messages";
+  import { CURRENT_KEYS } from "@solus/workspace-ui/lib/keybindings/key-platform";
   import SandboxFrame from "@solus/workspace-ui/components/artifact/SandboxFrame.svelte";
   import PageEmpty from "@solus/workspace-ui/components/ui/PageEmpty.svelte";
   import ContentSkeleton from "@solus/workspace-ui/components/ui/ContentSkeleton.svelte";
-  import { APP_HOST_GONE_TEXT, APP_NO_UI_TEXT, APP_STOPPED_TEXT, appSurfacePhase } from "@solus/workspace-ui/components/app/lib/app-view";
+  import { APP_HOST_GONE_TEXT, APP_MISSING_TEXT, APP_NO_UI_TEXT, APP_STOPPED_TEXT, appSurfacePhase } from "@solus/workspace-ui/components/app/lib/app-view";
   import { PAGE_SECONDARY_BTN } from "@solus/workspace-ui/lib/page-chrome";
-  import { APP_WINDOW_HOST_UNKNOWN_TEXT, appWindowHost } from "./app-window-host";
+  import { APP_WINDOW_HOST_UNKNOWN_TEXT, appGoneTitle, appUnavailableTitle, appWindowHost } from "./app-window-host";
 
   /**
    * The page of an app window (docs/app-shortcuts.md §2): one app in all of
@@ -78,6 +80,8 @@
   let reloadKey = $state(0);
   let isBusy = $state(false);
   let failure = $state<string | null>(null);
+  const hasShortcut = $derived(appShortcutsStore.has(target));
+  const shortcutChange = $derived(appShortcutsStore.changeFor(target));
 
   function retry() {
     reloadKey += 1;
@@ -106,11 +110,17 @@
     if (hostId && appId) void run(() => appsStore.start(hostId, appId));
   }
 
-  /** The app is gone from its host: its launcher opens nothing. */
+  /** The app or its host is gone: its launcher opens nothing. A launcher that the Trash refused stays, and the window says where. */
   function removeShortcut() {
     void run(async () => {
-      await appShortcutsStore.remove(target);
-      window.close();
+      const removal = await appShortcutsStore.remove(target);
+      if (!removal) return;
+      if (removal.launcher !== "kept") {
+        window.close();
+        return;
+      }
+      const { message, description } = removalMessage(app?.name ?? (request.name || "this app"), removal, trashName(CURRENT_KEYS.id));
+      failure = `${message} ${description ?? ""}`;
     });
   }
 </script>
@@ -126,8 +136,15 @@
     {/if}
     <div class="relative min-h-0 flex-1 overflow-hidden">
       {#if host.kind === "unknown"}
-        <PageEmpty tone="muted" compact title={APP_WINDOW_HOST_UNKNOWN_TEXT}>
-          Add the host in Solus, then open this app again.
+        <PageEmpty tone="muted" compact title={appUnavailableTitle(request.name)}>
+          {APP_WINDOW_HOST_UNKNOWN_TEXT} Sign in to Solus or add the host, then open this app again.
+          {#snippet actions()}
+            {#if hasShortcut || shortcutChange}
+              <button type="button" class={PAGE_SECONDARY_BTN} disabled={isBusy || shortcutChange !== null} onclick={removeShortcut}>
+                {shortcutCommandLabel(true, shortcutChange)}
+              </button>
+            {/if}
+          {/snippet}
         </PageEmpty>
       {:else if phase.kind === "host-gone"}
         <PageEmpty tone="muted" compact title={APP_HOST_GONE_TEXT}>
@@ -161,12 +178,14 @@
       {:else if phase.kind === "no-version"}
         <PageEmpty tone="muted" compact title="No version of this app runs.">{phase.detail}</PageEmpty>
       {:else if phase.kind === "error"}
-        <PageEmpty tone="muted" compact title="Could not open this app.">
+        <PageEmpty tone="muted" compact title={!app && phase.message === APP_MISSING_TEXT ? appGoneTitle(request.name) : "Could not open this app."}>
           {phase.message}
           {#snippet actions()}
             <button type="button" class={PAGE_SECONDARY_BTN} onclick={retry}>Try again</button>
-            {#if !app && appShortcutsStore.has(target)}
-              <button type="button" class={PAGE_SECONDARY_BTN} disabled={isBusy} onclick={removeShortcut}>Remove app shortcut</button>
+            {#if !app && (hasShortcut || shortcutChange)}
+              <button type="button" class={PAGE_SECONDARY_BTN} disabled={isBusy || shortcutChange !== null} onclick={removeShortcut}>
+                {shortcutCommandLabel(true, shortcutChange)}
+              </button>
             {/if}
           {/snippet}
         </PageEmpty>

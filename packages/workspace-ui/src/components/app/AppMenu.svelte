@@ -12,6 +12,8 @@
   } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
+  import type { AppShortcutChange } from "../../contexts/apps/app-shortcuts.store.svelte";
+  import { shortcutCommandLabel } from "../../contexts/apps/app-shortcut-messages";
 
   /**
    * The app menu (docs/plans/apps.md §9.1): Stop or Start, Pin to sidebar or
@@ -28,7 +30,7 @@
     onTogglePinned: () => void;
     onDelete: () => void;
     /** The app window and the shortcut of an app with a UI. Absent on a client that has neither (web). */
-    desktop?: { hasShortcut: boolean; onOpenWindow: () => void; onToggleShortcut: () => void };
+    desktop?: { hasShortcut: boolean; shortcutChange: AppShortcutChange | null; onOpenWindow: () => void; onToggleShortcut: () => void };
   }
   let { stopped, pinned, disabled, onToggleStopped, onTogglePinned, onDelete, desktop }: Props = $props();
 </script>
@@ -60,12 +62,9 @@
       <DropdownMenu.Item class="text-workspace-chrome" data-testid="app-menu-open-window" onSelect={desktop.onOpenWindow}>
         <WindowIcon size={14} /><span class="flex-1 text-left">Open in its own window</span>
       </DropdownMenu.Item>
-      <DropdownMenu.Item class="text-workspace-chrome" {disabled} data-testid="app-menu-toggle-shortcut" onSelect={desktop.onToggleShortcut}>
-        {#if desktop.hasShortcut}
-          <RemoveShortcutIcon size={14} /><span class="flex-1 text-left">Remove app shortcut</span>
-        {:else}
-          <AddShortcutIcon size={14} /><span class="flex-1 text-left">Add app shortcut</span>
-        {/if}
+      <DropdownMenu.Item class="text-workspace-chrome" disabled={disabled || desktop.shortcutChange !== null} data-testid="app-menu-toggle-shortcut" onSelect={desktop.onToggleShortcut}>
+        {#if desktop.hasShortcut}<RemoveShortcutIcon size={14} />{:else}<AddShortcutIcon size={14} />{/if}
+        <span class="flex-1 text-left">{shortcutCommandLabel(desktop.hasShortcut, desktop.shortcutChange)}</span>
       </DropdownMenu.Item>
     {/if}
     <DropdownMenu.Item class="text-workspace-chrome text-destructive" {disabled} data-testid="app-menu-delete" onSelect={onDelete}>

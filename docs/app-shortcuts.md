@@ -37,11 +37,13 @@ workspace.
   once. Another host is known when the person's host list names it.
 - It has no state of its own on a host. A new version, a stop, a rename, and
   a delete of the app reach it through the same events as the workspace.
-- It shows each state in the window: the host is not connected, the host is
-  not known on this computer, the app is stopped (with **Start**), the app has
-  no version or no UI, and a read that failed (with **Try again**). When the
-  app is gone from its host and has a shortcut, the window offers **Remove app
-  shortcut**.
+- It shows each state in the window: the host is not connected (with **Try
+  again**), the app is stopped (with **Start**), the app has no version or no
+  UI, and a read that failed (with **Try again**). A host that this computer
+  does not know (it was removed here, or the person signed out of the account
+  that listed it) shows **<App> is unavailable.** An app that its host does not
+  have now shows **<App> is no longer available.** In those two states an app
+  with a shortcut offers **Remove app shortcut**, never a blank window.
 - It uses the person's theme, fonts, and zoom, and follows a change that the
   workspace window makes.
 - It has the operating system's own title bar, with the app's name.
@@ -78,14 +80,33 @@ Rules for all three:
 - **Solus changes only its own launcher.** The launchers folder is the
   person's. A launcher carries the app's identifier (the bundle identifier on
   macOS, the AppUserModelID on Windows, the id in the file name on Linux).
-  Solus replaces or removes only a file with the identifier of the same app.
+  Solus replaces or removes only a file directly in its launchers folder with
+  the identifier of the same app.
+- **A removed launcher goes to the Trash.** On macOS it goes to the Trash and
+  on Windows to the Recycle Bin (`shell.trashItem`), so the person can take it
+  back. A launcher that was taken back opens its app again (the link needs no
+  record), and **Add app shortcut** then takes the same file back and makes no
+  second one. On Windows the shortcut's icon file is deleted with the record, so
+  a restored shortcut shows a plain icon until it is added again.
+- **A Trash that refuses the launcher does not stop the removal.** The record
+  goes, the main process logs `app_launcher_trash_failed`, and the launcher
+  stays where it is: Solus does not delete it for good without asking (the
+  rule of `moveToTrash` for files). The message names the path, so the person
+  can delete it.
+- **Linux deletes its desktop entry.** The Trash of a Linux desktop needs a
+  program of its own (`gio`), which many desktops do not have, so it is not a
+  dependable place. The entry is a text file that Solus names and writes, in a
+  folder that the person does not browse, and its icon is a file of Solus that
+  goes with it: a restored entry would have no icon. **Add app shortcut** writes
+  the same entry again.
 - **A name another file holds is not taken.** The launcher then gets a part of
   the app's id in its name.
 - **A launcher follows its app.** When an app opens (in the app pane or in
   its app window) and it has a shortcut, the desktop app compares the name,
   the icon key, and the launcher format with the shortcut's record. When one
   differs, it writes the launcher and its icon again, and an open app window
-  takes the new icon. A rename moves the launcher and removes the old one. An
+  takes the new icon. A rename moves the launcher and deletes the old one; the old one does not go
+  to the Trash, because the new one replaces it. An
   app that did not change writes nothing.
 - **The icon key** names what the icon was drawn from: `svg:<hash>` for the
   app's own icon, `monogram:<letter>:<hue>` for its tile. A new `icon.svg`, a
@@ -150,7 +171,33 @@ The app menu of the app surface has, for an app with a UI on the desktop app:
 - **Open in its own window**
 - **Add app shortcut**, or **Remove app shortcut** when the app has one.
 
+While the main process writes or removes the launcher, the command reads
+**Adding shortcut…**, **Removing shortcut…**, or **Updating shortcut…** (a
+rename), and it cannot run again. Every surface reads that state from one
+owner, `appShortcutsStore`, so two panes of one app show the same thing. A
+running toast shows the change and turns into its result: where the launcher
+is now (in the Trash, deleted, or still in its place). A failure says what went
+wrong and offers **Try again**. Focus then goes back to the input bar.
+
 A delete of the app removes its shortcut on this computer.
+
+Account and host actions:
+
+- **Sign out** of the Solus account keeps the app shortcuts. A shortcut of an
+  app on a host that only the account listed then shows the app as unavailable
+  (§2) until the person signs in again.
+- **Removing a host** from this client (Settings, the Fleet view, or deleting a
+  cloud host) offers, in a toast, to remove the shortcuts of that host's apps:
+  **<Host> has 2 app shortcuts on this computer.** with **Remove shortcuts**.
+  It does not remove them unasked: a host that is paired again has the same
+  installation id, and its launchers then open again. A shortcut that stays
+  shows the app as unavailable.
+- **Settings → General → Applications → App shortcuts** (desktop only) shows
+  how many apps have a shortcut on this computer, and **Remove all…** asks with
+  the count (**Remove all 3 app shortcuts from this computer?**) before it acts.
+  A list that the desktop app could not read shows why, with **Check again**,
+  not a count of zero. One shortcut that fails does not stop the others; the
+  result names the failures and offers **Try again** for them.
 
 ## 6. What each client has
 
@@ -196,9 +243,11 @@ Not built:
 
 Not exercised on a real machine: the Windows shortcut, the Linux desktop
 entry, the two Electron parts (the app window itself and the delivery of an
-app link to Solus), and the drawing of an `icon.svg` to the launcher's PNG in
-a renderer (its source, the key, and the refresh are tested; the canvas is
-not). The tests pin their rules with no operating system.
+app link to Solus), the drawing of an `icon.svg` to the launcher's PNG in a
+renderer (its source, the key, and the refresh are tested; the canvas is
+not), and `shell.trashItem` itself (the tests use a Trash that moves the
+file, and one that refuses it). The tests pin their rules with no operating
+system.
 On macOS the launcher was made and checked with `plutil`, `iconutil`, and a
 launch of a copy whose program only wrote a file.
 
@@ -216,6 +265,10 @@ launch of a copy whose program only wrote a file.
 | The icon drawn in a hidden, sandboxed window at each size, with the monogram when it fails. | Drawn once at 1024 pixels in the renderer, which already reads the icon, and made into each size by the main process, as the tile was. |
 | `refresh` on each open: an icon key (`svg:<hash>` or `monogram:<name>`) and `launcherOutdated` (a launcher whose program is an old script) write the launcher again. | Taken. The key of the tile has the letter and the hue, because a Solus tile has a colour the owner picks. The outdated check is a format number in the record, since all of Solus's launchers are text files that it writes. |
 | The dashboard shows the icon in an `<img>`, with the next source on an error. | Taken: `AppTile` shows the icon and the monogram on an error. |
+| An uninstall moves the macOS launcher to the Trash and deletes the Windows shortcut; a failure is a warning. | Taken for macOS, and Windows uses the Recycle Bin too. A launcher that the Trash refuses stays (Executor logs and goes on as well). Linux deletes (§4). |
+| **Installing…** and **Uninstalling…** on the buttons, the failure text beside them, and **Check again** when the desktop's answer could not be read. | Taken (§5): the labels of the menu command and a toast with **Try again**; **Check again** in Settings. |
+| App pages for **signed-out**, **gone** (with **Uninstall**), and **offline** (with **Retry**). | Taken as the states of §2: unavailable, no longer available (both with **Remove app shortcut**), and not connected (with **Try again**). |
+| **Sign out** keeps installed apps; **Remove from this computer…** of an account uninstalls its apps, in one confirmed step. | Sign out is taken. A Solus host is not an account: removing it offers to remove its shortcuts after it is gone, and does not remove them unasked, because a host that is paired again opens them again. |
 
 ## 9. Where the code is
 
@@ -234,6 +287,12 @@ launch of a copy whose program only wrote a file.
 - `apps/desktop/src/renderer/shell/AppWindow.svelte` — the page of an app
   window.
 - `packages/workspace-ui/src/contexts/apps/app-shortcuts.store.svelte.ts` —
-  the renderer's mirror of the shortcuts, and the commands.
+  the renderer's mirror of the shortcuts, the change that runs on each, and
+  the commands.
+- `packages/workspace-ui/src/contexts/apps/app-shortcut-commands.ts` and
+  `app-shortcut-messages.ts` — the commands with their toasts, the offer after
+  a host removal, **Remove all**, and their text.
 - `tests/unit/app-shortcuts.test.ts`, `tests/unit/app-shortcuts-store.test.ts`,
-  `tests/unit/app-icons.test.ts`, `tests/unit/app-icons-store.test.ts`.
+  `tests/unit/app-shortcut-ipc.test.ts`, `tests/unit/app-shortcut-commands.test.ts`,
+  `tests/unit/app-shortcut-messages.test.ts`, `tests/unit/app-icons.test.ts`,
+  `tests/unit/app-icons-store.test.ts`.

@@ -3,6 +3,9 @@
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { getSettingsContext, hosts, toolsStore } from "../../contexts";
+  import { appShortcutsStore } from "../../contexts/apps/app-shortcuts.store.svelte";
+  import { removeAllAppShortcuts } from "../../contexts/apps/app-shortcut-commands";
+  import { shortcutCountText } from "../../contexts/apps/app-shortcut-messages";
   import { requestInputFocus } from "../../lib/inputFocus";
   import type { EditorId, TerminalAppId } from "@solus/contracts/types";
   import { Button } from "../ui/button";
@@ -12,7 +15,8 @@
   import SettingsRow from "./SettingsRow.svelte";
 
   /** The code editor and fallback terminal of this device. A row shows only
-   *  when the selected host detects at least one app for it. */
+   *  when the selected host detects at least one app for it. On desktop, the
+   *  app shortcuts of this computer (docs/app-shortcuts.md §5). */
   let { serverId, isVisible }: { serverId: string; isVisible: (id: string) => boolean } = $props();
 
   const theme = getSettingsContext();
@@ -44,9 +48,18 @@
   const resolvedDescription = $derived(terminalRowDescription(tools.resolvedTerminal));
   const editorVisible = $derived(isVisible("code-editor") && detected.editors.length > 0);
   const terminalVisible = $derived(isVisible("terminal") && detected.terminals.length > 0);
+
+  appShortcutsStore.start();
+  const shortcutsVisible = $derived(appShortcutsStore.isAvailable && isVisible("app-shortcuts"));
+  const shortcutCount = $derived(appShortcutsStore.list.length);
+  const isRemovingShortcuts = $derived(appShortcutsStore.list.some((shortcut) => appShortcutsStore.changeFor(shortcut) !== null));
+
+  function removeAllShortcuts() {
+    void removeAllAppShortcuts().then(() => requestInputFocus());
+  }
 </script>
 
-<SettingsSection {...settingsDefinitions["general.section-applications"]} visible={editorVisible || terminalVisible}>
+<SettingsSection {...settingsDefinitions["general.section-applications"]} visible={editorVisible || terminalVisible || shortcutsVisible}>
   <SettingsRow
     {...settingsDefinitions["general.code-editor"]}
     visible={editorVisible}
@@ -107,6 +120,22 @@
           </DropdownMenu.RadioGroup>
         </DropdownMenu.Content>
       </DropdownMenu.Root>
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    {...settingsDefinitions["general.app-shortcuts"]}
+    description={shortcutCountText(shortcutCount, appShortcutsStore.listError)}
+    visible={shortcutsVisible}
+  >
+    {#snippet control()}
+      {#if appShortcutsStore.listError}
+        <Button variant="outline" size="sm" class="text-xs font-normal shadow-xs" onclick={() => void appShortcutsStore.checkAgain()}>Check again</Button>
+      {:else}
+        <Button variant="outline" size="sm" class="text-xs font-normal shadow-xs" disabled={shortcutCount === 0 || isRemovingShortcuts} onclick={removeAllShortcuts} data-testid="settings-remove-all-app-shortcuts">
+          {isRemovingShortcuts ? "Removing…" : "Remove all…"}
+        </Button>
+      {/if}
     {/snippet}
   </SettingsRow>
 </SettingsSection>

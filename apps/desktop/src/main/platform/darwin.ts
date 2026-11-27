@@ -1,7 +1,7 @@
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
 import { join } from 'path'
-import { nativeImage } from 'electron'
+import { nativeImage, shell } from 'electron'
 import type { DetectedTerminal } from '@solus/contracts/types'
 import { MAC_KEYS } from '@solus/workspace-ui/lib/keybindings/key-platform'
 import { findOnPath } from '@solus/server/cli-env'
@@ -101,7 +101,7 @@ export const darwinPlatform: DesktopPlatform = {
     },
   },
 
-  appLaunchers: macAppLaunchers,
+  appLaunchers: (install) => macAppLaunchers(install, shell),
 
   captureScreen(path, signal) {
     return new Promise<boolean>((resolve, reject) => {

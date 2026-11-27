@@ -6,6 +6,7 @@
   import { appShortcutsStore } from "../../contexts/apps/app-shortcuts.store.svelte";
   import { appIconsStore } from "../../contexts/apps/app-icons.store.svelte";
   import { appMonogram, appTileHue } from "@solus/client-core/app-tile";
+  import { addAppShortcut, removeAppShortcut } from "../../contexts/apps/app-shortcut-commands";
   import type { AppManageSection, RouteParams } from "../../contexts/workspace/routing/route-registry";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { appPinOf, isAppPinned, withAppPinned } from "../../lib/sidebar-places";
@@ -66,6 +67,7 @@
   const isPinned = $derived(pin ? isAppPinned(settings.sidebarApps, pin) : false);
   // The app's own window and its shortcut on this computer (docs/app-shortcuts.md). The pin names the app as they do.
   const hasShortcut = $derived(pin ? appShortcutsStore.has(pin) : false);
+  const shortcutChange = $derived(pin ? appShortcutsStore.changeFor(pin) : null);
   appShortcutsStore.start();
   $effect(() => {
     const target = pin;
@@ -190,23 +192,13 @@
     if (target && current) void run(() => appShortcutsStore.openWindow(target, current.name), "The app window did not open");
   }
 
+  // The store keeps the change that runs, so the menu shows it and a second click does nothing.
   function toggleShortcut() {
     const target = pin;
     const hostId = serverId;
     const current = app;
     if (!target || !hostId || !current) return;
-    void run(
-      async () => {
-        if (hasShortcut) {
-          await appShortcutsStore.remove(target);
-          toasts.info(`The shortcut of ${current.name} was removed from this computer.`);
-        } else {
-          await appShortcutsStore.add(target, hostId, current);
-          toasts.info(`${current.name} has a shortcut on this computer.`);
-        }
-      },
-      hasShortcut ? "The shortcut was not removed" : "The shortcut was not added",
-    ).then(() => requestInputFocus());
+    void (hasShortcut ? removeAppShortcut(target, current.name) : addAppShortcut(target, hostId, current)).then(() => requestInputFocus());
   }
 
   function remove() {
@@ -279,7 +271,7 @@
         onToggleStopped={toggleStopped}
         onTogglePinned={togglePinned}
         onDelete={remove}
-        desktop={appShortcutsStore.isAvailable && app.hasUi && pin ? { hasShortcut, onOpenWindow: openWindow, onToggleShortcut: toggleShortcut } : undefined}
+        desktop={appShortcutsStore.isAvailable && app.hasUi && pin ? { hasShortcut, shortcutChange, onOpenWindow: openWindow, onToggleShortcut: toggleShortcut } : undefined}
       />
     {/if}
   </div>

@@ -5,8 +5,9 @@ import type { AppShortcutIconSource } from '@solus/workspace-ui/contexts/apps/ap
 // The renderer's mirror of the app shortcuts of this device
 // (docs/app-shortcuts.md). What matters: a client with no shell capability
 // shows no shortcut command, a launcher takes the app's name and its icon (its
-// own icon.svg, else its tile), and when the app opens a launcher with an old
-// name, an old icon, or an old format is written again, once.
+// own icon.svg, else its tile), when the app opens a launcher with an old
+// name, an old icon, or an old format is written again, once, and each surface
+// sees the change that runs, so a second click does not run it twice.
 
 declare global {
   var $state: <T>(value: T) => T
@@ -32,6 +33,13 @@ function app(name: string, overrides: { colorHue?: number | null; iconHash?: str
 function viewOf(request: Pick<AppShortcutRequest, 'host' | 'appId' | 'name' | 'iconKey'>, isOutdated = false): AppShortcutView {
   return { host: request.host, appId: request.appId, name: request.name, iconKey: request.iconKey, isOutdated }
 }
+
+/** A listed shortcut whose launcher is current. */
+function shortcutOf(target: AppShortcutTarget, name: string): AppShortcutView {
+  return { ...target, name, iconKey: '', isOutdated: false }
+}
+
+const noIcons = { svgFor: async () => null }
 
 async function storeWithFakeShell(initial: AppShortcutView[] = [], icons: { [hash: string]: string } = {}) {
   const { AppShortcutsStore } = await import('@solus/workspace-ui/contexts/apps/app-shortcuts.store.svelte')
@@ -152,5 +160,101 @@ describe('the app shortcuts store', () => {
     const { store, opened } = await storeWithFakeShell()
     await store.openWindow(notes, 'Notes')
     expect(opened).toEqual([{ ...notes, name: 'Notes' }])
+  })
+
+  // WHY: the menu shows "Adding shortcut…" from this state, and a second click while it runs must not write a second launcher.
+  test('while a shortcut is written, every surface sees it and a second add does nothing', async () => {
+    const { AppShortcutsStore } = await import('@solus/workspace-ui/contexts/apps/app-shortcuts.store.svelte')
+    let finish = () => {}
+    const added: AppShortcutRequest[] = []
+    const store = new AppShortcutsStore({
+      appShortcuts: async () => added.map((request) => viewOf(request)),
+      addAppShortcut: (request) => {
+        added.push(request)
+        return new Promise<void>((resolve) => { finish = resolve })
+      },
+    }, async () => new ArrayBuffer(4), noIcons)
+    const first = store.add(notes, SERVER, app('Notes'))
+    expect(store.changeFor(notes)).toBe('adding')
+    await store.add(notes, SERVER, app('Notes'))
+    await Promise.resolve()
+    finish()
+    await first
+    expect(added).toHaveLength(1)
+    expect(store.changeFor(notes)).toBeNull()
+    expect(store.has(notes)).toBe(true)
+  })
+
+  test('a failed add leaves no change running, so the person can try again', async () => {
+    const { AppShortcutsStore } = await import('@solus/workspace-ui/contexts/apps/app-shortcuts.store.svelte')
+    const store = new AppShortcutsStore({
+      appShortcuts: async () => [],
+      addAppShortcut: async () => { throw new Error('Other files hold every name this shortcut can have.') },
+    }, async () => new ArrayBuffer(4), noIcons)
+    await expect(store.add(notes, SERVER, app('Notes'))).rejects.toThrow('Other files hold')
+    expect(store.changeFor(notes)).toBeNull()
+  })
+
+  test('a removal answers where the launcher went', async () => {
+    const { AppShortcutsStore } = await import('@solus/workspace-ui/contexts/apps/app-shortcuts.store.svelte')
+    let shortcuts: AppShortcutView[] = [shortcutOf(notes, 'Notes')]
+    const store = new AppShortcutsStore({
+      appShortcuts: async () => shortcuts,
+      removeAppShortcut: async () => {
+        shortcuts = []
+        return { launcher: 'trashed' }
+      },
+    })
+    await store.loaded()
+    expect(await store.remove(notes)).toEqual({ launcher: 'trashed' })
+    expect(store.has(notes)).toBe(false)
+  })
+
+  // WHY: "Remove all" and the offer after a host removal remove many. One that fails must not keep the others, and the result names it for "Try again".
+  test('a removal of several shortcuts goes on past a failure and names it', async () => {
+    const { AppShortcutsStore } = await import('@solus/workspace-ui/contexts/apps/app-shortcuts.store.svelte')
+    const otherHost = '89abcdef0123456789abcdef01234567'
+    const tasks = shortcutOf({ host: notes.host, appId: '11111111-2222-4333-8444-555555555555' }, 'Tasks')
+    const journal = shortcutOf({ host: otherHost, appId: '22222222-3333-4444-8555-666666666666' }, 'Journal')
+    let shortcuts: AppShortcutView[] = [shortcutOf(notes, 'Notes'), tasks, journal]
+    let reads = 0
+    const store = new AppShortcutsStore({
+      appShortcuts: async () => {
+        reads += 1
+        return shortcuts
+      },
+      removeAppShortcut: async (target) => {
+        if (target.appId === tasks.appId) throw new Error('The launcher is open in another program.')
+        shortcuts = shortcuts.filter((shortcut) => shortcut.appId !== target.appId)
+        return target.appId === notes.appId ? { launcher: 'kept', launcherPath: '/Apps/Notes.app' } : { launcher: 'trashed' }
+      },
+    })
+    await store.loaded()
+    expect(store.ofHost(notes.host).map((shortcut) => shortcut.name)).toEqual(['Notes', 'Tasks'])
+    const readsBefore = reads
+    const result = await store.removeMany(store.list)
+    expect(result.removed.map((shortcut) => shortcut.name)).toEqual(['Notes', 'Journal'])
+    expect(result.kept).toEqual([{ shortcut: shortcutOf(notes, 'Notes'), launcherPath: '/Apps/Notes.app' }])
+    expect(result.failed).toEqual([{ shortcut: tasks, message: 'The launcher is open in another program.' }])
+    expect(reads - readsBefore).toBe(1)
+    expect(store.list).toEqual([tasks])
+  })
+
+  // WHY: an empty list after a failed read is not "no shortcuts". Settings shows the error and "Check again" instead of a count.
+  test('a failed read is an error, not an empty list, until a read succeeds', async () => {
+    const { AppShortcutsStore } = await import('@solus/workspace-ui/contexts/apps/app-shortcuts.store.svelte')
+    let fails = true
+    const store = new AppShortcutsStore({
+      appShortcuts: async () => {
+        if (fails) throw new Error('The desktop app did not answer.')
+        return [shortcutOf(notes, 'Notes')]
+      },
+    })
+    await store.loaded()
+    expect(store.listError).toBe('The desktop app did not answer.')
+    fails = false
+    await store.checkAgain()
+    expect(store.listError).toBeNull()
+    expect(store.has(notes)).toBe(true)
   })
 })

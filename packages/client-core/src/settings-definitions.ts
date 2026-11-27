@@ -63,6 +63,10 @@ export const settingsDefinitions = {
   "general.fallback-terminal": {
     label: "Fallback terminal",
   },
+  "general.app-shortcuts": {
+    label: "App shortcuts",
+    description: "The apps that open from where this computer lists its apps.",
+  },
   "general.section-about-solus": {
     label: "About Solus",
   },

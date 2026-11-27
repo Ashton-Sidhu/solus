@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { appLinkOf, appWindowRequestOf, appWindowSearch, parseAppLink } from '@solus/contracts/app-shortcuts'
 import { appLinkTargetIn } from '@solus/desktop-main/app-shortcuts/app-links'
 import { AppShortcutRecords, LAUNCHER_FORMAT, appShortcutView } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
@@ -34,6 +34,20 @@ const notesLink = `solus://app/${notes.host}/${notes.appId}`
 
 function launcher(target: typeof notes, name: string, previousPath: string | null = null): AppLauncher {
   return { target, name, iconPng: (size) => new Uint8Array([size % 256, 1, 2, 3]), previousPath }
+}
+
+/** A Trash that keeps what it was given, as `shell.trashItem` does. `refuses` makes it fail, as a volume with no Trash does. */
+function fakeTrash(options: { refuses?: boolean } = {}) {
+  const trashed: string[] = []
+  return {
+    trashed,
+    async trashItem(path: string) {
+      if (options.refuses) throw new Error('The Trash is not available here.')
+      mkdirSync(join(dir, '.Trash'), { recursive: true })
+      renameSync(path, join(dir, '.Trash', basename(path)))
+      trashed.push(path)
+    },
+  }
 }
 
 let dir: string
@@ -90,7 +104,7 @@ describe('the macOS launcher', () => {
   const launchersDirectory = () => join(dir, 'Applications', 'Solus Apps')
 
   test('the launcher is an app bundle whose program opens the app link with Solus', async () => {
-    const path = await macAppLaunchers(install()).write(launcher(notes, 'Notes'))
+    const path = await macAppLaunchers(install(), fakeTrash()).write(launcher(notes, 'Notes'))
     expect(path).toBe(join(launchersDirectory(), 'Notes.app'))
     const program = join(path, 'Contents', 'MacOS', 'launcher')
     expect(readFileSync(program, 'utf-8')).toBe(`#!/bin/sh\nexec /usr/bin/open -b 'com.solus.app' '${notesLink}'\n`)
@@ -105,7 +119,7 @@ describe('the macOS launcher', () => {
     mkdirSync(join(dir, 'Electron.app/Contents'), { recursive: true })
     writeFileSync(join(dir, 'Electron.app/Contents/Info.plist'), '<key>CFBundleIdentifier</key>\n<string>com.github.Electron</string>')
     expect(solusBundleIdentifier(executablePath)).toBe('com.github.Electron')
-    const path = await macAppLaunchers({ isPackaged: false, executablePath, homeDirectory: dir }).write(launcher(notes, 'Notes'))
+    const path = await macAppLaunchers({ isPackaged: false, executablePath, homeDirectory: dir }, fakeTrash()).write(launcher(notes, 'Notes'))
     expect(path).toBe(join(dir, 'Applications', 'Solus Apps (Dev)', 'Notes.app'))
     expect(readFileSync(join(path, 'Contents', 'MacOS', 'launcher'), 'utf-8')).toContain("-b 'com.github.Electron'")
   })
@@ -123,7 +137,7 @@ describe('the macOS launcher', () => {
 
   // WHY: the launchers folder is the person's. A file there that Solus did not write for this app is not Solus's to replace.
   test("a second app with the same name gets its own file, and a file of the person's stays", async () => {
-    const launchers = macAppLaunchers(install())
+    const launchers = macAppLaunchers(install(), fakeTrash())
     mkdirSync(join(launchersDirectory(), 'Journal.app'), { recursive: true })
     writeFileSync(join(launchersDirectory(), 'Journal.app', 'mine.txt'), 'keep')
     const first = await launchers.write(launcher(notes, 'Journal'))
@@ -135,25 +149,43 @@ describe('the macOS launcher', () => {
     expect(await launchers.write(launcher(notes, 'Journal', first))).toBe(first)
   })
 
-  test('a rename moves the launcher, so the app never has two', async () => {
-    const launchers = macAppLaunchers(install())
+  // WHY: the launcher at the new name replaces the old one, so nothing is lost and the Trash does not fill with each rename.
+  test('a rename moves the launcher, so the app never has two, and the old one is not put in the Trash', async () => {
+    const trash = fakeTrash()
+    const launchers = macAppLaunchers(install(), trash)
     const before = await launchers.write(launcher(notes, 'Notes'))
     const after = await launchers.write(launcher(notes, 'Notebook', before))
     expect(after).toBe(join(launchersDirectory(), 'Notebook.app'))
     expect(existsSync(before)).toBe(false)
+    expect(trash.trashed).toEqual([])
   })
 
-  test("remove takes this app's launcher and no other file", async () => {
-    const launchers = macAppLaunchers(install())
+  // WHY: a removal the person did not mean must be undoable. The launcher goes to the Trash, where the Finder puts it back.
+  test("remove moves this app's launcher to the Trash and touches no other file", async () => {
+    const trash = fakeTrash()
+    const launchers = macAppLaunchers(install(), trash)
     const path = await launchers.write(launcher(notes, 'Notes'))
     const outside = join(dir, 'Elsewhere.app')
     mkdirSync(outside)
-    await launchers.remove(notes, outside)
-    await launchers.remove(tasks, path)
+    expect(await launchers.remove(notes, outside)).toEqual({ launcher: 'removed' })
+    expect(await launchers.remove(tasks, path)).toEqual({ launcher: 'removed' })
     expect(existsSync(outside)).toBe(true)
     expect(existsSync(path)).toBe(true)
-    await launchers.remove(notes, path)
+    expect(trash.trashed).toEqual([])
+    expect(await launchers.remove(notes, path)).toEqual({ launcher: 'trashed' })
+    expect(trash.trashed).toEqual([path])
     expect(existsSync(path)).toBe(false)
+    // Taken back from the Trash, the launcher is this app's again: a new shortcut takes it and makes no second one.
+    renameSync(join(dir, '.Trash', 'Notes.app'), path)
+    expect(await launchers.write(launcher(notes, 'Notes'))).toBe(path)
+  })
+
+  // WHY: Solus does not delete a launcher for good without asking. A Trash that refuses it leaves it, and the answer says where.
+  test('a Trash that refuses the launcher leaves it in its place', async () => {
+    const launchers = macAppLaunchers(install(), fakeTrash({ refuses: true }))
+    const path = await launchers.write(launcher(notes, 'Notes'))
+    expect(await launchers.remove(notes, path)).toEqual({ launcher: 'kept', launcherPath: path })
+    expect(existsSync(path)).toBe(true)
   })
 })
 
@@ -195,13 +227,14 @@ describe('the Linux launcher', () => {
     expect(linuxDesktopEntry({ name: 'A\nB', command: ['/x'], iconPath: '/i.png' })).toContain('Name=A B\n')
   })
 
-  test('remove takes the entry and its icon, and only at the path of this app', async () => {
+  // WHY: Linux deletes the entry (docs/app-shortcuts.md §4): its Trash needs a program many desktops do not have, and a new shortcut writes the same entry.
+  test('remove deletes the entry and its icon, and only at the path of this app', async () => {
     const launchers = linuxAppLaunchers(install())
     const path = await launchers.write(launcher(notes, 'Notes'))
     const other = await launchers.write(launcher(tasks, 'Tasks'))
     await launchers.remove(notes, other)
     expect(existsSync(other)).toBe(true)
-    await launchers.remove(notes, path)
+    expect(await launchers.remove(notes, path)).toEqual({ launcher: 'removed' })
     expect(existsSync(path)).toBe(false)
     expect(launchers.windowIdentity(notes, 'Notes').iconPath).toBeNull()
   })
@@ -217,9 +250,10 @@ describe('the Windows launcher', () => {
     appDataDirectory: join(dir, 'Roaming'),
   })
   /** A Start menu that keeps what was written, as `shell` of Electron does on Windows. */
-  function startMenu() {
+  function startMenu(trash = fakeTrash()) {
     const written = new Map<string, WrittenShortcut>()
     const launchers = windowsAppLaunchers(install(), {
+      trashItem: trash.trashItem,
       writeShortcutLink: (path: string, _operation: string, options: WrittenShortcut) => {
         written.set(path, options)
         writeFileSync(path, 'shortcut')
@@ -256,18 +290,30 @@ describe('the Windows launcher', () => {
     expect(identity.taskbar?.relaunchCommand).toBe(`"C:\\Program Files\\Solus\\Solus.exe" "${notesLink}"`)
   })
 
-  test('a rename moves the shortcut and keeps its icon; remove takes both', async () => {
-    const { launchers } = startMenu()
+  test('a rename moves the shortcut and keeps its icon; remove puts the shortcut in the Recycle Bin and takes its icon', async () => {
+    const trash = fakeTrash()
+    const { launchers } = startMenu(trash)
     const before = await launchers.write(launcher(notes, 'Notes'))
     const after = await launchers.write(launcher(notes, 'Notebook', before))
     expect(existsSync(before)).toBe(false)
+    expect(trash.trashed).toEqual([])
     const icon = launchers.windowIdentity(notes, 'Notebook').iconPath
     expect(icon).not.toBeNull()
-    await launchers.remove(tasks, after)
+    expect(await launchers.remove(tasks, after)).toEqual({ launcher: 'removed' })
     expect(existsSync(after)).toBe(true)
-    await launchers.remove(notes, after)
+    expect(await launchers.remove(notes, after)).toEqual({ launcher: 'trashed' })
+    expect(trash.trashed).toEqual([after])
     expect(existsSync(after)).toBe(false)
     expect(launchers.windowIdentity(notes, 'Notebook').iconPath).toBeNull()
+  })
+
+  // WHY: a shortcut that stays still opens its app, so it keeps the icon it shows.
+  test('a Recycle Bin that refuses the shortcut leaves it with its icon', async () => {
+    const { launchers } = startMenu(fakeTrash({ refuses: true }))
+    const path = await launchers.write(launcher(notes, 'Notes'))
+    expect(await launchers.remove(notes, path)).toEqual({ launcher: 'kept', launcherPath: path })
+    expect(existsSync(path)).toBe(true)
+    expect(launchers.windowIdentity(notes, 'Notes').iconPath).not.toBeNull()
   })
 
   test('an argument with a space or a quote is one argument to the program', () => {

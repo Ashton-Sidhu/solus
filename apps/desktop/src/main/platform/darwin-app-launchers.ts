@@ -10,7 +10,15 @@ import {
   macLauncherInfoPlist,
   macLauncherScript,
 } from '@solus/desktop-main/app-shortcuts/launcher-files'
-import { freeLauncherPath, isDirectChild, launcherFolderName, type AppLaunchers, type SolusInstall } from '@solus/desktop-main/app-shortcuts/launchers'
+import {
+  freeLauncherPath,
+  isDirectChild,
+  launcherFolderName,
+  trashLauncher,
+  type AppLaunchers,
+  type SolusInstall,
+  type TrashShell,
+} from '@solus/desktop-main/app-shortcuts/launchers'
 
 const RELEASE_BUNDLE_ID = 'com.solus.app'
 
@@ -35,16 +43,15 @@ export function solusBundleIdentifier(executablePath: string): string {
 /**
  * macOS lists the apps in `~/Applications`, so a launcher is a small app
  * bundle there: Spotlight, Launchpad, and the Dock treat it as an app. Its
- * program opens the app link with Solus and exits.
+ * program opens the app link with Solus and exits. A removed launcher goes to
+ * the Trash, where the Finder can put it back.
  */
-export function macAppLaunchers(install: Pick<SolusInstall, 'isPackaged' | 'executablePath' | 'homeDirectory'>): AppLaunchers {
+export function macAppLaunchers(install: Pick<SolusInstall, 'isPackaged' | 'executablePath' | 'homeDirectory'>, shell: TrashShell): AppLaunchers {
   const directory = join(install.homeDirectory, 'Applications', launcherFolderName(install))
   const isOwned = (target: AppShortcutTarget, bundle: string) => {
+    if (!isDirectChild(directory, bundle)) return false
     const infoPlist = readText(join(bundle, 'Contents', 'Info.plist'))
     return infoPlist !== null && bundleIdentifierOf(infoPlist) === appShortcutIdentifier(target)
-  }
-  const remove = async (target: AppShortcutTarget, path: string) => {
-    if (isDirectChild(directory, path) && isOwned(target, path)) await rm(path, { recursive: true, force: true })
   }
 
   return {
@@ -66,12 +73,16 @@ export function macAppLaunchers(install: Pick<SolusInstall, 'isPackaged' | 'exec
         icnsFile(ICNS_SIZES.map((size) => ({ size, png: launcher.iconPng(size) }))),
       )
       await writeFile(join(staging, 'Contents', 'Info.plist'), macLauncherInfoPlist(launcher.name, target))
-      if (launcher.previousPath && launcher.previousPath !== bundle) await remove(target, launcher.previousPath)
+      // The launcher at the new name replaces the old one, so the old one is deleted, not put in the Trash.
+      const { previousPath } = launcher
+      if (previousPath && previousPath !== bundle && isOwned(target, previousPath)) await rm(previousPath, { recursive: true, force: true })
       await rm(bundle, { recursive: true, force: true })
       await rename(staging, bundle)
       return bundle
     },
-    remove,
+    async remove(target, path) {
+      return isOwned(target, path) ? trashLauncher(shell, target, path) : { launcher: 'removed' }
+    },
     // The window is one of Solus's: macOS has one Dock icon for each process.
     windowIdentity: () => ({ iconPath: null, taskbar: null }),
   }

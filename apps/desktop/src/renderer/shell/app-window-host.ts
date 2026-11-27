@@ -9,6 +9,15 @@ export type AppWindowHost =
   /** The list was read, or its read failed, and it does not name the host. */
   | { kind: 'unknown' }
 
+/** The title of an app window whose host this computer does not know: a removed host, or an account host after sign-out. */
+export function appUnavailableTitle(appName: string): string {
+  return `${appName || 'This app'} is unavailable.`
+}
+
+/** The title of an app window whose host answers and has no such app now: it was deleted, or the person lost access to it. */
+export function appGoneTitle(appName: string): string {
+  return `${appName || 'This app'} is no longer available.`
+}
 export const APP_WINDOW_HOST_UNKNOWN_TEXT = 'This computer has no connection to the host of this app.'
 
 /**
