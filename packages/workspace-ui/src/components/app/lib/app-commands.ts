@@ -3,16 +3,18 @@ import type { Command } from '../../command-palette/lib/commands'
 import type { WorkspaceContext } from '../../../contexts/workspace/workspace.context.svelte'
 import { serversStore } from '../../../contexts/connections/servers.store.svelte'
 import { appsStore, type AppRow } from '../../../contexts/apps/apps.store.svelte'
+import { appIconsStore } from '../../../contexts/apps/app-icons.store.svelte'
 
 type AppsShell = Pick<WorkspaceContext, 'openApp' | 'openAppManage' | 'openApps'>
 
-/** One row of "Open app…" or "Manage app…". The host is named when the apps are on more than one. */
+/** One row of "Open app…" or "Manage app…", with the app's own icon when it has one. The host is named when the apps are on more than one. */
 export function openAppCommand(row: AppRow, hostLabel: string | null, open: (row: AppRow) => void, id = `app:${row.serverId}:${row.app.id}`): Command {
   return {
     id,
     label: hostLabel ? `${row.app.name} · ${hostLabel}` : row.app.name,
     group: 'Apps',
     icon: AppIcon,
+    image: appIconsStore.urlFor(row.serverId, row.app) ?? undefined,
     keywords: [row.app.name, row.app.slug, row.app.description],
     run: () => open(row),
   }

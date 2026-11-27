@@ -44,7 +44,7 @@ test('a deploy writes the manifest name, and the app keeps the name, description
   // A deploy activates a version with the manifest's name, as `Apps.makeActive` does.
   await store.insertVersion({
     appId: APP.id, number: 1, sourceCommit: 'a'.repeat(40), buildCommit: 'b'.repeat(40), descriptor: appDescriptorSchema.parse({ solusApp: 3, name: 'Notes two' }),
-    hasBackend: false, hasUi: true, state: 'building', error: null, buildLog: null, buildMs: null, message: 'v1', createdBy: { kind: 'system' }, createdAt: 1, activations: [],
+    hasBackend: false, hasUi: true, iconHash: null, state: 'building', error: null, buildLog: null, buildMs: null, message: 'v1', createdBy: { kind: 'system' }, createdAt: 1, activations: [],
   })
   const current = (await store.loadApp('local', APP.id))!
   await store.activateVersion({ ...current, name: 'Notes two', description: 'Keeps more notes.' }, 1, { kind: 'system' })

@@ -19,6 +19,9 @@
   import { toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
   import { versionLabel } from "../app/lib/app-view";
+  import AppTile from "../app/AppTile.svelte";
+  import { appIconsStore } from "../../contexts/apps/app-icons.store.svelte";
+  import { appMonogram, appTileHue } from "@solus/client-core/app-tile";
   import { appRunStateLabel } from "../app/manage/lib/overview";
   import { calls24hText, failed24hText, type WorkspaceAppItem } from "./lib/workspace-apps";
   import { formatGeneratedFull, formatLedgerTime } from "./lib/workspace-items";
@@ -26,7 +29,7 @@
 
   /**
    * One app as a card (docs/plans/apps.md §9.3, docs/workspace-page.md): its
-   * name and what it does, the first thing that needs the owner, and at the
+   * tile, its name and what it does, the first thing that needs the owner, and at the
    * foot its state, its host, when it last moved, and its calls of 24 hours.
    * The card opens the app; the Manage control and the problem open the
    * Manage page.
@@ -101,6 +104,7 @@
       >
         <!-- The name leads. Manage waits under the pointer, as a work card's pin does. -->
         <div class="flex min-w-0 items-center gap-2">
+          <AppTile monogram={appMonogram(item.app.name)} hue={appTileHue(item.app)} iconUrl={appIconsStore.urlFor(item.serverId, item.app)} />
           <span class="min-w-0 flex-1 truncate text-workspace-chrome leading-[1.35] font-medium tracking-[-0.006em] text-foreground">
             {#each titleRuns as run, i (i)}{#if run.hit}<mark class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] px-px text-inherit">{run.text}</mark>{:else}{run.text}{/if}{/each}
           </span>

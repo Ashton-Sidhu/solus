@@ -253,7 +253,9 @@
 </script>
 
 {#snippet commandContent(cmd: Command)}
-  {#if cmd.icon}
+  {#if cmd.image}
+    <img src={cmd.image} alt="" class="size-[1.625rem] flex-shrink-0 rounded-lg object-contain" />
+  {:else if cmd.icon}
     {@const Icon = cmd.icon}
     <span
       class="inline-flex size-[1.625rem] flex-shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)"

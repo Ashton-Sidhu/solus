@@ -4,6 +4,8 @@
   import { getSettingsContext, getWorkspaceContext, personHistoryStore, serversStore } from "../../contexts";
   import { appsStore } from "../../contexts/apps/apps.store.svelte";
   import { appShortcutsStore } from "../../contexts/apps/app-shortcuts.store.svelte";
+  import { appIconsStore } from "../../contexts/apps/app-icons.store.svelte";
+  import { appMonogram, appTileHue } from "@solus/client-core/app-tile";
   import type { AppManageSection, RouteParams } from "../../contexts/workspace/routing/route-registry";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { appPinOf, isAppPinned, withAppPinned } from "../../lib/sidebar-places";
@@ -20,6 +22,7 @@
   import * as TooltipUI from "../ui/tooltip";
   import SandboxFrame from "../artifact/SandboxFrame.svelte";
   import AppMenu from "./AppMenu.svelte";
+  import AppTile from "./AppTile.svelte";
   import AppViewStack from "./AppViewStack.svelte";
   import AppManageToggle from "./AppManageToggle.svelte";
   import { manageSectionOf } from "./lib/app-manage";
@@ -66,8 +69,9 @@
   appShortcutsStore.start();
   $effect(() => {
     const target = pin;
+    const hostId = serverId;
     const current = app;
-    if (target && current && hasShortcut) untrack(() => void appShortcutsStore.followName(target, current).catch(() => {}));
+    if (target && hostId && current && hasShortcut) untrack(() => void appShortcutsStore.follow(target, hostId, current).catch(() => {}));
   });
 
   $effect(() => {
@@ -188,15 +192,16 @@
 
   function toggleShortcut() {
     const target = pin;
+    const hostId = serverId;
     const current = app;
-    if (!target || !current) return;
+    if (!target || !hostId || !current) return;
     void run(
       async () => {
         if (hasShortcut) {
           await appShortcutsStore.remove(target);
           toasts.info(`The shortcut of ${current.name} was removed from this computer.`);
         } else {
-          await appShortcutsStore.add(target, current);
+          await appShortcutsStore.add(target, hostId, current);
           toasts.info(`${current.name} has a shortcut on this computer.`);
         }
       },
@@ -229,6 +234,9 @@
   <div
     class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center gap-1.5 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))] pr-[max(1rem,var(--solus-pane-chrome-inset,0px))]"
   >
+    {#if app && serverId}
+      <AppTile monogram={appMonogram(app.name)} hue={appTileHue(app)} iconUrl={appIconsStore.urlFor(serverId, app)} />
+    {/if}
     <span
       class="min-w-0 shrink truncate text-workspace-chrome font-medium text-(--solus-text-primary)"
       title={app ? `${app.name} · ${versionLabel(app.activeVersion)}` : undefined}

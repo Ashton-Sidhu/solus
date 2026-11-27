@@ -608,6 +608,7 @@ export const RPC_PLANES = {
   appList: 'execution',
   appRead: 'execution',
   appUi: 'execution',
+  appIcon: 'execution',
   appCall: 'execution',
   appStop: 'execution',
   appStart: 'execution',

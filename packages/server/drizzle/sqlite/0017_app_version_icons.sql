@@ -1,0 +1,1 @@
+ALTER TABLE `app_versions` ADD `icon_hash` text;

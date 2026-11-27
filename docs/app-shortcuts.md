@@ -1,6 +1,7 @@
 # App windows and app shortcuts
 
-Status: built 2026-11-26 in the desktop app for macOS, Windows, and Linux.
+Status: built 2026-11-26 in the desktop app for macOS, Windows, and Linux. The
+app's own icon and the refresh of a launcher by its icon key: 2026-11-27.
 §6 says what each client has. §7 says what is not built and what was not
 exercised on a real machine.
 
@@ -54,8 +55,8 @@ The owner manages an app in the workspace. An app window has no Manage page.
 ## 3. What this device keeps
 
 `app-shortcuts.json` in the desktop app's own data folder holds the shortcuts
-(the app, the name on the launcher, and the path of the launcher) and the
-place of each app window. No host keeps them, because a launcher is a file of
+(the app, the name on the launcher, the path of the launcher, the icon key of
+its icon, and the format of the launcher) and the place of each app window. No host keeps them, because a launcher is a file of
 one computer.
 
 A launcher opens its app with no record: the app link is enough. A file that
@@ -69,7 +70,7 @@ launcher back.
 | Where | `~/Applications/Solus Apps/<Name>.app` | Start menu, `Solus Apps\<Name>.lnk` | `$XDG_DATA_HOME/applications/solus-app-<id>.desktop` |
 | What it runs | `open -b <bundle id of Solus> <app link>` | Solus, with the app link as an argument | Solus, with the app link as an argument |
 | How Solus gets the link | The `open-url` event. Solus names the `solus` scheme in its `Info.plist`. | The arguments of the launch, or of the second launch when Solus runs. | As Windows. |
-| Icon | `.icns` in the bundle | `.ico` in the desktop app's data folder | PNG in the desktop app's data folder |
+| Icon | `.icns` in the bundle | `.ico` in the desktop app's data folder, which the app's window takes too | PNG in the desktop app's data folder, which the app's window takes too |
 | The window where open windows are listed | In the Dock under Solus: macOS has one Dock icon for each process. | Its own taskbar button with the shortcut's icon. A pin of it starts the app. | In Solus's group, with the shortcut's icon on the window. |
 
 Rules for all three:
@@ -80,9 +81,22 @@ Rules for all three:
   Solus replaces or removes only a file with the identifier of the same app.
 - **A name another file holds is not taken.** The launcher then gets a part of
   the app's id in its name.
-- **A rename moves the launcher.** When an app opens and its launcher has
-  another name, the desktop app writes the launcher again and removes the old
-  one.
+- **A launcher follows its app.** When an app opens (in the app pane or in
+  its app window) and it has a shortcut, the desktop app compares the name,
+  the icon key, and the launcher format with the shortcut's record. When one
+  differs, it writes the launcher and its icon again, and an open app window
+  takes the new icon. A rename moves the launcher and removes the old one. An
+  app that did not change writes nothing.
+- **The icon key** names what the icon was drawn from: `svg:<hash>` for the
+  app's own icon, `monogram:<letter>:<hue>` for its tile. A new `icon.svg`, a
+  new colour, and a new first letter each give another key. An icon that
+  could not be read gives the tile's key, so the next open tries again.
+- **The launcher format** (`LAUNCHER_FORMAT` in
+  `app-shortcut-records.ts`) is a number in each record. A change to what a
+  launcher holds (its `Info.plist`, its program, its desktop entry) raises
+  it, and each launcher of an older format is written again when its app
+  opens. A record from before the icon key has no key, so its launcher is
+  written again once.
 - **A development run keeps its launchers apart**, in `Solus Apps (Dev)` and
   as `solus-dev-app-<id>.desktop`. On macOS its launcher opens the development
   bundle, never the installed Solus.
@@ -90,8 +104,40 @@ Rules for all three:
   gone after it quits. The image's own start script adds `--no-sandbox` where
   the computer needs it, so the launcher does not.
 
-The icon is the app's tile: its first letter on its hue. The renderer draws it
-once, and the main process makes each size.
+The icon is the app's own icon (below) when it has one, else its tile: its
+first letter on its hue. The renderer draws it once at 1024 pixels, and the
+main process makes each size that the launchers need (16 to 1024).
+
+### The app's icon
+
+An app can ship `icon.svg` beside `app.ts` (`APP_ICON_FILE`). The create-app
+skill tells agents how to draw one (`references/design.md`).
+
+- **The host checks it** at each save and at each build (deploy and preview),
+  and refuses the save or fails the version with a reason an agent can act
+  on (`packages/server/src/apps/app-icon.ts`). An icon is one `<svg>` root in
+  the SVG namespace with a `viewBox`, UTF-8, at most 64 KiB. It has no
+  script, no event attribute, no `foreignObject`, `image`, or HTML element,
+  no DOCTYPE or entity, no processing instruction, no animation of a link,
+  and no `href` or `url()` that names anything but an element of the icon.
+- **A version keeps it.** The build commit holds `icon.svg`, and the version
+  record holds its SHA-256. `AppSummary.iconHash` is the hash of the active
+  version's icon, or null. A rollback brings back the icon of that version.
+- **A client reads it once for each hash** with `appIcon`, which answers
+  `{ hash, svg }`, never a path on the host. So a remote client gets it as a
+  local one does, and a list of apps reads no icon until one changes.
+  `appIconsStore` keeps each icon and gives it as a `data:` image address.
+- **The monogram is the fallback.** An app with no icon, an icon that is on
+  its way, a read that failed, and an image that did not load all show the
+  tile. While a new icon loads, the old one stays.
+- **Where it shows** on desktop and web: the sidebar's places, the header of
+  the app pane, its tab in the surface strip, the cards of the Apps tab, the
+  Overview of the Manage page (where the colour picker is replaced by a line
+  that says the tile is the icon), the command palette's app rows (with the
+  apps glyph as the fallback there), the launcher, and the window of an app
+  on Windows and Linux. An `<img>` of an SVG runs no script and loads nothing
+  outside it. Solus shows the icon as the author drew it, in light and dark
+  mode, so the skill asks for a full tile with its own background.
 
 A launch from a launcher opens the app and keeps the workspace window hidden,
 as after the person closes it. The Dock icon, the tray icon, or a normal
@@ -114,6 +160,10 @@ A delete of the app removes its shortcut on this computer.
 | Web | No | No |
 | Mobile | No | No |
 
+The app's icon (§4) shows on desktop and web. The mobile app shows no app of
+Solus yet (only the apps of MCP servers), so there is no place for it there;
+`appIcon` is in the RPC contract for the day it does.
+
 This is a platform exception to "each UI change reaches every client". A
 launcher is a file of a desktop operating system, and an app window is a
 window of the desktop app: both are native shell behaviour. On web and mobile
@@ -131,8 +181,12 @@ Not built:
   `solus` scheme is named only on macOS, where the launcher needs it.
 - A shortcut for a published deployment. It has an address that a browser
   opens.
-- The launcher follows a rename but not a new colour: the icon changes when
-  the shortcut is added again.
+- A launcher follows a new name and a new icon only when its app opens on
+  this computer. A deploy with a new icon does not reach a launcher whose
+  app nobody opens.
+- An app window with no shortcut has the icon of Solus: the window's icon is
+  the shortcut's icon file.
+- A published deployment of an app does not get its icon.
 - A launcher on Windows and Linux names the program of Solus at the time it
   was written. After that program moves (an AppImage in another folder), the
   person adds the shortcut again.
@@ -141,8 +195,10 @@ Not built:
   window does not run them.
 
 Not exercised on a real machine: the Windows shortcut, the Linux desktop
-entry, and the two Electron parts (the app window itself and the delivery of
-an app link to Solus). The tests pin their rules with no operating system.
+entry, the two Electron parts (the app window itself and the delivery of an
+app link to Solus), and the drawing of an `icon.svg` to the launcher's PNG in
+a renderer (its source, the key, and the refresh are tested; the canvas is
+not). The tests pin their rules with no operating system.
 On macOS the launcher was made and checked with `plutil`, `iconutil`, and a
 launch of a copy whose program only wrote a file.
 
@@ -155,11 +211,22 @@ launch of a copy whose program only wrote a file.
 | A bridge of native capabilities with nine permissions. | Not taken (§7). |
 | No launcher on Linux. | A desktop entry. |
 | Installed apps on this device only, keyed by server and app. | Taken (§3). |
+| `ui/icon.svg`, at most 64 KiB, checked at deploy: one SVG root, no `script` or `foreignObject`, no `on*` attribute, `href` only to `#id`, no DOCTYPE or processing instruction. | Taken as `icon.svg` beside `app.ts`, since a Solus app has its UI in `src/`. Checked at the save too, so an agent learns at once. Solus also refuses `image`, HTML, an animation of a link, and a `url()` outside the icon, and requires a `viewBox` so the icon scales. |
+| The icon served at a route of the app's origin, read by the desktop app over HTTP. | An RPC (`appIcon`) with the hash in the app's summary: a Solus client has no app origin, and the hash lets each client read an icon once. |
+| The icon drawn in a hidden, sandboxed window at each size, with the monogram when it fails. | Drawn once at 1024 pixels in the renderer, which already reads the icon, and made into each size by the main process, as the tile was. |
+| `refresh` on each open: an icon key (`svg:<hash>` or `monogram:<name>`) and `launcherOutdated` (a launcher whose program is an old script) write the launcher again. | Taken. The key of the tile has the letter and the hue, because a Solus tile has a colour the owner picks. The outdated check is a format number in the record, since all of Solus's launchers are text files that it writes. |
+| The dashboard shows the icon in an `<img>`, with the next source on an error. | Taken: `AppTile` shows the icon and the monogram on an error. |
 
 ## 9. Where the code is
 
-- `packages/contracts/src/app-shortcuts.ts` — the app link and the address of
-  an app window's page.
+- `packages/contracts/src/app-shortcuts.ts` — the app link, the address of
+  an app window's page, and the icon key.
+- `packages/contracts/src/apps.ts` — `APP_ICON_FILE`, `MAX_APP_ICON_BYTES`,
+  `AppIcon`, and `AppSummary.iconHash`; `appIcon` in `rpc.ts`.
+- `packages/server/src/apps/app-icon.ts` — the check of an icon;
+  `app-project.ts` reads it into a build.
+- `packages/workspace-ui/src/contexts/apps/app-icons.store.svelte.ts` — the
+  icons a client keeps; `app-shortcut-icon.ts` draws the launcher's icon.
 - `apps/desktop/src/main/app-shortcuts/` — the records, the app windows, the
   text of each launcher, the icon files, and the IPC.
 - `apps/desktop/src/main/platform/*-app-launchers.ts` — one adapter for each
@@ -168,4 +235,5 @@ launch of a copy whose program only wrote a file.
   window.
 - `packages/workspace-ui/src/contexts/apps/app-shortcuts.store.svelte.ts` —
   the renderer's mirror of the shortcuts, and the commands.
-- `tests/unit/app-shortcuts.test.ts`, `tests/unit/app-shortcuts-store.test.ts`.
+- `tests/unit/app-shortcuts.test.ts`, `tests/unit/app-shortcuts-store.test.ts`,
+  `tests/unit/app-icons.test.ts`, `tests/unit/app-icons-store.test.ts`.

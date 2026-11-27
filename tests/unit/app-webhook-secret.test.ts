@@ -53,7 +53,7 @@ test('a rotated secret replaces the old one at once, and Send test signs with th
   await store.insertApp(APP)
   await store.insertVersion({
     appId: APP.id, number: 1, sourceCommit: 'a'.repeat(40), buildCommit: 'b'.repeat(40), descriptor: DESCRIPTOR,
-    hasBackend: true, hasUi: false, state: 'building', error: null, buildLog: null, buildMs: null, message: 'v1', createdBy: { kind: 'system' }, createdAt: 1, activations: [],
+    hasBackend: true, hasUi: false, iconHash: null, state: 'building', error: null, buildLog: null, buildMs: null, message: 'v1', createdBy: { kind: 'system' }, createdAt: 1, activations: [],
   })
   await store.activateVersion(APP, 1, { kind: 'system' })
   const record = async () => {

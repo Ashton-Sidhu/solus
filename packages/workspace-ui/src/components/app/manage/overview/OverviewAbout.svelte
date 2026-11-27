@@ -2,6 +2,7 @@
   import type { AppSummary, AppUpdate } from "@solus/contracts/apps";
   import { APP_TILE_HUES, appMonogram, appTileHue } from "@solus/client-core/app-tile";
   import { appsStore } from "../../../../contexts/apps/apps.store.svelte";
+  import { appIconsStore } from "../../../../contexts/apps/app-icons.store.svelte";
   import { toasts } from "../../../../lib/toasts";
   import { Button } from "../../../ui/button";
   import { Input } from "../../../ui/input";
@@ -9,7 +10,8 @@
   import AppTile from "../../AppTile.svelte";
 
   /**
-   * About the app, plain on the page: its tile, the colour of the tile, its
+   * About the app, plain on the page: its tile (its own icon, or the colour of
+   * its monogram when it has none), its
    * description, and an edit of its name and description (docs/apps.md). The
    * host keeps them apart from the manifest, so a deploy does not undo them;
    * Reset goes back to the manifest's name or description.
@@ -27,6 +29,7 @@
   let isSaving = $state(false);
   const automaticHue = $derived(appTileHue({ id: app.id, colorHue: null }));
   const monogram = $derived(appMonogram(app.name));
+  const iconUrl = $derived(appIconsStore.urlFor(serverId, app));
 
   async function save(patch: AppUpdate, failure: string) {
     isSaving = true;
@@ -75,13 +78,18 @@
 <section class="flex min-w-0 flex-col gap-3" aria-label="About" data-testid="app-overview-about">
   <h3 class="m-0 text-[15px] font-semibold text-foreground">About</h3>
   <div class="flex items-center gap-3">
-    <AppTile {monogram} hue={appTileHue(app)} size="md" />
-    <div class="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Tile colour" data-testid="app-overview-colours">
-      {@render swatch(null, "Automatic", automaticHue)}
-      {#each APP_TILE_HUES as option (option.hue)}
-        {@render swatch(option.hue, option.label, option.hue)}
-      {/each}
-    </div>
+    <AppTile {monogram} hue={appTileHue(app)} {iconUrl} size="md" />
+    {#if app.iconHash}
+      <!-- A colour changes only the monogram, which an app with its own icon does not show. -->
+      <p class="m-0 text-[13px] text-muted-foreground" data-testid="app-overview-icon">The tile is the app's icon.svg.</p>
+    {:else}
+      <div class="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Tile colour" data-testid="app-overview-colours">
+        {@render swatch(null, "Automatic", automaticHue)}
+        {#each APP_TILE_HUES as option (option.hue)}
+          {@render swatch(option.hue, option.label, option.hue)}
+        {/each}
+      </div>
+    {/if}
   </div>
 
   {#if isEditing}

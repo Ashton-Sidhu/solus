@@ -1,6 +1,6 @@
 import { BrowserWindow, nativeTheme, screen, shell } from 'electron'
 import { createLogger } from '@solus/server/logger'
-import { appWindowSearch, type AppWindowRequest } from '@solus/contracts/app-shortcuts'
+import { appWindowSearch, type AppShortcutTarget, type AppWindowRequest } from '@solus/contracts/app-shortcuts'
 import type { AppShortcutRecords } from './app-shortcut-records'
 import { appShortcutId } from './launcher-files'
 import type { AppLaunchers } from './launchers'
@@ -39,7 +39,7 @@ export class AppWindows {
       this.reveal(existing)
       return
     }
-    const { records, launchers } = this.options
+    const { records } = this.options
     const window = new BrowserWindow({
       ...restoredWindowBounds(records.windowBounds(request), screen.getAllDisplays().map((display) => display.workArea)) ?? DEFAULT_SIZE,
       minWidth: 360,
@@ -55,9 +55,7 @@ export class AppWindows {
       },
     })
     this.windows.set(key, window)
-    const identity = launchers.windowIdentity(request, request.name)
-    if (identity.iconPath) window.setIcon(identity.iconPath)
-    if (identity.taskbar) window.setAppDetails(identity.taskbar)
+    this.applyIdentity(window, request, request.name)
 
     const contents = window.webContents
     contents.on('render-process-gone', (_event, details) => {
@@ -80,6 +78,18 @@ export class AppWindows {
     })
     this.options.loadRenderer(window, appWindowSearch(request))
     log.info('app_window_opened', { appId: request.appId, host: request.host })
+  }
+
+  /** Gives the open window of an app the icon of its shortcut, after the launcher was written again. */
+  showIdentity(target: AppShortcutTarget, name: string): void {
+    const window = this.windows.get(appShortcutId(target))
+    if (window && !window.isDestroyed()) this.applyIdentity(window, target, name)
+  }
+
+  private applyIdentity(window: BrowserWindow, target: AppShortcutTarget, name: string): void {
+    const identity = this.options.launchers.windowIdentity(target, name)
+    if (identity.iconPath) window.setIcon(identity.iconPath)
+    if (identity.taskbar) window.setAppDetails(identity.taskbar)
   }
 
   private reveal(window: BrowserWindow): void {

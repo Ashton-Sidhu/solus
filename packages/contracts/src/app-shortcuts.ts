@@ -20,9 +20,20 @@ export interface AppWindowRequest extends AppShortcutTarget {
   name: string
 }
 
-/** A new shortcut. `iconPng` is the app's tile as a square PNG; each operating system makes its own icon file from it. */
+/** A new shortcut. `iconPng` is the app's icon as a square PNG; each operating system makes its own icon file from it. */
 export interface AppShortcutRequest extends AppWindowRequest {
   iconPng: ArrayBuffer
+  /** What the icon was drawn from (`appShortcutIconKey`). When the app's key is another one, the launcher is written again. */
+  iconKey: string
+}
+
+/**
+ * What an app's icon is drawn from: its own icon by hash, else its monogram
+ * with its letter and its hue. The same key draws the same icon, so a key
+ * that is not the shortcut's own means its launcher shows an old icon.
+ */
+export function appShortcutIconKey(icon: { iconHash: string | null; monogram: string; hue: number }): string {
+  return icon.iconHash ? `svg:${icon.iconHash}` : `monogram:${icon.monogram}:${icon.hue}`
 }
 
 const APP_LINK = /^solus:\/\/app\/([A-Za-z0-9_-]{1,128})\/([A-Za-z0-9_-]{1,128})\/?$/
@@ -50,6 +61,10 @@ export function isSameAppShortcutTarget(a: AppShortcutTarget, b: AppShortcutTarg
 export interface AppShortcutView extends AppShortcutTarget {
   /** The name the launcher has. An app that was renamed since has another one. */
   name: string
+  /** What the launcher's icon was drawn from; empty for a shortcut written before Solus kept it. */
+  iconKey: string
+  /** The launcher has the format of an older Solus: it is written again when its app opens. */
+  isOutdated: boolean
 }
 
 const APP_WINDOW_HOST_PARAM = 'app-window-host'

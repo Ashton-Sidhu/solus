@@ -48,7 +48,7 @@ import type {
   AppAgentAccessRequest, AppUpdateRequest, AppBuildLog, AppConfigSetRequest, AppCallDetail, AppCallReadRequest, AppCallStats, AppCallStatsRequest, AppCallRequest, AppCallsRequest, AppCallView, AppDeployReceipt, AppDeployRequest,
   AppFileRequest, AppFileView, AppMetrics, AppRequest, AppRevisionDiff, AppRevisionRequest, AppRevisionView, AppStepSource, AppStepSourceRequest, AppRunDetail, AppRunRequest, AppRunsRequest, AppRunView,
   AppDeployPreflight, AppDeployPreflightRequest, AppScheduleCalendar, AppScheduleCalendarRequest, AppScheduleRequest, AppScheduleSetRequest, AppScheduleView, AppSecretSetRequest, AppSessionLink, AppSessionRequest, AppSignalActionRequest, AppSignalActionSaveRequest,
-  AppSignalOccurrence, AppSignalOccurrencesRequest, AppSignalView, AppState, AppSummary, AppUi, AppVersionDiff, AppVersionRequest, AppVersionView, AppWebhookRequest, AppWebhookView,
+  AppSignalOccurrence, AppSignalOccurrencesRequest, AppSignalView, AppState, AppSummary, AppUi, AppIcon, AppVersionDiff, AppVersionRequest, AppVersionView, AppWebhookRequest, AppWebhookView,
 } from './apps'
 import type { AppModelCallRequest, AppModelCallView, AppModelCallsRequest } from './app-models'
 import type {
@@ -710,6 +710,8 @@ export interface SolusAPI {
   appRead(request: AppRequest): Promise<AppState>
   /** The UI of the active version; null when the app has none. */
   appUi(request: AppRequest): Promise<AppUi | null>
+  /** The icon of the active version; null when it has none. Read it again only when `AppSummary.iconHash` changes. */
+  appIcon(request: AppRequest): Promise<AppIcon | null>
   /** Runs one call for the app's UI as the caller: an operation, its storage, or an integration tool. Answers the result as JSON text. */
   appCall(request: AppCallRequest): Promise<string>
   /** Stops the app: no operation runs and no schedule fires until `appStart`. */

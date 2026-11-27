@@ -36,6 +36,7 @@ export async function appSummary(app: AppRecord, facts: AppSummaryFacts): Promis
     manifestName: app.name,
     manifestDescription: app.description,
     colorHue: app.colorHue,
+    iconHash: active?.iconHash ?? null,
     organizationId: app.organizationId,
     activeVersion: app.activeVersion,
     latestVersion: latest?.number ?? null,

@@ -22,7 +22,10 @@
   import { GitPullRequestIcon as PullRequestIcon, IssueOpenedIcon as TaskIcon } from "../ui/octicons";
   import { getSessionSidebarStore, getWorkspaceContext } from "../../contexts";
   import { sessionName } from "../../lib/sessionUtils";
-  import { appsStore } from "../../contexts/apps/apps.store.svelte";
+  import { appsStore, type AppRow } from "../../contexts/apps/apps.store.svelte";
+  import { appIconsStore } from "../../contexts/apps/app-icons.store.svelte";
+  import { appMonogram, appTileHue } from "@solus/client-core/app-tile";
+  import AppTile from "../app/AppTile.svelte";
   import type { PaneEntry } from "../../contexts/workspace/routing/location";
   import { ROUTES, surfaceKey, type RouteRef } from "../../contexts/workspace/routing/route-registry";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -87,11 +90,14 @@
     workTitle: (workId) => session.worksStore.get(workId)?.title,
     planTitle: (planId) => session.planStore.get(planId)?.title,
     automationName: (automationId) => session.automationsStore.get(automationId)?.name,
-    appName: (serverId, slugOrId) => {
-      const hostId = serverId ?? appsStore.hostOf(slugOrId);
-      return hostId ? appsStore.find(hostId, slugOrId)?.app.name : undefined;
-    },
+    appName: (serverId, slugOrId) => appRowOf({ serverId, slug: slugOrId })?.app.name,
   };
+
+  /** The app a surface shows: a link names no host, so the first connected host that has it. */
+  function appRowOf(params: { serverId?: string; slug: string }): AppRow | undefined {
+    const hostId = params.serverId ?? appsStore.hostOf(params.slug);
+    return hostId ? appsStore.find(hostId, params.slug) : undefined;
+  }
 
   let menu = $state<{ index: number; x: number; y: number } | null>(null);
   // A page paints its own background up to the pane's top edge, so the strip
@@ -231,6 +237,7 @@
   {#each pane.surfaces as surface, index (surfaceKey(surface))}
     {@const isActive = index === pane.activeSurfaceIndex}
     {@const Icon = ICONS[surface.name]}
+    {@const appRow = surface.name === "app" ? appRowOf(surface.params) : undefined}
     {@const label = surfaceLabel(surface, titles)}
     <!-- One pill per surface: the glyph doubles as its close button, which
          shows an × while the pointer is over the tab. -->
@@ -249,7 +256,11 @@
         onclick={() => close(index)}
       >
         <span class="relative flex size-4 items-center justify-center group-hover/tab:hidden group-focus-visible/close:hidden">
-          <Icon size={14} strokeWidth={1.5} />
+          {#if appRow}
+            <AppTile monogram={appMonogram(appRow.app.name)} hue={appTileHue(appRow.app)} iconUrl={appIconsStore.urlFor(appRow.serverId, appRow.app)} size="xs" />
+          {:else}
+            <Icon size={14} strokeWidth={1.5} />
+          {/if}
           {#if router.isSurfaceUnread(surface)}
             <span class="absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full bg-(--primary)" aria-label="New"></span>
           {/if}

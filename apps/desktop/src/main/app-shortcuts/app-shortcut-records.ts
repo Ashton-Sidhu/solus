@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { dirname } from 'path'
 import { z } from 'zod'
-import { isSameAppShortcutTarget, type AppShortcutTarget } from '@solus/contracts/app-shortcuts'
+import { isSameAppShortcutTarget, type AppShortcutTarget, type AppShortcutView } from '@solus/contracts/app-shortcuts'
 import { appShortcutId } from './launcher-files'
 
 const boundsSchema = z.object({
@@ -12,14 +12,30 @@ const boundsSchema = z.object({
 })
 export type AppWindowBounds = z.infer<typeof boundsSchema>
 
+/**
+ * The format of the launchers this Solus writes. Change it with any change to
+ * what a launcher holds (its `Info.plist`, its program, its entry): a launcher
+ * of an older format is written again when its app opens.
+ */
+export const LAUNCHER_FORMAT = 1
+
 const shortcutSchema = z.object({
   host: z.string(),
   appId: z.string(),
   name: z.string(),
   /** The launcher the operating system lists for the app. */
   launcherPath: z.string(),
+  /** What the launcher's icon was drawn from. A record from before the key has none, so its launcher is written again once. */
+  iconKey: z.string().default(''),
+  /** The format of the launcher (`LAUNCHER_FORMAT`) when it was written. */
+  launcherFormat: z.number().int().default(1),
 })
 export type AppShortcutRecord = z.infer<typeof shortcutSchema>
+
+/** A record as the renderer's list names it. */
+export function appShortcutView({ host, appId, name, iconKey, launcherFormat }: AppShortcutRecord): AppShortcutView {
+  return { host, appId, name, iconKey, isOutdated: launcherFormat < LAUNCHER_FORMAT }
+}
 
 const fileSchema = z.object({
   version: z.literal(1),
