@@ -17,6 +17,7 @@ import type { PendingStart } from './run-launcher'
 import { linkPreparedTask } from './run-task-context'
 import { backgroundWorkHolds } from './background-work'
 import type { TurnOutcome } from './derived-status'
+import type { ActivityKind } from '@solus/contracts/activity'
 import { turnActivity } from '../../git/turn-activity'
 
 const log = createLogger('SessionRuntime', 'provider-events.ts')
@@ -670,6 +671,17 @@ export class ProviderEvents {
         const sessionId = this.rt.agentSessionToSession.get(agentSessionId)
         if (sessionId) this.endBackgroundWait(sessionId)
       })
+    })
+
+    // A thread that continues in a new agent session by handoff gets the same divider as a switch.
+    backend.on('thread-handed-off', (agentSessionId: string, model: string | null) => {
+      const sessionId = this.rt.sessionOfThread(agentSessionId)
+      // The handoff happens in a run, as the person whose turn it is.
+      const actor = sessionId ? this.rt.activeRunRequests.get(sessionId)?.actor : undefined
+      if (!sessionId || !actor) return
+      const handedOff: Extract<ActivityKind, { kind: 'agent_switched' }> = { kind: 'agent_switched', provider: backend.id, fromProvider: backend.id }
+      if (model) handedOff.model = model
+      void this.rt.recordActivity({ kind: 'session', id: sessionId }, actor, handedOff)
     })
 
     backend.on('background-work-ended', (agentSessionId: string) => {

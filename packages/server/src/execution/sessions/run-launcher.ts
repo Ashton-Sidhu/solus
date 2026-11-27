@@ -231,7 +231,12 @@ export class RunLauncher {
 
     session.promptCount = (session.promptCount ?? 0) + 1
     session.lastActivityAt = Date.now()
-    const userMessage = this.userMessageEvent(request.options, 'steer', request.actor)
+    // A prompt into a query that background work keeps open, after its turn
+    // settled, joins no turn: it starts the next one. That turn's log starts
+    // with it, and its echo is a prompt, not a steer (docs/plans/running-turn-open.md).
+    const startsTurn = this.rt.turns.current(session.sessionId)?.isSettled ?? true
+    if (startsTurn) this.rt.turnLog.delete(session.sessionId)
+    const userMessage = this.userMessageEvent(request.options, startsTurn ? undefined : 'steer', request.actor)
     void this.recordSender(session.sessionId, request.options, request.actor)
     if (backend.isSessionRunning(agentSessionId)) {
       this.rt.restarts.saveRestartRun({ ...request, input: { ...(session.runInput ?? request.input), agentSessionId } }, await sessionIsOrganizationWork(request.sessionId), 'running')
@@ -263,6 +268,9 @@ export class RunLauncher {
 
   private async startRunLifecycleInScope(request: SessionRunRequest): Promise<SessionRunLifecycle> {
     const turn = this.rt.turns.begin(request.sessionId, { id: request.options.clientPromptId })
+    // The turn log holds this turn alone, from its setup on: the turns before
+    // it are history (docs/plans/running-turn-open.md).
+    this.rt.turnLog.delete(request.sessionId)
     // Until the provider spawns, the launch is the turn's work: Stop ends it at
     // its next check, so no provider starts for a stopped turn.
     const releaseLaunch = turn.onStop(() => true)

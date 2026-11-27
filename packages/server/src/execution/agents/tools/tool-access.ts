@@ -265,6 +265,16 @@ export const APP_TOOLS = {
 
 const APP_TOOL_EFFECTS: ReadonlyMap<string, 'read' | 'write'> = new Map(Object.entries(APP_TOOLS))
 
+/**
+ * The MCP hint an outside app reads to know a tool only reads. Claude and
+ * other clients use it to sort tools in their permission settings. A write
+ * tool sends `readOnlyHint: false` and no `destructiveHint`, which MCP reads
+ * as "may be destructive".
+ */
+export function appToolHints(name: string): { readOnlyHint: boolean } {
+  return { readOnlyHint: APP_TOOL_EFFECTS.get(name) === 'read' }
+}
+
 /** Why an outside app with this access may not call a tool; null when it may. */
 export function appToolRefusal(tool: Pick<AgentTool, 'name' | 'requiresApproval'>, access: AppAccess): string | null {
   const effect = APP_TOOL_EFFECTS.get(tool.name)

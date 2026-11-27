@@ -11,9 +11,10 @@ import { withWorkspaceToolAuthority } from '../../../admission/workspace-tool-au
 import { resolveHomePath } from '../../../platform/paths'
 import { withActorScope } from '../../seats/acting-identity'
 import type { AgentTool, AgentToolContext, AgentToolResult } from './agent-tool'
-import { appToolRefusal, toolAccessRefusal } from './tool-access'
+import { appToolHints, appToolRefusal, toolAccessRefusal } from './tool-access'
 import { clientRequesterKey } from '../../orchestration/exchange'
 import { advertisedInputSchema, assertUniqueAgentTools, enabledAgentTools, executeAgentTool } from './agent-tool'
+import { listedProxyTools, parseToolCallProxy, parseToolSearchQuery, searchDeferredTools, TOOL_CALL, TOOL_SEARCH } from './deferred-tool-proxy'
 
 /**
  * The tools of one run, served over the host's MCP endpoint (plans/035 §3-§4).
@@ -30,6 +31,8 @@ export interface RunToolBinding {
   approve(tool: AgentTool, input: ToolArguments, toolUseId: string | undefined): Promise<boolean>
   /** The id of the provider's item for a call whose request names none (Codex: its `mcpToolCall` item). */
   toolUseIdOf?(toolName: string, input: ToolArguments): Promise<string | undefined>
+  /** List only `alwaysLoad` tools plus `tool_search` and `tool_call`, for harnesses that freeze tools per session. */
+  deferProxy?: boolean
 }
 
 /** A tool call's arguments as MCP carries them, before the tool's fields parse them. */
@@ -118,11 +121,12 @@ export function mcpToolResult(result: AgentToolResult): CallToolResult {
 }
 
 /** One tool as `tools/list` gives it. A tool with guidance the agent needs first is never deferred. */
-function listedTool(agentTool: AgentTool): Tool {
+function listedTool(agentTool: AgentTool, annotations?: Tool['annotations']): Tool {
   const listed = {
     name: agentTool.name,
     description: agentTool.description,
     inputSchema: { ...advertisedInputSchema(agentTool), type: 'object' as const },
+    ...(annotations ? { annotations } : {}),
   }
   return ToolSchema.parse(agentTool.alwaysLoad ? { ...listed, _meta: { 'anthropic/alwaysLoad': true } } : listed)
 }
@@ -131,33 +135,59 @@ function refused(text: string): CallToolResult {
   return { isError: true, content: [{ type: 'text', text }] }
 }
 
+async function invokeRunTool(
+  binding: RunToolBinding,
+  agentTool: AgentTool,
+  input: ToolArguments,
+  request: CallToolRequest,
+  signal: AbortSignal,
+): Promise<CallToolResult> {
+  const toolUseId = callToolUseId(request.params._meta) ?? await binding.toolUseIdOf?.(agentTool.name, input)
+  if (agentTool.requiresApproval) {
+    if (binding.permissionMode() === 'plan') return refused(`Cannot run ${agentTool.name} in plan mode. Exit plan mode to apply changes.`)
+    if (!await binding.approve(agentTool, input, toolUseId)) return refused(`The user declined ${agentTool.name}.`)
+  }
+  try {
+    return mcpToolResult(await executeAgentTool(agentTool, input ?? {}, {
+      ...binding.context,
+      abortSignal: AbortSignal.any([binding.context.abortSignal, signal]),
+      parentToolUseId: () => toolUseId,
+    }))
+  } catch (error) {
+    // The harness waits for one result for every call; a thrown tool still answers.
+    return refused(error instanceof Error ? error.message : String(error))
+  }
+}
+
 /**
  * The MCP server for one request of a run: its tools, called with its
  * context. A run that ended after its token was checked has none.
  */
 export function runToolServer(binding: RunToolBinding | undefined): Server {
   const server = new Server({ name: 'solus', version: '1.0.0' }, { capabilities: { tools: {} } })
-  server.setRequestHandler('tools/list', () => ({ tools: binding ? enabledAgentTools(binding.tools).map(listedTool) : [] }))
+  server.setRequestHandler('tools/list', () => {
+    if (!binding) return { tools: [] }
+    const enabled = enabledAgentTools(binding.tools)
+    return { tools: binding.deferProxy ? listedProxyTools(enabled, listedTool) : enabled.map((tool) => listedTool(tool)) }
+  })
   server.setRequestHandler('tools/call', async (request, extra): Promise<CallToolResult> => {
     if (!binding) return refused('This run has ended.')
+    if (binding.deferProxy && request.params.name === TOOL_SEARCH) {
+      const query = parseToolSearchQuery(request.params.arguments)
+      if (query === null) return refused('tool_search requires a string `query` argument.')
+      const tools = searchDeferredTools(enabledAgentTools(binding.tools), query)
+      return { content: [{ type: 'text', text: JSON.stringify({ tools }) }] }
+    }
+    if (binding.deferProxy && request.params.name === TOOL_CALL) {
+      const parsed = parseToolCallProxy(request.params.arguments)
+      if (!parsed.ok) return refused(parsed.error)
+      const target = enabledAgentTools(binding.tools).find((candidate) => candidate.name === parsed.name)
+      if (!target) return refused(`Unknown tool: ${parsed.name}`)
+      return invokeRunTool(binding, target, parsed.arguments, request, extra.mcpReq.signal)
+    }
     const agentTool = binding.tools.find((candidate) => candidate.name === request.params.name)
     if (!agentTool) return refused(`Unknown tool: ${request.params.name}`)
-    const input = request.params.arguments
-    const toolUseId = callToolUseId(request.params._meta) ?? await binding.toolUseIdOf?.(agentTool.name, input)
-    if (agentTool.requiresApproval) {
-      if (binding.permissionMode() === 'plan') return refused(`Cannot run ${agentTool.name} in plan mode. Exit plan mode to apply changes.`)
-      if (!await binding.approve(agentTool, input, toolUseId)) return refused(`The user declined ${agentTool.name}.`)
-    }
-    try {
-      return mcpToolResult(await executeAgentTool(agentTool, input ?? {}, {
-        ...binding.context,
-        abortSignal: AbortSignal.any([binding.context.abortSignal, extra.mcpReq.signal]),
-        parentToolUseId: () => toolUseId,
-      }))
-    } catch (error) {
-      // The harness waits for one result for every call; a thrown tool still answers.
-      return refused(error instanceof Error ? error.message : String(error))
-    }
+    return invokeRunTool(binding, agentTool, request.params.arguments, request, extra.mcpReq.signal)
   })
   return server
 }
@@ -189,7 +219,7 @@ async function appTools(access: AppAccess): Promise<AgentTool[]> {
 export async function appToolServer(app: AppCaller): Promise<Server> {
   const server = new Server({ name: 'solus', version: '1.0.0' }, { capabilities: { tools: {} } })
   const tools = await appTools(app.access)
-  server.setRequestHandler('tools/list', () => ({ tools: tools.map(listedTool) }))
+  server.setRequestHandler('tools/list', () => ({ tools: tools.map((tool) => listedTool(tool, appToolHints(tool.name))) }))
   server.setRequestHandler('tools/call', async (request, extra): Promise<CallToolResult> => {
     const agentTool = tools.find((candidate) => candidate.name === request.params.name)
     if (!agentTool) return refused(appToolRefusal({ name: request.params.name, requiresApproval: false }, app.access) ?? `Unknown tool: ${request.params.name}`)

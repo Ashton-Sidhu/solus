@@ -1,14 +1,15 @@
 import { permissionsAllow } from '@solus/contracts/permissions'
-import { readAddMachineOutcome, type AddMachineAsk } from '@solus/contracts/add-machine'
+import { readAddMachineOutcome, type AddMachineAsk, type HostProvidersAsk } from '@solus/contracts/add-machine'
+import { SETUP_AGENT_LABELS, type HostReadiness, type SetupAgent } from '@solus/contracts/types'
 import { normalizeServerUrl } from '@solus/client-core/pairing'
 import { z } from 'zod'
 import { isHostOwner } from '../../../admission/principal'
 import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
 import { permissionsFor } from '../../../admission/access-policy'
 import type { HostPairings } from '../../../host/host-pairings'
-import type { ListedRemoteHost } from '../../orchestration/remote-hosts'
+import type { ListedRemoteHost, RemoteHost } from '../../orchestration/remote-hosts'
 import { answerToolQuestionWith } from '../../sessions/input-requests'
-import { listedRemoteHosts } from './session-tools'
+import { connectRemoteHost, listedRemoteHosts } from './session-tools'
 import type { AgentTool, AgentToolContext, AgentToolResult } from './agent-tool'
 import { joinMachine } from './cloud-machine-tools'
 
@@ -78,6 +79,95 @@ const addHostFields = {
   identity_file: z.string().max(1024).optional().describe('A private key path on this host the person gave, e.g. ~/.ssh/aws.pem. Only the path; never read or send the key.'),
   reason: z.string().min(1).max(300).describe('Why, in one sentence; the card shows it.'),
   organization: z.string().max(200).optional().describe('Join the machine as a cloud machine of this organization (id or name; "ask" lets the person choose on a card), over SSH: give url (its https address) and ssh_target. Signed in only.'),
+  provider: z.enum(['claude', 'codex', 'agy']).optional().describe('Waits for its sign-in there.'),
+}
+
+/** How long the Sign in card waits between two reads of the new host. A seat change there reads at once. */
+export const SIGN_IN_POLL_MS = 4_000
+
+type ProviderState = 'ready' | 'needs-sign-in' | 'not-installed'
+
+/** What the agent learns about each provider on the new host. No account or credential is in it. */
+function providerStates(agents: HostReadiness['agents']) {
+  const stateOf = ({ installed, signedIn }: HostReadiness['agents'][SetupAgent]): ProviderState =>
+    signedIn ? 'ready' : installed ? 'needs-sign-in' : 'not-installed'
+  return { claude: stateOf(agents.claude), codex: stateOf(agents.codex), agy: stateOf(agents.agy) }
+}
+
+/** The part of `add_host`'s answer about the new host's providers. */
+interface AddedHostProviders {
+  /** Null when the new host did not say. */
+  providers: ReturnType<typeof providerStates> | null
+  /** The provider the person chose not to sign in now. */
+  skippedSignIn?: SetupAgent
+  note: string
+}
+
+/** The providers of the new host, or null when it does not answer. */
+async function readAgents(remote: RemoteHost): Promise<HostReadiness['agents'] | null> {
+  try { return (await remote.call('its providers', () => remote.api.setupHostReadiness())).agents }
+  catch { return null }
+}
+
+/**
+ * Shows the Sign in card and waits for one of three things: the new host
+ * reports the provider signed in (the card closes itself), the person skips,
+ * or the run stops. The host is the proof: a client never answers "ready".
+ */
+async function waitForSignIn(context: AgentToolContext, remote: RemoteHost, ask: HostProvidersAsk): Promise<'ready' | 'skipped' | 'stopped'> {
+  const questionId = `host-providers-${crypto.randomUUID()}`
+  const outcome = await new Promise<'ready' | 'skipped' | 'stopped'>((settle) => {
+    let isDone = false
+    const cleanups: (() => void)[] = []
+    const finish = (result: 'ready' | 'skipped' | 'stopped'): void => {
+      if (isDone) return
+      isDone = true
+      for (const cleanup of cleanups.splice(0)) cleanup()
+      settle(result)
+    }
+    const check = async (): Promise<void> => {
+      if ((await readAgents(remote))?.[ask.provider].signedIn) finish('ready')
+    }
+    cleanups.push(answerToolQuestionWith(questionId, () => finish('skipped')))
+    const stopped = (): void => finish('stopped')
+    if (context.abortSignal.aborted) { finish('stopped'); return }
+    context.abortSignal.addEventListener('abort', stopped, { once: true })
+    cleanups.push(() => context.abortSignal.removeEventListener('abort', stopped))
+    const timer = setInterval(() => void check(), SIGN_IN_POLL_MS)
+    cleanups.push(() => clearInterval(timer))
+    cleanups.push(remote.events.subscribe('host.seatChanged', (event) => {
+      if (event.provider === ask.provider && event.state === 'connected') void check()
+    }))
+    context.emit({
+      type: 'question_request',
+      questionId,
+      kind: 'host-providers',
+      hostProviders: ask,
+      // A client that does not know the kind still shows what the agent waits for.
+      questions: [{ header: 'Sign in', question: `Sign in to ${SETUP_AGENT_LABELS[ask.provider]} on ${ask.hostName}. ${ask.reason}`, options: [], multiSelect: false }],
+    })
+  })
+  // Every client closes the card, also the ones where the person did nothing.
+  context.emit({ type: 'permission_resolved', questionId })
+  return outcome
+}
+
+/**
+ * The providers of a host the card just added, for the agent. With `provider`,
+ * a provider that is not signed in there gets the Sign in card first.
+ */
+async function providersAfterAdd(context: AgentToolContext, sessionId: string, host: ListedRemoteHost, provider: SetupAgent | undefined, reason: string): Promise<AddedHostProviders> {
+  const remote = await connectRemoteHost(host.installationId, { sessionId })
+  if ('error' in remote) return { providers: null, note: `Agents here can use this host with start_sessions. Its providers could not be read: ${remote.error}` }
+  const agents = await readAgents(remote)
+  if (!agents) return { providers: null, note: 'Agents here can use this host with start_sessions. It did not say which providers are signed in.' }
+  if (!provider || agents[provider].signedIn) return { providers: providerStates(agents), note: 'Agents here can use this host with start_sessions.' }
+  const signIn = await waitForSignIn(context, remote, { installationId: host.installationId, hostName: host.name, provider, reason })
+  const label = SETUP_AGENT_LABELS[provider]
+  if (signIn === 'stopped') return { providers: providerStates(agents), note: `The run stopped before ${label} was signed in on ${host.name}.` }
+  const now = await readAgents(remote) ?? agents
+  if (signIn === 'skipped') return { providers: providerStates(now), skippedSignIn: provider, note: `The person chose not to sign in to ${label} on ${host.name} now. Do not start work there with ${label}; ask what they want instead.` }
+  return { providers: providerStates(now), note: `${label} is signed in on ${host.name}. Continue the work there with start_sessions.` }
 }
 
 /** `add_host` with an organization: the join of a machine that the organization runs (`joinMachine`). */
@@ -114,13 +204,14 @@ async function addPairedHost(input: z.output<z.ZodObject<typeof addHostFields>>,
     // The answer comes from a client: return only a host that this host now holds a credential for.
     const host = (await listedRemoteHosts({ sessionId }) ?? []).find((listed) => listed.installationId === outcome.installationId && listed.source !== 'listed')
     if (!host) return { ok: false, text: 'The card said a machine was added, but this host holds no record for it. Nothing was added; call add_host again.' }
-    return { ok: true, text: JSON.stringify({ added: true, way: outcome.way, host: hostFacts(host), note: 'Agents here can use this host with start_sessions.' }) }
+    const providers = await providersAfterAdd(context, sessionId, host, input.provider, input.reason.trim())
+    return { ok: true, text: JSON.stringify({ added: true, way: outcome.way, host: hostFacts(host), ...providers }) }
   } catch (error) { return { ok: false, text: error instanceof Error ? error.message : 'Could not add the machine.' } }
 }
 
 export const addHostAgentTool: AgentTool<typeof addHostFields> = {
   name: 'add_host',
-  description: 'Add another Solus host (a machine) for agent work. Shows the person an Add machine card: SSH from this host, an approval request, or a pairing code. Never ask for a code, password, or link in chat or with request_secret. Pass the person\'s words as hint, the address as url, and an SSH target and key path as ssh_target and identity_file when known. No label: the host\'s own name is used. With organization, joins it as a cloud machine of that organization instead. Returns the added host, or one already reached. Local owner only. remove_host forgets.',
+  description: 'Add another Solus host (a machine) for agent work. Shows the person an Add machine card: SSH from this host, an approval request, or a pairing code. Never ask for a code, password, or link in chat or with request_secret. No label: the host\'s own name is used. With organization, joins it as a cloud machine of that organization instead. Returns the added host, or one already reached. Local owner only. remove_host forgets.',
   inputFields: addHostFields,
   // The card is the person's consent: nothing is added until they choose a machine on it, and Decline closes it.
   requiresApproval: false,

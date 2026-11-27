@@ -7,6 +7,8 @@ import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runne
 import { AcpBackend } from '@solus/server/execution/agents/acp/acp-backend'
 import type { AcpTurnFailure } from '@solus/server/execution/agents/acp/acp-agent'
 import { AcpRequestError } from '@solus/server/execution/agents/acp/acp-connection'
+import { antigravityAgent } from '@solus/server/execution/agents/acp/antigravity'
+import type { TurnSeat } from '@solus/server/execution/seats/seat-manager'
 import { runToolBindingFor, setAgentToolEndpointUrl } from '@solus/server/execution/agents/tools/agent-tool-endpoint'
 import type { AgentTool } from '@solus/server/execution/agents/tools/agent-tool'
 import { z } from 'zod'
@@ -526,7 +528,7 @@ describe('AcpBackend reported models', () => {
     models: { availableModels: ['gemini-4-neon-high', 'gemini-4-neon-xhigh', 'gemini-4-neon-medium', 'gemini-4-neon-low', 'gemini-4-carbon-medium', 'gemini-4-carbon-high', 'gemini-4-carbon-low', 'gemini-4-hydrogen-low', 'gemini-4-hydrogen-high', 'gemini-pro-orchestrator', 'gemini-pro-orchestrator-neon'].map((modelId) => ({ modelId })) },
   }
 
-  test("each offered model gets the efforts agy lists for it, even one the published list does not know", async () => {
+  test('each offered model gets the efforts agy lists for it', async () => {
     // WHY: agy gives a model's levels in its thinking option only while that
     // model is selected, so a Pro model such as Neon showed no reasoning at all.
     const { backend } = setup({ 'session/new': () => proSetup })
@@ -546,9 +548,11 @@ describe('AcpBackend reported models', () => {
     // WHY: agy names no legacy models; the published list does, by exact id.
     const { backend } = setup({ 'session/new': () => ({ sessionId: 'thread-1', configOptions: [{ id: 'model', category: 'model', type: 'select', currentValue: 'gemini-3.8-flash', options: [
       { value: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
+      { value: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
       { value: 'gemini-3.7-flash-high', name: 'Gemini 3.7 Flash (High)' },
     ] }] }) })
     await backend.refreshModels()
+    expect(isLegacyModel('antigravity', 'gemini-3.7-flash', backend.metadata.modelProfiles)).toBe(true)
     expect(isLegacyModel('antigravity', 'gemini-3.7-flash-high', backend.metadata.modelProfiles)).toBe(true)
     expect(isLegacyModel('antigravity', 'gemini-3.8-flash', backend.metadata.modelProfiles)).toBe(false)
     backend.shutdown()
@@ -583,9 +587,12 @@ describe('AcpBackend Solus tools', () => {
     const seen: Array<string[] | undefined> = []
     const tokenOf = (agent: FakeAgent) => mcpServersOf(agent, 'session/new')[0]!.headers.find((header) => header.name === 'Authorization')!.value.replace(/^Bearer /, '')
     const { backend, agents } = setup({
+      'session/resume': () => ({ configOptions: [] }),
       // What agy reaches with the token it was given, while the turn runs.
       'session/prompt': (_params, agent) => {
-        seen.push(runToolBindingFor(tokenOf(agent))?.tools.map((tool) => tool.name))
+        const method = agent.received.some((message) => message.method === 'session/resume') ? 'session/resume' : 'session/new'
+        const token = mcpServersOf(agent, method)[0]!.headers.find((header) => header.name === 'Authorization')!.value.replace(/^Bearer /, '')
+        seen.push(runToolBindingFor(token)?.tools.map((tool) => tool.name))
         return { stopReason: 'end_turn' }
       },
     })
@@ -595,10 +602,137 @@ describe('AcpBackend Solus tools', () => {
     // Between turns the token reaches no tools.
     expect(runToolBindingFor(token)).toBeUndefined()
 
-    const second = request({ tools: [{ ...echo, name: 'echo_again' }], conversation: { kind: 'resume', threadId: 'thread-1' } })
-    await backend.startRun(second, { sessionId: 'solus-session-1' }).runPromise
+    // Same tool set reuses the warm connection and rebinds the session's one token.
+    await backend.startRun(request({ tools: [{ ...echo }], conversation: { kind: 'resume', threadId: 'thread-1' } }), { sessionId: 'solus-session-1' }).runPromise
     expect(agents).toHaveLength(1)
-    expect(seen).toEqual([['echo'], ['echo_again']])
+
+    // A changed tool set (such as an MCP server installed while the session is open) reopens with session/resume so agy re-lists tools.
+    const paperTool: AgentTool = { ...echo, name: 'paper__get_basic_info' }
+    await backend.startRun(request({ tools: [echo, paperTool], conversation: { kind: 'resume', threadId: 'thread-1' } }), { sessionId: 'solus-session-1' }).runPromise
+    expect(agents).toHaveLength(2)
+    expect(mcpServersOf(agents[1]!, 'session/resume')[0]).toMatchObject({ name: 'solus', url: 'http://127.0.0.1:1/mcp' })
+    expect(seen).toEqual([['echo'], ['echo'], ['echo', 'paper__get_basic_info']])
+    backend.shutdown()
+  })
+
+  test('Antigravity receives the Solus MCP server even when agy omits mcpCapabilities from initialize', async () => {
+    const noMcpCapabilities: Json = {
+      protocolVersion: 1,
+      agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {} } },
+      authMethods: [{ id: 'oauth-personal' }],
+    }
+    const { backend, agents } = setup({
+      initialize: () => noMcpCapabilities,
+      'session/prompt': () => ({ stopReason: 'end_turn' }),
+    }, { agent: { acceptsHttpMcp: antigravityAgent.acceptsHttpMcp } })
+    await backend.startRun(request({ tools: [echo] }), { sessionId: 'solus-session-agy-mcp' }).runPromise
+    expect(mcpServersOf(agents[0]!, 'session/new').map((server) => server.name)).toEqual(['solus'])
+    backend.shutdown()
+  })
+
+  test('MCP integration instructions reach session/new systemPrompt alongside user instructions', async () => {
+    let seenSystemPrompt: string | undefined
+    const { backend } = setup({
+      'session/prompt': () => ({ stopReason: 'end_turn' }),
+    }, {
+      agent: {
+        sessionMeta: (_init, systemPrompt) => {
+          seenSystemPrompt = systemPrompt
+          return undefined
+        },
+      },
+    })
+    await backend.startRun(request({
+      tools: [echo],
+      systemPrompt: 'Base instructions.',
+      integrationInstructions: [{ name: 'paper', slug: 'paper', text: 'Call paper__get_basic_info first.' }],
+    }), { sessionId: 'solus-session-instructions' }).runPromise
+    expect(seenSystemPrompt).toContain('Base instructions.')
+    expect(seenSystemPrompt).toContain('### paper (tools `paper__*`)')
+    expect(seenSystemPrompt).toContain('Call paper__get_basic_info first.')
+    backend.shutdown()
+  })
+
+  test('deferred-proxy sessions keep a warm connection when MCP servers are added and deliver their instructions once', async () => {
+    const seenPrompts: string[] = []
+    const seenDeferProxy: Array<boolean | undefined> = []
+    const { backend, agents } = setup({
+      'session/prompt': (params, agent) => {
+        const blocks = (params as { prompt?: Array<{ text?: string }> })?.prompt ?? []
+        seenPrompts.push(blocks.map((block) => block.text ?? '').join('\n'))
+        const token = mcpServersOf(agent, 'session/new')[0]!.headers.find((header) => header.name === 'Authorization')!.value.replace(/^Bearer /, '')
+        seenDeferProxy.push(runToolBindingFor(token)?.deferProxy)
+        return { stopReason: 'end_turn' }
+      },
+    }, { agent: { deferToolsProxy: true } })
+
+    await backend.startRun(request({ tools: [echo], prompt: 'First turn' }), { sessionId: 'solus-session-proxy' }).runPromise
+    const paperTool: AgentTool = { ...echo, name: 'paper__get_basic_info' }
+    await backend.startRun(request({
+      tools: [echo, paperTool],
+      prompt: 'Use paper',
+      integrationInstructions: [{ name: 'paper', slug: 'paper', text: 'Paper guide.' }],
+      conversation: { kind: 'resume', threadId: 'thread-1' },
+    }), { sessionId: 'solus-session-proxy' }).runPromise
+    await backend.startRun(request({
+      tools: [echo, paperTool],
+      prompt: 'Third turn',
+      integrationInstructions: [{ name: 'paper', slug: 'paper', text: 'Paper guide.' }],
+      conversation: { kind: 'resume', threadId: 'thread-1' },
+    }), { sessionId: 'solus-session-proxy' }).runPromise
+
+    expect(agents).toHaveLength(1)
+    expect(seenDeferProxy).toEqual([true, true, true])
+    expect(seenPrompts[1]).toContain('### paper (tools `paper__*`)')
+    expect(seenPrompts[2]).not.toContain('### paper (tools `paper__*`)')
+
+    // Ephemeral utility runs (like text generation) do not wrap their tools in the deferred proxy.
+    let ephemeralProxy: boolean | undefined
+    const ephemeral = setup({
+      'session/prompt': (_params, agent) => {
+        const token = mcpServersOf(agent, 'session/new')[0]!.headers.find((header) => header.name === 'Authorization')!.value.replace(/^Bearer /, '')
+        ephemeralProxy = runToolBindingFor(token)?.deferProxy
+        return { stopReason: 'end_turn' }
+      },
+    }, { agent: { deferToolsProxy: true } })
+    await ephemeral.backend.startRun(request({ tools: [echo], persistence: 'ephemeral' })).runPromise
+    expect(ephemeralProxy).toBe(false)
+    backend.shutdown()
+    ephemeral.backend.shutdown()
+  })
+
+  test('non-destructive Solus MCP tools and tool_search auto-allow in plan and auto modes while destructive tools still follow the mode', async () => {
+    const readTool: AgentTool = { ...echo, name: 'paper__get_basic_info', requiresApproval: false }
+    const deleteTool: AgentTool = { ...echo, name: 'paper__delete_all', requiresApproval: true }
+    const options = [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }, { optionId: 'deny', name: 'Deny', kind: 'reject_once' }]
+    const answers: Array<Json | undefined> = []
+    const { backend } = setup({
+      'session/prompt': async (_params, agent) => {
+        answers.push(await agent.request('session/request_permission', {
+          sessionId: 'thread-1',
+          toolCall: { toolCallId: 'c1', title: 'Run mcp_solus_tool_search', kind: 'other', rawInput: { query: 'paper' } },
+          options,
+        }))
+        answers.push(await agent.request('session/request_permission', {
+          sessionId: 'thread-1',
+          toolCall: { toolCallId: 'c2', title: 'Run mcp_solus_tool_call', kind: 'other', rawInput: { name: 'paper__get_basic_info', arguments: {} } },
+          options,
+        }))
+        answers.push(await agent.request('session/request_permission', {
+          sessionId: 'thread-1',
+          toolCall: { toolCallId: 'c3', title: 'Run mcp_solus_tool_call', kind: 'other', rawInput: { name: 'paper__delete_all', arguments: {} } },
+          options,
+        }))
+        return { stopReason: 'end_turn' }
+      },
+    }, { agent: { nameTool: antigravityAgent.nameTool } })
+
+    await backend.startRun(request({ tools: [readTool, deleteTool], permissionMode: 'plan' })).runPromise
+    expect(answers).toEqual([
+      { outcome: { outcome: 'selected', optionId: 'allow' } },
+      { outcome: { outcome: 'selected', optionId: 'allow' } },
+      { outcome: { outcome: 'selected', optionId: 'deny' } },
+    ])
     backend.shutdown()
   })
 
@@ -647,5 +781,88 @@ describe('AcpBackend file reads', () => {
     expect(reads[0]).toEqual({ content: 'two' })
     expect(reads[1]).toMatchObject({ message: 'This file is outside the session folders.' })
     backend.shutdown()
+  })
+})
+
+describe('Antigravity codebase folders', () => {
+  test('an approved attachment becomes readable through Solus during the same turn', async () => {
+    const attached = temporaryDirectory()
+    const path = join(attached, 'file.txt')
+    writeFileSync(path, 'attached file')
+    const reads: Array<Json | undefined> = []
+    let granted = false
+    const { backend } = setup({
+      'session/prompt': async (_params, agent) => {
+        reads.push(await agent.request('fs/read_text_file', { sessionId: 'thread-1', path }))
+        granted = true
+        reads.push(await agent.request('fs/read_text_file', { sessionId: 'thread-1', path }))
+        return { stopReason: 'end_turn' }
+      },
+    })
+    backend.useSessionFolders({ grantedFolderOf: (sessionId, target) => granted && sessionId === 'solus-session' && target === path ? attached : null })
+
+    try {
+      await backend.startRun(request({ cwd: temporaryDirectory() }), { sessionId: 'solus-session' }).runPromise
+      expect(reads[0]).toMatchObject({ message: 'This file is outside the session folders.' })
+      expect(reads[1]).toEqual({ content: 'attached file' })
+    } finally {
+      backend.shutdown()
+    }
+  })
+
+  test('the workspace uses the granted worktrees and refreshes on resume when the folders change', async () => {
+    const primary = temporaryDirectory()
+    const secondary = temporaryDirectory()
+    const attached = temporaryDirectory()
+    const otherHostPath = '/other-host/repo'
+    const seat = { home: temporaryDirectory(), launch: { env: { PATH: '/bin' } } } as TurnSeat
+    const { backend, agents, argumentsOfSpawns } = setup({
+      'session/resume': () => ({ configOptions: [] }),
+      'session/prompt': () => ({ stopReason: 'end_turn' }),
+    }, { agent: { launch: antigravityAgent.launch } })
+    const workingDirectory = { name: 'frontend', path: primary, state: 'git' } as const
+    const folder = { name: 'backend', path: secondary, state: 'git' } as const
+    const run = request({
+      cwd: primary,
+      seat,
+      additionalDirectories: [secondary, primary, secondary],
+      codebase: { name: 'App', workingDirectory, folders: [folder], otherHosts: [{ name: 'remote', host: 'Build host', path: otherHostPath }] },
+    })
+    const resume = { kind: 'resume', threadId: 'thread-1' } as const
+    const addedFolder = { name: 'docs', path: attached, state: 'plain' } as const
+
+    try {
+      await backend.startRun(run).runPromise
+      expect(argumentsOfSpawns[0]?.slice(-2)).toEqual(['--add-dir', secondary])
+      expect(argumentsOfSpawns[0]).not.toContain(otherHostPath)
+      const firstPrompt = JSON.stringify(agents[0]?.received.find(({ method }) => method === 'session/prompt')?.params)
+      expect(firstPrompt).toContain('<codebase')
+      expect(firstPrompt).toContain(secondary)
+      expect(firstPrompt).toContain(otherHostPath)
+
+      await backend.startRun({ ...run, conversation: resume, additionalDirectories: [primary, secondary] }).runPromise
+      expect(agents).toHaveLength(1)
+
+      await backend.startRun({
+        ...run,
+        conversation: resume,
+        additionalDirectories: [attached, secondary],
+        codebase: { name: 'App', workingDirectory, folders: [folder, addedFolder], otherHosts: [] },
+      }).runPromise
+      expect(agents).toHaveLength(2)
+      expect(argumentsOfSpawns[1]?.slice(-4)).toEqual([attached, secondary].sort().flatMap((path) => ['--add-dir', path]))
+      expect(agents[1]?.received.find(({ method }) => method === 'session/resume')?.params).toMatchObject({ sessionId: 'thread-1', cwd: primary })
+      const resumedPrompt = JSON.stringify(agents[1]?.received.find(({ method }) => method === 'session/prompt')?.params)
+      expect(resumedPrompt).toContain(attached)
+      expect(resumedPrompt).not.toContain(otherHostPath)
+
+      await backend.startRun({ ...run, conversation: resume, additionalDirectories: [], codebase: undefined }).runPromise
+      expect(agents).toHaveLength(3)
+      expect(argumentsOfSpawns[2]).not.toContain('--add-dir')
+      expect(agents[2]?.received.find(({ method }) => method === 'session/prompt')?.params).toMatchObject({ prompt: [{ type: 'text', text: run.prompt }] })
+      expect((await backend.loadSession('thread-1'))[0]?.content).toBe('Fix the bug')
+    } finally {
+      backend.shutdown()
+    }
   })
 })

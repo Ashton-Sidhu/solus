@@ -98,6 +98,7 @@ interface MergedEntry {
   expands: boolean
   valuesInFile: Set<string>
   secrets: EntrySecrets
+  oauthClientId?: string
 }
 
 /**
@@ -239,7 +240,7 @@ export class FoundServers {
     const projectPath = server.projectOnly ? caller.projectRoot ?? undefined : undefined
     const integration = server.transport.kind === 'stdio'
       ? this.saveCommand(caller, server.name, server.transport, existing, projectPath)
-      : await this.saveUrl(caller, server.name, server.transport.kind === 'http' ? server.transport.url : '', existing, projectPath)
+      : await this.saveUrl(caller, server.name, server.transport.kind === 'http' ? server.transport.url : '', existing, projectPath, merged.oauthClientId)
     const copied = request.useFileValues ? await this.copyValues(integration, ownerKey, merged.secrets) : 0
     // Names and counts only: a command, an argument, or a value can hold a secret.
     log.info('integration_found_added', { integrationId: integration.id, files: server.foundIn.map((place) => place.kind === 'file' ? place.file : 'port'), project: server.projectOnly, changed: existing !== null, copiedValues: copied })
@@ -259,8 +260,9 @@ export class FoundServers {
     return this.deps.writes.changeCommand(existing, { launch, envNames: sameNames ? undefined : transport.envNames }, caller.principal)
   }
 
-  private async saveUrl(caller: FoundServersCaller<string>, name: string, url: string, existing: Integration | null, projectPath: string | undefined): Promise<Integration> {
-    if (!existing) return this.deps.writes.addServer(caller.principal, caller.ownerKey, { name, url }, projectPath)
+  /** A new server takes the file's static OAuth client, if any; it applies only when the probe finds OAuth. */
+  private async saveUrl(caller: FoundServersCaller<string>, name: string, url: string, existing: Integration | null, projectPath: string | undefined, clientId: string | undefined): Promise<Integration> {
+    if (!existing) return this.deps.writes.addServer(caller.principal, caller.ownerKey, clientId ? { name, url, auth: { kind: 'automatic', client: { clientId } } } : { name, url }, projectPath)
     return this.deps.writes.changeServer(existing, { url, auth: (await probeForWrite(url)).auth }, caller.principal)
   }
 
@@ -528,7 +530,7 @@ function mergeByAddress(entries: ConfigEntry[]): MergedEntry[] {
     const key = addressOf(entry)
     const existing = merged.get(key)
     if (!existing) {
-      merged.set(key, { key, first: entry, places: [entry.place], transport: entry.transport && structuredClone(entry.transport), expands: entry.expands, valuesInFile: new Set(entry.valuesInFile), secrets: { env: new Map(entry.secrets.env), authorization: entry.secrets.authorization } })
+      merged.set(key, { key, first: entry, places: [entry.place], transport: entry.transport && structuredClone(entry.transport), expands: entry.expands, valuesInFile: new Set(entry.valuesInFile), secrets: { env: new Map(entry.secrets.env), authorization: entry.secrets.authorization }, oauthClientId: entry.oauthClientId })
       continue
     }
     mergeInto(existing, entry)
@@ -543,6 +545,7 @@ function mergeInto(existing: MergedEntry, entry: ConfigEntry): void {
   for (const name of entry.valuesInFile) existing.valuesInFile.add(name)
   for (const [name, value] of entry.secrets.env) if (!existing.secrets.env.has(name)) existing.secrets.env.set(name, value)
   existing.secrets.authorization ??= entry.secrets.authorization
+  existing.oauthClientId ??= entry.oauthClientId
   // The same command in two files may name different variables: it needs every one.
   if (existing.transport?.kind === 'stdio' && entry.transport?.kind === 'stdio') addNew(existing.transport.envNames, entry.transport.envNames)
   if (existing.transport?.kind === 'http' && entry.transport?.kind === 'http') addNew(existing.transport.headerNames, entry.transport.headerNames)

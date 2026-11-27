@@ -1,5 +1,5 @@
 import { isAbsoluteHostPath } from '@solus/contracts/host-path'
-import { integrationEnvNameSchema, integrationLaunchSchema, type FoundPlace, type FoundTransport } from '@solus/contracts/integration-types'
+import { integrationEnvNameSchema, integrationLaunchSchema, integrationOAuthClientInputSchema, type FoundPlace, type FoundTransport } from '@solus/contracts/integration-types'
 
 /**
  * One server entry of one config file, as the host read it
@@ -17,6 +17,8 @@ export interface ConfigEntry {
   /** The names whose plain value the file holds. Names only. */
   valuesInFile: string[]
   secrets: EntrySecrets
+  /** The static OAuth client ID the file gives a URL server. Not a secret: an add saves it as the owner's client. */
+  oauthClientId?: string
 }
 
 export interface EntrySecrets {
@@ -82,6 +84,8 @@ export interface UrlFields {
   url: string
   /** Header names with the value the file gives each. */
   headers: NamedValue[]
+  /** The OAuth client ID the file names for the server, when it has one. */
+  clientId?: string
 }
 
 /** A server at a URL, over Streamable HTTP or `sse`; its transport is null when the URL is not an http(s) address. */
@@ -98,5 +102,8 @@ export function urlEntry(place: FoundPlace, kind: 'http' | 'sse', fields: UrlFie
   // Only a fixed Authorization header is carried, as the person's key; other headers are not (§8.3, §20).
   const authorization = plainValue(fields.headers.find(([name]) => name.toLowerCase() === 'authorization')?.[1])
   const secrets: EntrySecrets = authorization === null ? NO_SECRETS : { env: new Map(), authorization }
-  return { place, transport: { kind: 'http', url, headerNames }, expands: false, valuesInFile: authorization === null ? [] : ['Authorization'], secrets }
+  const entry: ConfigEntry = { place, transport: { kind: 'http', url, headerNames }, expands: false, valuesInFile: authorization === null ? [] : ['Authorization'], secrets }
+  const client = integrationOAuthClientInputSchema.safeParse({ clientId: plainValue(fields.clientId) ?? undefined })
+  if (client.success) entry.oauthClientId = client.data.clientId
+  return entry
 }

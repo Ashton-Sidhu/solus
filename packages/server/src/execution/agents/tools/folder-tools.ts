@@ -28,7 +28,8 @@ export function attachOutcomeText(outcome: AttachOutcome, path: string, provider
       const codebase = outcome.addedToCodebase ? ' The folder is now in the codebase of this session.' : ''
       // Codex gets its writable folders at a turn start (docs/plans/codebases.md §6).
       const codex = provider === 'codex' ? ' You can read there now. A write there needs an approval in this turn, and none from the next turn.' : ''
-      return `Attached "${outcome.folder}". This session can now work in that folder.${codebase}${codex}`
+      const antigravity = provider === 'antigravity' ? ' You can read files there now through Solus. Antigravity adds the folder to its workspace when a new prompt starts a turn.' : ''
+      return `Attached "${outcome.folder}". This session can now work in that folder.${codebase}${codex}${antigravity}`
     }
     case 'available':
       return `"${path}" is already available: this session works in "${outcome.folder}".`

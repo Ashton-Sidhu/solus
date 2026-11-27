@@ -5,8 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { TurnSeat } from '@solus/server/execution/seats/seat-manager'
+import { AcpBackend } from '@solus/server/execution/agents/acp/acp-backend'
 import { AcpRequestError } from '@solus/server/execution/agents/acp/acp-connection'
 import {
+  antigravityAcceptsHttpMcp,
   antigravityAgent,
   antigravityArgs,
   antigravitySessionMeta,
@@ -35,6 +37,11 @@ function profileDirectory(): string {
 }
 
 describe('Antigravity launch', () => {
+  test('usage refreshes cannot probe an Antigravity account outside ACP', () => {
+    const backend = new AcpBackend({ agent: antigravityAgent, historyDirectory: profileDirectory() })
+    expect('readUsageLimits' in backend && backend.readUsageLimits).toBeFalsy()
+  })
+
   test('the host’s own Google credentials never answer for a profile, and agy cannot update itself', () => {
     const env = antigravityEnvironment({
       PATH: '/bin',
@@ -107,11 +114,23 @@ describe('Antigravity protocol', () => {
   test('a Solus tool called through agy shows as the same card as in a Claude session', () => {
     expect(nameAntigravityTool({ toolCallId: 't', title: 'Run mcp_solus_render_artifact', rawInput: { title: 'Chart' } }))
       .toEqual({ toolName: 'mcp__solus__render_artifact', toolInput: '{"title":"Chart"}' })
+    expect(nameAntigravityTool({ toolCallId: 't', title: 'Run mcp_solus_paper-design__get-node', rawInput: { id: '1' } }))
+      .toEqual({ toolName: 'mcp__solus__paper-design__get-node', toolInput: '{"id":"1"}' })
+    expect(nameAntigravityTool({ toolCallId: 't', title: 'Run mcp_solus_tool_call', rawInput: { name: 'paper__get_basic_info', arguments: { depth: 2 } } }))
+      .toEqual({ toolName: 'mcp__solus__paper__get_basic_info', toolInput: '{"depth":2}' })
+    expect(nameAntigravityTool({ toolCallId: 't', title: 'MCP Tool tool_call', rawInput: { ServerName: 'solus', ToolName: 'tool_call', Arguments: { name: 'read_session', arguments: { session_id: 's1' } } } }))
+      .toEqual({ toolName: 'mcp__solus__read_session', toolInput: '{"session_id":"s1"}' })
     expect(nameAntigravityTool({ toolCallId: 't', title: 'MCP Tool start_sessions', rawInput: { ServerName: 'solus', ToolName: 'start_sessions', Arguments: { sessions: [] } } }))
       .toEqual({ toolName: 'mcp__solus__start_sessions', toolInput: '{"sessions":[]}' })
     // Another server's tool of the same name keeps the agent's own title.
     expect(nameAntigravityTool({ toolCallId: 't', title: 'MCP Tool start_sessions', rawInput: { ServerName: 'other', ToolName: 'start_sessions' } })).toBeNull()
     expect(nameAntigravityTool({ toolCallId: 't', title: 'Read a.ts' })).toBeNull()
+  })
+
+  test('agy accepts HTTP MCP servers when initialize omits mcpCapabilities, unless explicitly false', () => {
+    expect(antigravityAcceptsHttpMcp({ protocolVersion: 1, agentCapabilities: { loadSession: true } })).toBe(true)
+    expect(antigravityAcceptsHttpMcp({ protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true } } })).toBe(true)
+    expect(antigravityAcceptsHttpMcp({ protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: false } } })).toBe(false)
   })
 
   test('agy’s sign-in errors are told apart from other failures', () => {

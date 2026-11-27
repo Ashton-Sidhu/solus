@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import { antigravityPlanTool } from '@solus/server/execution/agents/acp/antigravity'
 import { AntigravityChildCalls, antigravityChildRecord, type AntigravityChildRecord } from '@solus/server/execution/agents/acp/antigravity-children'
-import { request, setup, type FakeAgent, type Json } from './helpers/acp-fake-agent'
+import { request, setup, testAgent, type FakeAgent, type Json } from './helpers/acp-fake-agent'
 
 /** The `mode` option agy 1.5.18 offers in `session/new`. */
 const MODE_OPTION: Json = {
@@ -122,7 +122,10 @@ describe('Antigravity work after the prompt', () => {
         fake.update('thread-1', { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'scheduled.' } })
         return { stopReason: 'end_turn' }
       },
-    }, { agent: { startsDaemon: (toolCall) => JSON.stringify(toolCall.rawInput ?? null).includes('"IsDaemon":true') } })
+    }, { agent: {
+      launch: (run) => ({ ...testAgent.launch(run), workspaceKey: JSON.stringify(run.additionalDirectories ?? []) }),
+      startsDaemon: (toolCall) => JSON.stringify(toolCall.rawInput ?? null).includes('"IsDaemon":true'),
+    } })
     const wakes: string[] = []
     backend.on('background-task-completed', (threadId: string, prompt: string) => wakes.push(`${threadId}: ${prompt}`))
     await backend.startRun(request()).runPromise
@@ -133,10 +136,15 @@ describe('Antigravity work after the prompt', () => {
     expect(wakes).toEqual([`thread-1: ${backend.agentWorkPrompt}`])
 
     const before = events.length
-    await backend.startRun(request({ prompt: backend.agentWorkPrompt, conversation: { kind: 'resume', threadId: 'thread-1' } })).runPromise
+    await backend.startRun(request({
+      prompt: backend.agentWorkPrompt,
+      conversation: { kind: 'resume', threadId: 'thread-1' },
+      additionalDirectories: ['/new-folder'],
+    })).runPromise
     const turn = events.slice(before)
     expect(turn.filter((event) => event.type === 'text_chunk').map((event) => event.type === 'text_chunk' && event.text)).toEqual(['\n\ntick'])
     expect(turn.some((event) => event.type === 'task_complete')).toBe(true)
+    expect(agents).toHaveLength(1)
     expect(agents[0]!.methods().filter((method) => method === 'session/prompt')).toHaveLength(1)
     backend.shutdown()
   }, 10_000)

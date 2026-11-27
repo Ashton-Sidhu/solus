@@ -8,6 +8,7 @@
 
 import { z } from 'zod'
 import type { UserId } from './user'
+import type { SetupAgent } from './types'
 
 /**
  * Whose credential a turn runs on (plans/012-user-actor-and-activity.md §3): the
@@ -29,6 +30,9 @@ export const seatProviderSchema = z.enum(['claude-code', 'codex', 'antigravity']
 export type SeatProvider = z.infer<typeof seatProviderSchema>
 
 export const SEAT_PROVIDERS: readonly SeatProvider[] = seatProviderSchema.options
+
+/** The seat provider of a setup agent: the host login of a setup agent is the owner's seat. */
+export const SETUP_AGENT_SEAT_PROVIDERS = { claude: 'claude-code', codex: 'codex', agy: 'antigravity' } as const satisfies Record<SetupAgent, SeatProvider>
 
 /**
  * `none`: no credential for this member. `connecting`: a relayed sign-in is waiting

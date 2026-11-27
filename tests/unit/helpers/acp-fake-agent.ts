@@ -135,13 +135,15 @@ export const testAgent: AcpAgent = {
 export function setup(handlers: FakeAgent['handlers'], options: { agents?: FakeAgent[]; agent?: Partial<AcpAgent> } = {}) {
   const agents = options.agents ?? []
   const spawns: NodeJS.ProcessEnv[] = []
+  const argumentsOfSpawns: string[][] = []
   const indexed: Array<{ threadId: string; messages: SessionLoadMessage[] }> = []
   const backend = new AcpBackend({
     agent: { ...testAgent, ...options.agent },
     historyDirectory: temporaryDirectory(),
     indexMessages: (threadId, messages) => indexed.push({ threadId, messages }),
-    spawnAgent: (_file, _args, spawnOptions) => {
+    spawnAgent: (_file, args, spawnOptions) => {
       spawns.push(spawnOptions.env)
+      argumentsOfSpawns.push(args)
       const agent = new FakeAgent({
         initialize: () => INITIALIZE,
         authenticate: () => ({}),
@@ -158,7 +160,7 @@ export function setup(handlers: FakeAgent['handlers'], options: { agents?: FakeA
   backend.on('exit', (_sessionId: string | null, code: number | null, signal: string | null) => exits.push({ code, signal }))
   const errors: Error[] = []
   backend.on('error', (_sessionId: string | null, error: Error) => errors.push(error))
-  return { backend, events, exits, agents, errors, spawns, indexed }
+  return { backend, events, exits, agents, errors, spawns, indexed, argumentsOfSpawns }
 }
 
 export function request(overrides: Partial<AgentRunRequest> = {}): AgentRunRequest {

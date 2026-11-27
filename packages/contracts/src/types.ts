@@ -4,7 +4,7 @@ import type { SessionSearchReason, SessionSearchTarget } from './session-search'
 import { hostPathKey } from './host-path'
 import type { ReplyHtmlLayout, WireSessionLoadMessage } from './session-history'
 import type { SecretOutcomeRecord } from './secret-request'
-import type { AddMachineAsk } from './add-machine'
+import type { AddMachineAsk, HostProvidersAsk } from './add-machine'
 import type { CloudMachineAsk } from './cloud-machine-card'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
@@ -158,6 +158,9 @@ export interface HostCapabilities {
 
 /** An agent CLI the host setup installs, by its command name. `agy` is Antigravity's. */
 export type SetupAgent = 'claude' | 'codex' | 'agy'
+
+/** Each setup agent's name, as Solus writes it to a person. */
+export const SETUP_AGENT_LABELS = { claude: 'Claude Code', codex: 'Codex', agy: 'Google Antigravity' } as const satisfies Record<SetupAgent, string>
 /** Signing an agent in is a seat connect (`seats.ts`), not a setup step. */
 export type SetupStreamStep =
   | 'install-claude' | 'install-codex' | 'install-agy' | 'install-git' | 'install-gh' | 'clone'
@@ -672,7 +675,8 @@ export function runtimeModelVariant(
 
 /** A provider can report a runtime variant instead of the selectable model id.
  * Resolve that variant through the same profile so user-facing surfaces do not
- * leak backend syntax such as Claude's `[1m]` suffix. */
+ * leak backend syntax such as Claude's `[1m]` suffix. The bundled list can name
+ * a model missing from the host's published list. */
 export function modelLabelFor(
   provider: AgentId | null | undefined,
   modelId: string | null | undefined,
@@ -680,7 +684,9 @@ export function modelLabelFor(
   if (!modelId) return null
   if (!provider) return modelId
   const selectableModelId = runtimeModelVariant(provider, modelId).modelId
-  return MODEL_PROFILES[provider]?.[selectableModelId]?.label ?? modelId
+  return MODEL_PROFILES[provider]?.[selectableModelId]?.label
+    ?? BUNDLED_MODEL_PROFILES[provider]?.[selectableModelId]?.label
+    ?? modelId
 }
 
 /**
@@ -841,10 +847,13 @@ export interface QuestionRequest {
   responseMode?: 'message'
   /** `secret`: a private card from `request_secret`, one question per secret; it is answered with `secretRequestAnswer`, never `respondQuestion` (docs/plans/webhooks.md §3.6).
    *  `host-link`: the Add machine card from `add_host`, with `hostLink`; the client answers it with `respondQuestion` and `addMachineOutcomeAnswers` (docs/plans/add-machine-card.md).
-   *  `cloud-machine`: the machine card of a cloud machine tool, with `cloudMachine`; the client answers it with `respondQuestion` and `cloudMachineAnswers` (plans/035-cloud-machine-tools.md §6). */
-  kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link' | 'cloud-machine'
+   *  `cloud-machine`: the machine card of a cloud machine tool, with `cloudMachine`; the client answers it with `respondQuestion` and `cloudMachineAnswers` (plans/035-cloud-machine-tools.md §6).
+   *  `host-providers`: the Sign in card of `add_host`, with `hostProviders`; the session host closes it when the provider signs in, and a client answers it only to skip, with `hostProvidersSkipAnswers` (docs/host-provider-sign-in.md). */
+  kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link' | 'cloud-machine' | 'host-providers'
   /** `host-link` only: what the agent asks to add. */
   hostLink?: AddMachineAsk
+  /** `host-providers` only: the new host and the provider that the work needs there. */
+  hostProviders?: HostProvidersAsk
   /** `cloud-machine` only: the choices the card collects. */
   cloudMachine?: CloudMachineAsk
   message?: string
@@ -2184,7 +2193,7 @@ export type NormalizedEvent =
    *  form is answered with an extra `__action` entry, so anything answering this
    *  request has to be able to tell the two apart. */
   | { type: 'question_answered'; answer: QuestionAnswer; timestamp: number }
-  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link' | 'cloud-machine'; hostLink?: AddMachineAsk; cloudMachine?: CloudMachineAsk; turnAuthor?: User }
+  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link' | 'cloud-machine' | 'host-providers'; hostLink?: AddMachineAsk; hostProviders?: HostProvidersAsk; cloudMachine?: CloudMachineAsk; turnAuthor?: User }
   /** Provider context compaction. Claude can report one completed interval by
    *  duration and its token counts; Codex can report start and stop item
    *  boundaries. A stop that is not `failed` draws the compaction divider. */
@@ -2686,13 +2695,35 @@ export interface UsageWindow {
   resetsLabel: string | null
 }
 
-/** Normalized quota snapshot for one provider. Both windows are nullable:
- *  Codex accounts may not report a 5h window, and a Claude parse miss must
- *  degrade to null rather than invent a number. */
-export interface AgentUsageLimits {
-  provider: AgentId
+/** Subscription windows shared by a group of models. */
+export interface AgentUsageModelGroup {
+  id: string
+  label: string
   fiveHour: UsageWindow | null
   weekly: UsageWindow | null
+}
+
+export interface UsageLimitsReadOptions {
+  /** Bypass the host's refresh interval cache and read fresh quota from each harness. */
+  force?: boolean
+}
+
+/** Normalized quota snapshot for one provider or provider instance. Both windows
+ *  are nullable: Codex accounts may not report a 5h window, and a Claude parse
+ *  miss must degrade to null rather than invent a number. */
+export interface AgentUsageLimits {
+  provider: AgentId
+  /** Configured provider instance id when read from a specific instance. Absent
+   *  or equal to `provider` for the built-in instance. */
+  instanceId?: string
+  /** Display name of the configured provider instance (e.g. "Work Codex"). */
+  instanceLabel?: string
+  /** Account email when the provider reports it during usage reads. */
+  accountEmail?: string | null
+  fiveHour: UsageWindow | null
+  weekly: UsageWindow | null
+  /** Group quota for display. The provider-wide windows above drive turn admission. */
+  modelGroups?: AgentUsageModelGroup[]
   /** A monthly spend cap, for an account that has no 5h or weekly window
    *  (a Claude Enterprise seat). The provider gives no reset time for it. */
   monthly?: UsageWindow | null

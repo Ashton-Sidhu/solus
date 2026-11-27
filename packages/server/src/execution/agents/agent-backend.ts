@@ -17,6 +17,7 @@ import type { ProviderHistoryPage, SessionLoadMessage, SessionPreviewResult } fr
 import type { AgentRunRequest, AgentRunSessionState } from './agent-runner'
 import type { SessionFolderGate } from './session-folder-gate'
 import type { TurnSeat } from '../seats/seat-manager'
+import type { ProviderRuntime } from '../seats/provider-runtime'
 import type { ThreadFile } from '../../sync/sessions/session-archive-writer'
 import type { ThreadImportRequest, ThreadImportResult } from './thread-import'
 
@@ -81,6 +82,11 @@ export interface BackendEvents {
    *  the agent for it (a Codex native sub-agent nested under another one). The
    *  control plane ends the session's background wait. Codex only. */
   'background-work-ended': (sessionId: string) => void
+  /** The agent could not continue its thread where this run is (another member's
+   *  seat, or another host after the session cloud copy), so the thread goes on in
+   *  a new agent session that reads the handoff transcript. The control plane
+   *  draws the handoff divider, as for a switch. ACP agents only. */
+  'thread-handed-off': (sessionId: string, model: string | null) => void
 }
 
 /**
@@ -146,8 +152,8 @@ export interface AgentBackend extends EventEmitter {
   /** Asks for an incremental refresh of durable session metadata when the
    *  provider supports it. Requests in a short window cost one refresh. */
   requestSessionIndexRefresh?(): void
-  /** Subscription quota windows, when the provider exposes them; for a member's seat when one is given. */
-  readUsageLimits?(seat?: TurnSeat): Promise<AgentUsageLimits | null>
+  /** Subscription quota windows, when the provider exposes them; for a member's seat or custom provider instance when given. */
+  readUsageLimits?(seat?: TurnSeat, runtime?: ProviderRuntime): Promise<AgentUsageLimits | null>
 
   shutdown?(): void
   readonly permissions: PermissionResponder

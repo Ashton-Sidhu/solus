@@ -18,9 +18,10 @@
  *   WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
  */
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import { launchedProcess, launchOptions } from '../../../cli-env'
+import { resolveHomePath } from '../../../platform/paths'
 import type { TodoItem } from '@solus/contracts/types'
 import type { AgentRunRequest } from '../agent-runner'
 import type { AcpAgent } from './acp-agent'
@@ -31,6 +32,7 @@ import { managedPath, watchAntigravityTurnOutcome } from './antigravity-turn-out
 import { AcpRequestError } from './acp-connection'
 import type { AcpInitializeResult, AcpToolCall } from './acp-protocol'
 import type { AcpPlanTool, AcpStepsTool, AcpToolPresentation } from './acp-turn-normalizer'
+import { TOOL_CALL, TOOL_SEARCH } from '../tools/deferred-tool-proxy'
 import { antigravityChildCalls } from './antigravity-children'
 
 /** The Antigravity CLI's command. A managed install is found under this name too (`cli-env.ts`). */
@@ -72,11 +74,26 @@ export function antigravitySessionMeta(initializeResult: z.core.util.JSONType | 
 export const SOLUS_MCP_SERVER_NAME = 'solus'
 
 // agy 1.5.8 and later title a call "Run mcp_<server>_<tool>"; earlier releases name no server.
-const MCP_TITLE = new RegExp(`^Run mcp_${SOLUS_MCP_SERVER_NAME}_(?<tool>[A-Za-z0-9_]+)\\??$`)
+const MCP_TITLE = new RegExp(`^Run mcp_${SOLUS_MCP_SERVER_NAME}_(?<tool>[A-Za-z0-9_-]+)\\??$`)
 // call_mcp_tool is the one call whose input names a server and a tool.
-const PROXIED_MCP_TITLE = /^MCP Tool (?<tool>[A-Za-z0-9_]+)\??$/
+const PROXIED_MCP_TITLE = /^MCP Tool (?<tool>[A-Za-z0-9_-]+)\??$/
 
 const proxiedInputSchema = z.looseObject({ ServerName: z.string(), ToolName: z.string(), Arguments: z.json().optional() })
+const deferredCallInputSchema = z.looseObject({ name: z.string().trim().min(1), arguments: z.json().optional() })
+
+function presentSolusTool(tool: string, rawInput: AcpToolCall['rawInput']): AcpToolPresentation {
+  if (tool === TOOL_CALL) {
+    const wrapped = deferredCallInputSchema.safeParse(rawInput)
+    if (wrapped.success && wrapped.data.name !== TOOL_CALL && wrapped.data.name !== TOOL_SEARCH) {
+      const presentation: AcpToolPresentation = { toolName: `mcp__${SOLUS_MCP_SERVER_NAME}__${wrapped.data.name}` }
+      if (wrapped.data.arguments !== undefined) presentation.toolInput = JSON.stringify(wrapped.data.arguments)
+      return presentation
+    }
+  }
+  const presentation: AcpToolPresentation = { toolName: `mcp__${SOLUS_MCP_SERVER_NAME}__${tool}` }
+  if (rawInput !== undefined) presentation.toolInput = JSON.stringify(rawInput)
+  return presentation
+}
 
 /** A Solus tool called through agy shows as the same card a Claude session shows (`mcp__solus__<tool>`). */
 export function nameAntigravityTool(toolCall: AcpToolCall): AcpToolPresentation | null {
@@ -87,15 +104,10 @@ export function nameAntigravityTool(toolCall: AcpToolCall): AcpToolPresentation 
   if (proxied) {
     const input = proxiedInputSchema.safeParse(toolCall.rawInput)
     if (!input.success || input.data.ServerName !== SOLUS_MCP_SERVER_NAME || input.data.ToolName !== proxied) return null
-    const presentation: AcpToolPresentation = { toolName: `mcp__solus__${proxied}` }
-    if (input.data.Arguments !== undefined) presentation.toolInput = JSON.stringify(input.data.Arguments)
-    return presentation
+    return presentSolusTool(proxied, input.data.Arguments)
   }
   const tool = MCP_TITLE.exec(title)?.groups?.tool
-  if (!tool) return null
-  const presentation: AcpToolPresentation = { toolName: `mcp__solus__${tool}` }
-  if (toolCall.rawInput !== undefined) presentation.toolInput = JSON.stringify(toolCall.rawInput)
-  return presentation
+  return tool ? presentSolusTool(tool, toolCall.rawInput) : null
 }
 
 // agy 1.5.0 steers a running turn with the next `session/prompt`; 1.4 queued it as a new turn.
@@ -110,6 +122,15 @@ export function antigravitySteersWithPrompt(initialize: AcpInitializeResult): bo
     if (version[index]! !== part) return version[index]! > part
   }
   return true
+}
+
+/**
+ * Whether this agy connects to HTTP MCP servers in `session/new` and `session/resume`.
+ * agy 1.5.18 omits `mcpCapabilities` from `initialize` even though it connects to them;
+ * only an explicit `false` turns them off.
+ */
+export function antigravityAcceptsHttpMcp(initialize: AcpInitializeResult): boolean {
+  return initialize.agentCapabilities?.mcpCapabilities?.http !== false
 }
 
 /** A permission request whose tool call id starts with this is a question from the agent (§5.3). */
@@ -176,6 +197,7 @@ export const antigravityAgent: AcpAgent = {
   label: 'Google Antigravity',
   signInMessage: ANTIGRAVITY_SIGN_IN_MESSAGE,
   mcpServerName: SOLUS_MCP_SERVER_NAME,
+  deferToolsProxy: true,
   nameTool: nameAntigravityTool,
   stepsTool: antigravityStepsTool,
   planTool: antigravityPlanTool,
@@ -189,6 +211,7 @@ export const antigravityAgent: AcpAgent = {
   isQuestion: isAntigravityQuestion,
   sessionMeta: antigravitySessionMeta,
   steersWithPrompt: antigravitySteersWithPrompt,
+  acceptsHttpMcp: antigravityAcceptsHttpMcp,
   listCommands(workingDirectory, seat) {
     const profile = seat?.home ?? hostAntigravityProfile()
     if (profile === hostAntigravityProfile()) linkHostGeminiConfig(profile)
@@ -205,11 +228,24 @@ export const antigravityAgent: AcpAgent = {
     if (profile === hostAntigravityProfile()) linkHostGeminiConfig(profile)
     const env = antigravityEnvironment(base.env, profile, auth)
     // The binary path of the person's Google Antigravity instance, when they set one.
-    const run = launchedProcess({ ...base, env }, request.providerRuntime?.binaryPath ?? ANTIGRAVITY_COMMAND, antigravityArgs(profile))
+    const cwd = request.cwd === undefined ? undefined : resolve(resolveHomePath(request.cwd))
+    const directories = [...new Set(request.additionalDirectories?.map((path) => resolve(resolveHomePath(path))))]
+      .filter((path) => path !== cwd).sort()
+    const args = antigravityArgs(profile)
+    const run = launchedProcess({ ...base, env }, request.providerRuntime?.binaryPath ?? ANTIGRAVITY_COMMAND, args)
     const connectionKey = createHash('sha256').update(JSON.stringify({ profile, file: run.file, args: run.args, auth: auth.method, key: auth.apiKey ?? null, gcp: [auth.gcpProject, auth.gcpLocation] })).digest('hex')
     // Each launch unpacks about 1 GB into its temp folder. A process that runs as another user keeps the host's.
     const tempRoot = base.user ? null : join(profile, ANTIGRAVITY_APP_DATA_DIR, 'tmp')
-    return { file: run.file, args: run.args, env: run.env, connectionKey, authMethod: auth.method, tempRoot, place: profile }
+    return {
+      file: run.file,
+      args: [...run.args, ...directories.flatMap((path) => ['--add-dir', path])],
+      env: run.env,
+      connectionKey,
+      workspaceKey: JSON.stringify([cwd, directories]),
+      authMethod: auth.method,
+      tempRoot,
+      place: profile,
+    }
   },
 }
 

@@ -30,6 +30,7 @@ function backendIn(historyDirectory: string, hasThread: (place: string, agentSes
         initialize: () => INITIALIZE,
         'session/new': () => ({ sessionId: `agy-${++sessions}`, configOptions: [] }),
         'session/resume': () => ({ configOptions: [] }),
+        'session/set_model': () => ({}),
         'session/prompt': (params, self) => {
           const sessionId = (params as { sessionId: string }).sessionId
           self.update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `answer in ${sessionId}` } })
@@ -50,10 +51,12 @@ describe('An Antigravity thread in another place', () => {
   test("a member's turn goes on in their own profile by handoff, and stays the same Solus thread", async () => {
     const own = new Set(['owner:agy-1'])
     const { backend, agents } = backendIn(temporaryDirectory(), (place, agentSessionId) => own.has(`${place}:${agentSessionId}`))
+    const handoffs: Array<[string, string | null]> = []
+    backend.on('thread-handed-off', (threadId: string, model: string | null) => handoffs.push([threadId, model]))
     await backend.startRun(request({ prompt: 'Start' })).runPromise
 
     // The second member's profile has no `agy-1`.
-    const member = backend.startRun(request({ prompt: 'Go on', seat: seat('member'), conversation: { kind: 'resume', threadId: 'agy-1' } }))
+    const member = backend.startRun(request({ prompt: 'Go on', model: 'gemini-3.8-flash', seat: seat('member'), conversation: { kind: 'resume', threadId: 'agy-1' } }))
     await member.runPromise
     const memberAgent = agents[1]!
     expect(received(memberAgent, 'session/resume')).toEqual([])
@@ -62,11 +65,15 @@ describe('An Antigravity thread in another place', () => {
     const transcript = /read the prior conversation transcript at: (\S+)/.exec(opened._meta!.systemPrompt!)![1]!
     expect(readFileSync(transcript, 'utf8')).toContain('answer in agy-1')
     expect(received(memberAgent, 'session/prompt')[0]!.sessionId).toBe('agy-2')
+    // The transcript gets the handoff divider, as for a switch of agent or model.
+    expect(handoffs).toEqual([['agy-1', 'gemini-3.8-flash']])
 
     // The member's next turn resumes their own agent session; the thread's history is one.
     await backend.startRun(request({ prompt: 'More', seat: seat('member'), conversation: { kind: 'resume', threadId: 'agy-1' } })).runPromise
     expect(received(memberAgent, 'session/prompt').map((params) => params.sessionId)).toEqual(['agy-2', 'agy-2'])
     expect((await backend.loadSession('agy-1')).filter((row) => row.role === 'user').map((row) => row.content)).toEqual(['Start', 'Go on', 'More'])
+    // The member's own agent session continues with no new handoff.
+    expect(handoffs).toHaveLength(1)
     // The owner's profile still resumes the first agent session (one connection per thread: a new one).
     await backend.startRun(request({ prompt: 'Back', conversation: { kind: 'resume', threadId: 'agy-1' } })).runPromise
     expect(received(agents.at(-1)!, 'session/resume').map((params) => params.sessionId)).toEqual(['agy-1'])

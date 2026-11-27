@@ -34,6 +34,12 @@ const oauthAuthSchema = z.object({
   /** True when the owner also saved a client secret. The secret itself never leaves the host. */
   hasClientSecret: z.boolean().optional(),
   /**
+   * The public client ID the server gave Solus when Solus registered itself
+   * (docs/plans/mcp-oauth-callback.md). Some servers give every client the same
+   * static ID (HiddenLayer's); the owner's client form starts from it.
+   */
+  registeredClientId: z.string().min(1).max(512).optional(),
+  /**
    * `client-required` only because Solus's Client ID Metadata Document was not
    * confirmed when the server refused (mcp-integrations.md §13.1): the server
    * reads such documents but has no registration endpoint. The host takes the
@@ -150,6 +156,17 @@ export type IntegrationLaunch = z.infer<typeof integrationLaunchSchema>
 export const stdioServerAddressSchema = z.string().regex(/^stdio:[0-9a-f]{16}$/)
 
 /**
+ * A server's own icon (MCP `serverInfo.icons`) as `data:` URIs that the host
+ * fetched, so no client fetches an address the server chose: one for a light
+ * background, and one for a dark background when the server has one.
+ */
+export const integrationIconSchema = z.object({
+  light: z.string().startsWith('data:image/'),
+  dark: z.string().startsWith('data:image/').optional(),
+})
+export type IntegrationIcon = z.infer<typeof integrationIconSchema>
+
+/**
  * A root record (§3.3). Every integration is one person's (docs/plans/access-model.md,
  * D3): its owner alone sees, uses, and changes it. `slug` is the tool prefix,
  * unique among the owner's integrations in an organization.
@@ -183,6 +200,8 @@ export const integrationSchema = z.object({
   updatedAt: z.string(),
   /** The reader's resource role (docs/plans/access-model.md §2.7): `owner` on every one a host answers, since an integration is personal. Absent in the store. */
   role: resourceRoleSchema.optional(),
+  /** The server's own icon, when it sent one and the host could fetch it. Absent in the store: the host keeps it in `integration_icon`. */
+  icon: integrationIconSchema.optional(),
 })
 export type Integration = z.infer<typeof integrationSchema>
 

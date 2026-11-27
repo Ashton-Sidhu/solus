@@ -12,7 +12,7 @@ import { solusDir } from '../../platform/paths'
 import { memberFolderFor, recordedMemberFolder } from '../../host/member-folders'
 import { hostClaudeDir, hostCodexHome, providerLoginConnected } from './seat-login'
 import { AGENT_LABELS } from '@solus/contracts/types'
-import { ANTIGRAVITY_ADC_FILE, ANTIGRAVITY_SIGN_IN_FILE, ANTIGRAVITY_TOKEN_FILE, antigravitySignInRecord, hostAntigravityProfile, type AntigravityAuth } from '../agents/acp/antigravity-auth'
+import { ANTIGRAVITY_ADC_FILE, ANTIGRAVITY_SIGN_IN_FILE, ANTIGRAVITY_TOKEN_FILE, antigravitySignedIn, antigravitySignInRecord, hostAntigravityProfile, type AntigravityAuth } from '../agents/acp/antigravity-auth'
 import { ANTIGRAVITY_BROWSER_MARKER } from './antigravity-enterprise-sign-in'
 import type { AntigravityCredential } from '@solus/contracts/seats'
 import { identityFor } from './acting-identity'
@@ -291,7 +291,10 @@ export class SeatManager implements SeatStore {
    *  command — a process, not a row. Everything a seat row answers is still read
    *  from the row. */
   async status(seat: Seat, provider: SeatProvider): Promise<SeatStatus> {
-    if (seat.kind === 'user') await this.adoptPresentLogin(seat, provider)
+    if (seat.kind === 'user') {
+      this.forgetLostSignIn(seat, provider)
+      await this.adoptPresentLogin(seat, provider)
+    }
     const isHostLogin = seat.kind === 'host-login'
     const row = this.row(seat, provider)
     if (!row) {
@@ -305,7 +308,7 @@ export class SeatManager implements SeatStore {
       provider,
       state: row.state,
       // A pasted Claude token is `user:inference` only; `/usage` cannot read its quota.
-      // Google publishes no quota endpoint for Antigravity (docs/plans/antigravity-provider.md §9).
+      // Antigravity's print command may read the host keyring. It is only used for the host login.
       usageCapable: row.state === 'connected' && provider !== 'antigravity' && !(provider === 'claude-code' && row.method === 'token'),
     }
     if (row.method) status.method = row.method
@@ -332,6 +335,7 @@ export class SeatManager implements SeatStore {
         return { seat, provider, home: this.homeFor(seat, provider), launch: await identityFor(seat).launchOptions() }
       }
     }
+    this.forgetLostSignIn(seat, provider)
     await this.adoptPresentLogin(seat, provider)
     const row = this.row(seat, provider)
     if (!row) throw new SeatRequiredError(provider, 'none')
@@ -587,6 +591,21 @@ export class SeatManager implements SeatStore {
     // Names the member folder, as a sign-in here would have; a login already under the user id keeps that folder.
     this.userHome(seat, provider)
     await this.announce(seat, provider)
+  }
+
+  /**
+   * Where each member is a Linux user, the seat folders are in memory (`/run`): a
+   * restart keeps the seat's row in the database and loses the Antigravity sign-in,
+   * which no vault brings back. That seat is not connected any more, so the member
+   * is asked to sign in again before a turn fails on it.
+   */
+  private forgetLostSignIn(seat: Extract<Seat, { kind: 'user' }>, provider: SeatProvider): void {
+    if (provider !== 'antigravity' || !memberUsers()) return
+    if (this.row(seat, provider)?.state !== 'connected') return
+    if (antigravitySignedIn(this.userHome(seat, provider))) return
+    this.deleteRow(seat, provider)
+    log.info('seat_sign_in_lost', { seat: seatKey(seat), provider })
+    void this.announce(seat, provider)
   }
 
   private row(seat: Seat, provider: SeatProvider): SeatRow | null {

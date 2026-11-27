@@ -456,6 +456,13 @@ export function launchedProcess(launch: LaunchOptions, file: string, args: reado
   return { file: memberSwitch, args: [String(launch.user.uid), '--', file, ...args], env: launch.env }
 }
 
+/** The member's user that a command line from `launchedProcess` runs as; null when it runs as the server. */
+export function memberUserOfCommand(command: readonly string[]): ProcessUser | null {
+  if (!memberSwitch || command[0] !== memberSwitch || command[2] !== '--') return null
+  const uid = Number(command[1])
+  return Number.isInteger(uid) ? { uid } : null
+}
+
 let actingLaunch: ((extraEnv?: NodeJS.ProcessEnv) => LaunchOptions) | null = null
 
 /**

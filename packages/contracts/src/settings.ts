@@ -225,7 +225,7 @@ export const PERSONAL_SETTING_SCHEMAS = {
   sidebarMotionMs: z.number().int().min(0).max(MAX_SIDEBAR_MOTION_MS),
   sidebarView: z.enum(SIDEBAR_VIEWS).describe('How the session sidebar on desktop and web groups sessions. status: by status, with a Working section. project: one folder per project.'),
   /** Ids, not an enum: a client keeps the ids another version knows and it does not. */
-  projectPanelHiddenItems: z.array(z.string().min(1).max(MAX_PROJECT_PANEL_ITEM_ID)).max(MAX_PROJECT_PANEL_HIDDEN_ITEMS).describe('The rows and sections that the project panel on desktop and web does not show, by id: a section (environment, git, goal, agents, webhooks) or a row kind in one (environment.terminal, git.branch, goal.budget, agents.previous, and others). Empty shows all.'),
+  projectPanelHiddenItems: z.array(z.string().min(1).max(MAX_PROJECT_PANEL_ITEM_ID)).max(MAX_PROJECT_PANEL_HIDDEN_ITEMS).describe('The rows and sections that the project panel on desktop and web does not show, by id: a section (environment, git, goal, agents, webhooks) or a row kind in one (environment.terminal, environment.usage, git.branch, goal.budget, agents.previous, and others). Empty shows all; environment.usage is hidden by default.'),
   /** Ids, not an enum, for the same reason as `projectPanelHiddenItems`. */
   sidebarPlaces: z.object({
     order: z.array(z.string().min(1).max(MAX_SIDEBAR_PLACE_ID)).max(MAX_SIDEBAR_PLACES),
@@ -332,7 +332,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   sidebarCompletedRetentionDays: DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS,
   sidebarMotionMs: DEFAULT_SIDEBAR_MOTION_MS,
   sidebarView: 'status',
-  projectPanelHiddenItems: [],
+  projectPanelHiddenItems: ['environment.usage'],
   sidebarPlaces: { order: [], hidden: [] },
   sidebarApps: [],
   issueSources: [],

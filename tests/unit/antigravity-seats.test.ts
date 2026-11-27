@@ -227,3 +227,56 @@ describe('Antigravity managed install', () => {
     expect(readFileSync(join(root, 'releases', selection.release, 'agy.exe'), 'utf8')).toBe('agy executable')
   })
 })
+
+describe('Antigravity seats where each member is a Linux user', () => {
+  test('a restart that loses the member’s Antigravity sign-in leaves their seat not connected', async () => {
+    // WHY: there the seat folders are in memory (`/run`), and the seat row is in the
+    // database, which the backup keeps. After a restart the row said `connected` while
+    // the sign-in was gone, so the member saw a seat that no turn could use.
+    const { MemberUsers, useMemberUsers } = await import('@solus/server/host/member-users')
+    const { seats, root, db } = manager()
+    const usersFile = join(root, 'member-users.json')
+    writeFileSync(usersFile, JSON.stringify({
+      layout: { switch: '/usr/bin/switch', shared: '/shared', reviews: '/reviews' },
+      users: [{ userId: 'bob', username: 'bob', uid: 20000, home: join(root, 'members', 'bob'), secrets: join(root, 'seats', 'github', 'bob') }],
+    }))
+    useMemberUsers(new MemberUsers(usersFile))
+    try {
+      const profile = join(root, 'seats', 'antigravity', 'bob')
+      const connect = () => db.prepare("INSERT OR REPLACE INTO provider_seat (user_id, provider, state, method, error, connected_at, last_used_at, updated_at) VALUES ('bob', 'antigravity', 'connected', 'login', NULL, 1, 1, 1)").run()
+
+      // The sign-in is in the profile: the seat stays connected.
+      mkdirSync(profile, { recursive: true })
+      writeFileSync(join(profile, 'solus-sign-in.json'), JSON.stringify({ method: 'oauth-personal', verifiedAt: 1 }))
+      connect()
+      expect((await seats.status(BOB, 'antigravity')).state).toBe('connected')
+
+      // The restart emptied the profile: the seat is not connected, and a turn asks for a sign-in.
+      rmSync(profile, { recursive: true, force: true })
+      mkdirSync(profile, { recursive: true })
+      const fresh = new SeatManager({
+        db,
+        seatsRoot: join(root, 'seats'),
+        hostClaudeDir: join(root, 'home', '.claude'),
+        hostCodexHome: join(root, 'home', '.codex'),
+        hostAntigravityProfile: join(root, 'data', 'agents', 'agy', 'profile'),
+        hostLoginConnected: async () => false,
+        memberLoginConnected: providerLoginConnected,
+      })
+      expect((await fresh.status(BOB, 'antigravity')).state).toBe('none')
+      expect(db.prepare("SELECT COUNT(*) AS rows FROM provider_seat WHERE user_id = 'bob'").get()).toEqual({ rows: 0 })
+      connect()
+      await expect(new SeatManager({
+        db,
+        seatsRoot: join(root, 'seats'),
+        hostClaudeDir: join(root, 'home', '.claude'),
+        hostCodexHome: join(root, 'home', '.codex'),
+        hostAntigravityProfile: join(root, 'data', 'agents', 'agy', 'profile'),
+        hostLoginConnected: async () => false,
+        memberLoginConnected: providerLoginConnected,
+      }).resolveForTurn(BOB, 'antigravity')).rejects.toMatchObject({ state: 'none' })
+    } finally {
+      useMemberUsers(null)
+    }
+  })
+})

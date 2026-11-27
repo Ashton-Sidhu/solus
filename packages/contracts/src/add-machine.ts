@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { HostOperatingSystem } from './types'
+import type { HostOperatingSystem, SetupAgent } from './types'
 
 /**
  * Add a machine from the conversation (docs/plans/add-machine-card.md). The
@@ -45,6 +45,28 @@ export function readAddMachineOutcome(answers: Record<string, string>): AddMachi
   const way = answers.way
   if (answers.status !== 'added' || !answers.installationId || (way !== 'ssh' && way !== 'approve' && way !== 'code')) return null
   return { status: 'added', installationId: answers.installationId, way }
+}
+
+/**
+ * The Sign in card of `add_host` (question kind `host-providers`,
+ * docs/host-provider-sign-in.md): the machine is added, but the provider that
+ * the work needs is not signed in there. The session host closes the card when
+ * the new host reports the provider signed in. A client answers it only to
+ * skip, with `hostProvidersSkipAnswers`.
+ */
+export interface HostProvidersAsk {
+  /** The new host, by the id that clients know it by. */
+  installationId: string
+  hostName: string
+  /** The provider that the work needs on the new host. */
+  provider: SetupAgent
+  /** Why the agent needs it, in one sentence. */
+  reason: string
+}
+
+/** The one answer a client gives the Sign in card: the person does not sign in now. */
+export function hostProvidersSkipAnswers() {
+  return { status: 'skipped' as const }
 }
 
 /** One open approval request, as the owners of the target host see it. */

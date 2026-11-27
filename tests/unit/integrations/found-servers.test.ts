@@ -42,6 +42,7 @@ let project: string
 let submitted: Array<{ integrationId: string; values: IntegrationEnvValue[] }>
 let codexLayers: unknown[]
 let profileSaves: string[]
+let ownerClients: Array<{ clientId: string }>
 let fake: FakeServers
 
 beforeAll(async () => {
@@ -57,6 +58,7 @@ beforeEach(() => {
   submitted = []
   codexLayers = []
   profileSaves = []
+  ownerClients = []
 })
 
 afterEach(async () => {
@@ -85,6 +87,12 @@ function found(configWrites?: InstanceType<typeof ConfigWrites>) {
       profile: { saved: async (_principal, integration: Integration) => { profileSaves.push(integration.name) } },
       gateway: { forget: () => undefined, invalidate: () => undefined },
       connections: { removeAllFor: () => undefined },
+      oauth: {
+        withOwnerClient: async (integration: Integration, client: { clientId: string }) => {
+          ownerClients.push(client)
+          return { ...integration.auth, clientId: client.clientId }
+        },
+      } as never,
     }),
     connections: {
       submitEnvironment: (integration, _person, values) => {
@@ -302,6 +310,30 @@ describe('adding (§8.3, §8.4)', () => {
     const { servers } = await found().list(ADMIN, OWNER, {})
     expect(byName(servers, 'slash').state).toBe('added')
     expect(byName(servers, 'query').state).toBe('new')
+  })
+
+  test('a URL server keeps the static OAuth client its file names, so the person does not enter it again', async () => {
+    // WHY: `claude mcp add --client-id` saves a client for a server that does
+    // not register Solus by itself. Without it the sign-in stops at "enter
+    // your OAuth client", for a client the person already gave once.
+    fake.options.registration = false
+    write(join(home, '.claude.json'), { mcpServers: {
+      withClient: { type: 'http', url: fake.mcpUrl, oauth: { clientId: 'static-client-1', callbackPort: 8080 } },
+      expanded: { type: 'http', url: `${fake.mcpUrl}?x=1`, oauth: { clientId: '${CLIENT_ID}' } },
+    } })
+    const owner = found()
+    const { servers } = await owner.list(ADMIN, OWNER, {})
+    const server = byName(servers, 'withClient')
+    const result = await owner.add(ADMIN, OWNER, { foundId: server.foundId, fingerprint: server.fingerprint })
+    expect(result.kind === 'saved' && result.integration.auth).toMatchObject({ kind: 'oauth', clientId: 'static-client-1' })
+    expect(ownerClients).toEqual([{ clientId: 'static-client-1' }])
+
+    // A `${…}` client ID is a reference Solus does not expand: the add saves no client.
+    const expanded = byName(servers, 'expanded')
+    ownerClients = []
+    await owner.add(ADMIN, OWNER, { foundId: expanded.foundId, fingerprint: expanded.fingerprint })
+    expect(ownerClients).toEqual([])
+    fake.options.registration = true
   })
 
   test('a URL that changed in a file is the same write as Settings: the CLI copy comes back, and a project record is no profile entry', async () => {

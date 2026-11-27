@@ -14,6 +14,8 @@ export interface AcpAgentLaunch {
   env: NodeJS.ProcessEnv
   /** Two runs with the same key may share a connection: same binary, profile, and credential. */
   connectionKey: string
+  /** The workspace set at startup, for an agent that needs a new process when it changes. */
+  workspaceKey?: string
   /** The ACP `authenticate` method to call after `initialize`, when the agent offers it. */
   authMethod: string | null
   /**
@@ -32,7 +34,7 @@ export interface AcpAgentLaunch {
 export interface AcpAgent {
   readonly id: AgentId
   readonly label: string
-  launch(request: Pick<AgentRunRequest, 'seat' | 'providerRuntime'>): AcpAgentLaunch
+  launch(request: Pick<AgentRunRequest, 'seat' | 'providerRuntime' | 'additionalDirectories'> & { cwd?: string }): AcpAgentLaunch
   /** The `_meta` of `session/new`, which can carry Solus's instructions. */
   sessionMeta(initializeResult: JsonValue | undefined, systemPrompt: string | undefined): JsonValue | undefined
   readonly nameTool: AcpToolNamer
@@ -53,12 +55,16 @@ export interface AcpAgent {
   isQuestion(toolCallId: string): boolean
   /** Whether a `session/prompt` sent during a turn joins that turn (decision 4). */
   steersWithPrompt(initialize: AcpInitializeResult): boolean
+  /** Whether the agent connects to HTTP MCP servers in `session/new` and `session/resume` (default: `mcpCapabilities.http`). */
+  acceptsHttpMcp?(initialize: AcpInitializeResult): boolean
   /** The agent's skills for the slash menu, in a folder and for a seat (the host login's when absent). */
   listCommands(workingDirectory: string, seat: TurnSeat | undefined): PluginCommandsResult
   /** What a person reads when the agent needs a sign-in. */
   readonly signInMessage: string
   /** The name the Solus MCP server has in `session/new`. */
   readonly mcpServerName: string
+  /** Hide non-`alwaysLoad` tools behind `tool_search` and `tool_call` on interactive sessions. */
+  readonly deferToolsProxy?: boolean
   /**
    * Called before a turn's first prompt. The check it gives reads, after the
    * turn, an error the agent reported as an answer. Absent: the stop reason is

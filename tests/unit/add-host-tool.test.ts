@@ -3,8 +3,8 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { addMachineOutcomeAnswers } from '@solus/contracts/add-machine'
-import type { AgentId, NormalizedEvent } from '@solus/contracts/types'
+import { addMachineOutcomeAnswers, hostProvidersSkipAnswers } from '@solus/contracts/add-machine'
+import type { AgentId, HostReadiness, NormalizedEvent, SeatChangedEvent } from '@solus/contracts/types'
 import type { Actor } from '@solus/server/admission/actor'
 import type { AgentBackend } from '@solus/server/execution/agents/agent-backend'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
@@ -21,6 +21,12 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 // show a card for a machine this host already reaches, must return only a host that
 // this host holds a credential for (a client's answer is not proof), and must close
 // the card on a decline or a stopped run.
+//
+// docs/host-provider-sign-in.md: a machine is often added to run one provider's
+// work there. When that provider is not signed in on the new machine, add_host
+// shows a Sign in card and waits. Only the new host can say it is signed in (a
+// client's answer is not proof), the card then closes on every client, and the
+// person can skip it.
 
 type Runtime = import('@solus/server/execution/session-runtime').SessionRuntime
 type Question = Extract<NormalizedEvent, { type: 'question_request' }>
@@ -43,6 +49,26 @@ const TOKEN = 'private-host-token'
 
 /** What `list_hosts` lists now; a test changes it as the machines change. */
 let listed: ListedRemoteHost[] = []
+/** The providers that the new machine reports; a test signs one in. */
+let agents: HostReadiness['agents'] = { claude: { installed: true, signedIn: true }, codex: { installed: false, signedIn: false }, agy: { installed: true, signedIn: false } }
+/** The seat listeners of the new machine, as the session host subscribes to them. */
+const seatListeners = new Set<(event: SeatChangedEvent) => void>()
+/** The new machine, as the session host reaches it. */
+const newHost = {
+  call: <T,>(_what: string, request: () => Promise<T>) => request(),
+  api: { setupHostReadiness: async () => ({ agents }) },
+  events: {
+    subscribe: (_topic: string, listener: (event: SeatChangedEvent) => void) => {
+      seatListeners.add(listener)
+      return () => { seatListeners.delete(listener) }
+    },
+  },
+}
+/** The new machine reports `provider` signed in, as a finished sign-in there does. */
+function signIn(provider: 'agy'): void {
+  agents = { ...agents, [provider]: { installed: true, signedIn: true } }
+  for (const listener of [...seatListeners]) listener({ provider, state: 'connected' } as SeatChangedEvent)
+}
 const windows = (status: ListedRemoteHost['status'], source: ListedRemoteHost['source'] = 'paired'): ListedRemoteHost => ({
   id: 'win', installationId: 'win', name: 'Windows', source, status, routes: [{ kind: 'lan', url: WINDOWS_URL }],
 })
@@ -57,8 +83,8 @@ beforeAll(async () => {
   ;({ HostPairings } = await import('@solus/server/host/host-pairings'))
   ;({ closeDb } = await import('@solus/server/db'))
   ;({ HOST_ACTOR } = await import('@solus/server/admission/actor'))
-  // SAFETY: add_host reads only `summaries`, the list that list_hosts shows.
-  sessionTools.setRemoteHosts({ summaries: async () => listed } as never)
+  // SAFETY: add_host reads only `summaries`, the list that list_hosts shows, and the new machine's providers.
+  sessionTools.setRemoteHosts({ summaries: async () => listed, connectTo: async () => newHost } as never)
   tools.setHostPairingTools(new HostPairings(() => 'self', () => 'Mac'))
 })
 
@@ -133,7 +159,7 @@ function liveSession(sessionId: string): Live {
   }
 }
 
-const addHost = (live: Live, input: { hint?: string; url?: string; reason: string }) =>
+const addHost = (live: Live, input: { hint?: string; url?: string; reason: string; provider?: 'claude' | 'codex' | 'agy' }) =>
   withWorkspaceToolAuthority(OWNER, () => tools.addHostAgentTool.execute(input, live.context))
 
 describe('add_host', () => {
@@ -244,6 +270,75 @@ describe('add_host', () => {
       expect((await withWorkspaceToolAuthority(member, () => tools.addHostAgentTool.execute({ reason: 'Add a machine.' }, live.context))).ok).toBe(false)
       expect((await tools.addHostAgentTool.execute({ reason: 'Add a machine.' }, live.context)).ok).toBe(false)
       expect(live.events).toEqual([])
+    } finally { live.runtime.shutdown() }
+  })
+})
+
+describe('add_host and the provider the work needs', () => {
+  /** Adds the Windows machine through the card; the session host holds it once the card answers. */
+  async function addWindows(live: Live, provider?: 'claude' | 'agy') {
+    listed = []
+    const pending = addHost(live, { url: WINDOWS_URL, reason: 'Run the tests on Windows.', provider })
+    const card = await live.shown()
+    listed = [windows('online')]
+    expect(await live.answer(card, addMachineOutcomeAnswers({ status: 'added', installationId: 'win', way: 'code' }))).toBe(true)
+    return pending
+  }
+
+  test('a provider that is signed in there needs no Sign in card, and the agent learns each provider', async () => {
+    agents = { claude: { installed: true, signedIn: true }, codex: { installed: false, signedIn: false }, agy: { installed: true, signedIn: false } }
+    const live = liveSession('provider-ready')
+    try {
+      const result = await addWindows(live, 'claude')
+      expect(JSON.parse(result.text)).toMatchObject({ added: true, providers: { claude: 'ready', codex: 'not-installed', agy: 'needs-sign-in' } })
+      expect(live.events.filter((event) => event.type === 'question_request')).toHaveLength(1)
+    } finally { live.runtime.shutdown() }
+  })
+
+  test('the Sign in card closes itself when the new host reports the sign-in', async () => {
+    agents = { claude: { installed: true, signedIn: true }, codex: { installed: false, signedIn: false }, agy: { installed: true, signedIn: false } }
+    const live = liveSession('provider-sign-in')
+    try {
+      const pending = addWindows(live, 'agy')
+      const card = await live.shown(2)
+      expect(card.kind).toBe('host-providers')
+      expect(card.hostProviders).toEqual({ installationId: 'win', hostName: 'Windows', provider: 'agy', reason: 'Run the tests on Windows.' })
+      signIn('agy')
+      const result = JSON.parse((await pending).text)
+      expect(result).toMatchObject({ added: true, providers: { agy: 'ready' } })
+      expect(result.skippedSignIn).toBeUndefined()
+      expect(live.events).toContainEqual({ type: 'permission_resolved', questionId: card.questionId })
+      expect(live.runtime.inputRequests.pendingInputEventsForSession(live.sessionId).some((event) => 'questionId' in event && event.questionId === card.questionId)).toBe(false)
+      expect(seatListeners.size).toBe(0)
+    } finally { live.runtime.shutdown() }
+  })
+
+  test('a client answer only skips: it cannot claim the sign-in, and the agent is told not to use that provider there', async () => {
+    agents = { claude: { installed: true, signedIn: true }, codex: { installed: false, signedIn: false }, agy: { installed: true, signedIn: false } }
+    const live = liveSession('provider-skipped')
+    try {
+      const pending = addWindows(live, 'agy')
+      const card = await live.shown(2)
+      // A forged "ready" is a skip too: only the new host says a provider is signed in.
+      expect(await live.answer(card, { status: 'ready' })).toBe(true)
+      const result = JSON.parse((await pending).text)
+      expect(result).toMatchObject({ added: true, skippedSignIn: 'agy', providers: { agy: 'needs-sign-in' } })
+      expect(result.note).toContain('Do not start work there with Google Antigravity')
+      expect(live.events).toContainEqual({ type: 'permission_resolved', questionId: card.questionId })
+    } finally { live.runtime.shutdown() }
+  })
+
+  test('a stopped run closes the Sign in card and stops watching the new host', async () => {
+    agents = { claude: { installed: true, signedIn: true }, codex: { installed: false, signedIn: false }, agy: { installed: true, signedIn: false } }
+    const live = liveSession('provider-stopped')
+    try {
+      const pending = addWindows(live, 'agy')
+      const card = await live.shown(2)
+      live.stop.abort()
+      expect(JSON.parse((await pending).text).note).toContain('stopped')
+      expect(live.events).toContainEqual({ type: 'permission_resolved', questionId: card.questionId })
+      expect(await live.answer(card, hostProvidersSkipAnswers())).toBe(false)
+      expect(seatListeners.size).toBe(0)
     } finally { live.runtime.shutdown() }
   })
 })

@@ -32,6 +32,8 @@ const jsonEntrySchema = z.object({
   // Google Antigravity still reads its older name for `url`.
   serverUrl: z.string().optional(),
   headers: z.record(z.string(), valueSchema).optional(),
+  // Claude Code's static OAuth client (`claude mcp add --client-id`); its secret is in the keychain, not the file.
+  oauth: z.object({ clientId: z.string().optional() }).optional().catch(undefined),
 })
 type JsonEntry = z.infer<typeof jsonEntrySchema>
 
@@ -84,7 +86,7 @@ function jsonEntry(place: FoundPlace, entry: JsonEntry): ConfigEntry {
     return stdioEntry(place, { command, args: entry.args ?? [], env: Object.entries(entry.env ?? {}), cwd: entry.cwd })
   }
   if (url !== undefined && (type === 'http' || type === 'streamable-http' || (type === undefined && !TYPE_NEEDED_FOR_URL.has(place.file)))) {
-    return urlEntry(place, 'http', { url, headers: Object.entries(entry.headers ?? {}) })
+    return urlEntry(place, 'http', { url, headers: Object.entries(entry.headers ?? {}), clientId: entry.oauth?.clientId })
   }
   return invalidEntry(place)
 }

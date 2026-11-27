@@ -37,6 +37,10 @@ export class UsageLimitsStore {
     return this.byAgent.get(agentId)
   }
 
+  clear(agentId: AgentId): void {
+    this.byAgent.delete(agentId)
+  }
+
   /** No quota left in a reported window. Auto asks before it sends a turn to a
    *  provider that cannot answer it. */
   isSpent(agentId: AgentId): boolean {
