@@ -138,11 +138,11 @@ const DEFERRED_COMPONENTS = [
   'packages/workspace-ui/src/components/servers/CopiedFilesDialog.svelte',
   'packages/workspace-ui/src/components/seats/SeatConnectPanel.svelte',
   // Surfaces the first screen does not show: a host to connect, a work, a
-  // companion pane's strip, the page for a browser with no host.
+  // companion pane's strip, the pairing link handoff on a phone.
   'packages/workspace-ui/src/components/session-draft/ConnectHostPage.svelte',
   'packages/workspace-ui/src/components/work/WorkPane.svelte',
   'packages/workspace-ui/src/components/layout/CompanionSurfaceStrip.svelte',
-  'apps/client/src/routes/HostlessHome.svelte',
+  'apps/client/src/routes/PairInApp.svelte',
   // Devices load at their first event (device-feature.ts); the MCP store, with
   // its sign-ins, after the first paint (app-core.ts). Both then follow every host.
   'packages/workspace-ui/src/contexts/devices/devices.store.svelte.ts',

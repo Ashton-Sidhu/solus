@@ -71,6 +71,7 @@ No contract. See decision 7.
 
 ## 5. Implementation notes
 
+- The web client opens the workspace with an empty host list. A new Cloud account starts the timeline there. A browser that opens an unpaired host uses the workspace's Add host dialog with the address filled in.
 - History projects: `packages/server/src/files/agent-history.ts`, served by `project-config-handlers.ts`. It needs `host.admin`, because it names folders from the owner's whole home. It reads at most 1 MiB of each file: Claude Code can write `cwd` after the first prompt.
 - GitHub from the account reaches a push: while the machine owner is signed in, each read of their account's GitHub login also keeps a sealed copy in the host secret store (`github-owner-account`, `delegation-store.ts`). `solus git-credential` is a separate process with no account access, so it serves that copy first and then the host's own login. A personal delegation's revocation (sign-out) removes the copy. A member's login is never copied. A GitHub OAuth App token neither expires nor rotates, so the copy cannot sign the account out. An agent login can, which is why agent logins are not copied (decision 7).
 - Link off by default: the desktop registers its own host with `link: false` (`HostRegistrationRequest.link`), so a sign-in no longer turns the tunnel on. Other registrations (a remote host that a signed-in client registers, `solus connect`) still link at once.

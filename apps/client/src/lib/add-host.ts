@@ -6,17 +6,8 @@ import { mergeRoutes, routeForUrl } from '@solus/contracts/host-routes'
 import { track } from '@solus/workspace-ui/lib/analytics'
 import { classifyConnectInput, probeServer, type ProbedServer } from './connect'
 
-/** A Solus server offered to the user without them having to name it. */
-export interface OfferedHost {
-  url: string
-  /** The name the server reports, falling back to its address. */
-  name: string
-}
-
 /** The Solus host serving this page, as one `/health` read tells it. */
 export interface ServingOrigin {
-  /** What to offer the user when this browser does not keep the host yet. */
-  offered: OfferedHost
   /** The host's entry when it admits this browser with no pairing (loopback, a proxied bind). */
   entry: KnownHost | null
   /** The host as this browser knows it: paired here, or at this address; null when it knows none. */
@@ -30,11 +21,10 @@ export async function probeServingOrigin(origin: string): Promise<ServingOrigin 
   // The page's host is dialed before the person's list is read there, so its credential alone names it.
   const known = (health.installationId ? hostCatalog.pairedHost(health.installationId) : null)
     ?? hostCatalog.hosts().find((server) => server.routes.some((route) => normalizeServerUrl(route.url) === normalizedOrigin))
-  const name = health.name || urlHost(origin)
   const entry: KnownHost | null = health.requireAuth === false && health.installationId
     ? { id: health.installationId, routes: mergeRoutes([], [routeForUrl(origin)], 'page', Date.now()), sessionToken: '', installationId: health.installationId, label: health.name || 'This computer', os: health.os, lastConnected: Date.now() }
     : null
-  return { offered: { url: origin, name }, entry, known: known ?? null }
+  return { entry, known: known ?? null }
 }
 
 /** Why a typed address gave no Solus host, from what the probe saw (docs/plans/tailscale-support.md D2). */

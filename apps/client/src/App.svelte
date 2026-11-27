@@ -81,6 +81,8 @@
   import WebLayout from "./shell/WebLayout.svelte";
   import { WebShell } from "./shell/web-shell.svelte";
 
+  let { servingHostPairAddress }: { servingHostPairAddress?: string } = $props();
+
   const shell = new WebShell();
   const skipOnboarding = skipsOnboarding(window.location.search, window);
 
@@ -378,15 +380,21 @@
   });
 
   onMount(() => initializeRuntime(session, sessionSidebarStore));
+  onMount(() => {
+    if (servingHostPairAddress) serversStore.openAddServer(servingHostPairAddress, "address");
+  });
 
   // At a Solus Cloud origin, onboarding belongs to the account: it is shown
   // until the account finished or skipped it, on any browser, and again when a
   // "Get started" item reopens it at one stage. Elsewhere it is
-  // this device's first run (docs/plans/cloud-onboarding.md §3.6).
+  // this device's first run after a browser has a host to set up.
   onMount(() => void cloudOnboardingStore.load());
   const personalSettingsOpen = $derived(isAccountOrigin && (session.settingsTab === "appearance" || session.settingsTab === "agent-profile"));
   const showsOnboarding = $derived(
-    !personalSettingsOpen && !skipOnboarding && (cloudOnboardingStore.isCloud ? cloudOnboardingStore.isOpen : !settings.onboardingCompleted),
+    !personalSettingsOpen && !skipOnboarding && (isAccountOrigin
+      ? cloudOnboardingStore.reopenedAt !== null || (!webState.openedFromLink && cloudOnboardingStore.needsOnboarding)
+      : !settings.onboardingCompleted && !serversStore.addServerOpen && serversStore.executionServers.some((host) =>
+        host.id === serversStore.activeServerId || host.readiness === "ready")),
   );
 
   const detectReconnect = createReconnectDetector(serversStore.readinessFor(serversStore.activeServerId).readiness);

@@ -15,8 +15,7 @@ import { getActiveServerId, setActiveServerId } from '@solus/client-core/known-h
 import { hostCatalog } from '@solus/client-core/host-catalog'
 import { hostListSourceFor } from '@solus/client-core/host-list-source'
 import { accountDocumentCall, webAccountDocumentSend, type AccountDocumentCall } from '@solus/client-core/account-documents'
-import { cloudAccount, configureCloudAccount, startupAccountRead, webCloudAccount } from '@solus/client-core/cloud-account'
-import { skipsOnboarding } from '@solus/workspace-ui/components/onboarding/lib/skip-onboarding'
+import { cloudAccount, configureCloudAccount, webCloudAccount } from '@solus/client-core/cloud-account'
 import { appPairLink, pairServer } from '@solus/client-core/pairing'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { adoptAccountOrigin } from '@solus/client-core/uplink-account'
@@ -26,7 +25,6 @@ import { MAX_WEB_TOKEN_HOSTS } from '@solus/contracts/uplink'
 import { WEB_SIGN_OUT_CHANNEL, WebTokenSession } from '@solus/client-core/web-token-session'
 import { pairTokenFromLocation, pairHostFromLocation, probeServer } from './lib/connect'
 import { probeServingOrigin } from './lib/add-host'
-import { cloudOrigin } from './lib/cloud-origin.svelte'
 import { webState } from './lib/web-state.svelte'
 import { registerServiceWorker } from './lib/service-worker'
 import { toasts } from '@solus/workspace-ui/lib/toasts'
@@ -192,7 +190,7 @@ async function connectToServer(serverId: string, intent?: BootIntent): Promise<v
   await mountWorkspace(generation)
 }
 
-async function mountWorkspace(generation: number): Promise<void> {
+async function mountWorkspace(generation: number, servingHostPairAddress?: string): Promise<void> {
   try {
     // Pairing and reconnect plumbing live in the small entry chunk; the
     // multi-megabyte shared workspace graph loads lazily behind it.
@@ -201,24 +199,13 @@ async function mountWorkspace(generation: number): Promise<void> {
     if (generation !== connectionGeneration) return
     // The workspace takes the place of the splash in this same task.
     removeBootSplash()
-    solusApp = mount(App, { target: root })
+    solusApp = mount(App, { target: root, props: { servingHostPairAddress } })
   } catch (error) {
     if (generation !== connectionGeneration) return
     revealPage()
     if (error instanceof Error && isStaleBuildError(error)) reportStaleBuild()
     else toasts.error(error instanceof Error ? error.message : 'Workspace failed to load')
   }
-}
-
-function bootHostlessHome(): void {
-  const generation = ++connectionGeneration
-  toasts.dismiss()
-  // Only a browser with no host shows this page, so only that path loads it.
-  void Promise.all([import('./routes/HostlessHome.svelte'), pageStyled]).then(([{ default: HostlessHome }]) => {
-    if (generation !== connectionGeneration) return
-    removeBootSplash()
-    mount(HostlessHome, { target: root })
-  })
 }
 
 installWindowSolusApi(createNoHostSolusApi())
@@ -269,7 +256,7 @@ async function pairFromLocation(pairToken: string, hostUrl: string | null): Prom
     setActiveServerId(server.id)
     await connectToServer(server.id)
   } catch (err) {
-    bootHostlessHome()
+    await bootFromCatalog()
     toasts.error(err instanceof Error ? err.message : String(err))
   }
 }
@@ -282,8 +269,7 @@ async function pairFromLocation(pairToken: string, hostUrl: string | null): Prom
 async function adoptCloudDirectory(): Promise<void> {
   // The same bundle is served at `/` by a host and by the account origin; only the
   // account origin's shell names itself (`accountOriginShell`).
-  if (!accountShell) cloudOrigin.kind = 'not-cloud'
-  else cloudOrigin.kind = (await adoptAccountOrigin(location.origin, webSession, accountShell)).kind
+  if (accountShell) await adoptAccountOrigin(location.origin, webSession, accountShell)
   await hostCatalog.refreshDirectory()
 }
 
@@ -336,13 +322,12 @@ async function bootFromCatalog(intent?: BootIntent): Promise<void> {
     const [{ default: AccountSettings }] = await Promise.all([import('./routes/AccountSettings.svelte'), pageStyled])
     removeBootSplash()
     mount(AccountSettings, { target: root, props: { page: intent.hostlessPage } })
-  } else if (webSession && !intent?.opensResource && !skipsOnboarding(location.search, window)
-    && (await startupAccountRead())?.onboardingCompletedAt === null) {
-    // Onboarding can create or link the first machine. It needs the workspace
-    // context but does not need a host connection to open.
+  } else {
+    // The workspace owns onboarding and pairing, even before it has a host.
     installServiceWorkerMessageBridge()
-    await mountWorkspace(++connectionGeneration)
-  } else bootHostlessHome()
+    serverConnections.startCatalogSupervisors()
+    await mountWorkspace(++connectionGeneration, serving ? location.origin : undefined)
+  }
 }
 
 // ── Share links ───────────────────────────────────────────────────────────────

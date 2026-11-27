@@ -1,7 +1,5 @@
 <script lang="ts">
   import { Globe as BrowserIcon, Smartphone as AppIcon } from "@lucide/svelte";
-  import { cn } from "@solus/workspace-ui/lib/utils";
-  import { cardClass } from "./lib/hostless-styles";
 
   /** `appLink` opens the Solus app, which pairs itself; `onContinue` pairs this browser instead. */
   let { appLink, onContinue }: { appLink: string; onContinue: () => void } = $props();
@@ -22,7 +20,7 @@
       Use the Solus app on this phone, or continue in the browser.
     </p>
     <main class="flex flex-col gap-2">
-      <a href={appLink} class={cn(cardClass, "px-4 py-3.5 text-left")}>
+      <a href={appLink} class="flex w-full items-center gap-3.5 overflow-hidden rounded-2xl bg-(--solus-input-pill-bg) px-4 py-3.5 text-left shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border),0_12px_28px_-20px_rgb(0_0_0/35%)] transition-[box-shadow,scale] duration-[var(--duration-quick)] ease-(--ease-premium) focus-within:shadow-[shadow:0_0_0_0.0625rem_color-mix(in_oklch,var(--solus-accent)_34%,transparent),0_0_0_0.25rem_color-mix(in_oklch,var(--solus-accent)_9%,transparent)] focus-visible:outline-none dark:shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)]">
         <span class="grid size-8 shrink-0 place-items-center rounded-[0.5625rem] bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
           <AppIcon size={15} />
         </span>
@@ -32,7 +30,7 @@
         </span>
         <span class="shrink-0 rounded-full bg-(--solus-accent-soft) px-2.5 py-0.5 text-xs text-(--solus-accent)">Open</span>
       </a>
-      <button type="button" class={cn(cardClass, "px-4 py-3.5 text-left")} onclick={onContinue}>
+      <button type="button" class="flex w-full items-center gap-3.5 overflow-hidden rounded-2xl bg-(--solus-input-pill-bg) px-4 py-3.5 text-left shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border),0_12px_28px_-20px_rgb(0_0_0/35%)] transition-[box-shadow,scale] duration-[var(--duration-quick)] ease-(--ease-premium) focus-within:shadow-[shadow:0_0_0_0.0625rem_color-mix(in_oklch,var(--solus-accent)_34%,transparent),0_0_0_0.25rem_color-mix(in_oklch,var(--solus-accent)_9%,transparent)] focus-visible:outline-none dark:shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)]" onclick={onContinue}>
         <span class="grid size-8 shrink-0 place-items-center rounded-[0.5625rem] bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
           <BrowserIcon size={15} />
         </span>

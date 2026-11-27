@@ -71,7 +71,6 @@ const end = source.indexOf('async function bootFromCatalog(', start)
 const compiled = new Bun.Transpiler({ loader: 'ts' }).transformSync(source.slice(start, end))
 
 async function bootDirectory(origin: string, isSignedIn: boolean, options: { accountShell?: boolean; shellDirectory?: DirectoryResponse; shellAccount?: AccountResponse; webSession?: CloudAccountSession } = {}) {
-  const state = { kind: 'unknown' }
   const catalog = new HostCatalog({
     credentials: memoryCredentials([], { paired: credentialFor('paired') }),
     directory: () => uplinkAccountSource(),
@@ -81,11 +80,11 @@ async function bootDirectory(origin: string, isSignedIn: boolean, options: { acc
   await catalog.useListSource(fakeList([], 'device', [listingFor('paired', { label: 'Paired host' })]).source)
   const webSession = options.webSession ?? (isSignedIn ? session(true) : null)
   const shell = options.accountShell === false ? null : { signedIn: undefined, directory: options.shellDirectory, account: options.shellAccount, settingsJson: undefined }
-  const boot = new Function('adoptAccountOrigin', 'accountShell', 'webSession', 'cloudOrigin', 'location', 'hostCatalog',
+  const boot = new Function('adoptAccountOrigin', 'accountShell', 'webSession', 'location', 'hostCatalog',
     `${compiled}\nreturn adoptCloudDirectory();`)
-  await boot(adoptAccountOrigin, shell, webSession, state, { origin }, catalog)
+  await boot(adoptAccountOrigin, shell, webSession, { origin }, catalog)
   const ids = () => catalog.hosts().map((host) => host.id)
-  return { state, catalog, ids }
+  return { catalog, ids }
 }
 
 test('signed in, the start reads the directory once, with an access token and no probe before it', async () => {
@@ -93,8 +92,7 @@ test('signed in, the start reads the directory once, with an access token and no
   fetchSpy.mockImplementation(async (_url, init) => new Headers(init?.headers).get('authorization')
     ? Response.json({ hosts: [host], workspaces: [workspace] })
     : Response.json({ error: 'unauthorized' }, { status: 401 }))
-  const { state, catalog, ids } = await bootDirectory(origin, true)
-  expect(state.kind).toBe('signed-in')
+  const { catalog, ids } = await bootDirectory(origin, true)
   const [directory] = requestsTo(origin, '/v1/hosts')
   expect(directory![1]).toMatchObject({ credentials: 'omit' })
   expect(new Headers(directory![1]?.headers).get('authorization')).toBe('Bearer account-token')
@@ -117,8 +115,7 @@ test('signed in, the start reads the directory once, with an access token and no
 test('the account origin with no sign-in keeps the paired hosts and reads nothing more', async () => {
   const origin = nextOrigin()
   fetchSpy.mockImplementation(async () => Response.json({ error: 'unauthorized' }, { status: 401 }))
-  const { state, catalog, ids } = await bootDirectory(origin, false)
-  expect(state.kind).toBe('signed-out')
+  const { catalog, ids } = await bootDirectory(origin, false)
   expect(requestsTo(origin, '/v1/hosts')).toHaveLength(0)
   expect(requestsTo(origin, '/v1/account')).toHaveLength(0)
   // Signed out, the directory answers at once with no hosts.
@@ -139,8 +136,7 @@ test('with the shell\'s directory, the hosts are known while the first token ans
   })
   webSession.start([host.hostId])
   fetchSpy.mockImplementation(() => tokens.promise)
-  const { state, ids } = await bootDirectory(origin, true, { webSession, shellDirectory: { hosts: [host], workspaces: [workspace] } as DirectoryResponse })
-  expect(state.kind).toBe('signed-in')
+  const { ids } = await bootDirectory(origin, true, { webSession, shellDirectory: { hosts: [host], workspaces: [workspace] } as DirectoryResponse })
   expect(ids()).toContain(host.installationId)
   expect(requestsTo(origin, '/v1/hosts')).toHaveLength(0)
   tokens.resolve(Response.json({ error: 'unauthorized' }, { status: 401 }))
@@ -162,8 +158,7 @@ test('a page whose shell does not name the account origin is a host page: it ask
   // WHY: a host serves the same bundle; spending a request to tell them apart is what the
   // shell's marker removes, and a host page must never adopt an account source.
   const origin = nextOrigin()
-  const { state, ids } = await bootDirectory(origin, true, { accountShell: false })
-  expect(state.kind).toBe('not-cloud')
+  const { ids } = await bootDirectory(origin, true, { accountShell: false })
   expect(fetchSpy).not.toHaveBeenCalled()
   expect(ids()).toEqual(['paired'])
   expect(uplinkAccountSource()).toBeNull()
@@ -175,7 +170,6 @@ test('an invalid directory is a failed read that keeps the paired hosts, and a v
     ? Response.json({ hosts: [null] })
     : Response.json({}, { status: 401 }))
   const first = await bootDirectory(invalid, true)
-  expect(first.state.kind).toBe('signed-in')
   // No cached copy (plans/033 §3 Q2): Solus Cloud shows the failed read, with Retry.
   expect(first.catalog.directoryState()).toBe('failed')
   expect(first.ids()).toEqual(['paired'])
@@ -185,7 +179,7 @@ test('an invalid directory is a failed read that keeps the paired hosts, and a v
     ? Response.json({ hosts: [], workspaces: [] })
     : Response.json({}, { status: 401 }))
   const second = await bootDirectory(empty, true)
-  expect(second.state.kind).toBe('signed-in')
+  expect(uplinkAccountSource()).not.toBeNull()
   expect(second.catalog.directoryState()).toBe('ready')
   expect(second.ids()).toEqual(['paired'])
 })
@@ -217,31 +211,34 @@ const compiledCatalog = new Bun.Transpiler({ loader: 'ts' }).transformSync(
 )
 
 test.each([
-  { name: 'opens the workspace for first-run onboarding', status: null, search: '', opensResource: false, destination: 'workspace' },
-  { name: 'offers pairing when onboarding is complete', status: 1, search: '', opensResource: false, destination: 'pairing' },
-  { name: 'offers pairing when the URL skips onboarding', status: null, search: '?skip-onboarding', opensResource: false, destination: 'pairing' },
-  { name: 'leaves resource links on their own path', status: null, search: '', opensResource: true, destination: 'pairing' },
-])('a hostless Cloud page $name', async ({ status, search, opensResource, destination }) => {
-  const mounts: string[] = []
+  { name: 'opens the workspace for first-run onboarding', status: null, search: '', opensResource: false, signedIn: true },
+  { name: 'opens the workspace after onboarding is complete', status: 1, search: '', opensResource: false, signedIn: true },
+  { name: 'opens the workspace when the URL skips onboarding', status: null, search: '?skip-onboarding', opensResource: false, signedIn: true },
+  { name: 'opens the workspace on a resource link', status: null, search: '', opensResource: true, signedIn: true },
+  { name: 'opens the workspace without an account', status: null, search: '', opensResource: false, signedIn: false },
+  { name: 'offers pairing at the serving host address', status: null, search: '', opensResource: false, signedIn: false, needsPairing: true },
+])('a web page with an empty catalog $name', async ({ status, search, opensResource, signedIn, needsPairing }) => {
+  const origin = 'https://page.example'
+  const mounts: Array<{ pairAddress?: string }> = []
   const dependencies = {
     webState: {},
     hostCatalog: { load: async () => {}, useListSource: async () => {} },
     adoptCloudDirectory: async () => {},
     loadWorkspaceApp: async () => {},
-    accountShell: {},
+    accountShell: signedIn ? {} : null,
+    probeServingOrigin: async () => needsPairing ? { entry: null, known: null } : null,
     webAccountDocuments: () => null,
     hostListSourceFor: () => null,
     localStorage: {},
     getActiveServerId: () => null,
-    serverConnections: { catalogServerIds: () => [] },
-    webSession: {},
+    serverConnections: { catalogServerIds: () => [], startCatalogSupervisors: () => {} },
+    webSession: signedIn ? {} : null,
     startupAccountRead: () => Promise.resolve({ onboardingCompletedAt: status }),
     skipsOnboarding,
-    location: { search },
+    location: { origin, search },
     window: {},
     installServiceWorkerMessageBridge: () => {},
-    mountWorkspace: async () => { mounts.push('workspace') },
-    bootHostlessHome: () => { mounts.push('pairing') },
+    mountWorkspace: async (_generation: number, pairAddress?: string) => { mounts.push({ pairAddress }) },
   }
   const run = new Function('intent', ...Object.keys(dependencies), `
     let connectionGeneration = 0;
@@ -249,7 +246,20 @@ test.each([
     return bootFromCatalog(intent);
   `)
   await run({ opensResource }, ...Object.values(dependencies))
-  expect(mounts).toEqual([destination])
+  expect(mounts).toEqual([{ pairAddress: needsPairing ? origin : undefined }])
+})
+
+test('a failed pairing link opens the normal workspace and shows the error', async () => {
+  const start = source.indexOf('async function pairFromLocation(')
+  const compiled = new Bun.Transpiler({ loader: 'ts' }).transformSync(source.slice(start, source.indexOf('\n}\n', start) + 3))
+  const events: string[] = []
+  const run = new Function('history', 'probeServer', 'bootFromCatalog', 'toasts', `${compiled}
+    return pairFromLocation('expired', 'https://host.example');
+  `)
+  await run({ replaceState() {} }, async () => ({ ok: false }), async () => { events.push('workspace') }, {
+    error: (message: string) => events.push(message),
+  })
+  expect(events).toEqual(['workspace', 'This Tailscale host did not answer.'])
 })
 
 // Exercise the real cached loader without importing the full Svelte workspace.

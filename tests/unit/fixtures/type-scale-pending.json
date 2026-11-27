@@ -1,6 +1,5 @@
 [
   "apps/client/src/components/ServerSetupSurface.svelte",
-  "apps/client/src/routes/HostlessHome.svelte",
   "packages/workspace-ui/src/components/ContextMeter.svelte",
   "packages/workspace-ui/src/components/GitDropdown.svelte",
   "packages/workspace-ui/src/components/automations/AutomationBuilder.svelte",
