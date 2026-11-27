@@ -210,6 +210,9 @@ describe('runtime instructions', () => {
       // WHY: one call starts its sessions together; separate calls can run one after another.
       expect(prompt).toContain('put every session in one start_sessions call')
       expect(prompt).toContain('Set independent=true on a session only for an independent conversation')
+      // WHY: a separate checkout or silent background run still belongs in its parent's session tree.
+      expect(prompt).toContain('Use isolation=worktree for separate checkouts. For related work, keep independent=false so the sessions appear under yours.')
+      expect(prompt).toContain('Use report=false to let the parent turn finish without waiting for those children.')
       // WHY: Claude's own Agent tool runs in the background by default, and that
       // agent has no exchange, no report, and no stop_session.
       expect(prompt).toContain('For background agent work, use start_sessions, never a background native subagent')

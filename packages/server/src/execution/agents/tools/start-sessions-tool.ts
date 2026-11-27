@@ -55,7 +55,7 @@ const sessionFields = {
   independent: z
     .boolean()
     .default(false)
-    .describe('false (default): your child; it reports to you and stops with you. true: a separate conversation.'),
+    .describe('false (default): a child under your session, even in its own worktree. true: a top-level conversation.'),
   agent_provider: z
     .string()
     .optional()
@@ -90,7 +90,7 @@ const sessionFields = {
   report: z
     .boolean()
     .optional()
-    .describe('Send its notices and report to you. Default: true for a child.'),
+    .describe('Send its notices and report to you. Default: true for a child. With false, your turn can finish while the child keeps working under your session.'),
   attachments: ATTACHMENTS_FIELD,
 }
 
@@ -395,7 +395,7 @@ function formatReceipt(launches: readonly Launch[], outcomes: readonly Checked<S
 
 export const startSessionsAgentTool: AgentTool = {
   name: 'start_sessions',
-  description: `Start 1 to ${MAX_SESSIONS} Solus sessions at once, on this or another provider or host. Each session is a full conversation with its own card. It gets only its prompt, not your history. Each session has its own settings: provider, model, host, workspace, permission mode, and reports. By default each is your child: its report wakes you, and your turn stays open until it reports. independent=true starts a separate conversation instead. isolation=worktree gives a session its own checkout or task folder. Keep the session and exchange IDs. Reports wake you; do not poll. Follow up with send_session, read with read_session_exchange, stop with stop_session. User questions and permissions stay on each session’s card.`,
+  description: `Start 1 to ${MAX_SESSIONS} Solus sessions at once, on this or another provider or host. Each session is a full conversation with its own card. It gets only its prompt, not your history. Each session has its own settings: provider, model, host, workspace, permission mode, and reports. By default each is your child: its report wakes you, and your turn stays open until it reports. Use report=false for a child that runs without holding your turn open. Use isolation=worktree for separate checkouts. Reserve independent=true for top-level conversations. Keep the session and exchange IDs. Reports wake you; do not poll. Follow up with send_session, read with read_session_exchange, stop with stop_session. User questions and permissions stay on each session’s card.`,
   inputFields: startSessionsFields,
   strictInput: true,
   requiresApproval: false,
