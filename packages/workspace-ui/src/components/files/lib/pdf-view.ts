@@ -16,6 +16,11 @@ export interface PdfViewState {
   matches: { current: number; total: number } | null
 }
 
+export interface PdfPasswordRequest {
+  incorrect: boolean
+  submit(password: string): void
+}
+
 export interface PdfView {
   zoomIn(): void
   zoomOut(): void
@@ -51,6 +56,7 @@ export async function openPdfView(
   container: HTMLDivElement,
   viewer: HTMLDivElement,
   onChange: (state: PdfViewState) => void,
+  options: { onPassword?: (request: PdfPasswordRequest) => void } = {},
 ): Promise<PdfView> {
   const { EventBus, LinkTarget, PDFFindController, PDFLinkService, PDFViewer } = await loadViewerModule()
   const eventBus = new EventBus()
@@ -88,6 +94,15 @@ export async function openPdfView(
   eventBus.on('updatefindcontrolstate', onMatches)
 
   const loadingTask = pdfjsLib.getDocument({ url })
+  if (options.onPassword) {
+    const onPassword = options.onPassword
+    loadingTask.onPassword = (updatePassword: (password: string) => void, reason: number) => {
+      onPassword({
+        incorrect: reason === pdfjsLib.PasswordResponses.INCORRECT_PASSWORD,
+        submit: (password) => updatePassword(password),
+      })
+    }
+  }
   try {
     const document = await loadingTask.promise
     linkService.setDocument(document)

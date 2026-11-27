@@ -4,6 +4,16 @@
   "type": "module",
   "exports": { "./*": "./src/*" },
   "scripts": { "check": "tsc --noEmit -p tsconfig.json" },
-  "dependencies": { "@solus/contracts": "workspace:*", "@solus/client-core": "workspace:*", "@solus/document-model": "workspace:*", "@xyflow/svelte": "1.7.1", "three": "0.180.0" },
+  "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "@noble/hashes": "1.8.0",
+    "@solus/contracts": "workspace:*",
+    "@solus/client-core": "workspace:*",
+    "@solus/document-model": "workspace:*",
+    "@xyflow/svelte": "1.7.1",
+    "@zip.js/zip.js": "2.25.0",
+    "saxes": "6.0.0",
+    "three": "0.180.0"
+  },
   "devDependencies": { "@types/three": "0.180.0", "typescript": "^5.9.3" }
 }

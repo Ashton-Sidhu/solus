@@ -1473,7 +1473,6 @@
   "9bbecec926c3b695": "Réessayer",
   "aed763efb0a6d555": "Nouveau fil",
   "94ab2b4bb8e7cb82": "Le PDF n’a pas pu être chargé.",
-  "7795100449857924": "Le PDF n’a pas pu être affiché. Il est peut-être endommagé ou protégé par un mot de passe.",
   "3c78584416531f84": "Impossible de charger le PDF",
   "fe8ed6127f1d8a28": "Réessayer",
   "031c40bcf99edc3f": "Chargement du PDF...",
@@ -5608,5 +5607,11 @@
   "8d545d54c0a9e950": "Masque les commandes, modifications et recherches lancées par les agents. Masquer les réussis garde les échecs. Zen n’affiche que les réponses finales. Les approbations, questions et erreurs s’affichent toujours.",
   "99d51127f573296b": "Autre compte",
   "8ec2c57414669b79": "Connectez un second espace de travail ou utilisateur {tracker}.",
-  "892f08d21b8e48a9": "Fusionner {layers} dans {base} avec {kind, select, squash {squash} merge {merge} rebase {rebase} fastForward {fast-forward} other {{method}}} dès que leurs conditions sont remplies. Cela peut se produire immédiatement."
+  "892f08d21b8e48a9": "Fusionner {layers} dans {base} avec {kind, select, squash {squash} merge {merge} rebase {rebase} fastForward {fast-forward} other {{method}}} dès que leurs conditions sont remplies. Cela peut se produire immédiatement.",
+  "3771480d7421e412": "Ce fichier nécessite un mot de passe.",
+  "00fa8cef0040eed9": "Mot de passe incorrect. Réessayez.",
+  "ad70bb0e647d4f2a": "L’aperçu ne peut pas ouvrir les fichiers utilisant ce chiffrement.",
+  "541090660afda71b": "Mot de passe du fichier",
+  "8db7663daebcd333": "Déverrouiller",
+  "153f20058cfb8da1": "Impossible d’afficher le PDF. Il est peut-être endommagé."
 }

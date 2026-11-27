@@ -843,7 +843,7 @@
           </div>
         {:else if selectedPath && selectedNonText}
           {#key selectedNonText.path}
-            <NonTextFilePreview {serverId} file={selectedNonText} title={selectedPath} />
+            <NonTextFilePreview {serverId} {ctx} file={selectedNonText} title={selectedPath} />
           {/key}
         {:else if selectedPath && selectedContents !== null}
           {#if selectedPage}

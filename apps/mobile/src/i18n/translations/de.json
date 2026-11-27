@@ -1473,7 +1473,6 @@
   "9bbecec926c3b695": "Wiederholen",
   "aed763efb0a6d555": "Neuer Thread",
   "94ab2b4bb8e7cb82": "Das PDF konnte nicht geladen werden.",
-  "7795100449857924": "Das PDF konnte nicht dargestellt werden. Es ist möglicherweise beschädigt oder passwortgeschützt.",
   "3c78584416531f84": "PDF konnte nicht geladen werden",
   "fe8ed6127f1d8a28": "Erneut versuchen",
   "031c40bcf99edc3f": "PDF wird geladen...",
@@ -5614,5 +5613,11 @@
   "8d545d54c0a9e950": "Die Befehle, Bearbeitungen und Suchen ausblenden, die Agenten ausführen. „Erfolgreiche ausblenden“ behält Fehler. „Zen“ zeigt nur endgültige Antworten. Genehmigungen, Fragen und Fehler werden immer angezeigt.",
   "99d51127f573296b": "Weiteres Konto",
   "8ec2c57414669b79": "Verbinde einen zweiten {tracker}-Workspace oder -Nutzer.",
-  "892f08d21b8e48a9": "{layers} per {kind, select, squash {Squash} merge {Merge} rebase {Rebase} fastForward {Fast-Forward} other {{method}}} in {base} mergen, sobald die Anforderungen erfüllt sind. Das kann sofort passieren."
+  "892f08d21b8e48a9": "{layers} per {kind, select, squash {Squash} merge {Merge} rebase {Rebase} fastForward {Fast-Forward} other {{method}}} in {base} mergen, sobald die Anforderungen erfüllt sind. Das kann sofort passieren.",
+  "3771480d7421e412": "Diese Datei erfordert ein Passwort.",
+  "00fa8cef0040eed9": "Falsches Passwort. Versuche es erneut.",
+  "ad70bb0e647d4f2a": "Die Vorschau kann diese Verschlüsselung nicht öffnen.",
+  "541090660afda71b": "Dateipasswort",
+  "8db7663daebcd333": "Entsperren",
+  "153f20058cfb8da1": "Die PDF konnte nicht angezeigt werden. Sie ist möglicherweise beschädigt."
 }

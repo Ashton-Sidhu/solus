@@ -19,7 +19,7 @@ For an upstream update, compare the new T3 revision with the previous import ove
 
 The native checkout tree adds **Copy path** to the row's long-press menu. It uses the existing native menu and clipboard controls. Upstream [#43360](https://github.com/pingdotgg/t3code/pull/43360) adds the same action to the web file tree.
 
-The fork import through T3 Code revision `620cf4770d992d642f822a13dc2539c2605a3500` uses the saved Solus candidate `c64d1f0ab74698d6d03006cf255e995cb0159176`. Its changes were applied to the promoted app with a three-way merge. Composer file links with punctuation also include the separate T3 Code fix `0d2d6a0233ff8e84c2ee287d4a9533633d7acff3`.
+The fork import through T3 Code revision `620cf4770d992d642f822a13dc2539c2605a3500` uses the saved Solus candidate `c64d1f0ab74698d6d03006cf255e995cb0159176`. Its changes were applied to the promoted app with a three-way merge. Composer file links with punctuation also include the separate T3 Code fix `0d2d6a0233ff8e84c2ee287d4a9533633d7acff3`. Password-protected ZIP archive unlocking and Android PDF password entry follow T3 Code PR #44008 (`@zip.js/zip.js@2.25.0` with the Hermes codec-import patch, `FilePasswordPrompt`, `ZipArchiveView`, and `PdfPreview.android.tsx`).
 
 
 Mobile extends T3's image paragraph rule to screenshots on a separate line beside a caption. The native image view draws a cached bitmap as soon as it is ready. The loading label sits behind the bitmap while the load event is in flight.

@@ -4,8 +4,9 @@
   import { Button } from "../ui/button";
   import { FindBar } from "../ui/find-bar";
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
+  import FilePasswordPrompt from "./FilePasswordPrompt.svelte";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
-  import type { PdfView, PdfViewState } from "./lib/pdf-view";
+  import type { PdfPasswordRequest, PdfView, PdfViewState } from "./lib/pdf-view";
 
   let { src, title }: { src: string; title: string } = $props();
 
@@ -13,6 +14,7 @@
   let viewerElement: HTMLDivElement | undefined = $state();
   let view: PdfView | null = null;
   let viewState = $state<PdfViewState | null>(null);
+  let passwordRequest = $state<PdfPasswordRequest | null>(null);
   let failed = $state(false);
   let findOpen = $state(false);
   let findQuery = $state("");
@@ -25,25 +27,50 @@
     let disposed = false;
     failed = false;
     viewState = null;
+    passwordRequest = null;
     void import("./lib/pdf-view")
       .then(({ openPdfView }) =>
-        openPdfView(url, container!, viewerElement!, (state) => {
-          if (!disposed) viewState = state;
-        }),
+        openPdfView(
+          url,
+          container!,
+          viewerElement!,
+          (state) => {
+            if (!disposed) viewState = state;
+          },
+          {
+            onPassword: (request) => {
+              if (!disposed) passwordRequest = request;
+            },
+          },
+        ),
       )
       .then((opened) => {
         if (disposed) opened.destroy();
-        else view = opened;
+        else {
+          passwordRequest = null;
+          view = opened;
+        }
       })
       .catch(() => {
-        if (!disposed) failed = true;
+        if (!disposed) {
+          passwordRequest = null;
+          failed = true;
+        }
       });
     return () => {
       disposed = true;
+      passwordRequest = null;
       view?.destroy();
       view = null;
     };
   });
+
+  function submitPassword(password: string) {
+    const request = passwordRequest;
+    if (!request) return;
+    passwordRequest = null;
+    request.submit(password);
+  }
 
   function openFind() {
     if (!viewState) return;
@@ -64,7 +91,7 @@
 <div class="relative flex min-h-0 flex-1 flex-col" data-testid="pdf-file-preview">
   {#if failed}
     <p role="alert" class="m-auto p-6 text-center text-workspace-chrome text-(--solus-status-error)">
-      This PDF could not be displayed. The file may be damaged or protected.
+      This PDF could not be displayed. The file may be damaged.
     </p>
   {:else}
     <div class="flex shrink-0 items-center gap-1 border-b border-(--solus-container-border) px-3 py-1 text-xs text-(--solus-text-tertiary)">
@@ -116,7 +143,11 @@
       >
         <div bind:this={viewerElement} class="pdfViewer"></div>
       </div>
-      {#if !viewState}
+      {#if passwordRequest}
+        <div class="absolute inset-0 z-10 flex bg-(--solus-surface-secondary)">
+          <FilePasswordPrompt incorrect={passwordRequest.incorrect} onSubmit={submitPassword} />
+        </div>
+      {:else if !viewState}
         <div class="absolute inset-0 flex bg-(--solus-surface-secondary)">
           <ContentSkeleton label="Loading PDF" />
         </div>
