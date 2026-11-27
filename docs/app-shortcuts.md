@@ -1,10 +1,13 @@
 # App windows and app shortcuts
 
 Status: built 2026-11-26 in the desktop app for macOS, Windows, and Linux.
-2026-11-27: the app's own icon, the refresh of a launcher by its icon key,
-the Trash for removed launchers, the shortcut link from the web client, and
-the app window's menus and desktop capabilities. §6 says what each client
-has. §7 says what is not built and what was not exercised on a real machine.
+2026-11-27: the app's own icon, the refresh of a launcher by its icon key and
+on each deploy, the Trash for removed launchers, the shortcut link from the
+web client, the app window's menus and desktop capabilities (with system
+audio and the menu-bar page in a popover), and the clean-up of an app that
+any client deleted. §6 says what each client has. §7 says what is not built,
+what each operating system cannot do, and what was not exercised on a real
+machine.
 
 The reference is Executor (`UsefulSoftwareCo/executor`, read at `c5693792` on
 2026-11-25), which installs an app with a UI as a desktop app. §8 says what
@@ -24,6 +27,9 @@ Solus takes from it and what it does not.
   optional parameters `address`, `account`, and `name` (§5). The web client
   makes it. The desktop app opens the app and asks the person to add its
   shortcut. It also grants nothing.
+- **menu-bar page** — an optional second page of an app (`menubar.html`
+  beside `index.html`). The desktop app shows it in the **popover**, a small
+  window under the app's menu-bar item (§5.1).
 
 Solus does not say "install" for this. The apps plan keeps that word for a
 copy of an app on another host.
@@ -55,7 +61,9 @@ workspace.
 - The window opens where the person left it, when that place is on a display
   now.
 
-One app has one window: a second open brings the first to the front.
+One app has one window: a second open brings the first to the front. The
+popover of its menu-bar page is the same Solus page with
+`app-window-page=menubar`: it shows that page and nothing around it.
 
 The owner manages an app in the workspace. An app window has no Manage page.
 
@@ -76,6 +84,23 @@ person's shortcuts stay; a summon shortcut in that file stays where it is.
 A launcher opens its app with no record: the app link is enough. A file that
 cannot be read thus starts empty, and adding a shortcut again takes the same
 launcher back.
+
+**The records follow each app's host.** The workspace window of the desktop
+app runs `AppDesktopFollower` (`contexts/apps/app-desktop-follower.ts`):
+
+- A delete of the app from any client (this desktop, another desktop, web,
+  mobile, or an agent) reaches it as `apps.changed`, and `forgetApp` clears
+  the app here: its shortcut (the launcher goes to the Trash, as a removal
+  sends it), the icon file that a launcher in the Trash keeps, the place of
+  its window, and its permission answers with what its open window holds.
+  An open app window stays and shows **<App> is no longer available.**
+- When a host connects, the follower reads its app list, once, when this
+  computer has a shortcut or a permission answer of one of its apps. An app
+  that is gone from the list is cleared as above, so a delete while the
+  desktop app was closed is cleared at the next start. A list that fails to
+  read clears nothing.
+- A window place of an app with no shortcut and no answer is cleared at the
+  delete event only: its key does not name the host.
 
 ## 4. The launcher on each operating system
 
@@ -116,13 +141,16 @@ Rules for all three:
   the same entry again.
 - **A name another file holds is not taken.** The launcher then gets a part of
   the app's id in its name.
-- **A launcher follows its app.** When an app opens (in the app pane or in
-  its app window) and it has a shortcut, the desktop app compares the name,
-  the icon key, and the launcher format with the shortcut's record. When one
-  differs, it writes the launcher and its icon again, and an open app window
-  takes the new icon. A rename moves the launcher and deletes the old one; the old one does not go
-  to the Trash, because the new one replaces it. An
-  app that did not change writes nothing.
+- **A launcher follows its app.** When an app with a shortcut changes on its
+  host (a deploy, a rename, a new icon or colour: `apps.changed`), when its
+  host connects, and when the app opens (in the app pane or in its app
+  window), the desktop app compares the name, the icon key, and the launcher
+  format with the shortcut's record. When one differs, it writes the launcher
+  and its icon again, and an open app window takes the new icon. A deploy
+  thus reaches a launcher whose app nobody opens. A rename moves the
+  launcher and deletes the old one; the old one does not go to the Trash,
+  because the new one replaces it. An app that did not change writes
+  nothing.
 - **The icon key** names what the icon was drawn from: `svg:<hash>` for the
   app's own icon, `monogram:<letter>:<hue>` for its tile. A new `icon.svg`, a
   new colour, and a new first letter each give another key. An icon that
@@ -176,8 +204,10 @@ skill tells agents how to draw one (`references/design.md`).
   outside it. Solus shows the icon as the author drew it, in light and dark
   mode, so the skill asks for a full tile with its own background.
 
-A launch from a launcher opens the app and keeps the workspace window hidden,
-as after the person closes it. The Dock icon, the tray icon, or a normal
+A launch from a launcher, and a start by Solus's own login item for the apps
+that start at login, open the apps and keep the workspace window hidden, as
+after the person closes it, on each system (macOS tells a start at login by
+`wasOpenedAtLogin`; Windows and Linux by `--solus-login`). The Dock icon, the tray icon, or a normal
 launch of Solus shows the workspace.
 
 ## 5. Commands
@@ -195,9 +225,7 @@ running toast shows the change and turns into its result: where the launcher
 is now (in the Trash, deleted, or still in its place). A failure says what went
 wrong and offers **Try again**. Focus then goes back to the input bar.
 
-
-A delete of the app removes its shortcut and its permissions on this
-computer.
+A delete of the app clears it on this computer (§3).
 
 An app window has its own menu: the macOS menu bar while the window has focus,
 the window's own menu bar on Windows and Linux. It has **Reload**,
@@ -207,7 +235,10 @@ shortcut, **Close Window**, and **Quit <App>**. On macOS the Solus menu, Edit,
 and Window stay around it; another Solus window gets the Solus menu back.
 
 An app with a menu-bar item has a tray menu: **Open <App>**, **Reload**,
-**Permissions**, **Remove from menu bar**, and **Quit <App>**.
+**Permissions**, **Remove from menu bar**, and **Quit <App>**. On Windows and
+Linux the title that the app set is its first line, because those systems show
+no text beside a tray icon. On Linux an app with a menu-bar page has **Show
+<App> Popover** first, because a Linux tray icon gives Solus no click.
 
 Settings → General → **App permissions** lists each app with an answer on this
 computer, and sets each permission to Ask, Allow, or Don't allow.
@@ -219,11 +250,12 @@ permission that the person answers once (`docs/plans/app-desktop-capabilities.md
 
 | Permission | What the app gets |
 |---|---|
-| Menu bar item (`menuBar`) | An item in the menu bar (macOS) or a tray icon, with a title of up to 24 characters. A close hides the window, and the page keeps running. |
+| Menu bar item (`menuBar`) | An item in the menu bar (macOS) or a tray icon, with the app's own icon and a title of up to 24 characters. An app with a menu-bar page asks for it when it opens, and a click on the item opens the page in its popover. A close hides the window, and the page keeps running. |
 | Keyboard shortcuts (`shortcuts`) | Up to 8 global shortcuts. Keys that another program holds fail with `ShortcutTaken`. |
-| Keep above other windows (`floating`) | The window above other windows. |
+| Keep above other windows (`floating`) | The window above other windows. Unavailable on a native Wayland session (§7). |
 | Start at login (`startAtLogin`) | The app opens with no window each time Solus starts, and Solus opens at login. |
-| Microphone, Camera | `getUserMedia` in the app's page; the operating system asks too. |
+| Microphone, Camera | `getUserMedia` in the app's page; the system's privacy switch for Solus too, on macOS and Windows (a refusal there offers the system's settings). |
+| System audio (`systemAudio`) | `desktop.audio.system()`: what this computer plays, as an audio-only stream (Windows, macOS 13 and later, Linux with PulseAudio or PipeWire). On macOS, Screen & System Audio Recording too, else `SystemAudioBlocked`. |
 | Read the clipboard (`clipboardRead`) | `desktop.clipboard.readText()`. |
 | Notifications (`notifications`) | `desktop.notify`; a click brings the window to the front at a route. |
 
@@ -238,6 +270,28 @@ The answers are in `app-shortcut-records.json` (§3), by app.
 
 App authors use `desktop` from `@solus/app`
 (`resources/plugins/solus/skills/create-app/references/desktop.md`).
+
+**The menu-bar page.** The bundler builds `menubar.html` with its entry
+`src/menubar.tsx` into the build as `menubar.html`. Its meta
+`<meta name="solus:menubar" content="width=320, height=240">` sets the size of
+the popover (200–640 by 120–720; 320 × 400 without it), as Executor's
+`ui/menubar.html` does. `appUi({ appId, page: 'menubar' })` reads it, and the
+main page's `AppUi.menuBarPage` gives its size, so the app window tells the
+main process with no second read. A click on the item shows the popover
+under it, centred, below an item at the top of the display and above one at
+the bottom; a click away (blur) hides it; on macOS a right click shows the
+menu. The popover's page reaches the app's desktop capabilities as the
+window does. It closes with the window, a revoke of the item, and a version
+with no such page.
+
+**System audio.** `desktop.audio.system()` calls `@desktop/system-audio`,
+which asks for the grant and, on macOS, checks Screen & System Audio
+Recording. The page then calls `getDisplayMedia({ audio: true, video: true })`
+and drops the video track. The session's display-media handler gives only an
+app's frame, in its app window or popover, with the grant, its own frame as
+the video and `audio: 'loopback'`; every other page gets nothing. Linux has
+Chromium's `PulseaudioLoopbackForScreenShare` turned on at start, which
+captures the monitor of the default sink.
 
 Account and host actions:
 
@@ -358,18 +412,10 @@ is false, `permission` resolves `unavailable`, and every other call fails with
 
 Not built:
 
-- From the desktop capabilities: system audio, the menu-bar popover page (a
-  small page of the app under its item), and a second window of an app
-  (`desktop.window.open`). Each needs a second page of the app in its own
-  window, and the app frame has one page.
+- A second window of an app (`desktop.window.open`).
 - The web `Notification` and `navigator.clipboard.readText` APIs in an app's
   page: the frame has no origin, so the app uses `desktop.notify` and
   `desktop.clipboard.readText` instead.
-- On macOS, Solus cannot tell a start by its own login item from one that the
-  person set: the workspace window shows at login. Windows and Linux keep it
-  hidden (`--solus-login`).
-- A delete of an app from another client, or by an agent, leaves its
-  permissions on this computer until it is deleted here.
 - The shortcut link does not sign in for the person or add the host itself:
   it opens the account settings or the Add host dialog, and the person
   finishes there and chooses **Try again**.
@@ -377,9 +423,6 @@ Not built:
   **Try again** reads them again.
 - A shortcut for a published deployment. It has an address that a browser
   opens.
-- A launcher follows a new name and a new icon only when its app opens on
-  this computer. A deploy with a new icon does not reach a launcher whose
-  app nobody opens.
 - An app window with no shortcut has the icon of Solus: the window's icon is
   the shortcut's icon file.
 - A published deployment of an app does not get its icon.
@@ -390,6 +433,23 @@ Not built:
   the workspace window, which preloads the workspace's code files. The app
   window does not run them.
 
+What an operating system cannot do, and what Solus does in its place
+(`docs/plans/app-desktop-capabilities.md` §6):
+
+- **Text beside a tray icon** (Windows, Linux): Electron's `tray.setTitle` is
+  macOS only. The title is the tooltip and the first line of the tray menu.
+- **A click on a tray icon** (Linux): a StatusNotifierItem shows its menu and
+  gives Solus no click (Electron's `Tray` documents that `click` is ignored
+  with an app indicator). The menu has **Show <App> Popover**.
+- **Keep on top and a window's place** (Linux, a native Wayland session):
+  Electron's `setAlwaysOnTop` and `setPosition` are "not supported on
+  Wayland", and Linux gives no bounds of a tray icon. `floating` is
+  `unavailable` there, and the compositor places the popover.
+- **A badge** (Linux): `app.setBadgeCount` shows only on a dock or taskbar
+  with the LauncherEntry D-Bus API (Ubuntu Dock, KDE Plasma, Plank).
+- **System audio** before macOS 13: ScreenCaptureKit has no audio there; the
+  permission is `unavailable`.
+- **The Trash** (Linux): a removed desktop entry is deleted (§4).
 Not exercised on a real machine: the Windows shortcut, the Linux desktop
 entry, the two Electron parts (the app window itself and the delivery of an
 app link to Solus), the drawing of an `icon.svg` to the launcher's PNG in a
@@ -409,7 +469,13 @@ login item on each operating system, the badge, notifications, the
 clipboard, and `getUserMedia` from the app frame (which needs the frame's
 `allow="microphone *; camera *"` and the session's permission handler).
 `tests/unit/app-desktop.test.ts` pins their rules with fakes for each
-Electron part.
+Electron part. Not run either: the popover window and its place under a real
+tray icon, the right click on macOS, the tray icon drawn from the app's icon,
+a capture of system audio on any system (the display-media handler, macOS
+Screen & System Audio Recording, Windows loopback, the PulseAudio loopback
+flag on Linux with PulseAudio or PipeWire), `wasOpenedAtLogin` at a real
+login on macOS, the Windows privacy switch for a device, and the follower
+against a real delete from another client. Their rules are tested.
 On macOS the launcher was made and checked with `plutil`, `iconutil`, and a
 launch of a copy whose program only wrote a file.
 
@@ -419,9 +485,11 @@ launch of a copy whose program only wrote a file.
 |---|---|
 | A launcher that opens `executor://app/<server>/<app>`; on macOS a compiled program in a generated bundle. | Taken, with a shell script as the program: Solus has no build step for a native one, and macOS runs a script the same way. |
 | A window on the app's own origin, with the dashboard's session cookie. | Not needed. The window is a Solus client: it has the host connection of the desktop app. |
-| A bridge of native capabilities with nine permissions, a native prompt, and grants kept by app. | Taken, with eight: no system audio (§7). The bridge is `@desktop/` calls on `window.solusApp`, because the app frame has no origin and no preload. |
+| A bridge of native capabilities with nine permissions, a native prompt, and grants kept by app. | Taken, with the same nine. The bridge is `@desktop/` calls on `window.solusApp`, because the app frame has no origin and no preload. |
 | Notifications and clipboard through the web APIs, which its preload wraps. | `desktop.notify` and `desktop.clipboard.readText`: no preload reaches the frame. |
-| A menu-bar item for an app with a `ui/menubar.html` popover. | An item for any app that sets a title, with a menu and no popover. |
+| A menu-bar item for an app with a `ui/menubar.html` popover: asked for when the app opens, a click toggles the popover, a right click shows the menu on macOS, blur hides it. | Taken, as `menubar.html` beside `index.html` with `<meta name="solus:menubar">`. An app with no such page still gets an item when it sets a title. Linux has a menu item for the popover. |
+| `desktop.audio.system()` on Windows and macOS 13 and later: the grant, the macOS screen access (else `SystemAudioBlocked`), then `getDisplayMedia` answered with `audio: 'loopback'`. | Taken. Linux too, with Chromium's PulseAudio loopback. |
+| A start at login seen by `--executor-login`, and on macOS by `wasOpenedAtLogin`. | Taken, with `--solus-login`; on macOS only while Solus turned the login item on for the apps, so a login item the person made shows the workspace. |
 | A menu of each app window, and a tray menu. | Taken. |
 | No launcher on Linux. | A desktop entry. |
 | Installed apps on this device only, keyed by server and app. | Taken (§3). |
@@ -460,7 +528,10 @@ launch of a copy whose program only wrote a file.
   capabilities (`app-desktop.ts`, with their Electron parts in
   `app-desktop-electron.ts`) and the menus (`app-menus.ts`).
 - `packages/contracts/src/app-desktop.ts` — the permissions, the calls, and
-  the failures.
+  the failures; `apps.ts` — `AppUiPage`, `APP_MENU_BAR_FILE`, and
+  `appMenuBarPageSize`.
+- `packages/workspace-ui/src/contexts/apps/app-desktop-follower.ts` — the
+  records that follow each app's host (§3).
 - `apps/desktop/src/main/platform/*-app-launchers.ts` — one adapter for each
   operating system.
 - `apps/desktop/src/renderer/shell/AppWindow.svelte` — the page of an app
@@ -481,4 +552,6 @@ launch of a copy whose program only wrote a file.
   `tests/unit/app-shortcut-ipc.test.ts`, `tests/unit/app-shortcut-commands.test.ts`,
   `tests/unit/app-shortcut-messages.test.ts`, `tests/unit/app-icons.test.ts`,
   `tests/unit/app-icons-store.test.ts`, `tests/unit/app-shortcut-link.test.ts`, `tests/unit/app-desktop.test.ts`,
-  `tests/unit/app-desktop-bridge.test.ts`, `tests/unit/app-permissions-store.test.ts`.
+  `tests/unit/app-desktop-bridge.test.ts`, `tests/unit/app-permissions-store.test.ts`,
+  `tests/unit/app-desktop-follower.test.ts`, `tests/unit/app-menu-bar-page.test.ts`,
+  `tests/unit/app-shortcut-records-file.test.ts`.
