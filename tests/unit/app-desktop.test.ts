@@ -5,7 +5,7 @@ import { join } from 'path'
 import type { MenuItemConstructorOptions } from 'electron'
 import { parseAppDesktopCall, type AppDesktopEvent, type AppDesktopPermission, type AppDesktopResult, type AppDesktopValue } from '@solus/contracts/app-desktop'
 import { parseAppCallName } from '@solus/contracts/apps'
-import { AppDesktop, requestedAppPermissions, startedByOwnLoginItem, systemMediaSettingsUrl, systemMediaStep, type AppDesktopPorts, type AppWindowHandle } from '@solus/desktop-main/app-shortcuts/app-desktop'
+import { AppDesktop, requestedAppPermissions, startedByOwnLoginItem, systemAudioSupported, systemMediaSettingsUrl, systemMediaStep, type AppDesktopPorts, type AppWindowHandle } from '@solus/desktop-main/app-shortcuts/app-desktop'
 import { AppShortcutRecords } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
 import { shortcutProblem } from '@solus/desktop-main/app-shortcuts/app-permission-text'
 import { popoverPosition } from '@solus/desktop-main/app-shortcuts/window-bounds'
@@ -59,8 +59,11 @@ let dir: string
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'solus-app-desktop-')) })
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-/** `personLoginItem`: the person made a login item of Solus themselves (macOS). */
-function harness(os: 'darwin' | 'win32' | 'linux' = 'darwin', { personLoginItem = false } = {}): Harness {
+/**
+ * `personLoginItem`: the person made a login item of Solus themselves (macOS).
+ * `audio`: whether this system can give system audio, and whether macOS lets Solus record it.
+ */
+function harness(os: 'darwin' | 'win32' | 'linux' = 'darwin', { personLoginItem = false, audio = { supported: true, access: true } } = {}): Harness {
   const records = new AppShortcutRecords(join(dir, 'app-shortcuts.json'))
   const h: Omit<Harness, 'desktop'> = {
     records,
@@ -89,6 +92,8 @@ function harness(os: 'darwin' | 'win32' | 'linux' = 'darwin', { personLoginItem 
       return h.answers.shift() ?? false
     },
     mediaAccess: async () => true,
+    systemAudioSupported: audio.supported,
+    systemAudioAccess: async () => audio.access,
     globalShortcuts: {
       isRegistered: (accelerator) => h.held.has(accelerator) || h.takenByOthers.has(accelerator),
       register(accelerator, onPress) {
@@ -360,6 +365,9 @@ describe('a request of the page to Chromium', () => {
   test('maps to the permissions it needs, and an unknown device needs one the app cannot have', () => {
     expect(requestedAppPermissions('media', ['audio', 'video'])).toEqual(['microphone', 'camera'])
     expect(requestedAppPermissions('media', ['audio', 'screen'])).toEqual([])
+    // getDisplayMedia: Electron 44 asks as media with no device type, later versions as display-capture.
+    expect(requestedAppPermissions('media', [])).toEqual(['systemAudio'])
+    expect(requestedAppPermissions('display-capture', undefined)).toEqual(['systemAudio'])
     expect(requestedAppPermissions('clipboard-read', undefined)).toEqual(['clipboardRead'])
     expect(requestedAppPermissions('geolocation', undefined)).toBeNull()
   })
@@ -438,6 +446,50 @@ describe('the menu-bar page', () => {
     expect(popoverPosition(PAGE, { x: 700, y: 870, width: 24, height: 30 }, area)).toEqual({ x: 532, y: 626 })
     // Linux: the pointer is the anchor.
     expect(popoverPosition(PAGE, { x: 10, y: 5, width: 0, height: 0 }, area)).toEqual({ x: 0, y: 25 })
+  })
+})
+
+describe('system audio', () => {
+  // WHY: desktop.audio.system() readies the capture: the grant once, then getDisplayMedia, which the display-media handler answers from the grant only.
+  test('a first call asks, and a capture is allowed only with the grant', async () => {
+    const h = harness('win32')
+    expect(h.desktop.allowsSystemAudio(notes)).toBe(false)
+    h.answers.push(true)
+    expect(await call(h, 'system-audio')).toEqual({ ok: true, value: null })
+    expect(h.asked).toEqual(['systemAudio'])
+    expect(h.desktop.allowsSystemAudio(notes)).toBe(true)
+    expect(h.desktop.allowsSystemAudio(tasks)).toBe(false)
+  })
+
+  // WHY: a first Don't Allow started no capture; a reload then would only lose what the page holds. A revoke of a grant must stop a capture that runs.
+  test('a refusal fails with DesktopPermissionDenied and keeps the page; a revoke stops a capture by a reload', async () => {
+    const h = harness('linux')
+    h.answers.push(false)
+    expect(await call(h, 'system-audio')).toMatchObject({ ok: false, failure: { code: 'DesktopPermissionDenied', permission: 'systemAudio' } })
+    expect(h.windows.get(notes.appId)?.reloads).toBe(0)
+    await h.desktop.change({ ...notes, permission: 'systemAudio', state: 'granted' })
+    await h.desktop.change({ ...notes, permission: 'systemAudio', state: 'denied' })
+    expect(h.windows.get(notes.appId)?.reloads).toBe(1)
+  })
+
+  test('macOS without Screen & System Audio Recording fails with SystemAudioBlocked', async () => {
+    const h = harness('darwin', { audio: { supported: true, access: false } })
+    h.answers.push(true)
+    expect(await call(h, 'system-audio')).toMatchObject({ ok: false, failure: { code: 'SystemAudioBlocked' } })
+  })
+
+  test('a system that cannot give it shows the permission as unavailable and fails with DesktopUnavailable', async () => {
+    const h = harness('darwin', { audio: { supported: false, access: true } })
+    expect(await call(h, 'permission', { name: 'systemAudio' })).toEqual({ ok: true, value: 'unavailable' })
+    expect(await call(h, 'system-audio')).toMatchObject({ ok: false, failure: { code: 'DesktopUnavailable' } })
+    expect(h.asked).toEqual([])
+  })
+
+  test('Windows, Linux, and macOS 13 and later can give it', () => {
+    expect(systemAudioSupported('win32', 0)).toBe(true)
+    expect(systemAudioSupported('linux', 0)).toBe(true)
+    expect(systemAudioSupported('darwin', 22)).toBe(true)
+    expect(systemAudioSupported('darwin', 21)).toBe(false)
   })
 })
 

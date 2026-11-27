@@ -22,7 +22,9 @@ export const linuxPlatform: DesktopPlatform = {
 
   prepare(app) {
     app.setDesktopName('com.solus.app.desktop')
-    app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal')
+    // One switch: a second enable-features replaces the first. The PulseAudio loopback gives an app's
+    // `desktop.audio.system()` the monitor of the default sink, which PipeWire's pulse server has too.
+    app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal,PulseaudioLoopbackForScreenShare')
   },
   ready() {},
   singleInstance: true,

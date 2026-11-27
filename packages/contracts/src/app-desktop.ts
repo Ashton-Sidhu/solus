@@ -18,6 +18,7 @@ export const APP_DESKTOP_PERMISSIONS = [
   'startAtLogin',
   'microphone',
   'camera',
+  'systemAudio',
   'clipboardRead',
   'notifications',
 ] as const
@@ -40,6 +41,7 @@ export function appDesktopPermissionLabel(permission: AppDesktopPermission, os: 
     case 'startAtLogin': return 'Start at login'
     case 'microphone': return 'Microphone'
     case 'camera': return 'Camera'
+    case 'systemAudio': return 'System audio'
     case 'clipboardRead': return 'Read the clipboard'
     case 'notifications': return 'Notifications'
   }
@@ -82,6 +84,7 @@ export const appDesktopCallSchema = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('badge'), args: z.object({ count: z.number().int().min(0).max(APP_BADGE_MAX, `A badge is a whole number from 0 to ${APP_BADGE_MAX}.`).nullable() }) }),
   z.object({ operation: z.literal('notify'), args: z.object({ title: z.string().min(1).max(200), body: z.string().max(1000).default(''), route: routeSchema.nullable().default(null) }) }),
   z.object({ operation: z.literal('clipboard-read'), args: z.object({}) }),
+  z.object({ operation: z.literal('system-audio'), args: z.object({}) }),
 ])
 export type AppDesktopCall = z.infer<typeof appDesktopCallSchema>
 export type AppDesktopOperation = AppDesktopCall['operation']
@@ -98,6 +101,7 @@ export const APP_DESKTOP_OPERATIONS = [
   'badge',
   'notify',
   'clipboard-read',
+  'system-audio',
 ] as const satisfies readonly AppDesktopOperation[]
 
 /** A failure that a desktop call answers with. It crosses IPC and the frame as plain data. */
@@ -106,6 +110,8 @@ export type AppDesktopFailure =
   | { code: 'DesktopPermissionDenied'; message: string; permission: AppDesktopPermission }
   | { code: 'ShortcutTaken'; message: string; accelerator: string }
   | { code: 'DesktopInvalidInput'; message: string }
+  /** macOS has not allowed Solus to record the screen and system audio. */
+  | { code: 'SystemAudioBlocked'; message: string }
 
 /** A JSON value a desktop call answers. */
 export type AppDesktopValue = string | number | boolean | null | AppDesktopValue[] | { [key: string]: AppDesktopValue }

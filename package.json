@@ -149,6 +149,7 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Solus uses your microphone for local voice input, and for the browser sites and apps you allow.",
         "NSCameraUsageDescription": "Solus uses your camera for the browser sites and apps you allow.",
+        "NSAudioCaptureUsageDescription": "Solus records the audio that this computer plays for the apps you allow.",
         "NSAppleEventsUsageDescription": "Solus needs to send Apple Events to your terminal app to open editor sessions."
       },
       "files": [

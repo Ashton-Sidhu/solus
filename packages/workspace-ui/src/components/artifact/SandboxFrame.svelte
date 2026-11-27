@@ -503,7 +503,7 @@
         class:fill-available={fillAvailable}
         data-testid="artifact-iframe"
         sandbox={isolated ? "allow-scripts" : isApp ? "allow-scripts allow-forms allow-modals allow-downloads" : "allow-scripts allow-popups allow-forms allow-modals allow-downloads"}
-        allow={appDesktop ? "clipboard-write; microphone *; camera *" : "clipboard-write"}
+        allow={appDesktop ? "clipboard-write; microphone *; camera *; display-capture *" : "clipboard-write"}
         style="color-scheme:{colorScheme};{frameSize}"
         onload={() => {
           frameResult = { srcdoc: srcdoc ?? "", reloadKey, failed: false };

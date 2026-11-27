@@ -60,6 +60,13 @@ export interface AppDesktopPorts {
   ask(request: { target: AppShortcutTarget; name: string; permission: AppDesktopPermission; isOnWindow: boolean }): Promise<boolean>
   /** The operating system's own access for a device, after the app has the grant. */
   mediaAccess(permission: 'microphone' | 'camera'): Promise<boolean>
+  /** This system can give an app what it plays (Windows, macOS 13 and later, Linux with PulseAudio or PipeWire). */
+  systemAudioSupported: boolean
+  /**
+   * macOS: Solus may record the screen and system audio. When it may not, this
+   * offers System Settings and answers false. True on Windows and Linux.
+   */
+  systemAudioAccess(): Promise<boolean>
   globalShortcuts: {
     isRegistered(accelerator: string): boolean
     /** False when another program holds it; throws for an accelerator Electron does not read. */
@@ -113,8 +120,11 @@ interface RunningApp {
 export function requestedAppPermissions(permission: string, mediaTypes: readonly string[] | undefined): AppDesktopPermission[] | null {
   if (permission === 'notifications') return ['notifications']
   if (permission === 'clipboard-read') return ['clipboardRead']
+  // `getDisplayMedia`: Electron 44 asks as `media` with no device type; later versions name it `display-capture`.
+  if (permission === 'display-capture') return ['systemAudio']
   if (permission !== 'media') return null
   const types = mediaTypes ?? []
+  if (types.length === 0) return ['systemAudio']
   const devices = types.flatMap((type): AppDesktopPermission[] => (type === 'audio' ? ['microphone'] : type === 'video' ? ['camera'] : []))
   return types.length > 0 && devices.length === types.length ? devices : []
 }
@@ -148,6 +158,17 @@ export type SystemMediaStatus = 'not-determined' | 'granted' | 'denied' | 'restr
  * refusal there is one for every app of Solus. Linux has no such switch for a
  * desktop program.
  */
+/**
+ * Where an app can capture what this computer plays (Executor's
+ * `systemAudioSupported`, with Linux): Windows; macOS 13 (Darwin 22) and
+ * later, through ScreenCaptureKit; Linux, through the monitor of the default
+ * PulseAudio sink, which PipeWire gives too (Chromium's
+ * `PulseaudioLoopbackForScreenShare`, which Solus turns on).
+ */
+export function systemAudioSupported(os: DesktopOs, darwinMajor: number): boolean {
+  return os !== 'darwin' || darwinMajor >= 22
+}
+
 export function systemMediaStep(os: DesktopOs, status: SystemMediaStatus): 'allowed' | 'ask' | 'settings' {
   if (os === 'linux' || status === 'granted') return 'allowed'
   if (os === 'darwin') return status === 'not-determined' ? 'ask' : 'settings'
@@ -196,6 +217,7 @@ export class AppDesktop {
   // ─── Permissions ───
 
   permissionState(target: AppShortcutTarget, permission: AppDesktopPermission): AppDesktopPermissionState {
+    if (permission === 'systemAudio' && !this.ports.systemAudioSupported) return 'unavailable'
     return this.ports.records.grantOf(target, permission) ?? 'prompt'
   }
 
@@ -208,6 +230,7 @@ export class AppDesktop {
       startAtLogin: state('startAtLogin'),
       microphone: state('microphone'),
       camera: state('camera'),
+      systemAudio: state('systemAudio'),
       clipboardRead: state('clipboardRead'),
       notifications: state('notifications'),
     }
@@ -221,7 +244,7 @@ export class AppDesktop {
       const isAllowed = await this.ports.ask({ target, name, permission, isOnWindow: this.ports.windowOf(target)?.isVisible() ?? false })
       // The window may have closed while the dialog was open: the answer still counts.
       this.ports.records.setGrant(target, name, permission, isAllowed ? 'granted' : 'denied')
-      await this.applied(target, permission)
+      await this.applied(target, permission, 'prompt')
     })
     this.asking = turn.catch(() => undefined)
     await turn
@@ -260,8 +283,9 @@ export class AppDesktop {
   /** A change from Settings or a menu. It applies at once. */
   async change({ host, appId, permission, state }: AppPermissionChange): Promise<void> {
     const target = { host, appId }
+    const before = this.permissionState(target, permission)
     this.ports.records.setGrant(target, this.nameOf(target), permission, state === 'prompt' ? null : state)
-    await this.applied(target, permission)
+    await this.applied(target, permission, before)
   }
 
   /** A deleted app keeps nothing on this device: no answer, no shortcut it holds, no menu-bar item. */
@@ -279,8 +303,8 @@ export class AppDesktop {
     this.ports.grantsChanged()
   }
 
-  /** What a change of one grant does to an open app. */
-  private async applied(target: AppShortcutTarget, permission: AppDesktopPermission): Promise<void> {
+  /** What a change of one grant does to an open app. `before`: the state the change came from. */
+  private async applied(target: AppShortcutTarget, permission: AppDesktopPermission, before: AppDesktopPermissionState): Promise<void> {
     const running = this.running.get(appShortcutId(target))
     const isGranted = this.permissionState(target, permission) === 'granted'
     if (permission === 'startAtLogin') await this.syncLoginItem()
@@ -288,8 +312,10 @@ export class AppDesktop {
       if (permission === 'menuBar') this.removeTray(running)
       if (permission === 'shortcuts') this.releaseShortcuts(running)
       if (permission === 'floating') this.setFloating(running, false)
-      // A capture that runs keeps running until the page stops it: a reload stops it.
-      if (permission === 'microphone' || permission === 'camera') this.ports.windowOf(target)?.reload()
+      // A capture that runs keeps running until the page stops it: a reload stops it. A first answer of
+      // Don't Allow started no capture, and a reload then would only lose what the page holds.
+      const isDevice = permission === 'microphone' || permission === 'camera' || permission === 'systemAudio'
+      if (isDevice && before === 'granted') this.ports.windowOf(target)?.reload()
     }
     if (running) this.refreshMenus(running)
     this.ports.grantsChanged()
@@ -345,7 +371,27 @@ export class AppDesktop {
       case 'badge': return Promise.resolve(this.setBadge(running, request.args.count))
       case 'notify': return this.notify(target, request.args)
       case 'clipboard-read': return this.ensure(target, 'clipboardRead').then(() => this.ports.readClipboard())
+      case 'system-audio': return this.systemAudio(target)
     }
+  }
+
+  /**
+   * Readies a capture of what this computer plays (Executor's `systemAudio`):
+   * the grant, asked for once, and on macOS the system's access. The page then
+   * calls `getDisplayMedia`, which `allowsSystemAudio` answers.
+   */
+  private async systemAudio(target: AppShortcutTarget): Promise<null> {
+    if (!this.ports.systemAudioSupported) throw new DesktopFailure(desktopUnavailable())
+    await this.ensure(target, 'systemAudio')
+    if (!await this.ports.systemAudioAccess()) {
+      throw new DesktopFailure({ code: 'SystemAudioBlocked', message: 'macOS has not allowed Solus to record system audio. Turn on Solus in System Settings > Privacy & Security > Screen & System Audio Recording, then try again.' })
+    }
+    return null
+  }
+
+  /** Whether a `getDisplayMedia` call of the app's page gets the system's audio: the grant only, never a question. */
+  allowsSystemAudio(target: AppShortcutTarget): boolean {
+    return this.ports.systemAudioSupported && this.permissionState(target, 'systemAudio') === 'granted'
   }
 
   private async setMenuBarTitle(running: RunningApp, text: string | null): Promise<null> {

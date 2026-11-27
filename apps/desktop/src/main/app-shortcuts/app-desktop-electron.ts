@@ -1,11 +1,12 @@
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, shell, systemPreferences, Tray, type NativeImage } from 'electron'
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, Notification, shell, systemPreferences, Tray, webContents, type NativeImage } from 'electron'
 import { existsSync } from 'fs'
+import { release } from 'os'
 import { z } from 'zod'
 import { createLogger } from '@solus/server/logger'
 import { appDesktopPermissionSchema, desktopUnavailable, parseAppDesktopCall, type AppDesktopResult } from '@solus/contracts/app-desktop'
 import { isAppShortcutTarget, type AppShortcutTarget } from '@solus/contracts/app-shortcuts'
 import type { DesktopPlatform, LoginItemInstall } from '@solus/desktop-main/platform/desktop-platform'
-import { AppDesktop, requestedAppPermissions, systemMediaSettingsUrl, systemMediaStep, type AppWindowHandle } from './app-desktop'
+import { AppDesktop, requestedAppPermissions, systemAudioSupported, systemMediaSettingsUrl, systemMediaStep, type AppWindowHandle } from './app-desktop'
 import { permissionDetail, permissionQuestion } from './app-permission-text'
 import type { AppShortcutRecords } from './app-shortcut-records'
 import { AppWindows, type AppWindowLifecycle, type AppWindowsOptions } from './app-windows'
@@ -17,6 +18,7 @@ import type { AppLaunchers } from './launchers'
 const log = createLogger('main', 'app-desktop')
 
 const LOGIN_ITEMS_SETTINGS_URL = 'x-apple.systempreferences:com.apple.LoginItems-Settings.extension'
+const SCREEN_RECORDING_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
 /** Notifications kept so a click still reaches its handler: Electron drops one that nothing holds. */
 const NOTIFICATIONS_KEPT = 20
 const TRAY_ICON_SIZE = 16
@@ -55,6 +57,8 @@ export interface AppWindowsRuntime {
   desktop: AppDesktop
   /** For the session's permission handler: what a request of an app window's page gets. */
   permissionRequest: AppWindowPermissionRequest
+  /** For the session's display-media handler: an app page's `getDisplayMedia` gets the system's audio, or nothing. */
+  displayMediaRequest(request: Electron.DisplayMediaRequestHandlerHandlerRequest, callback: (streams: Electron.Streams) => void): void
   /** An app the person allowed to start at login opens with no window each time Solus starts. */
   openAppsThatStartAtLogin(): void
 }
@@ -101,6 +105,7 @@ export function createAppWindowsRuntime(deps: AppWindowsRuntimeDeps): AppWindows
     windows: created,
     desktop: parts.desktop,
     permissionRequest: appWindowPermissionRequest(parts.desktop, created),
+    displayMediaRequest: appDisplayMediaRequest(parts.desktop, created),
     openAppsThatStartAtLogin() {
       for (const { target, name } of parts.desktop.appsThatStartAtLogin()) created.open({ ...target, name }, { isHidden: true })
     },
@@ -201,6 +206,25 @@ function createAppDesktop(deps: AppDesktopElectronDeps): AppDesktopParts {
         noLink: true,
       })
       if (response === 0) await shell.openExternal(systemMediaSettingsUrl(platform.id, permission))
+      return false
+    },
+    systemAudioSupported: systemAudioSupported(platform.id, Number(release().split('.')[0])),
+    async systemAudioAccess() {
+      if (!isMac || systemPreferences.getMediaAccessStatus('screen') === 'granted') return true
+      // macOS lists Solus under Screen & System Audio Recording only after it asked once.
+      const { response } = await dialog.showMessageBox({
+        type: 'none',
+        message: 'Allow Solus to record system audio.',
+        detail: 'An app asked for the audio that this computer plays. Turn on Solus in System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen Solus, and try again.',
+        buttons: ['Open System Settings', 'Not Now'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      })
+      if (response === 0) {
+        await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }).catch(() => [])
+        await shell.openExternal(SCREEN_RECORDING_SETTINGS_URL)
+      }
       return false
     },
     globalShortcuts: {
@@ -398,6 +422,30 @@ function registerAppDesktopIpc({ desktop, setAppIcon }: AppDesktopParts, windows
   })
   ipcMain.handle('solus:app-permissions', () => desktop.list())
   ipcMain.handle('solus:app-permission-set', (_event, rawChange) => desktop.change(changeSchema.parse(rawChange)))
+}
+
+/**
+ * What a `getDisplayMedia` of a page gets (Executor's `displayMediaRequest`).
+ * Only an app's frame in its app window or popover, with the `systemAudio`
+ * grant, gets the system's audio: with its own frame as the video, which the
+ * page drops. Any other page, and Solus's own pages, get nothing: no screen
+ * of this computer goes to a page through this handler.
+ */
+function appDisplayMediaRequest(desktop: AppDesktop, windows: AppWindows): AppWindowsRuntime['displayMediaRequest'] {
+  return (request, callback) => {
+    const frame = request.frame
+    const contents = frame ? webContents.fromFrame(frame) : undefined
+    const target = contents ? windows.targetOf(contents) : null
+    const isAppFrame = frame !== null && frame.parent !== null
+    if (!frame || !target || !isAppFrame || !request.audioRequested || !desktop.allowsSystemAudio(target)
+      || (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus('screen') !== 'granted')) {
+      log.info('app_system_audio_refused', { appId: target?.appId ?? null })
+      callback({})
+      return
+    }
+    log.info('app_system_audio_given', { appId: target.appId, host: target.host })
+    callback({ video: frame, audio: 'loopback' })
+  }
 }
 
 /**

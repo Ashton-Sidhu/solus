@@ -53,6 +53,7 @@ export function permissionQuestion(permission: AppDesktopPermission, os: Desktop
     case 'startAtLogin': return 'wants to start when you log in to this computer.'
     case 'microphone': return 'wants to use your microphone.'
     case 'camera': return 'wants to use your camera.'
+    case 'systemAudio': return 'wants to record the audio that this computer plays.'
     case 'clipboardRead': return 'wants to read what you copy.'
     case 'notifications': return 'wants to show notifications.'
   }
@@ -65,6 +66,7 @@ export function permissionDetail(permission: AppDesktopPermission): string {
   switch (permission) {
     case 'startAtLogin': return `Solus opens at login, and opens the app with no window. ${CHANGE_HINT}`
     case 'clipboardRead': return `It can read text that you copy in any app, each time it asks. ${CHANGE_HINT}`
+    case 'systemAudio': return `It hears every app that plays sound, such as the other people in a call, while it records. ${CHANGE_HINT}`
     default: return CHANGE_HINT
   }
 }

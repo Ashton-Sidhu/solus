@@ -147,6 +147,7 @@ module.exports = {
     extendInfo: {
       NSMicrophoneUsageDescription: 'Solus uses your microphone for local voice input, and for the browser sites and apps you allow.',
       NSCameraUsageDescription: 'Solus uses your camera for the browser sites and apps you allow.',
+      NSAudioCaptureUsageDescription: 'Solus records the audio that this computer plays for the apps you allow.',
     },
     // Code signing — requires "Developer ID Application" cert in Keychain
     osxSign: {

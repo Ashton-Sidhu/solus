@@ -9,7 +9,7 @@ import { HtmlFullscreen } from './html-fullscreen'
 import { secureStorage } from './secure-storage'
 import { desktopPlatform } from './platform/desktop-platform'
 
-import { app, BrowserWindow, ipcMain, screen, globalShortcut, Tray, Menu, nativeTheme, safeStorage, shell, powerSaveBlocker, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, screen, globalShortcut, Tray, Menu, nativeTheme, safeStorage, session, shell, powerSaveBlocker, protocol } from 'electron'
 import { join } from 'path'
 import { homedir } from 'os'
 import { readFileSync, statSync } from 'fs'
@@ -1048,6 +1048,8 @@ app.whenReady().then(async () => {
       })
 
       if (!isTestMode) handlePermissionRequests(appRuntime?.permissionRequest ?? null)
+      // An app's `desktop.audio.system()` (docs/plans/app-desktop-capabilities.md §3); every other page gets nothing.
+      if (!isTestMode && appRuntime) session.defaultSession.setDisplayMediaRequestHandler(appRuntime.displayMediaRequest)
 
       if (!isTestMode) {
         currentAppShortcuts = loadAppShortcuts()
