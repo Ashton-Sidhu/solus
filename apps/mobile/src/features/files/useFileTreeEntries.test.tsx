@@ -120,6 +120,27 @@ const { Children, Nothing } = vi.hoisted(() => ({
   Children: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   Nothing: () => null,
 }));
+const copyTextWithHaptic = vi.hoisted(() => vi.fn());
+vi.mock("../../lib/copyTextWithHaptic", () => ({ copyTextWithHaptic }));
+vi.mock("../../components/ui/Menu", () => ({
+  Menu: ({
+    actions,
+    children,
+    onPressAction,
+    shouldOpenOnLongPress,
+  }: import("../../components/ui/Menu.types").MenuProps) => (
+    <div
+      onContextMenu={() => {
+        const action = actions.find(({ title }) => title === "Copy path");
+        if (shouldOpenOnLongPress && action?.id) {
+          onPressAction?.({ nativeEvent: { event: action.id } });
+        }
+      }}
+    >
+      {children}
+    </div>
+  ),
+}));
 vi.mock("react-native", () => ({
   Platform: { OS: "ios" },
   View: Children,
@@ -217,9 +238,10 @@ function setup(withBrowser = false) {
     useLayoutEffect(() => {
       current = result;
     });
-    return withBrowser ? (
+    return withBrowser && input.cwd !== null ? (
       <FileTreeBrowser
         key={JSON.stringify([input.environmentId, input.cwd])}
+        cwd={input.cwd}
         {...result}
         selectedPath={controlledSelection ?? result.selectedPath}
         searchQuery=""
@@ -264,11 +286,11 @@ function setup(withBrowser = false) {
         button.getAttribute("aria-label"),
       );
     },
-    press(label: string) {
+    press(label: string, event: "click" | "contextmenu" = "click") {
       renders = 0;
       const button = container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
       if (!button) throw new Error(`No row labelled ${label}`);
-      act(() => button.click());
+      act(() => button.dispatchEvent(new MouseEvent(event, { bubbles: true })));
     },
     render(target: Partial<Input> = {}) {
       renders = 0;
@@ -302,6 +324,26 @@ function setup(withBrowser = false) {
 }
 
 describe("file tree workspace state", () => {
+  it("copies full paths for a folder and a file from the selected checkout", () => {
+    using screen = setup(true);
+    screen.rootQuery.data = {
+      entries: [...rootEntries, { kind: "file", path: "Setup notes.md" }],
+      truncated: false,
+    };
+    screen.render({ cwd: "/srv/checkouts/remote" });
+    screen.press("src", "contextmenu");
+    screen.press("Setup notes.md", "contextmenu");
+    screen.render({ cwd: "D:\\checkouts\\remote", environmentId: EnvironmentId.make("windows") });
+    screen.press("Setup notes.md", "contextmenu");
+    expect(copyTextWithHaptic.mock.calls).toEqual([
+      ["/srv/checkouts/remote/src"],
+      ["/srv/checkouts/remote/Setup notes.md"],
+      ["D:\\checkouts\\remote\\Setup notes.md"],
+    ]);
+    expect(screen.requests).toHaveLength(0);
+    expect(screen.current.selectedPath).toBeNull();
+  });
+
   it("retries failed folders once on reconnect", async () => {
     using screen = setup();
     screen.render();
