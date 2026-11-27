@@ -289,6 +289,8 @@ patchedDependencies:
   # Android: a language change applies at once instead of reading back the old locale
   # before the async native write lands.
   gt-react-native@11.4.18: patches/gt-react-native@11.4.18.patch
+  # Hermes cannot parse the computed import for optional external codecs. Built-in ZIP codecs still work.
+  "@zip.js/zip.js@2.25.0": patches/@zip.js__zip.js@2.25.0.patch
 
 # Unmet peers fail resolution, so a pin outside a dependency's peer range is
 # caught when the lockfile changes instead of scrolling past as a warning.

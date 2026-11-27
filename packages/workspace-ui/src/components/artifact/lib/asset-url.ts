@@ -15,6 +15,7 @@ export interface SignedAssetUrlRequest {
   path?: string
   assetId?: string
   name?: string
+  download?: boolean
   origin: string
   api: Pick<HostApi, 'assetCreateUrl'>
   ctx?: IpcContext
@@ -39,7 +40,7 @@ export class AssetUrlCache {
   async resolve(request: SignedAssetUrlRequest, now = Date.now()): Promise<string> {
     const sourceKey = request.assetId
       ? `asset:${request.assetId}:${request.name ?? ''}`
-      : `path:${request.path ?? ''}`
+      : `path:${request.download ? 'download:' : ''}${request.path ?? ''}`
     const key = hostKey(request.serverId, sourceKey)
     const cached = this.entries.get(key)
     if (!request.refresh && cached && cached.expiresAt - now > ASSET_URL_REFRESH_WINDOW_MS) return cached.url
@@ -51,7 +52,9 @@ export class AssetUrlCache {
     if (!pending) {
       pending = request.api.assetCreateUrl(
         request.ctx,
-        request.assetId ? { assetId: request.assetId, name: request.name } : { path: request.path },
+        request.assetId
+          ? { assetId: request.assetId, name: request.name }
+          : { path: request.path, ...(request.download && { download: true }) },
       )
       const mint = pending
       this.pendingMints.set(key, mint)

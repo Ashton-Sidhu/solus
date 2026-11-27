@@ -12,6 +12,8 @@ export interface HostMediaRequest {
   assetId?: string
   /** Download name for an asset. */
   name?: string
+  /** Sign a checkout or session-upload download URL for non-media files. */
+  download?: boolean
   ctx?: IpcContext
   /** Mint a new signed URL even when the cached one has time left. */
   refresh?: boolean
@@ -31,6 +33,7 @@ export async function resolveHostMediaUrl(request: HostMediaRequest): Promise<st
     path: request.assetId ? undefined : request.path,
     assetId: request.assetId,
     name: request.name,
+    download: request.download,
     origin: serverConnections.httpOriginFor(request.serverId),
     api: serverConnections.apiFor(request.serverId),
     ctx: request.ctx,
@@ -57,13 +60,13 @@ export class HostMediaUrl {
     // that state even when every mounted player still points at the same file.
     const sourceKey = $derived.by(() => {
       if (!current) return null
-      const { serverId, assetId, name, path, ctx } = current
+      const { serverId, assetId, name, path, download, ctx } = current
       if (assetId) return JSON.stringify([serverId, 'asset', assetId, name])
       if (!path) return null
       // Paths can be project-relative or refer to a session's upload.
       const session = ctx?.session
       return JSON.stringify([
-        serverId, 'path', path, session?.gitContext?.worktreePath,
+        serverId, 'path', download === true, path, session?.gitContext?.worktreePath,
         session?.workingDirectory, session?.sessionId || session?.draftId,
       ])
     })
