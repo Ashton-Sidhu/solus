@@ -1855,4 +1855,16 @@ export interface NativeSolusAPI {
   requestWorkspace(request: import('./app-shortcuts').AppWindowWorkspaceRequest): void
   /** In the workspace window: what an app window asked of it. */
   onWorkspaceRequest(callback: (request: import('./app-shortcuts').AppWindowWorkspaceRequest) => void): () => void
+  /** The shortcuts changed outside this page, such as from the app menu of an app window. */
+  onAppShortcutsChanged(callback: () => void): () => void
+  /** One desktop capability of the app in this app window (docs/plans/app-desktop-capabilities.md). Main names the app from this window; any other page is answered `DesktopUnavailable`. */
+  appDesktopCall(operation: string, args: import('./app-desktop').AppDesktopValue): Promise<import('./app-desktop').AppDesktopResult>
+  /** An event for the app's page in this app window: a shortcut press, focus and blur, a notification's route. */
+  onAppDesktopEvent(callback: (event: import('./app-desktop').AppDesktopEvent) => void): () => void
+  /** The apps with an answer for their desktop capabilities on this device (Settings → General → App permissions). */
+  appPermissions(): Promise<import('./app-desktop').AppPermissionsView[]>
+  setAppPermission(change: import('./app-desktop').AppPermissionChange): Promise<void>
+  /** A deleted app keeps no answer on this device. */
+  forgetAppPermissions(target: import('./app-shortcuts').AppShortcutTarget): Promise<void>
+  onAppPermissionsChanged(callback: () => void): () => void
 }

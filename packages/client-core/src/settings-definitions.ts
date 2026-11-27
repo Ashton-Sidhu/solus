@@ -67,6 +67,10 @@ export const settingsDefinitions = {
     label: "App shortcuts",
     description: "The apps that open from where this computer lists its apps.",
   },
+  "general.section-app-permissions": {
+    label: "App permissions",
+    description: "What each app may do in its own window on this computer. A new app asks first.",
+  },
   "general.section-about-solus": {
     label: "About Solus",
   },

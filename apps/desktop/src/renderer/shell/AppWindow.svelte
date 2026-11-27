@@ -17,6 +17,7 @@
   import { PAGE_SECONDARY_BTN } from "@solus/workspace-ui/lib/page-chrome";
   import type { AppShortcutOffer } from "@solus/contracts/app-shortcuts";
   import { appGoneTitle, appWindowHost, appWindowHostGapView, checkLinkAddress, type LinkAddressCheck } from "./app-window-host";
+  import { appWindowDesktop } from "./app-window-desktop";
 
   /**
    * The page of an app window (docs/app-shortcuts.md §2): one app in all of
@@ -109,7 +110,7 @@
     const appId = app?.id;
     const network = appState?.network;
     if (!hostId || !appId || !network) return undefined;
-    return { network, call: (name: string, argumentsJson: string) => appsStore.call(hostId, appId, name, argumentsJson) };
+    return { network, call: (name: string, argumentsJson: string) => appsStore.call(hostId, appId, name, argumentsJson), desktop: appWindowDesktop };
   });
 
   let reloadKey = $state(0);

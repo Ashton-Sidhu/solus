@@ -166,6 +166,43 @@ describe('the names the project\'s module posts', () => {
   test('a tool path with no tool names nothing to call', async () => {
     await expect(app.tools.linear()).rejects.toThrow('names nothing to call')
   })
+
+  test('the desktop capabilities are calls the client reads, and give typed errors (docs/plans/app-desktop-capabilities.md)', async () => {
+    // WHY: outside a desktop app window an app must see that the capability is
+    // absent, not wait on a call nobody answers; inside it, each call must be
+    // a name the client answers, and a refusal an error the app can tell apart.
+    // SAFETY: the module's host is this test's own object.
+    const host = (globalThis as unknown as { window: { solusApp: { desktop?: boolean; call: (name: string, args: object) => Promise<unknown> } } }).window.solusApp
+    expect(app.desktop.available).toBe(false)
+    expect(await app.desktop.permission('camera')).toBe('unavailable')
+    await expect(app.desktop.badge.set(2)).rejects.toBeInstanceOf(app.DesktopUnavailable)
+
+    sent.length = 0
+    host.desktop = true
+    host.call = async (name, args) => {
+      sent.push({ name, args })
+      if (name === '@desktop/shortcut-register') {
+        throw Object.assign(new Error('Alt+K is in use.'), { name: 'ShortcutTaken', failure: { code: 'ShortcutTaken', accelerator: 'Alt+K', message: 'Alt+K is in use.' } })
+      }
+      return null
+    }
+    try {
+      await app.desktop.menuBar.setTitle('3 unread')
+      await app.desktop.window.toggle()
+      await app.desktop.notify({ title: 'Ready', route: '#/reports/1' })
+      const taken = await app.desktop.shortcuts.register('Alt+K', () => {}).catch((error: unknown) => error)
+      expect(taken).toBeInstanceOf(app.ShortcutTaken)
+      expect(taken).toMatchObject({ accelerator: 'Alt+K' })
+      expect(sent.map((call) => parseAppCallName(call.name))).toEqual([
+        { kind: 'desktop', operation: 'menu-bar-title' },
+        { kind: 'desktop', operation: 'window' },
+        { kind: 'desktop', operation: 'notify' },
+        { kind: 'desktop', operation: 'shortcut-register' },
+      ])
+    } finally {
+      host.desktop = false
+    }
+  })
 })
 
 describe('the create-app skill and the project template', () => {

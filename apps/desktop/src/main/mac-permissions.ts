@@ -1,4 +1,4 @@
-import { app, desktopCapturer, dialog, session, shell, systemPreferences } from 'electron'
+import { app, desktopCapturer, dialog, session, shell, systemPreferences, type WebContents } from 'electron'
 import { existsSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { createLogger } from '@solus/server/logger'
@@ -18,13 +18,30 @@ const log = createLogger('main', 'mac-permissions')
 const MICROPHONE_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
 const SCREEN_RECORDING_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
 
-/** Makes a renderer microphone request ask macOS first. Other permission
- *  requests keep Electron's default, which grants them. */
-export function handleMicrophoneRequests(): void {
-  if (process.platform !== 'darwin') return
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
-    const wantsAudio = permission === 'media' && 'mediaTypes' in details && details.mediaTypes?.includes('audio')
-    if (!wantsAudio) {
+/** What a request of an app window gets (docs/plans/app-desktop-capabilities.md §3); null for any other page. */
+export type AppWindowPermissionRequest = (
+  webContents: WebContents,
+  permission: string,
+  details: { isMainFrame: boolean; mediaTypes?: readonly string[] },
+) => Promise<boolean> | null
+
+/** Makes a renderer microphone request ask macOS first, and gives an app
+ *  window's requests to its grants. Other permission requests keep Electron's
+ *  default, which grants them. */
+export function handlePermissionRequests(appWindowRequest: AppWindowPermissionRequest | null): void {
+  if (process.platform !== 'darwin' && !appWindowRequest) return
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined
+    const forApp = appWindowRequest?.(webContents, permission, { isMainFrame: details.isMainFrame, mediaTypes })
+    if (forApp) {
+      forApp.then(callback, (err: Error) => {
+        log.warn('app_permission_check_failed', { permission, error: err.message })
+        callback(false)
+      })
+      return
+    }
+    const wantsAudio = permission === 'media' && mediaTypes?.includes('audio')
+    if (process.platform !== 'darwin' || !wantsAudio) {
       callback(true)
       return
     }

@@ -5,7 +5,7 @@
 // Do not edit. This file holds no protocol: Solus puts `window.solusApp` in
 // the page, and may change how it carries a call without a rebuild.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ModelCall } from './solus-app-backend'
 
 export type { ModelCall }
@@ -17,7 +17,9 @@ declare global {
   interface Window {
     solusApp?: {
       call(name: string, args: object): Promise<unknown>
-      on?(listener: (event: string) => void): () => void
+      on?(listener: (event: string, detail?: unknown) => void): () => void
+      /** True only in the app's own window of the Solus desktop app. */
+      desktop?: boolean
     }
   }
 }
@@ -290,4 +292,205 @@ export function useModelCall(id: string | null): { call: ModelCall | null; error
     if (id) void models.cancel(id).catch((error: unknown) => setState((before) => ({ ...before, error: error instanceof Error ? error.message : String(error) })))
   }, [id])
   return { ...state, cancel }
+}
+
+// ─── The desktop app ───
+//
+// Native capabilities for the app in its own window of the Solus desktop app.
+// Anywhere else (in Solus on the web, on a phone, in the workspace) `available`
+// is false, `permission` and `requestPermission` resolve "unavailable", every
+// other call rejects with `DesktopUnavailable`, and a listener does nothing.
+
+/** A capability the person allows or refuses for this app, once, on this computer. */
+export type DesktopPermission = 'menuBar' | 'shortcuts' | 'floating' | 'startAtLogin' | 'microphone' | 'camera' | 'clipboardRead' | 'notifications'
+/** `prompt`: the person has not answered, and the next call asks. */
+export type DesktopPermissionState = 'granted' | 'denied' | 'prompt' | 'unavailable'
+
+/** The app is not in its own window of the Solus desktop app. */
+export class DesktopUnavailable extends Error {
+  constructor(message = 'This needs the app in its own window of the Solus desktop app.') {
+    super(message)
+    this.name = 'DesktopUnavailable'
+  }
+}
+/** The person did not allow this capability for the app. Only they change it, in the app's menu or in Solus Settings. */
+export class DesktopPermissionDenied extends Error {
+  constructor(message: string, readonly permission: DesktopPermission) {
+    super(message)
+    this.name = 'DesktopPermissionDenied'
+  }
+}
+/** Another app, another program, or Solus holds these keys. */
+export class ShortcutTaken extends Error {
+  constructor(message: string, readonly accelerator: string) {
+    super(message)
+    this.name = 'ShortcutTaken'
+  }
+}
+/** The input is not one the desktop app takes, such as a title that is too long. */
+export class DesktopInvalidInput extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'DesktopInvalidInput'
+  }
+}
+export type DesktopError = DesktopUnavailable | DesktopPermissionDenied | ShortcutTaken | DesktopInvalidInput
+
+type DesktopFailure =
+  | { code: 'DesktopUnavailable'; message: string }
+  | { code: 'DesktopPermissionDenied'; message: string; permission: DesktopPermission }
+  | { code: 'ShortcutTaken'; message: string; accelerator: string }
+  | { code: 'DesktopInvalidInput'; message: string }
+
+function desktopError(reason: unknown): unknown {
+  const failure = reason instanceof Error ? (reason as Error & { failure?: DesktopFailure }).failure : undefined
+  switch (failure?.code) {
+    case 'DesktopUnavailable': return new DesktopUnavailable(failure.message)
+    case 'DesktopPermissionDenied': return new DesktopPermissionDenied(failure.message, failure.permission)
+    case 'ShortcutTaken': return new ShortcutTaken(failure.message, failure.accelerator)
+    case 'DesktopInvalidInput': return new DesktopInvalidInput(failure.message)
+    default: return reason
+  }
+}
+
+function desktopCall<T>(operation: string, args: object = {}): Promise<T> {
+  if (!desktop.available) return Promise.reject(new DesktopUnavailable())
+  return call<T>(`@desktop/${operation}`, args).catch((reason: unknown) => { throw desktopError(reason) })
+}
+
+/** Calls `listener` with the detail of each desktop event of one kind. */
+function onDesktopEvent(event: string, listener: (detail: { [key: string]: unknown }) => void): () => void {
+  if (!desktop.available) return () => undefined
+  return window.solusApp?.on?.((name, detail) => {
+    if (name === event && typeof detail === 'object' && detail !== null) listener(detail as { [key: string]: unknown })
+  }) ?? (() => undefined)
+}
+
+export const desktop = {
+  /** Whether the app is in its own window of the Solus desktop app. */
+  get available(): boolean {
+    return typeof window !== 'undefined' && window.solusApp?.desktop === true
+  },
+  /** The person's answer for one capability, without asking. */
+  permission: (name: DesktopPermission): Promise<DesktopPermissionState> =>
+    desktop.available ? desktopCall('permission', { name }) : Promise.resolve('unavailable'),
+  /**
+   * Asks the person now, if they have not answered, and resolves their answer;
+   * a refusal resolves "denied". Use it for `startAtLogin`, which no other call
+   * asks for, or before a recording starts.
+   */
+  requestPermission: (name: DesktopPermission): Promise<DesktopPermissionState> =>
+    desktop.available ? desktopCall('request-permission', { name }) : Promise.resolve('unavailable'),
+  menuBar: {
+    /**
+     * Shows the app in the menu bar (macOS) or the system tray, with this text:
+     * at most 24 characters, or null for the app's name. Its menu opens the app.
+     * Needs `menuBar`. While it shows, closing the window hides it and the app
+     * keeps running.
+     */
+    setTitle: (text: string | null): Promise<void> => desktopCall('menu-bar-title', { text }),
+  },
+  shortcuts: {
+    /**
+     * Calls `handler` when the person presses `accelerator` anywhere on the
+     * computer, such as "CommandOrControl+Shift+K" (Electron's accelerator
+     * syntax). Resolves the function that removes it. Needs `shortcuts`; at most
+     * 8 an app. Rejects with `ShortcutTaken` when another program holds the keys.
+     */
+    register: async (accelerator: string, handler: () => void): Promise<() => Promise<void>> => {
+      const { id } = await desktopCall<{ id: string }>('shortcut-register', { accelerator })
+      const stop = onDesktopEvent('desktop-shortcut', (detail) => { if (detail.id === id) handler() })
+      return async () => {
+        stop()
+        await desktopCall('shortcut-unregister', { id })
+      }
+    },
+  },
+  window: {
+    /** Keeps the window above other windows, or stops. Needs `floating`. */
+    setFloating: (on: boolean): Promise<void> => desktopCall('floating', { on }),
+    show: (): Promise<void> => desktopCall('window', { action: 'show' }),
+    /** Hides the window. The page keeps running. */
+    hide: (): Promise<void> => desktopCall('window', { action: 'hide' }),
+    /** Shows the window and brings it in front of every other app, such as from a shortcut's handler. */
+    focus: (): Promise<void> => desktopCall('window', { action: 'focus' }),
+    /** Hides the window when it shows and has focus; else shows and focuses it. */
+    toggle: (): Promise<void> => desktopCall('window', { action: 'toggle' }),
+    onFocus: (handler: () => void): (() => void) => onDesktopEvent('desktop-window', (detail) => { if (detail.type === 'focus') handler() }),
+    onBlur: (handler: () => void): (() => void) => onDesktopEvent('desktop-window', (detail) => { if (detail.type === 'blur') handler() }),
+  },
+  badge: {
+    /** A count on the app's icon: 1 to 99999; null or 0 removes it. Needs no permission. */
+    set: (count: number | null): Promise<void> => desktopCall('badge', { count }),
+  },
+  /**
+   * Shows a system notification. A click brings the window to the front, and
+   * `route` (a page after "#", such as "#/reports/42") opens that page. Needs
+   * `notifications`. The web `Notification` API does not work in an app's page.
+   */
+  notify: (notification: { title: string; body?: string; route?: string }): Promise<void> => desktopCall('notify', notification),
+  clipboard: {
+    /** The text on the clipboard. Needs `clipboardRead`. */
+    readText: (): Promise<string> => desktopCall('clipboard-read'),
+  },
+}
+
+/** Holds a global shortcut while the component is mounted. Gives why the latest registration failed, or null. */
+export function useDesktopShortcut(accelerator: string, handler: () => void): DesktopError | null {
+  const latest = useRef(handler)
+  useLayoutEffect(() => { latest.current = handler })
+  const [failure, setFailure] = useState<{ accelerator: string; error: DesktopError } | null>(null)
+  useEffect(() => {
+    if (!desktop.available) return
+    let isActive = true
+    const registration = desktop.shortcuts.register(accelerator, () => { if (isActive) latest.current() })
+    registration.then(
+      () => { if (isActive) setFailure(null) },
+      (error: DesktopError) => { if (isActive) setFailure({ accelerator, error }) },
+    )
+    return () => {
+      isActive = false
+      void registration.then((remove) => remove(), () => undefined).catch(() => undefined)
+    }
+  }, [accelerator])
+  return failure?.accelerator === accelerator ? failure.error : null
+}
+
+/** Calls `handler` each time the window gains or loses focus, such as to hide a window a shortcut showed. */
+export function useDesktopWindowEvent(type: 'focus' | 'blur', handler: () => void): void {
+  const latest = useRef(handler)
+  useLayoutEffect(() => { latest.current = handler })
+  useEffect(() => (type === 'focus' ? desktop.window.onFocus : desktop.window.onBlur)(() => latest.current()), [type])
+}
+
+/** Shows `count` on the app's icon while the component is mounted, and removes it after. Gives why the latest change failed, or null. */
+export function useDesktopBadge(count: number | null): DesktopError | null {
+  const [failure, setFailure] = useState<{ count: number | null; error: DesktopError } | null>(null)
+  useEffect(() => {
+    if (!desktop.available) return
+    let isActive = true
+    desktop.badge.set(count).then(
+      () => { if (isActive) setFailure(null) },
+      (error: DesktopError) => { if (isActive) setFailure({ count, error }) },
+    )
+    return () => { isActive = false }
+  }, [count])
+  useEffect(() => () => { if (desktop.available) void desktop.badge.set(null).catch(() => undefined) }, [])
+  return failure?.count === count ? failure.error : null
+}
+
+/** The person's answer for one capability, read again each time the window gains focus. Undefined until it is read. */
+export function useDesktopPermission(name: DesktopPermission): DesktopPermissionState | undefined {
+  const [state, setState] = useState<{ name: DesktopPermission; value: DesktopPermissionState }>()
+  useEffect(() => {
+    let isActive = true
+    const read = () => void desktop.permission(name).then((value) => { if (isActive) setState({ name, value }) }, () => undefined)
+    read()
+    const stop = desktop.window.onFocus(read)
+    return () => {
+      isActive = false
+      stop()
+    }
+  }, [name])
+  return state?.name === name ? state.value : undefined
 }

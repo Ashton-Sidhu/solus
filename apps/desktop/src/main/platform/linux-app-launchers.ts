@@ -2,7 +2,7 @@ import { existsSync } from 'fs'
 import { mkdir, rename, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { appLinkOf, type AppShortcutTarget } from '@solus/contracts/app-shortcuts'
-import { appShortcutId, linuxDesktopEntry, linuxLinkHandlerEntry } from '@solus/desktop-main/app-shortcuts/launcher-files'
+import { appShortcutId, desktopEntryArgument, linuxDesktopEntry, linuxLinkHandlerEntry } from '@solus/desktop-main/app-shortcuts/launcher-files'
 import type { AppLaunchers, SolusInstall } from '@solus/desktop-main/app-shortcuts/launchers'
 
 /** The largest size a desktop draws a launcher at; it scales the image down for the smaller ones. */
@@ -79,4 +79,24 @@ export function linuxAppLaunchers(
     // The desktop groups windows by the program's window class, so the window stays in Solus's group and takes only the icon.
     windowIdentity: (target) => ({ iconPath: existsSync(iconPath(target)) ? iconPath(target) : null, taskbar: null }),
   }
+}
+
+/** The XDG Autostart entry that opens Solus at login, for an app that starts at login. A development run has its own. */
+export function linuxAutostartPath(install: Pick<SolusInstall, 'isPackaged' | 'homeDirectory' | 'env'>): string {
+  const directory = join(install.env.XDG_CONFIG_HOME || join(install.homeDirectory, '.config'), 'autostart')
+  return join(directory, install.isPackaged ? 'solus.desktop' : 'solus-dev.desktop')
+}
+
+export function linuxAutostartEntry(install: Pick<SolusInstall, 'executablePath' | 'launchArguments' | 'env'> & { loginArgument: string }): string {
+  const command = [install.env.APPIMAGE || install.executablePath, ...install.launchArguments, install.loginArgument]
+  return [
+    '[Desktop Entry]',
+    'Type=Application',
+    'Version=1.0',
+    'Name=Solus',
+    `Exec=${command.map(desktopEntryArgument).join(' ')}`,
+    'Terminal=false',
+    'X-GNOME-Autostart-enabled=true',
+    '',
+  ].join('\n')
 }

@@ -42,8 +42,12 @@ export interface DesktopPlatform {
   trayIcon(appPath: string): NativeImage
   /** The tray icon shows the window on a left click (its menu is on the right click). */
   trayShowsOnClick: boolean
-  /** The count of sessions that need attention, on the dock or taskbar. */
-  setActivityBadge(app: App, window: BrowserWindow | null, count: number): void
+  /** The count of sessions that need attention, on the dock or taskbar. `description` names the count where the operating system reads it aloud. */
+  setActivityBadge(app: App, window: BrowserWindow | null, count: number, description?: string): void
+  /** An app window has its own taskbar button, which shows the app's own badge (Windows). Elsewhere the apps' counts add into the badge of Solus. */
+  appBadgesOnOwnWindow: boolean
+  /** Solus opens at login with `arguments`, for an app that starts at login (docs/plans/app-desktop-capabilities.md §4). `requires-approval`: macOS waits for the person in System Settings. */
+  setOpenAtLogin(app: App, isOn: boolean, install: LoginItemInstall): Promise<'done' | 'requires-approval'>
 
   terminal: TerminalIntegration
   editors: EditorIntegration
@@ -78,6 +82,12 @@ export interface EditorIntegration {
   /** The editor as Settings lists it, or null when it is not installed. */
   detect(app: EditorApp, cliPath: string): DetectedEditor | null
   open(app: EditorApp, filePaths: string[], cliPath: string): Promise<boolean>
+}
+
+/** What a login item of this copy of Solus starts. */
+export interface LoginItemInstall extends Pick<SolusInstall, 'isPackaged' | 'executablePath' | 'launchArguments' | 'homeDirectory' | 'env'> {
+  /** The argument that tells Solus it started at login, after `launchArguments`. */
+  loginArgument: string
 }
 
 export function desktopPlatformFor(platform: string): DesktopPlatform {

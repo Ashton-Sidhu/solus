@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
-import { copyFile } from 'fs/promises'
-import { join } from 'path'
+import { copyFile, mkdir, rm, writeFile } from 'fs/promises'
+import { dirname, join } from 'path'
 import { nativeImage } from 'electron'
 import type { DetectedTerminal } from '@solus/contracts/types'
 import { LINUX_KEYS } from '@solus/workspace-ui/lib/keybindings/key-platform'
@@ -11,7 +11,7 @@ import { TERMINAL_APPS } from '@solus/desktop-main/terminal-apps'
 import { loginShellCommand, tmuxTerminal } from '@solus/desktop-main/terminal-launcher'
 import type { DesktopPlatform } from './desktop-platform'
 import { linuxTerminalApps } from './linux-terminal'
-import { LINUX_LINK_MIME_TYPE, linuxAppLaunchers, writeLinuxLinkHandler } from './linux-app-launchers'
+import { LINUX_LINK_MIME_TYPE, linuxAppLaunchers, linuxAutostartEntry, linuxAutostartPath, writeLinuxLinkHandler } from './linux-app-launchers'
 
 const log = createLogger('main', 'platform-linux')
 const tmux = tmuxTerminal(linuxTerminalApps)
@@ -37,6 +37,18 @@ export const linuxPlatform: DesktopPlatform = {
   trayShowsOnClick: false,
   setActivityBadge(app, _window, count) {
     app.setBadgeCount(count)
+  },
+  appBadgesOnOwnWindow: false,
+  async setOpenAtLogin(_app, isOn, install) {
+    // Electron has no login item on Linux: a desktop reads `~/.config/autostart` (XDG Autostart).
+    const entry = linuxAutostartPath(install)
+    if (!isOn) {
+      await rm(entry, { force: true })
+      return 'done'
+    }
+    await mkdir(dirname(entry), { recursive: true })
+    await writeFile(entry, linuxAutostartEntry(install), { mode: 0o644 })
+    return 'done'
   },
 
   terminal: {

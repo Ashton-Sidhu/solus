@@ -145,8 +145,8 @@ module.exports = {
     // macOS gives an app link or a shortcut link (docs/app-shortcuts.md §4) to the app that names its scheme.
     protocols: [{ name: 'Solus app link', schemes: ['solus'] }],
     extendInfo: {
-      NSMicrophoneUsageDescription: 'Solus uses your microphone for local voice input and for browser sites you allow.',
-      NSCameraUsageDescription: 'Solus uses your camera for browser sites you allow.',
+      NSMicrophoneUsageDescription: 'Solus uses your microphone for local voice input, and for the browser sites and apps you allow.',
+      NSCameraUsageDescription: 'Solus uses your camera for the browser sites and apps you allow.',
     },
     // Code signing — requires "Developer ID Application" cert in Keychain
     osxSign: {

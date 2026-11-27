@@ -63,7 +63,8 @@ The owner manages an app in the workspace. An app window has no Manage page.
 
 `app-shortcuts.json` in the desktop app's own data folder holds the shortcuts
 (the app, the name on the launcher, the path of the launcher, the icon key of
-its icon, and the format of the launcher) and the place of each app window. No host keeps them, because a launcher is a file of
+its icon, and the format of the launcher), the place of each app window, and
+the person's answers for the desktop capabilities of each app (§5.1). No host keeps them, because a launcher is a file of
 one computer.
 
 A launcher opens its app with no record: the app link is enough. A file that
@@ -186,7 +187,49 @@ running toast shows the change and turns into its result: where the launcher
 is now (in the Trash, deleted, or still in its place). A failure says what went
 wrong and offers **Try again**. Focus then goes back to the input bar.
 
-A delete of the app removes its shortcut on this computer.
+
+A delete of the app removes its shortcut and its permissions on this
+computer.
+
+An app window has its own menu: the macOS menu bar while the window has focus,
+the window's own menu bar on Windows and Linux. It has **Reload**,
+**Permissions** (a check item for each capability), **Remove from menu bar**
+when the app shows an item there, **Remove <App> shortcut…** when it has a
+shortcut, **Close Window**, and **Quit <App>**. On macOS the Solus menu, Edit,
+and Window stay around it; another Solus window gets the Solus menu back.
+
+An app with a menu-bar item has a tray menu: **Open <App>**, **Reload**,
+**Permissions**, **Remove from menu bar**, and **Quit <App>**.
+
+Settings → General → **App permissions** lists each app with an answer on this
+computer, and sets each permission to Ask, Allow, or Don't allow.
+
+### 5.1 Desktop capabilities
+
+An app in its app window can use native capabilities, each one behind a
+permission that the person answers once (`docs/plans/app-desktop-capabilities.md`):
+
+| Permission | What the app gets |
+|---|---|
+| Menu bar item (`menuBar`) | An item in the menu bar (macOS) or a tray icon, with a title of up to 24 characters. A close hides the window, and the page keeps running. |
+| Keyboard shortcuts (`shortcuts`) | Up to 8 global shortcuts. Keys that another program holds fail with `ShortcutTaken`. |
+| Keep above other windows (`floating`) | The window above other windows. |
+| Start at login (`startAtLogin`) | The app opens with no window each time Solus starts, and Solus opens at login. |
+| Microphone, Camera | `getUserMedia` in the app's page; the operating system asks too. |
+| Read the clipboard (`clipboardRead`) | `desktop.clipboard.readText()`. |
+| Notifications (`notifications`) | `desktop.notify`; a click brings the window to the front at a route. |
+
+The badge (a count on the icon) and the window controls (show, hide, focus,
+toggle, focus and blur events) need no permission.
+
+A new app has no answers. The first call that needs one shows a native
+**Allow** / **Don't Allow** dialog. After a refusal the call fails with
+`DesktopPermissionDenied` and asks no more; only the person changes the
+answer, in the app menu, the tray menu, or Settings. A revoke applies at once.
+The answers are in `app-shortcuts.json` (§3), by app.
+
+App authors use `desktop` from `@solus/app`
+(`resources/plugins/solus/skills/create-app/references/desktop.md`).
 
 Account and host actions:
 
@@ -273,11 +316,12 @@ pairing code of the host, as for an address that the person types.
 
 ## 6. What each client has
 
-| Client | App window | App shortcut |
-|---|---|---|
-| Desktop (macOS, Windows, Linux) | Yes | Yes |
-| Web | No | **Add app shortcut** gives the shortcut link to Solus for desktop on the same computer (§5) |
-| Mobile | No | No |
+| Client | App window | App shortcut | Desktop capabilities | App permissions in Settings |
+|---|---|---|---|---|
+| Desktop (macOS, Windows, Linux) | Yes | Yes | Yes, in an app window | Yes |
+| Desktop, an app in the workspace | — | — | No: `available: false` | — |
+| Web | No | **Add app shortcut** gives the shortcut link to Solus for desktop on the same computer (§5) | No: `available: false` | No |
+| Mobile | No | No | No: `available: false` | No |
 
 The app's icon (§4) shows on desktop and web. The mobile app shows no app of
 Solus yet (only the apps of MCP servers), so there is no place for it there;
@@ -295,15 +339,29 @@ Mobile (the native app in `apps/mobile/`) has no command. Decision of
 put it in, and a shortcut is a file of a desktop computer. When the mobile app
 gets an app surface, it shows no shortcut command; the reason is the same.
 
+The desktop capabilities are the same exception. A menu-bar item, a global
+shortcut, a login item, and a badge belong to a desktop operating system and
+to a window of the desktop app. On web and mobile, and in the workspace of the
+desktop app, the frame says `solusApp.desktop === false`: `desktop.available`
+is false, `permission` resolves `unavailable`, and every other call fails with
+`DesktopUnavailable`. An app checks `available` and works without them.
+
 ## 7. Not built, and not exercised
 
 Not built:
 
-- Native capabilities for an app in its window: a menu-bar item, global
-  shortcuts, a badge, notifications of its own, camera, and microphone. The
-  app frame has no origin, so each one must be a new name on
-  `window.solusApp`, not a web API.
-- A link from a notification to an app.
+- From the desktop capabilities: system audio, the menu-bar popover page (a
+  small page of the app under its item), and a second window of an app
+  (`desktop.window.open`). Each needs a second page of the app in its own
+  window, and the app frame has one page.
+- The web `Notification` and `navigator.clipboard.readText` APIs in an app's
+  page: the frame has no origin, so the app uses `desktop.notify` and
+  `desktop.clipboard.readText` instead.
+- On macOS, Solus cannot tell a start by its own login item from one that the
+  person set: the workspace window shows at login. Windows and Linux keep it
+  hidden (`--solus-login`).
+- A delete of an app from another client, or by an agent, leaves its
+  permissions on this computer until it is deleted here.
 - The shortcut link does not sign in for the person or add the host itself:
   it opens the account settings or the Add host dialog, and the person
   finishes there and chooses **Try again**.
@@ -329,7 +387,7 @@ entry, the two Electron parts (the app window itself and the delivery of an
 app link to Solus), the drawing of an `icon.svg` to the launcher's PNG in a
 renderer (its source, the key, and the refresh are tested; the canvas is
 not), and `shell.trashItem` itself (the tests use a Trash that moves the
-file, and one that refuses it)..
+file, and one that refuses it).
 The tests pin their rules with no operating system.
 The shortcut link was not opened from a real browser on any system: the
 registration of the scheme on Windows and Linux, the browser's question
@@ -337,6 +395,13 @@ before it opens Solus, the web dialog, the offer in the app window, and the
 Add host and account steps were not run. The tests pin the link, its
 parser, the queue of waiting links, the window's request, the host states,
 the check of the address, and the Linux handler entry.
+None of the desktop capabilities was exercised on a real machine: the menus,
+the tray item, the permission dialog, global shortcuts, keep on top, the
+login item on each operating system, the badge, notifications, the
+clipboard, and `getUserMedia` from the app frame (which needs the frame's
+`allow="microphone *; camera *"` and the session's permission handler).
+`tests/unit/app-desktop.test.ts` pins their rules with fakes for each
+Electron part.
 On macOS the launcher was made and checked with `plutil`, `iconutil`, and a
 launch of a copy whose program only wrote a file.
 
@@ -346,7 +411,10 @@ launch of a copy whose program only wrote a file.
 |---|---|
 | A launcher that opens `executor://app/<server>/<app>`; on macOS a compiled program in a generated bundle. | Taken, with a shell script as the program: Solus has no build step for a native one, and macOS runs a script the same way. |
 | A window on the app's own origin, with the dashboard's session cookie. | Not needed. The window is a Solus client: it has the host connection of the desktop app. |
-| A bridge of native capabilities with nine permissions. | Not taken (§7). |
+| A bridge of native capabilities with nine permissions, a native prompt, and grants kept by app. | Taken, with eight: no system audio (§7). The bridge is `@desktop/` calls on `window.solusApp`, because the app frame has no origin and no preload. |
+| Notifications and clipboard through the web APIs, which its preload wraps. | `desktop.notify` and `desktop.clipboard.readText`: no preload reaches the frame. |
+| A menu-bar item for an app with a `ui/menubar.html` popover. | An item for any app that sets a title, with a menu and no popover. |
+| A menu of each app window, and a tray menu. | Taken. |
 | No launcher on Linux. | A desktop entry. |
 | Installed apps on this device only, keyed by server and app. | Taken (§3). |
 | `ui/icon.svg`, at most 64 KiB, checked at deploy: one SVG root, no `script` or `foreignObject`, no `on*` attribute, `href` only to `#id`, no DOCTYPE or processing instruction. | Taken as `icon.svg` beside `app.ts`, since a Solus app has its UI in `src/`. Checked at the save too, so an agent learns at once. Solus also refuses `image`, HTML, an animation of a link, and a `url()` outside the icon, and requires a `viewBox` so the icon scales. |
@@ -380,7 +448,11 @@ launch of a copy whose program only wrote a file.
 - `packages/workspace-ui/src/contexts/apps/app-icons.store.svelte.ts` — the
   icons a client keeps; `app-shortcut-icon.ts` draws the launcher's icon.
 - `apps/desktop/src/main/app-shortcuts/` — the records, the app windows, the
-  text of each launcher, the icon files, and the IPC.
+  text of each launcher, the icon files, and the IPC; the desktop
+  capabilities (`app-desktop.ts`, with their Electron parts in
+  `app-desktop-electron.ts`) and the menus (`app-menus.ts`).
+- `packages/contracts/src/app-desktop.ts` — the permissions, the calls, and
+  the failures.
 - `apps/desktop/src/main/platform/*-app-launchers.ts` — one adapter for each
   operating system.
 - `apps/desktop/src/renderer/shell/AppWindow.svelte` — the page of an app
@@ -394,7 +466,11 @@ launch of a copy whose program only wrote a file.
 - `packages/workspace-ui/src/contexts/apps/app-shortcut-commands.ts` and
   `app-shortcut-messages.ts` — the commands with their toasts, the offer after
   a host removal, **Remove all**, and their text.
+- `packages/workspace-ui/src/components/settings/AppPermissionsSection.svelte`
+  and `contexts/apps/app-permissions.store.svelte.ts` — Settings → App
+  permissions.
 - `tests/unit/app-shortcuts.test.ts`, `tests/unit/app-shortcuts-store.test.ts`,
   `tests/unit/app-shortcut-ipc.test.ts`, `tests/unit/app-shortcut-commands.test.ts`,
   `tests/unit/app-shortcut-messages.test.ts`, `tests/unit/app-icons.test.ts`,
-  `tests/unit/app-icons-store.test.ts`, `tests/unit/app-shortcut-link.test.ts`.
+  `tests/unit/app-icons-store.test.ts`, `tests/unit/app-shortcut-link.test.ts`, `tests/unit/app-desktop.test.ts`,
+  `tests/unit/app-desktop-bridge.test.ts`, `tests/unit/app-permissions-store.test.ts`.

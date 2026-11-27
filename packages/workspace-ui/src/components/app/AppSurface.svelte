@@ -7,6 +7,7 @@
   import { appIconsStore } from "../../contexts/apps/app-icons.store.svelte";
   import { appMonogram, appTileHue } from "@solus/client-core/app-tile";
   import { addAppShortcut, removeAppShortcut } from "../../contexts/apps/app-shortcut-commands";
+  import { appPermissionsStore } from "../../contexts/apps/app-permissions.store.svelte";
   import type { AppManageSection, RouteParams } from "../../contexts/workspace/routing/route-registry";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { appPinOf, isAppPinned, withAppPinned } from "../../lib/sidebar-places";
@@ -218,6 +219,7 @@
       if (currentPin) settings.setPersonal("sidebarApps", withAppPinned(settings.sidebarApps, currentPin, false));
       // A shortcut of a deleted app opens nothing.
       if (currentPin && appShortcutsStore.has(currentPin)) await appShortcutsStore.remove(currentPin).catch(() => {});
+      if (currentPin) await appPermissionsStore.forget(currentPin).catch(() => {});
       pane.close();
     }, "The app was not deleted");
   }

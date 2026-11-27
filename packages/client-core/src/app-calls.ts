@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { APP_CLIENT_SAVE_MAX_BYTES, parseAppCallName } from '@solus/contracts/apps'
+import { desktopUnavailable, type AppDesktopEvent, type AppDesktopFailure, type AppDesktopOperation } from '@solus/contracts/app-desktop'
 
 /**
  * The host side of an app frame's bridge (docs/plans/apps.md §5, §9), shared
@@ -9,7 +10,8 @@ import { APP_CLIENT_SAVE_MAX_BYTES, parseAppCallName } from '@solus/contracts/ap
  * the app's data changed outside that UI, the client posts
  * `{ type: "solus-app-event", event: "data-changed" }`. A call named
  * `@client/<operation>` is the client's own to answer and never reaches the
- * host.
+ * host; so is `@desktop/<operation>`, which only a desktop app window answers
+ * (docs/plans/app-desktop-capabilities.md).
  */
 
 const valueSchema = z.json()
@@ -28,7 +30,14 @@ export type AppCallMessage = z.infer<typeof appCallMessageSchema>
 
 export type AppResultMessage =
   | { type: 'solus-app-result'; id: number; ok: true; value: AppCallValue }
-  | { type: 'solus-app-result'; id: number; ok: false; error: string }
+  | { type: 'solus-app-result'; id: number; ok: false; error: string; failure?: AppDesktopFailure }
+
+/** A refusal the UI tells apart by its code, such as `DesktopPermissionDenied`. */
+export class AppCallFailure extends Error {
+  constructor(readonly failure: AppDesktopFailure) {
+    super(failure.message)
+  }
+}
 
 /** What a client posts to an app's UI when a mutation changed the app's data. */
 export const APP_DATA_CHANGED_MESSAGE = { type: 'solus-app-event', event: 'data-changed' } as const
@@ -53,6 +62,14 @@ export type AppSavedFile = z.infer<typeof appSavedFileSchema>
 export interface AppClientAnswers {
   /** Gives the person one file. */
   save(file: AppSavedFile): Promise<void>
+  /** A desktop capability of the app window. Absent on a client that shows the app in no desktop window: the call is `DesktopUnavailable`. */
+  desktop?(operation: AppDesktopOperation, args: AppCallArguments): Promise<AppCallValue>
+}
+
+/** What a desktop app window gives the frame of its app: its capabilities, and its events for the app's page. */
+export interface AppFrameDesktop {
+  call: NonNullable<AppClientAnswers['desktop']>
+  subscribe(listener: (event: AppDesktopEvent) => void): () => void
 }
 
 /**
@@ -63,6 +80,10 @@ export interface AppClientAnswers {
  */
 export async function answerAppCall(call: (name: string, argumentsJson: string) => Promise<string>, name: string, args: AppCallArguments, client?: AppClientAnswers): Promise<AppCallValue> {
   const target = parseAppCallName(name)
+  if (target?.kind === 'desktop') {
+    if (!client?.desktop) throw new AppCallFailure(desktopUnavailable())
+    return client.desktop(target.operation, args)
+  }
   if (target?.kind === 'client') {
     if (!client) throw new Error('This client cannot give you a file from an app.')
     await client.save(appSavedFileSchema.parse(args))
@@ -75,6 +96,8 @@ export async function answerAppCall(call: (name: string, argumentsJson: string) 
 export async function appResultMessage(id: number, answer: Promise<AppCallValue>): Promise<AppResultMessage> {
   return answer.then(
     (value): AppResultMessage => ({ type: 'solus-app-result', id, ok: true, value }),
-    (error): AppResultMessage => ({ type: 'solus-app-result', id, ok: false, error: error instanceof Error ? error.message : 'The call failed.' }),
+    (error): AppResultMessage => error instanceof AppCallFailure
+      ? { type: 'solus-app-result', id, ok: false, error: error.message, failure: error.failure }
+      : { type: 'solus-app-result', id, ok: false, error: error instanceof Error ? error.message : 'The call failed.' },
   )
 }

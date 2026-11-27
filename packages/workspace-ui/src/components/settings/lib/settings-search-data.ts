@@ -114,6 +114,11 @@ export const generalSettings = [
   { id: "terminal", ...settingsDefinitions["general.fallback-terminal"], keywords: ["shell", "command", "console", "tmux", "applications"] },
   { id: "app-shortcuts", ...settingsDefinitions["general.app-shortcuts"], keywords: ["apps", "launcher", "dock", "start menu", "remove", "applications"] },
   {
+    id: "app-permissions",
+    ...settingsDefinitions["general.section-app-permissions"],
+    keywords: ["apps", "menu bar", "tray", "shortcuts", "microphone", "camera", "clipboard", "notifications", "login", "desktop"],
+  },
+  {
     id: "about",
     ...settingsDefinitions["general.section-about-solus"],
     keywords: ["version", "update", "upgrade", "release", "notes", "restart"],

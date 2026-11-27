@@ -13,7 +13,7 @@ import {
 import { appIconsStore, type AppIconsStore } from './app-icons.store.svelte'
 import { appShortcutIconPng, type AppShortcutIconSource } from './app-shortcut-icon'
 
-type AppShortcutsApi = Pick<NativeSolusAPI, 'appShortcuts' | 'addAppShortcut' | 'removeAppShortcut' | 'openAppWindow'>
+type AppShortcutsApi = Pick<NativeSolusAPI, 'appShortcuts' | 'addAppShortcut' | 'removeAppShortcut' | 'openAppWindow' | 'onAppShortcutsChanged'>
 type ShortcutApp = Pick<AppSummary, 'id' | 'name' | 'colorHue' | 'iconHash'>
 
 /** What the launcher's icon of an app is drawn from now (`appShortcutIconKey`). */
@@ -53,6 +53,7 @@ export class AppShortcutsStore {
   /** True when the client shell can open app windows and write launchers (desktop). */
   readonly isAvailable: boolean
   private firstRead: Promise<void> | null = null
+  private isFollowingChanges = false
   /** The change that runs on each app's shortcut. A second command for the same app waits for none: it does nothing. */
   private readonly changes = new SvelteMap<string, AppShortcutChange>()
 
@@ -66,6 +67,10 @@ export class AppShortcutsStore {
 
   /** Reads the list once; safe to call from each surface that shows a shortcut command. */
   start(): void {
+    // An app window's menu removes a shortcut too.
+    if (!this.isAvailable || this.isFollowingChanges) return
+    this.isFollowingChanges = true
+    this.api.onAppShortcutsChanged?.(() => void this.reload().catch(() => {}))
     void this.loaded()
   }
 

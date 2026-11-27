@@ -46,7 +46,7 @@ import { presentAccountToLocalHost } from '@solus/desktop-main/account/local-hos
 import { LocalOwnerToken } from '@solus/desktop-main/local-owner-token'
 import { desktopServerPort } from '@solus/desktop-main/server-port'
 import { readLocalHostEnabled, writeLocalHostEnabled } from '@solus/desktop-main/local-host-setting'
-import { ensureScreenCaptureAccess, handleMicrophoneRequests } from '@solus/desktop-main/mac-permissions'
+import { ensureScreenCaptureAccess, handlePermissionRequests } from '@solus/desktop-main/mac-permissions'
 import { markStartup, traceRendererMarks } from '@solus/desktop-main/startup-trace'
 import { z } from 'zod'
 import { remoteEditorFileUrl } from '@solus/contracts/local-editor-links'
@@ -55,8 +55,7 @@ import { hostAddressOf, type AppWindowWorkspaceRequest } from '@solus/contracts/
 import { parseAppLinkAction, type AppLinkAction } from '@solus/contracts/app-shortcut-links'
 import { appLinkActionIn, appWindowRequestFor, queueAppLink } from '@solus/desktop-main/app-shortcuts/app-links'
 import { AppShortcutRecords } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
-import { AppWindows } from '@solus/desktop-main/app-shortcuts/app-windows'
-import { registerAppShortcutIpc } from '@solus/desktop-main/app-shortcuts/ipc'
+import { createAppWindowsRuntime, SOLUS_LOGIN_ARGUMENT } from '@solus/desktop-main/app-shortcuts/app-desktop-electron'
 
 // Every static import above has now evaluated, so this is the main bundle's
 // module-graph cost — the first item on the startup critical path.
@@ -337,8 +336,14 @@ function createTray(menu: Menu): Tray {
   return created
 }
 
+/** The count of sessions that need attention, as the renderers last reported it. */
+let activityCount = 0
+
+/** The badge of Solus: the sessions that need attention, and where the apps share its icon, the counts of the apps (docs/plans/app-desktop-capabilities.md §6). */
 function setActivityBadge(count: number): void {
-  desktopPlatform.setActivityBadge(app, workspaceWindow(), count)
+  activityCount = count
+  const appCounts = desktopPlatform.appBadgesOnOwnWindow ? 0 : appRuntime?.desktop.badgeTotal() ?? 0
+  desktopPlatform.setActivityBadge(app, workspaceWindow(), count + appCounts)
 }
 
 /** The live workspace window, when the desktop client has one. */
@@ -808,14 +813,22 @@ const solusInstall = {
   env: process.env,
 }
 const appLaunchers = desktopPlatform.appLaunchers(solusInstall)
-const appWindows = isHeadless ? null : new AppWindows({
+// The app windows and the desktop capabilities of their apps (docs/plans/app-desktop-capabilities.md).
+const appRuntime = isHeadless ? null : createAppWindowsRuntime({
   records: appShortcutRecords,
   launchers: appLaunchers,
+  install: solusInstall,
+  platform: desktopPlatform,
   preloadPath: join(__dirname, '../preload/index.js'),
   loadRenderer,
   bringToFront: (window) => desktopPlatform.bringToFront(app, window),
+  isQuitting: () => forceQuit,
+  solusTrayIcon: () => desktopPlatform.trayIcon(app.getAppPath()),
+  badgesChanged: () => setActivityBadge(activityCount),
 })
-if (appWindows) registerAppShortcutIpc({ records: appShortcutRecords, launchers: appLaunchers, windows: appWindows })
+const appWindows = appRuntime?.windows ?? null
+// The login item that an app asked for opens the apps, not the workspace (Windows and Linux).
+if (appWindows && process.argv.includes(SOLUS_LOGIN_ARGUMENT)) startedByAppShortcut = true
 
 /** Opens the app of an app link or a shortcut link. Before the app is ready, the link waits. */
 function openAppLink(action: AppLinkAction): void {
@@ -1048,13 +1061,14 @@ app.whenReady().then(async () => {
         },
       })
 
-      if (!isTestMode) handleMicrophoneRequests()
+      if (!isTestMode) handlePermissionRequests(appRuntime?.permissionRequest ?? null)
 
       if (!isTestMode) {
         currentAppShortcuts = loadAppShortcuts()
         applyAppGlobalShortcuts(currentAppShortcuts)
 
         tray = createTray(buildTrayMenu(updates.restartToUpdate))
+        appRuntime?.openAppsThatStartAtLogin()
 
         app.on('activate', () => {
           showMainWindow()

@@ -27,6 +27,7 @@
   import { managedSetting } from "./policy/managed-setting.svelte";
   import SettingsAboutSection from "./SettingsAboutSection.svelte";
   import SettingsApplicationsSection from "./SettingsApplicationsSection.svelte";
+  import AppPermissionsSection from "./AppPermissionsSection.svelte";
   import { Switch } from "../ui/switch";
   import { isModelOffered } from "./lib/text-generation-models";
   import { SOLUS_TOOL_AGENT_IDS, type TextGenerationModelSelection } from "@solus/contracts/types";
@@ -231,6 +232,8 @@
 </SettingsSection>
 
 <SettingsApplicationsSection {serverId} {isVisible} />
+
+<AppPermissionsSection visible={isVisible("app-permissions")} />
 
 <SettingsAboutSection visible={isVisible("about")} />
 

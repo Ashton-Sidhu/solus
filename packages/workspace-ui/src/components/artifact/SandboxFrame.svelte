@@ -9,7 +9,7 @@
   import { getSettingsContext, getSurfaceContext, hasSurfaceContext, runtime } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import { APP_DATA_CHANGED_MESSAGE, answerAppCall, appCallMessageSchema, appResultMessage } from "@solus/client-core/app-calls";
+  import { APP_DATA_CHANGED_MESSAGE, answerAppCall, appCallMessageSchema, appResultMessage, type AppFrameDesktop } from "@solus/client-core/app-calls";
   import { browserAppClient } from "./lib/app-client";
   import { buildSandboxThemeCss, wrapSandboxSrcdoc } from "../../lib/artifactSandbox";
   import {
@@ -93,8 +93,9 @@
     /** Makes the frame an app frame (docs/plans/apps.md §9): the network hosts
      *  the app may reach, and what runs its calls on the host. `call` answers
      *  the host's `{ "value": ... }` as JSON text. Without it the frame is a
-     *  plain artifact frame and relays no calls. */
-    app?: { network: readonly string[]; call(name: string, argumentsJson: string): Promise<string> };
+     *  plain artifact frame and relays no calls. `desktop` is given only in a
+     *  desktop app window (docs/plans/app-desktop-capabilities.md). */
+    app?: { network: readonly string[]; call(name: string, argumentsJson: string): Promise<string>; desktop?: AppFrameDesktop };
     /** Rises when the app's data changed on the host. The frame tells the UI,
      *  so its queries run again. */
     dataVersion?: number;
@@ -131,6 +132,7 @@
   // reports no height.
   const isApp = $derived(app !== undefined && !isolated);
   const appNetwork = $derived(isApp ? (app?.network ?? []) : null);
+  const appDesktop = $derived(isApp ? app?.desktop : undefined);
 
   // A caller is either inside the component tree or outside it for its whole
   // life, so this choice is made once and never re-made.
@@ -140,7 +142,7 @@
 
   // Built when the frame mounts, not before: a frame still waiting for the
   // viewport needs only its placeholder.
-  const srcdoc = $derived(html === undefined ? null : wrapSandboxSrcdoc(html, untrack(() => dark), isolated, appNetwork ? { network: appNetwork } : undefined));
+  const srcdoc = $derived(html === undefined ? null : wrapSandboxSrcdoc(html, untrack(() => dark), isolated, appNetwork ? { network: appNetwork, desktop: appDesktop !== undefined } : undefined));
 
   let frameResult = $state<{ srcdoc: string; reloadKey: number; failed: boolean } | null>(null);
   const frameSettled = $derived(frameResult !== null && frameResult.srcdoc === srcdoc && frameResult.reloadKey === reloadKey);
@@ -276,17 +278,24 @@
     const calls = isApp ? app : undefined;
     if (!calls) return;
     const callHost = (name: string, argumentsJson: string) => calls.call(name, argumentsJson);
+    const client = calls.desktop ? { ...browserAppClient, desktop: calls.desktop.call } : browserAppClient;
     function onCall(e: MessageEvent) {
       const frame = iframeEl;
       if (!frame || e.source !== frame.contentWindow) return;
       const message = appCallMessageSchema.safeParse(e.data);
       if (!message.success) return;
-      const answer = answerAppCall(callHost, message.data.name, message.data.args, browserAppClient);
+      const answer = answerAppCall(callHost, message.data.name, message.data.args, client);
       void appResultMessage(message.data.id, answer).then((result) => frame.contentWindow?.postMessage(result, "*"));
     }
     window.addEventListener("message", onCall);
     return () => window.removeEventListener("message", onCall);
   });
+
+  // A desktop app window's events for the app's page: a shortcut press, a
+  // focus change, a notification's route.
+  $effect(() => appDesktop?.subscribe(({ event, detail }) => {
+    iframeEl?.contentWindow?.postMessage({ type: "solus-app-event", event, detail }, "*");
+  }));
 
   // The app's data changed on the host. A frame that has not loaded yet runs
   // its queries when it does, so it needs no message.
@@ -494,7 +503,7 @@
         class:fill-available={fillAvailable}
         data-testid="artifact-iframe"
         sandbox={isolated ? "allow-scripts" : isApp ? "allow-scripts allow-forms allow-modals allow-downloads" : "allow-scripts allow-popups allow-forms allow-modals allow-downloads"}
-        allow="clipboard-write"
+        allow={appDesktop ? "clipboard-write; microphone *; camera *" : "clipboard-write"}
         style="color-scheme:{colorScheme};{frameSize}"
         onload={() => {
           frameResult = { srcdoc: srcdoc ?? "", reloadKey, failed: false };

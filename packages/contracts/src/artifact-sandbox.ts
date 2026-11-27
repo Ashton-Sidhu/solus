@@ -319,9 +319,14 @@ const APP_NATIVE_STYLE = `<style>:root{--muted:var(--solus-surface-hover);--mute
 // transport can change without a rebuild of any app. In a frame it posts to
 // the parent; in a phone's web view, which has no parent, to the native side.
 // A host that renders the page with its own `solusApp` (a preview) keeps it.
-// The host also posts `{ type: "solus-app-event", event }` when the app's data
-// changed outside this page; `solusApp.on` gives each one to its listeners.
-const APP_BRIDGE = `<script>(function(){
+// The host also posts `{ type: "solus-app-event", event, detail }` when the
+// app's data changed outside this page, and in a desktop app window for a
+// shortcut press, a focus change, or a notification's route
+// (docs/plans/app-desktop-capabilities.md §3); `solusApp.on` gives each one to
+// its listeners. `solusApp.desktop` is true only in a desktop app window. A
+// failure of a desktop call is an Error whose `name` is its code.
+function appBridge(isDesktop: boolean): string {
+  return `<script>(function(){
   if (window.solusApp) return;
   var pending = {}, listeners = [], next = 1, native = window.ReactNativeWebView;
   function post(message){
@@ -334,17 +339,21 @@ const APP_BRIDGE = `<script>(function(){
     var data = event.data;
     if (!native && event.source !== parent) return;
     if (data && data.type === "solus-app-event") {
-      listeners.slice().forEach(function(listener){ try { listener(data.event); } catch (error) { console.error(error); } });
+      if (data.event === "open-route" && data.detail && typeof data.detail.route === "string" && data.detail.route.charAt(0) === "#") location.hash = data.detail.route;
+      listeners.slice().forEach(function(listener){ try { listener(data.event, data.detail); } catch (error) { console.error(error); } });
       return;
     }
     if (!data || data.type !== "solus-app-result") return;
     var call = pending[data.id];
     if (!call) return;
     delete pending[data.id];
-    if (data.ok) call.resolve(data.value);
-    else call.reject(new Error(data.error || "The call failed."));
+    if (data.ok) { call.resolve(data.value); return; }
+    var error = new Error(data.error || "The call failed.");
+    if (data.failure && typeof data.failure.code === "string") { error.name = data.failure.code; error.failure = data.failure; }
+    call.reject(error);
   });
   window.solusApp = {
+    desktop: ${isDesktop},
     call: function(name, args){
       return new Promise(function(resolve, reject){
         var id = next++;
@@ -361,6 +370,7 @@ const APP_BRIDGE = `<script>(function(){
     }
   };
 })();</script>`;
+}
 
 // Answers "what is under this point?" for the lens comment pin: the nearest
 // element that names a place in the change, and its text for the quote. The
@@ -551,7 +561,7 @@ export function wrapSandboxDocument(inner: string, themeCss: string, isolated = 
   // expect. A render keeps the mode it always had: pages in saved works and
   // transcripts were written against it.
   const doctype = isApp ? "<!doctype html>" : "";
-  const appParts = isApp ? APP_WINDOW_STYLE + APP_NATIVE_STYLE + APP_BRIDGE : "";
+  const appParts = isApp ? APP_WINDOW_STYLE + APP_NATIVE_STYLE + appBridge(app.desktop === true) : "";
   return `${doctype}<meta charset="utf-8">${csp}<style id="solus-artifact-theme">${themeCss}</style>${RESIZE_REPORTER}${SHORTCUT_FORWARDER}${responder}${appParts}${inner}`;
 }
 
@@ -559,4 +569,6 @@ export function wrapSandboxDocument(inner: string, themeCss: string, isolated = 
  *  caller passes it only for the UI of an app (docs/plans/apps.md §9). */
 export interface SandboxAppFrame {
   network: readonly string[];
+  /** The frame is in a desktop app window, which answers `@desktop/` calls. */
+  desktop?: boolean;
 }
