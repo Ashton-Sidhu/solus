@@ -31,16 +31,33 @@ function storageFixture() {
 describe('Prompt Stash', () => {
   const key = promptStashKey('account', 'organization')
 
-  test('keeps the latest 20 drafts across reloads and scopes them to the account and organization', () => {
+  test('keeps all 100 saved drafts when another composer fills the stash', () => {
     const storage = storageFixture()
     const stash = new PromptStash(storage)
-    for (let index = 0; index <= MAX_STASHED_PROMPTS; index++) stash.save(key, entry(`${index}`))
+    expect(MAX_STASHED_PROMPTS).toBe(100)
+    const saved = Array.from({ length: 100 }, (_, index) => entry(`${index}`))
+    for (const draft of saved.slice(0, -1)) stash.save(key, draft)
     const reopened = new PromptStash(storage)
-    expect(reopened.read(key)).toHaveLength(MAX_STASHED_PROMPTS)
-    expect(reopened.read(key)[0]).toEqual(entry(`${MAX_STASHED_PROMPTS}`))
-    expect(reopened.read(key).at(-1)?.id).toBe('1')
+    expect(reopened.save(key, saved[99]).status).toBe('saved')
+    const expected = saved.toReversed()
+    storage.failWrites = true
+    expect(stash.save(key, entry('overflow'))).toEqual({ status: 'full', entries: expected })
+    expect(reopened.read(key)).toEqual(expected)
     expect(reopened.read(promptStashKey('another account', 'organization'))).toEqual([])
     expect(reopened.read(promptStashKey('account', 'another organization'))).toEqual([])
+
+    storage.failWrites = false
+    expect(stash.take(key, '0').entry).toEqual(saved[0])
+    expect(reopened.save(key, entry('overflow')).status).toBe('saved')
+    expect(stash.read(key)).toEqual([entry('overflow'), ...expected.slice(0, -1)])
+  })
+
+  test('keeps the stored data when it cannot read the existing stash', () => {
+    const storage = storageFixture()
+    storage.setItem(key, '{')
+    const stash = new PromptStash(storage)
+    expect(() => stash.save(key, entry('new'))).toThrow()
+    expect(storage.getItem(key)).toBe('{')
   })
 
   test('reads the latest entries before each write and removes an entry only after a successful write', () => {
@@ -63,7 +80,7 @@ describe('Prompt Stash', () => {
     const storage = storageFixture()
     const stash = new PromptStash(storage)
     const current = entry('current')
-    const visibleEntries = stash.save(key, current)
+    const { entries: visibleEntries } = stash.save(key, current)
     current.prompt.text = ''
     current.prompt.attachments.splice(0)
     current.prompt.workRefs.splice(0)

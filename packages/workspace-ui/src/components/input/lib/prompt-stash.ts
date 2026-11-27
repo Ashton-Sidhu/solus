@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { Attachment, Prompt } from '@solus/contracts/types'
 import { agentIdSchema } from '@solus/contracts/types'
 
-export const MAX_STASHED_PROMPTS = 20
+export const MAX_STASHED_PROMPTS = 100
 export const STASH_FILE_LIFETIME_MS = 24 * 60 * 60 * 1000
 
 const point = z.object({ x: z.number(), y: z.number() })
@@ -75,10 +75,12 @@ export class PromptStash {
     return entries.parse(JSON.parse(raw))
   }
 
-  save(key: string, entry: PromptStashEntry): PromptStashEntry[] {
-    const next = [entrySchema.parse(entry), ...this.read(key)].slice(0, MAX_STASHED_PROMPTS)
+  save(key: string, entry: PromptStashEntry) {
+    const current = this.read(key)
+    if (current.length >= MAX_STASHED_PROMPTS) return { status: 'full' as const, entries: current }
+    const next = [entrySchema.parse(entry), ...current]
     this.storage.setItem(key, JSON.stringify(next))
-    return next
+    return { status: 'saved' as const, entries: next }
   }
 
   take(key: string, id: string) {
