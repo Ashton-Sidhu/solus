@@ -17,7 +17,7 @@
   import { PAGE_SECONDARY_BTN } from "@solus/workspace-ui/lib/page-chrome";
   import type { AppShortcutOffer } from "@solus/contracts/app-shortcuts";
   import { appGoneTitle, appWindowHost, appWindowHostGapView, checkLinkAddress, type LinkAddressCheck } from "./app-window-host";
-  import { appWindowDesktop } from "./app-window-desktop";
+  import { appWindowDesktop, createAppWindowReport } from "./app-window-desktop";
 
   /**
    * The page of an app window (docs/app-shortcuts.md §2): one app in all of
@@ -86,11 +86,27 @@
     const appId = app?.id;
     if (hostId && appId) untrack(() => appsStore.ensure(hostId, appId));
   });
+  // The popover under the app's menu-bar item shows its menu-bar page, and nothing of the window around it.
+  const page = untrack(() => (request.page === "menubar" ? "menubar" : "main"));
+  const isPopover = page === "menubar";
+  $effect(() => {
+    const hostId = serverId;
+    const version = app?.activeVersion;
+    const appId = app?.id;
+    if (isPopover && hostId && appId && version !== null && version !== undefined) untrack(() => void appsStore.loadUi(hostId, appId, version, "menubar"));
+  });
   // The launcher keeps the app's name and icon.
   $effect(() => {
     const hostId = serverId;
     const current = app;
-    if (hostId && current && appShortcutsStore.has(target)) untrack(() => void appShortcutsStore.follow(target, hostId, current).catch(() => {}));
+    if (!isPopover && hostId && current && appShortcutsStore.has(target)) untrack(() => void appShortcutsStore.follow(target, hostId, current).catch(() => {}));
+  });
+  // The main process learns of the app's menu-bar page and icon from the window's own page.
+  const report = createAppWindowReport();
+  $effect(() => {
+    const hostId = serverId;
+    const current = app;
+    if (!isPopover && hostId && current) untrack(() => void report.icon(hostId, current).catch(() => {}));
   });
 
   const phase = $derived(
@@ -100,10 +116,15 @@
       app,
       state: appState,
       stateError: serverId && app ? appsStore.stateErrorFor(serverId, app.id) : null,
-      ui: serverId && app ? appsStore.uiFor(serverId, app.id, app.activeVersion) : undefined,
-      uiError: serverId && app ? appsStore.uiErrorFor(serverId, app.id) : null,
+      ui: serverId && app ? appsStore.uiFor(serverId, app.id, app.activeVersion, page) : undefined,
+      uiError: serverId && app ? appsStore.uiErrorFor(serverId, app.id, page) : null,
     }),
   );
+  $effect(() => {
+    // A host older than the menu-bar page answers no size: its apps have none.
+    const menuBarPage = phase.kind === "frame" ? (phase.ui.menuBarPage ?? null) : undefined;
+    if (!isPopover && menuBarPage !== undefined) untrack(() => report.menuBarPage(menuBarPage));
+  });
 
   const frameApp = $derived.by(() => {
     const hostId = serverId;
@@ -121,7 +142,7 @@
   let notice = $state<string | null>(null);
 
   const offerShows = $derived(
-    !!offer && !isOfferDismissed && phase.kind === "frame" && !!app && !hasShortcut,
+    !isPopover && !!offer && !isOfferDismissed && phase.kind === "frame" && !!app && !hasShortcut,
   );
 
   /** The person confirms the shortcut here, where the host's own name of the app shows: a link never adds it. */

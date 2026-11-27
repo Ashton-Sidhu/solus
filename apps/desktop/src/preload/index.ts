@@ -165,6 +165,8 @@ const nativeApi: NativeSolusAPI = {
   requestWorkspace: (request: AppWindowWorkspaceRequest) => ipcRenderer.send('solus:app-window-workspace-request', request),
   onWorkspaceRequest: channelFanOut<[request: AppWindowWorkspaceRequest]>('solus:workspace-request'),
   onAppShortcutsChanged: channelFanOut<[]>('solus:app-shortcuts-changed'),
+  setAppMenuBarPage: (page: { width: number; height: number } | null) => ipcRenderer.send('solus:app-menu-bar-page', page),
+  setAppWindowIcon: (png: Uint8Array) => ipcRenderer.send('solus:app-window-icon', png),
   appDesktopCall: (operation: string, args: AppDesktopValue) => ipcRenderer.invoke('solus:app-desktop-call', operation, args),
   onAppDesktopEvent: channelFanOut<[event: AppDesktopEvent]>('solus:app-desktop-event'),
   appPermissions: () => ipcRenderer.invoke('solus:app-permissions'),

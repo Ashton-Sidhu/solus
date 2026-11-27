@@ -20,6 +20,8 @@ export interface AppWindowRequest extends AppShortcutTarget {
   name: string
   /** A shortcut link opened the window: it asks the person to add the shortcut (docs/app-shortcuts.md §5). */
   offer?: AppShortcutOffer
+  /** The page shows the app's menu-bar page, in the popover under its menu-bar item (docs/plans/app-desktop-capabilities.md §9). */
+  page?: 'menubar'
 }
 
 /**
@@ -117,6 +119,7 @@ const APP_WINDOW_NAME_PARAM = 'app-window-name'
 const APP_WINDOW_OFFER_PARAM = 'app-window-offer'
 const APP_WINDOW_ADDRESS_PARAM = 'app-window-address'
 const APP_WINDOW_ACCOUNT_PARAM = 'app-window-account'
+const APP_WINDOW_PAGE_PARAM = 'app-window-page'
 
 /** The search parameters that make the desktop renderer page an app window's page. */
 export function appWindowSearch(request: AppWindowRequest): URLSearchParams {
@@ -130,6 +133,7 @@ export function appWindowSearch(request: AppWindowRequest): URLSearchParams {
     if (request.offer.address) search.set(APP_WINDOW_ADDRESS_PARAM, request.offer.address)
     if (request.offer.account) search.set(APP_WINDOW_ACCOUNT_PARAM, request.offer.account)
   }
+  if (request.page) search.set(APP_WINDOW_PAGE_PARAM, request.page)
   return search
 }
 
@@ -140,6 +144,7 @@ export function appWindowRequestOf(search: string): AppWindowRequest | null {
   const appId = params.get(APP_WINDOW_APP_PARAM)
   if (!host || !appId || !isAppShortcutTarget({ host, appId })) return null
   const request: AppWindowRequest = { host, appId, name: params.get(APP_WINDOW_NAME_PARAM) ?? '' }
+  if (params.get(APP_WINDOW_PAGE_PARAM) === 'menubar') request.page = 'menubar'
   if (params.get(APP_WINDOW_OFFER_PARAM) === '1') {
     const address = params.get(APP_WINDOW_ADDRESS_PARAM)
     const account = params.get(APP_WINDOW_ACCOUNT_PARAM)

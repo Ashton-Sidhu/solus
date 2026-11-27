@@ -8,6 +8,7 @@ import { parseAppCallName } from '@solus/contracts/apps'
 import { AppDesktop, requestedAppPermissions, startedByOwnLoginItem, systemMediaSettingsUrl, systemMediaStep, type AppDesktopPorts, type AppWindowHandle } from '@solus/desktop-main/app-shortcuts/app-desktop'
 import { AppShortcutRecords } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
 import { shortcutProblem } from '@solus/desktop-main/app-shortcuts/app-permission-text'
+import { popoverPosition } from '@solus/desktop-main/app-shortcuts/window-bounds'
 
 // The desktop capabilities of an app window (docs/plans/app-desktop-capabilities.md).
 // The Electron parts are fakes, so these pin the permission model and what
@@ -44,7 +45,9 @@ interface Harness {
   asked: AppDesktopPermission[]
   held: Map<string, () => void>
   takenByOthers: Set<string>
-  trays: { title: string; isDestroyed: boolean; menu: MenuItemConstructorOptions[] }[]
+  trays: { title: string; isDestroyed: boolean; menu: MenuItemConstructorOptions[]; hasPopover: boolean; click: () => void }[]
+  popovers: { appId: string; width: number; height: number }[]
+  closedPopovers: string[]
   notifications: { title: string; onClick: () => void }[]
   loginItem: boolean[]
   badges: (number | null)[]
@@ -67,6 +70,8 @@ function harness(os: 'darwin' | 'win32' | 'linux' = 'darwin', { personLoginItem 
     held: new Map(),
     takenByOthers: new Set(),
     trays: [],
+    popovers: [],
+    closedPopovers: [],
     notifications: [],
     loginItem: [],
     badges: [],
@@ -93,15 +98,20 @@ function harness(os: 'darwin' | 'win32' | 'linux' = 'darwin', { personLoginItem 
       },
       unregister: (accelerator) => { h.held.delete(accelerator) },
     },
-    createTray() {
-      const tray = { title: '', isDestroyed: false, menu: [] as MenuItemConstructorOptions[] }
+    createTray(_target, onClick) {
+      const tray = { title: '', isDestroyed: false, menu: [] as MenuItemConstructorOptions[], hasPopover: false, click: onClick }
       h.trays.push(tray)
       return {
         setTitle: (text) => { tray.title = text },
-        setMenu: (template) => { tray.menu = template },
+        setMenu: (template, hasPopover) => {
+          tray.menu = template
+          tray.hasPopover = hasPopover
+        },
         destroy: () => { tray.isDestroyed = true },
       }
     },
+    togglePopover: (target, _name, page) => { h.popovers.push({ appId: target.appId, ...page }) },
+    closePopover: (target) => { h.closedPopovers.push(target.appId) },
     notify: (notification) => { h.notifications.push(notification) },
     readClipboard: async () => 'copied text',
     setOpenAtLogin: async (isOn) => { h.loginItem.push(isOn) },
@@ -357,6 +367,77 @@ describe('a request of the page to Chromium', () => {
   test('no permission asked is no capture', async () => {
     const h = harness()
     expect(await h.desktop.allows(notes, [])).toBe(false)
+  })
+})
+
+describe('the menu-bar page', () => {
+  const PAGE = { width: 360, height: 240 }
+
+  // WHY: Executor's rule. An app that ships a menu-bar page asks for its item when it opens, and a click on the item opens the page.
+  test('an app with a menu-bar page asks for its item, and a click opens the page in a popover', async () => {
+    const h = harness('darwin')
+    h.answers.push(true)
+    await h.desktop.menuBarPageChanged(notes, PAGE)
+    expect(h.asked).toEqual(['menuBar'])
+    expect(h.trays).toHaveLength(1)
+    expect(h.trays[0].title).toBe('Notes')
+    expect(h.trays[0].hasPopover).toBe(true)
+    h.trays[0].click()
+    expect(h.popovers).toEqual([{ appId: notes.appId, ...PAGE }])
+    // A close of the window keeps the page running, as for a title in the item.
+    expect(h.desktop.keepsRunning(notes)).toBe(true)
+  })
+
+  test('a refusal shows no item, and the next open does not ask again', async () => {
+    const h = harness()
+    h.answers.push(false)
+    await h.desktop.menuBarPageChanged(notes, PAGE)
+    await h.desktop.menuBarPageChanged(notes, PAGE)
+    expect(h.asked).toEqual(['menuBar'])
+    expect(h.trays).toHaveLength(0)
+  })
+
+  test('a version with no menu-bar page closes the popover and removes the item it made', async () => {
+    const h = harness()
+    h.answers.push(true)
+    await h.desktop.menuBarPageChanged(notes, PAGE)
+    await h.desktop.menuBarPageChanged(notes, null)
+    expect(h.closedPopovers).toContain(notes.appId)
+    expect(h.trays[0].isDestroyed).toBe(true)
+  })
+
+  test('a revoke of the item closes the popover', async () => {
+    const h = harness()
+    h.answers.push(true)
+    await h.desktop.menuBarPageChanged(notes, PAGE)
+    await h.desktop.change({ ...notes, permission: 'menuBar', state: 'denied' })
+    expect(h.closedPopovers).toContain(notes.appId)
+    expect(h.trays[0].isDestroyed).toBe(true)
+  })
+
+  // WHY: parity. A Linux tray icon gives Solus no click, so its menu must open the page that a click opens elsewhere.
+  test('on Linux the tray menu opens the page; on macOS and Windows a click does', async () => {
+    for (const os of ['linux', 'darwin', 'win32'] as const) {
+      const h = harness(os)
+      h.answers.push(true)
+      await h.desktop.menuBarPageChanged(notes, PAGE)
+      const first = h.trays[0].menu[0]
+      if (os === 'linux') {
+        expect(first.label).toBe('Show Notes Popover')
+        first.click?.({} as never, undefined, {} as never)
+        expect(h.popovers).toHaveLength(1)
+      } else {
+        expect(first.label).toBe('Open Notes')
+      }
+    }
+  })
+
+  test('the popover opens under an item at the top and above one at the bottom, inside the work area', () => {
+    const area = { x: 0, y: 25, width: 1440, height: 875 }
+    expect(popoverPosition(PAGE, { x: 1400, y: 0, width: 24, height: 24 }, area)).toEqual({ x: 1080, y: 28 })
+    expect(popoverPosition(PAGE, { x: 700, y: 870, width: 24, height: 30 }, area)).toEqual({ x: 532, y: 626 })
+    // Linux: the pointer is the anchor.
+    expect(popoverPosition(PAGE, { x: 10, y: 5, width: 0, height: 0 }, area)).toEqual({ x: 0, y: 25 })
   })
 })
 

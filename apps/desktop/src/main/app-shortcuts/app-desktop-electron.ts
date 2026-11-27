@@ -9,6 +9,7 @@ import { AppDesktop, requestedAppPermissions, systemMediaSettingsUrl, systemMedi
 import { permissionDetail, permissionQuestion } from './app-permission-text'
 import type { AppShortcutRecords } from './app-shortcut-records'
 import { AppWindows, type AppWindowLifecycle, type AppWindowsOptions } from './app-windows'
+import { appShortcutId } from './launcher-files'
 import { forgetApp, registerAppShortcutIpc, removeAppShortcut } from './ipc'
 import type { AppWindowPermissionRequest } from '@solus/desktop-main/mac-permissions'
 import type { AppLaunchers } from './launchers'
@@ -40,6 +41,7 @@ interface AppDesktopElectronDeps {
 interface AppDesktopParts {
   desktop: AppDesktop
   lifecycle: AppWindowLifecycle
+  setAppIcon(target: AppShortcutTarget, png: Buffer): void
 }
 
 export interface AppWindowsRuntimeDeps extends Omit<AppDesktopElectronDeps, 'windows' | 'loginItem'>, Omit<AppWindowsOptions, 'records' | 'launchers' | 'lifecycle'> {
@@ -88,7 +90,7 @@ export function createAppWindowsRuntime(deps: AppWindowsRuntimeDeps): AppWindows
   })
   windows = created
   registerAppShortcutIpc({ records, launchers, windows: created })
-  registerAppDesktopIpc(parts.desktop, created)
+  registerAppDesktopIpc(parts, created)
   ipcMain.handle('solus:app-forget', (_event, rawTarget) => forgetApp({
     records,
     launchers,
@@ -143,7 +145,14 @@ function createAppDesktop(deps: AppDesktopElectronDeps): AppDesktopParts {
     isAppMenuShown = true
   }
 
+  /** The trays of the apps, for the place of their popovers. */
+  const trays = new Map<string, Tray>()
+  /** Each open app's own icon, from its window's page; its tray shows it on every system. */
+  const appIcons = new Map<string, NativeImage>()
+
   function trayIcon(target: AppShortcutTarget): NativeImage {
+    const own = appIcons.get(appShortcutId(target))
+    if (own) return own.resize({ width: TRAY_ICON_SIZE, height: TRAY_ICON_SIZE, quality: 'best' })
     const iconPath = launchers.windowIdentity(target, '').iconPath
     if (iconPath && existsSync(iconPath)) return nativeImage.createFromPath(iconPath).resize({ width: TRAY_ICON_SIZE, height: TRAY_ICON_SIZE, quality: 'best' })
     // macOS shows the title alone; Windows and Linux need an image.
@@ -199,19 +208,43 @@ function createAppDesktop(deps: AppDesktopElectronDeps): AppDesktopParts {
       register: (accelerator, onPress) => globalShortcut.register(accelerator, onPress),
       unregister: (accelerator) => globalShortcut.unregister(accelerator),
     },
-    createTray(target, onOpen) {
+    createTray(target, onClick) {
+      const key = appShortcutId(target)
       const tray = new Tray(trayIcon(target))
-      // A Windows tray icon opens its menu on a right click only; a left click opens the app.
-      if (platform.trayShowsOnClick) tray.on('click', onOpen)
+      trays.set(key, tray)
+      let menu: Menu | null = null
+      let hasPopover = false
+      // A click opens the menu-bar page where there is one. With none, a Windows click opens the app, and
+      // macOS and Linux show the menu. A Linux tray icon (StatusNotifierItem) often gives no click at all:
+      // its menu then has the page's item (`appTrayMenuTemplate`).
+      tray.on('click', () => {
+        if (hasPopover || platform.trayShowsOnClick) onClick()
+      })
+      // macOS: with a popover, the menu is on a right click (Executor's `showTray`).
+      tray.on('right-click', () => {
+        if (isMac && hasPopover && menu) tray.popUpContextMenu(menu)
+      })
       return {
         setTitle(text) {
           if (isMac) tray.setTitle(text)
           tray.setToolTip(text)
         },
-        setMenu: (template) => tray.setContextMenu(Menu.buildFromTemplate(template)),
-        destroy: () => tray.destroy(),
+        setMenu(template, isPopover) {
+          menu = Menu.buildFromTemplate(template)
+          hasPopover = isPopover
+          tray.setContextMenu(isMac && isPopover ? null : menu)
+        },
+        destroy() {
+          if (trays.get(key) === tray) trays.delete(key)
+          tray.destroy()
+        },
       }
     },
+    togglePopover(target, name, page) {
+      const tray = trays.get(appShortcutId(target))
+      deps.windows().togglePopover({ ...target, name }, page, tray && !tray.isDestroyed() ? tray.getBounds() : null)
+    },
+    closePopover: (target) => deps.windows().closePopover(target),
     notify({ title, body, onClick }) {
       if (!Notification.isSupported()) return
       const notification = new Notification({ title, body })
@@ -307,13 +340,25 @@ function createAppDesktop(deps: AppDesktopElectronDeps): AppDesktopParts {
     keepsRunning: (target) => desktop.keepsRunning(target),
     ended(target) {
       desktop.ended(target)
+      appIcons.delete(appShortcutId(target))
       for (const window of windowMenus.keys()) if (window.isDestroyed()) windowMenus.delete(window)
       if (isMac && !BrowserWindow.getFocusedWindow()) restoreSolusMenu()
     },
   }
-  return { desktop, lifecycle }
+  /** The page of an app window sent the app's icon: an item it shows now takes it. */
+  function setAppIcon(target: AppShortcutTarget, png: Buffer): void {
+    const image = nativeImage.createFromBuffer(png)
+    if (image.isEmpty()) return
+    appIcons.set(appShortcutId(target), image)
+    trays.get(appShortcutId(target))?.setImage(trayIcon(target))
+  }
+
+  return { desktop, lifecycle, setAppIcon }
 }
 
+const menuBarPageSchema = z.object({ width: z.number().int().min(200).max(640), height: z.number().int().min(120).max(720) }).nullable()
+/** A PNG of the app's icon, as the page draws it: at most 2 MiB. */
+const iconSchema = z.instanceof(Uint8Array).refine((bytes) => bytes.byteLength > 0 && bytes.byteLength <= 2 * 1024 * 1024)
 const callSchema = z.object({ operation: z.string().max(100), args: z.json() })
 const targetSchema = z.object({ host: z.string(), appId: z.string() }).refine(isAppShortcutTarget)
 const changeSchema = z.object({
@@ -329,7 +374,20 @@ const changeSchema = z.object({
  * is the one of the sender's window, never one the call names. Settings reads
  * and changes the grants of every app.
  */
-function registerAppDesktopIpc(desktop: AppDesktop, windows: AppWindows): void {
+function registerAppDesktopIpc({ desktop, setAppIcon }: AppDesktopParts, windows: AppWindows): void {
+  // From the Solus page of an app window, never from a popover: what its app's active version has.
+  ipcMain.on('solus:app-menu-bar-page', (event, rawPage) => {
+    const target = windows.targetOf(event.sender)
+    const page = menuBarPageSchema.safeParse(rawPage)
+    if (!target || windows.isPopover(event.sender) || !page.success) return
+    void desktop.menuBarPageChanged(target, page.data)
+  })
+  ipcMain.on('solus:app-window-icon', (event, rawPng) => {
+    const target = windows.targetOf(event.sender)
+    const png = iconSchema.safeParse(rawPng)
+    if (!target || windows.isPopover(event.sender) || !png.success) return
+    setAppIcon(target, Buffer.from(png.data))
+  })
   ipcMain.handle('solus:app-desktop-call', (event, operation, args): Promise<AppDesktopResult> | AppDesktopResult => {
     const target = windows.targetOf(event.sender)
     if (!target) return { ok: false, failure: desktopUnavailable() }

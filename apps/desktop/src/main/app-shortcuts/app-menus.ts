@@ -15,8 +15,11 @@ export interface AppMenuModel {
   /** The global shortcuts the app holds now, to list under Permissions. */
   shortcuts: readonly string[]
   hasMenuBarItem: boolean
+  /** The app has a menu-bar page: a click on its item opens it in a popover. */
+  hasPopover: boolean
   hasShortcut: boolean
   open(): void
+  showPopover(): void
   reload(): void
   setGranted(permission: AppDesktopPermission, isGranted: boolean): void
   removeShortcut(): void
@@ -71,9 +74,15 @@ export function appWindowMenuTemplate(model: AppMenuModel): MenuItemConstructorO
   return [{ role: 'appMenu' }, appMenu, { role: 'editMenu' }, { role: 'windowMenu' }]
 }
 
-/** The menu of an app's menu-bar item. */
+/**
+ * The menu of an app's menu-bar item. A Linux tray icon (StatusNotifierItem)
+ * shows its menu on a click and gives no click to Solus, so on Linux the menu
+ * opens the menu-bar page: what a click does on macOS and Windows.
+ */
 export function appTrayMenuTemplate(model: AppMenuModel): MenuItemConstructorOptions[] {
+  const popover: MenuItemConstructorOptions[] = model.hasPopover && model.os === 'linux' ? [{ label: `Show ${model.name} Popover`, click: model.showPopover }] : []
   return [
+    ...popover,
     { label: `Open ${model.name}`, click: model.open },
     { label: 'Reload', click: model.reload },
     { label: 'Permissions', submenu: permissionItems(model) },

@@ -16,6 +16,7 @@ import {
   type DesktopOs,
 } from '@solus/contracts/app-desktop'
 import type { AppShortcutTarget } from '@solus/contracts/app-shortcuts'
+import type { AppMenuBarPage } from '@solus/contracts/apps'
 import type { AppShortcutRecords } from './app-shortcut-records'
 import { appTrayMenuTemplate, appWindowMenuTemplate, type AppMenuModel } from './app-menus'
 import { shortcutProblem } from './app-permission-text'
@@ -39,7 +40,11 @@ export interface AppWindowHandle {
 export interface AppTrayHandle {
   /** The text in the menu bar on macOS; the tooltip elsewhere. */
   setTitle(text: string): void
-  setMenu(template: MenuItemConstructorOptions[]): void
+  /**
+   * The menu of the item. `hasPopover`: a click opens the app's menu-bar page,
+   * so macOS shows the menu on a right click only.
+   */
+  setMenu(template: MenuItemConstructorOptions[], hasPopover: boolean): void
   destroy(): void
 }
 
@@ -61,7 +66,11 @@ export interface AppDesktopPorts {
     register(accelerator: string, onPress: () => void): boolean
     unregister(accelerator: string): void
   }
-  createTray(target: AppShortcutTarget, onOpen: () => void): AppTrayHandle
+  /** A click on the item: the popover of the menu-bar page, else the app's window (where a click opens anything). */
+  createTray(target: AppShortcutTarget, onClick: () => void): AppTrayHandle
+  /** Shows the popover of the app's menu-bar page under its item, or hides the one that shows. */
+  togglePopover(target: AppShortcutTarget, name: string, page: AppMenuBarPage): void
+  closePopover(target: AppShortcutTarget): void
   notify(notification: { title: string; body: string; onClick: () => void }): void
   readClipboard(): Promise<string>
   setOpenAtLogin(isOn: boolean): Promise<void>
@@ -90,6 +99,8 @@ interface RunningApp {
   /** The text the page put in the menu bar; null shows the app's name. */
   menuBarTitle: string | null
   tray: AppTrayHandle | null
+  /** The size of the app's menu-bar page, from its main page; null when the active version has none. */
+  menuBarPage: AppMenuBarPage | null
   isFloating: boolean
   badge: number | null
 }
@@ -432,13 +443,41 @@ export class AppDesktop {
 
   private showTray(running: RunningApp): void {
     if (this.permissionState(running.target, 'menuBar') !== 'granted') return
-    running.tray ??= this.ports.createTray(running.target, () => this.open(running.target))
+    running.tray ??= this.ports.createTray(running.target, () => this.trayClicked(running))
     running.tray.setTitle(running.menuBarTitle ?? this.nameOf(running.target))
     this.refreshMenus(running)
   }
 
+  private trayClicked(running: RunningApp): void {
+    if (running.menuBarPage) this.ports.togglePopover(running.target, this.nameOf(running.target), running.menuBarPage)
+    else this.open(running.target)
+  }
+
+  /**
+   * The app's main page says whether its version has a menu-bar page
+   * (docs/plans/app-desktop-capabilities.md §9). An app with one asks for
+   * the menu-bar item when it opens, as Executor does, and a click on the
+   * item opens the page. A new version with no such page closes it; the
+   * item stays only while the page shows a title in it.
+   */
+  async menuBarPageChanged(target: AppShortcutTarget, page: AppMenuBarPage | null): Promise<void> {
+    const running = this.running.get(appShortcutId(target))
+    if (!running) return
+    const hadPage = running.menuBarPage !== null
+    running.menuBarPage = page
+    if (!page) {
+      this.ports.closePopover(target)
+      if (hadPage && running.menuBarTitle === null) this.removeTray(running)
+      else this.refreshMenus(running)
+      return
+    }
+    await this.request(target, 'menuBar')
+    if (this.running.get(appShortcutId(target)) === running) this.showTray(running)
+  }
+
   private removeTray(running: RunningApp): void {
     if (!running.tray) return
+    this.ports.closePopover(running.target)
     running.tray.destroy()
     running.tray = null
     // A hidden window with no item is out of reach: it ends.
@@ -462,6 +501,8 @@ export class AppDesktop {
       permissions: this.permissionsOf(target),
       shortcuts: [...new Set(running.shortcuts.values())],
       hasMenuBarItem: running.tray !== null,
+      hasPopover: running.menuBarPage !== null,
+      showPopover: () => this.trayClicked(running),
       hasShortcut: this.ports.records.find(target) !== null,
       open: () => this.open(target),
       reload: () => this.ports.windowOf(target)?.reload(),
@@ -470,7 +511,7 @@ export class AppDesktop {
       quit: () => this.quit(target),
     }
     this.ports.applyWindowMenu(target, appWindowMenuTemplate(model))
-    running.tray?.setMenu(appTrayMenuTemplate(model))
+    running.tray?.setMenu(appTrayMenuTemplate(model), model.hasPopover)
   }
 
   /** The shortcuts or the name changed outside a call, such as a removed launcher. */
@@ -485,7 +526,7 @@ export class AppDesktop {
     const key = appShortcutId(target)
     let running = this.running.get(key)
     if (!running) {
-      running = { target, shortcuts: new Map(), menuBarTitle: null, tray: null, isFloating: false, badge: null }
+      running = { target, shortcuts: new Map(), menuBarTitle: null, tray: null, menuBarPage: null, isFloating: false, badge: null }
       this.running.set(key, running)
     }
     return running
@@ -546,6 +587,7 @@ export class AppDesktop {
     if (!running) return
     this.running.delete(key)
     this.releaseShortcuts(running)
+    this.ports.closePopover(target)
     running.tray?.destroy()
     if (running.badge !== null) this.ports.badgeChanged(target, null)
   }

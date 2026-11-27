@@ -1855,6 +1855,10 @@ export interface NativeSolusAPI {
   requestWorkspace(request: import('./app-shortcuts').AppWindowWorkspaceRequest): void
   /** In the workspace window: what an app window asked of it. */
   onWorkspaceRequest(callback: (request: import('./app-shortcuts').AppWindowWorkspaceRequest) => void): () => void
+  /** From an app window: whether the active version of its app has a menu-bar page, and its size (docs/plans/app-desktop-capabilities.md §9). */
+  setAppMenuBarPage(page: import('./apps').AppMenuBarPage | null): void
+  /** From an app window: the app's own icon as a PNG, for its menu-bar item. */
+  setAppWindowIcon(png: Uint8Array): void
   /** The shortcuts changed outside this page, such as from the app menu of an app window. */
   onAppShortcutsChanged(callback: () => void): () => void
   /** One desktop capability of the app in this app window (docs/plans/app-desktop-capabilities.md). Main names the app from this window; any other page is answered `DesktopUnavailable`. */

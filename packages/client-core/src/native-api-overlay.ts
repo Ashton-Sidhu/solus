@@ -78,6 +78,8 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'requestWorkspace',
   'onWorkspaceRequest',
   'onAppShortcutsChanged',
+  'setAppMenuBarPage',
+  'setAppWindowIcon',
   'appDesktopCall',
   'onAppDesktopEvent',
   'appPermissions',
