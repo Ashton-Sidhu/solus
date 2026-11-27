@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -10,6 +10,7 @@ if (targetArch !== process.arch && process.platform !== 'darwin')
   throw new Error('Build the voice helper on its target architecture')
 const build = resolve(root, `build/transcription/cmake-${targetArch}`)
 const output = resolve(root, 'build/transcription/bin')
+rmSync(output, { recursive: true, force: true })
 mkdirSync(output, { recursive: true })
 const cmake = process.env.CMAKE ?? 'cmake'
 function run(args: string[]): void {

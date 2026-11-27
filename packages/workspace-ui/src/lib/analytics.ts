@@ -2,7 +2,9 @@ import type { PostHog } from 'posthog-js'
 import type { SolusEventMap } from '@solus/contracts/analytics-events'
 import { uuid } from '@solus/contracts/uuid'
 
+// An installer can configure its copy of the shared web bundle at packaging time.
 const POSTHOG_KEY = import.meta.env.VITE_POSTHOG_KEY
+  || globalThis.document?.querySelector('meta[name="solus-analytics-key"]')?.getAttribute('content')
 const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST ?? 'https://us.i.posthog.com'
 const ANON_ID_KEY = 'solus-analytics-id'
 
