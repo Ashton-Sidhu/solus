@@ -5,7 +5,7 @@ import { join } from 'path'
 import type { MenuItemConstructorOptions } from 'electron'
 import { parseAppDesktopCall, type AppDesktopEvent, type AppDesktopPermission, type AppDesktopResult, type AppDesktopValue } from '@solus/contracts/app-desktop'
 import { parseAppCallName } from '@solus/contracts/apps'
-import { AppDesktop, requestedAppPermissions, startedByOwnLoginItem, systemAudioSupported, systemMediaSettingsUrl, systemMediaStep, type AppDesktopPorts, type AppWindowHandle } from '@solus/desktop-main/app-shortcuts/app-desktop'
+import { AppDesktop, isNativeWayland, requestedAppPermissions, startedByOwnLoginItem, systemAudioSupported, systemMediaSettingsUrl, systemMediaStep, type AppDesktopPorts, type AppWindowHandle } from '@solus/desktop-main/app-shortcuts/app-desktop'
 import { AppShortcutRecords } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
 import { shortcutProblem } from '@solus/desktop-main/app-shortcuts/app-permission-text'
 import { popoverPosition } from '@solus/desktop-main/app-shortcuts/window-bounds'
@@ -62,8 +62,9 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }))
 /**
  * `personLoginItem`: the person made a login item of Solus themselves (macOS).
  * `audio`: whether this system can give system audio, and whether macOS lets Solus record it.
+ * `floating`: whether a window can stay above others (not on native Wayland).
  */
-function harness(os: 'darwin' | 'win32' | 'linux' = 'darwin', { personLoginItem = false, audio = { supported: true, access: true } } = {}): Harness {
+function harness(os: 'darwin' | 'win32' | 'linux' = 'darwin', { personLoginItem = false, audio = { supported: true, access: true }, floating = true } = {}): Harness {
   const records = new AppShortcutRecords(join(dir, 'app-shortcuts.json'))
   const h: Omit<Harness, 'desktop'> = {
     records,
@@ -93,6 +94,7 @@ function harness(os: 'darwin' | 'win32' | 'linux' = 'darwin', { personLoginItem 
     },
     mediaAccess: async () => true,
     systemAudioSupported: audio.supported,
+    floatingSupported: floating,
     systemAudioAccess: async () => audio.access,
     globalShortcuts: {
       isRegistered: (accelerator) => h.held.has(accelerator) || h.takenByOthers.has(accelerator),
@@ -440,6 +442,19 @@ describe('the menu-bar page', () => {
     }
   })
 
+  // WHY: parity. Windows and Linux show no text beside a tray icon, so the title the app set is the first line of its menu there.
+  test('the title is in the menu bar on macOS, and the first line of the tray menu elsewhere', async () => {
+    for (const os of ['darwin', 'win32', 'linux'] as const) {
+      const h = harness(os)
+      h.answers.push(true)
+      await call(h, 'menu-bar-title', { text: '3 unread' })
+      expect(h.trays[0].title).toBe('3 unread')
+      const first = h.trays[0].menu[0]
+      if (os === 'darwin') expect(first.label).toBe('Open Notes')
+      else expect(first).toMatchObject({ label: '3 unread', enabled: false })
+    }
+  })
+
   test('the popover opens under an item at the top and above one at the bottom, inside the work area', () => {
     const area = { x: 0, y: 25, width: 1440, height: 875 }
     expect(popoverPosition(PAGE, { x: 1400, y: 0, width: 24, height: 24 }, area)).toEqual({ x: 1080, y: 28 })
@@ -490,6 +505,20 @@ describe('system audio', () => {
     expect(systemAudioSupported('linux', 0)).toBe(true)
     expect(systemAudioSupported('darwin', 22)).toBe(true)
     expect(systemAudioSupported('darwin', 21)).toBe(false)
+  })
+})
+
+describe('keep above other windows on Wayland', () => {
+  // WHY: the Wayland protocol gives a program no keep-on-top. An app must see "unavailable", not a grant that does nothing.
+  test('a native Wayland session shows it as unavailable and asks nothing', async () => {
+    const h = harness('linux', { floating: false })
+    expect(await call(h, 'permission', { name: 'floating' })).toEqual({ ok: true, value: 'unavailable' })
+    expect(await call(h, 'floating', { on: true })).toMatchObject({ ok: false, failure: { code: 'DesktopUnavailable' } })
+    expect(h.asked).toEqual([])
+    expect(isNativeWayland('linux', { WAYLAND_DISPLAY: 'wayland-0' }, '')).toBe(true)
+    expect(isNativeWayland('linux', { WAYLAND_DISPLAY: 'wayland-0' }, 'x11')).toBe(false)
+    expect(isNativeWayland('linux', { XDG_SESSION_TYPE: 'x11' }, '')).toBe(false)
+    expect(isNativeWayland('darwin', { WAYLAND_DISPLAY: 'wayland-0' }, '')).toBe(false)
   })
 })
 

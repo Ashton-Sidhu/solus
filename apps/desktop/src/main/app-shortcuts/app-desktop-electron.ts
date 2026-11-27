@@ -6,7 +6,7 @@ import { createLogger } from '@solus/server/logger'
 import { appDesktopPermissionSchema, desktopUnavailable, parseAppDesktopCall, type AppDesktopResult } from '@solus/contracts/app-desktop'
 import { isAppShortcutTarget, type AppShortcutTarget } from '@solus/contracts/app-shortcuts'
 import type { DesktopPlatform, LoginItemInstall } from '@solus/desktop-main/platform/desktop-platform'
-import { AppDesktop, requestedAppPermissions, systemAudioSupported, systemMediaSettingsUrl, systemMediaStep, type AppWindowHandle } from './app-desktop'
+import { AppDesktop, isNativeWayland, requestedAppPermissions, systemAudioSupported, systemMediaSettingsUrl, systemMediaStep, type AppWindowHandle } from './app-desktop'
 import { permissionDetail, permissionQuestion } from './app-permission-text'
 import type { AppShortcutRecords } from './app-shortcut-records'
 import { AppWindows, type AppWindowLifecycle, type AppWindowsOptions } from './app-windows'
@@ -209,6 +209,7 @@ function createAppDesktop(deps: AppDesktopElectronDeps): AppDesktopParts {
       return false
     },
     systemAudioSupported: systemAudioSupported(platform.id, Number(release().split('.')[0])),
+    floatingSupported: !isNativeWayland(platform.id, process.env, app.commandLine.getSwitchValue('ozone-platform')),
     async systemAudioAccess() {
       if (!isMac || systemPreferences.getMediaAccessStatus('screen') === 'granted') return true
       // macOS lists Solus under Screen & System Audio Recording only after it asked once.

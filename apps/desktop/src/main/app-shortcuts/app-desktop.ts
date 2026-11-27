@@ -62,6 +62,8 @@ export interface AppDesktopPorts {
   mediaAccess(permission: 'microphone' | 'camera'): Promise<boolean>
   /** This system can give an app what it plays (Windows, macOS 13 and later, Linux with PulseAudio or PipeWire). */
   systemAudioSupported: boolean
+  /** A window can stay above others: not in a native Wayland session, whose protocol gives a program no such state. */
+  floatingSupported: boolean
   /**
    * macOS: Solus may record the screen and system audio. When it may not, this
    * offers System Settings and answers false. True on Windows and Linux.
@@ -169,6 +171,16 @@ export function systemAudioSupported(os: DesktopOs, darwinMajor: number): boolea
   return os !== 'darwin' || darwinMajor >= 22
 }
 
+/**
+ * Whether this run draws its windows with Wayland itself. Electron then has
+ * no keep-on-top and no window position ("Not supported on Wayland" in its
+ * API). A run under XWayland (`--ozone-platform=x11`) has both.
+ */
+export function isNativeWayland(os: DesktopOs, env: { WAYLAND_DISPLAY?: string; XDG_SESSION_TYPE?: string; ELECTRON_OZONE_PLATFORM_HINT?: string }, ozonePlatform: string): boolean {
+  if (os !== 'linux' || ozonePlatform === 'x11' || env.ELECTRON_OZONE_PLATFORM_HINT === 'x11') return false
+  return Boolean(env.WAYLAND_DISPLAY) || env.XDG_SESSION_TYPE === 'wayland'
+}
+
 export function systemMediaStep(os: DesktopOs, status: SystemMediaStatus): 'allowed' | 'ask' | 'settings' {
   if (os === 'linux' || status === 'granted') return 'allowed'
   if (os === 'darwin') return status === 'not-determined' ? 'ask' : 'settings'
@@ -218,6 +230,7 @@ export class AppDesktop {
 
   permissionState(target: AppShortcutTarget, permission: AppDesktopPermission): AppDesktopPermissionState {
     if (permission === 'systemAudio' && !this.ports.systemAudioSupported) return 'unavailable'
+    if (permission === 'floating' && !this.ports.floatingSupported) return 'unavailable'
     return this.ports.records.grantOf(target, permission) ?? 'prompt'
   }
 
@@ -411,6 +424,7 @@ export class AppDesktop {
   }
 
   private async floating(running: RunningApp, isOn: boolean): Promise<null> {
+    if (!this.ports.floatingSupported) throw new DesktopFailure(desktopUnavailable())
     if (isOn) await this.ensure(running.target, 'floating')
     this.setFloating(running, isOn)
     return null
@@ -548,6 +562,7 @@ export class AppDesktop {
       shortcuts: [...new Set(running.shortcuts.values())],
       hasMenuBarItem: running.tray !== null,
       hasPopover: running.menuBarPage !== null,
+      menuBarTitle: running.menuBarTitle,
       showPopover: () => this.trayClicked(running),
       hasShortcut: this.ports.records.find(target) !== null,
       open: () => this.open(target),

@@ -17,6 +17,8 @@ export interface AppMenuModel {
   hasMenuBarItem: boolean
   /** The app has a menu-bar page: a click on its item opens it in a popover. */
   hasPopover: boolean
+  /** The text the page put in its item; null when it shows the app's name. */
+  menuBarTitle: string | null
   hasShortcut: boolean
   open(): void
   showPopover(): void
@@ -81,7 +83,10 @@ export function appWindowMenuTemplate(model: AppMenuModel): MenuItemConstructorO
  */
 export function appTrayMenuTemplate(model: AppMenuModel): MenuItemConstructorOptions[] {
   const popover: MenuItemConstructorOptions[] = model.hasPopover && model.os === 'linux' ? [{ label: `Show ${model.name} Popover`, click: model.showPopover }] : []
+  // Only macOS shows text beside the item; elsewhere the title is the tooltip, and the first line of the menu.
+  const title: MenuItemConstructorOptions[] = model.menuBarTitle && model.os !== 'darwin' ? [{ label: model.menuBarTitle, enabled: false }, { type: 'separator' }] : []
   return [
+    ...title,
     ...popover,
     { label: `Open ${model.name}`, click: model.open },
     { label: 'Reload', click: model.reload },
