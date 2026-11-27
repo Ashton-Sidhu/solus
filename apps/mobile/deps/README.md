@@ -20,4 +20,4 @@ Built from Julius's [`fork/t3-mobile` branch](https://github.com/pingdotgg/enric
 
 To replace it, commit the fork changes, run `yarn install --immutable` and `yarn workspace react-native-enriched-markdown prepare` in the fork checkout, then `node scripts/pack-t3.mjs /path/to/t3code/apps/mobile/deps`. Keep the package version aligned with Julius's `fork/t3-mobile` branch. Rename the archive to include the first eight characters of the source commit, such as `react-native-enriched-markdown-1.2.0-t3.18-4287c5d3.tgz`, so each build has a distinct dependency path without version bumps. Update the tarball path in `apps/mobile/package.json` and `pnpm-workspace.yaml`'s `allowBuilds`, and run `vp i` to update the lockfile.
 
-The Solus archive at `c027f2b2` uses the T3 source at `16db4c75`. Apply [the source commit](react-native-enriched-markdown-c027f2b2.patch) to that revision with `git am` before packing. The change skips the image-count table when the native singular label and default plural label cover every count.
+Solus uses the unmodified public T3 archive at `9a8bc858`.
