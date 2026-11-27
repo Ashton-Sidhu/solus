@@ -1,8 +1,9 @@
+import { setTimeout as delay } from 'node:timers/promises'
 import { resolve } from 'node:path'
 import { z } from 'zod'
 import type { NormalizedEvent, TodoItem } from '@solus/contracts/types'
 import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
-import type { AcpSessionUpdate, AcpToolCall, AcpToolCallContent } from './acp-protocol'
+import type { AcpStopReason, AcpSessionUpdate, AcpToolCall, AcpToolCallContent } from './acp-protocol'
 
 type JsonValue = AcpToolCall['rawInput']
 
@@ -40,6 +41,12 @@ export interface AcpChildCalls {
   note(toolCall: AcpToolCall): void
   /** The card a call belongs in; null for a call of the agent itself. */
   parentOf(toolCallId: string): string | null
+  /** The transcript can show a call before ACP gives it an id. */
+  toolIdOf?(toolCall: AcpToolCall): string
+  transcript?: {
+    poll(normalizer: AcpTurnNormalizer): Promise<NormalizedEvent[]>
+    drain(normalizer: AcpTurnNormalizer, signal: AbortSignal, emit: (event: NormalizedEvent) => void): Promise<void>
+  }
 }
 
 /** What one turn adds to the generic rules: plan mode's plan file, and the subagents' own calls. */
@@ -59,6 +66,7 @@ interface ToolState {
   diff: Extract<AcpToolCallContent, { type: 'diff' }> | null
   output: string
   done: boolean
+  transcriptOnly: boolean
 }
 
 const MAX_TOOL_NAME = 80
@@ -169,14 +177,8 @@ export class AcpTurnNormalizer implements TurnNormalizer<AcpSessionUpdate> {
         return events
       }
       case 'tool_call':
-      case 'tool_call_update': {
-        if (this.stepsTool && (this.stepsCalls.has(update.toolCallId) || this.stepsTool.isStepsCall(update))) return this.pushSteps(update, this.stepsTool)
-        const plan = this.pushPlan(update)
-        if (plan) return plan
-        this.hooks.childCalls?.note(update)
-        const started = this.startTool(update)
-        return [...this.closeThought(), ...started, ...this.updateTool(update, started.length > 0)]
-      }
+      case 'tool_call_update':
+        return this.pushTool(update)
       case 'plan':
         return [{ type: 'progress', todos: update.entries.map((entry) => ({ content: entry.content, status: entry.status })) }]
       case 'usage_update':
@@ -186,9 +188,56 @@ export class AcpTurnNormalizer implements TurnNormalizer<AcpSessionUpdate> {
     }
   }
 
+  private pushTool(update: AcpToolCall): NormalizedEvent[] {
+    if (this.stepsTool && (this.stepsCalls.has(update.toolCallId) || this.stepsTool.isStepsCall(update))) return this.pushSteps(update, this.stepsTool)
+    const plan = this.pushPlan(update)
+    if (plan) return plan
+    const children = this.hooks.childCalls
+    children?.note(update)
+    const toolCallId = children?.toolIdOf?.(update) ?? update.toolCallId
+    const call = toolCallId === update.toolCallId ? update : { ...update, toolCallId }
+    const existing = this.tools.get(toolCallId)
+    if (existing) existing.transcriptOnly = false
+    return [...this.closeThought(), ...this.projectToolCall(call, 'acp')]
+  }
+
+  /** A transcript-only child call uses the same tool name, input and result projection as ACP. */
+  projectToolCall(call: AcpToolCall, source: 'transcript' | 'acp' = 'transcript'): NormalizedEvent[] {
+    const start = this.startTool(call, source === 'transcript')
+    return [...start, ...this.updateTool(call, start.length > 0)]
+  }
+
+  /** The native transcript can change while ACP is waiting for its prompt to answer. */
+  async followChildTranscripts(
+    signal: AbortSignal,
+    work: () => Promise<AcpStopReason>,
+    emit: (event: NormalizedEvent) => void,
+  ): Promise<AcpStopReason> {
+    const children = this.hooks.childCalls?.transcript
+    if (!children) return work()
+    const stop = new AbortController()
+    const polling = (async () => {
+      const pollSignal = AbortSignal.any([stop.signal, signal])
+      while (!pollSignal.aborted) {
+        await delay(1_000, undefined, { signal: pollSignal }).catch(() => {})
+        if (pollSignal.aborted) break
+        for (const event of await children.poll(this)) emit(event)
+      }
+    })()
+    let reason: AcpStopReason
+    try {
+      reason = await work()
+    } finally {
+      stop.abort()
+      await polling
+    }
+    if (reason !== 'cancelled' && !signal.aborted) await children.drain(this, signal, emit)
+    return reason
+  }
+
   /** Whether a tool call of the turn has not ended yet. */
   get hasOpenTools(): boolean {
-    for (const tool of this.tools.values()) if (!tool.done) return true
+    for (const tool of this.tools.values()) if (!tool.done && !tool.transcriptOnly) return true
     return false
   }
 
@@ -247,7 +296,7 @@ export class AcpTurnNormalizer implements TurnNormalizer<AcpSessionUpdate> {
   }
 
   /** A `tool_call`, or the first update of a call the agent never announced. */
-  private startTool(toolCall: AcpToolCall): NormalizedEvent[] {
+  private startTool(toolCall: AcpToolCall, transcriptOnly = false): NormalizedEvent[] {
     if (this.tools.has(toolCall.toolCallId)) return []
     const tool: ToolState = {
       index: this.summary.toolCallCount,
@@ -259,6 +308,7 @@ export class AcpTurnNormalizer implements TurnNormalizer<AcpSessionUpdate> {
       diff: null,
       output: '',
       done: false,
+      transcriptOnly,
     }
     this.tools.set(toolCall.toolCallId, tool)
     this.summary.toolCallCount += 1

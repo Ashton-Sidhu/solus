@@ -7,6 +7,7 @@ import { join } from 'path'
 import { Options, query, type CanUseTool, type ModelInfo, type OnElicitation, type PermissionMode as SdkPermissionMode, type Query, type Settings } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAppCapture, type ClaudeMcpApp } from './claude-mcp-apps'
 import { CLAUDE_TURN_SETTING_SOURCES, claudeAutoFallsBack, claudeAutoModeRestriction } from './claude-auto-mode'
+import { ClaudeForkedSkills, claudeMessagesWithForkPoll } from './claude-forked-skills'
 import { ClaudeTurnNormalizer, isAbortSeamResult } from './claude-event-normalizer'
 import { resumeCompactionDialog } from './claude-resume-compaction'
 import { TurnInputChannel } from './claude-turn-input'
@@ -462,12 +463,14 @@ export class ClaudeAgent {
     // turn on the same query, and closing under it would fail its tool calls.
     let agentIdle = false
 
+    const configDirectory = claudeConfigDir(opts.seat)
+    const forks = new ClaudeForkedSkills(join(configDirectory, 'projects'), cwd, abortController.signal, opts.persistSession !== false, opts.seat?.user)
     const events = (async function* (): AsyncGenerator<NormalizedEvent> {
       try {
         const configuredBinary = opts.seat?.binaryPath
         const executable = configuredBinary && (configuredBinary !== 'claude' || opts.seat?.user)
           ? configuredBinary : await resolveClaudeExecutable()
-        const toolSearch = opts.bare ? undefined : await resolveClaudeToolSearchOverride(cwd, claudeConfigDir(opts.seat), claudeOptions.env)
+        const toolSearch = opts.bare ? undefined : await resolveClaudeToolSearchOverride(cwd, configDirectory, claudeOptions.env)
         abortController.signal.throwIfAborted()
         if (toolSearch) flagSettings = { ...flagSettings, env: { ENABLE_TOOL_SEARCH: toolSearch } }
         const cquery = query({
@@ -479,7 +482,11 @@ export class ClaudeAgent {
         const appCapture = opts.onMcpApp ? new ClaudeAppCapture(cquery, opts.onMcpApp) : null
 
         let startup: 'starting' | 'connecting' | 'done' = 'starting'
-        for await (const msg of cquery) {
+        for await (const msg of claudeMessagesWithForkPoll(cquery, forks)) {
+          if (!msg) {
+            for (const event of await forks.poll(state.sessionId)) yield event
+            continue
+          }
           if (startup !== 'done' && opts.reportStartupPhase) {
             if (requestingStatusSchema.safeParse(msg).success) {
               if (startup === 'starting') opts.reportStartupPhase('connecting')
@@ -501,7 +508,8 @@ export class ClaudeAgent {
 
           // The Stop hook runs before the turn's result, so a schedule it
           // reported counts before the result decides whether to close.
-          const normalized = [...schedules.takeChanges(), ...normalizer.push(msg)]
+          const fork = forks.isFollowing || msg.type === 'system' ? await forks.accept(msg, state.sessionId) : undefined
+          const normalized = [...schedules.takeChanges(), ...(fork?.events ?? []), ...(fork?.handled ? [] : normalizer.push(msg))]
           for (const evt of normalized) {
             if (evt.type === 'background_task_started') backgroundTasks.add(evt.taskId)
             else if (evt.type === 'background_task_settled') backgroundTasks.delete(evt.taskId)
@@ -557,6 +565,8 @@ export class ClaudeAgent {
           }
         }
 
+        for (const event of await forks.finish(state.sessionId, true)) yield event
+
         // A query can end without the result that reports the turn's spend.
         const unreported = normalizer.takeUnreportedUsage()
         if (unreported) yield unreported
@@ -569,6 +579,7 @@ export class ClaudeAgent {
           signal: null,
         })
       } catch (err: any) {
+        for (const event of await forks.finish(state.sessionId, true)) yield event
         // A stopped or failed turn never reaches its result; what its calls
         // already spent is still spent.
         const unreported = normalizer.takeUnreportedUsage()

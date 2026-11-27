@@ -131,13 +131,16 @@ export class TurnHistory {
   /** The turn's own prose, which is its result. */
   resultText = ''
 
-  constructor(prompt: string) {
+  constructor(prompt?: string) {
+    if (prompt === undefined) return
     this.messages.push({ role: 'user', content: prompt, timestamp: Date.now() })
   }
 
   record(event: NormalizedEvent): void {
     if (event.type === 'text_chunk') this.recordText(event)
-    else if (event.type === 'user_message') {
+    else if (event.type === 'assistant_message' && event.parentToolUseId) {
+      this.push({ role: 'assistant', content: event.text, parentToolUseId: event.parentToolUseId, timestamp: Date.now() })
+    } else if (event.type === 'user_message') {
       this.push({ role: 'user', content: event.text, sender: event.sender, timestamp: Date.now() })
     } else if (event.type === 'agent_conversation_update') this.recordExchange(event.update)
     else if (event.type === 'tool_call') this.recordToolCall(event)
@@ -220,6 +223,7 @@ export class TurnHistory {
     const row = toolId ? this.tools.get(toolId) : undefined
     if (!row) return
     if (event.type === 'tool_result') {
+      if (event.isAsyncLaunch && !event.isError) return
       row.content = event.content
       row.toolStatus = event.isError ? 'error' : 'completed'
       return

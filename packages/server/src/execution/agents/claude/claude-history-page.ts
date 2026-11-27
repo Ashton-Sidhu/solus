@@ -1,6 +1,7 @@
+import { withClaudeForkedSkills } from './claude-forked-skills'
 import { routeClaudeTaskReplies } from './claude-subagent-protocol'
 import { createReadStream } from 'node:fs'
-import { open } from 'node:fs/promises'
+import { open, type FileHandle } from 'node:fs/promises'
 import { createInterface } from 'node:readline'
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
@@ -21,6 +22,15 @@ const MAX_BLOCK_BYTES = 2 * 1024 * 1024
  *  does not return can make a line far larger than its row. */
 const TURN_READ_BYTES = 16 * 1024 * 1024
 
+async function cursorTimestamp(file: FileHandle, cursor: z.infer<typeof cursorSchema>, inode: string, size: number): Promise<number | undefined> {
+  const changed = () => new Error('Session history changed. Reopen the session to load earlier messages.')
+  if (cursor.inode !== inode || cursor.offset + cursor.anchorBytes > size) throw changed()
+  const anchor = Buffer.alloc(cursor.anchorBytes)
+  await file.read(anchor, 0, anchor.length, cursor.offset)
+  if (createHash('sha256').update(anchor).digest('hex') !== cursor.anchorHash) throw changed()
+  return claudeHistoryRows(anchor.toString('utf8'))[0]?.timestamp
+}
+
 /** Read backwards from a byte boundary, decoding only complete UTF-8 lines,
  * until `turnLimit` user turns are complete or the page is full at a turn
  * start; then the cursor is the line the page starts at. A turn past the hard
@@ -31,16 +41,7 @@ export async function loadClaudeHistoryPage(filePath: string, turnLimit: number,
   try {
     const stat = await file.stat()
     const cursor = before ? cursorSchema.parse(JSON.parse(before)) : null
-    if (cursor && (cursor.inode !== String(stat.ino) || cursor.offset + cursor.anchorBytes > stat.size)) {
-      throw new Error('Session history changed. Reopen the session to load earlier messages.')
-    }
-    if (cursor) {
-      const anchor = Buffer.alloc(cursor.anchorBytes)
-      await file.read(anchor, 0, anchor.length, cursor.offset)
-      if (createHash('sha256').update(anchor).digest('hex') !== cursor.anchorHash) {
-        throw new Error('Session history changed. Reopen the session to load earlier messages.')
-      }
-    }
+    const beforeTime = cursor ? await cursorTimestamp(file, cursor, String(stat.ino), stat.size) : undefined
     let position = cursor?.offset ?? stat.size
     let fragments: Buffer[] = []
     const messages: SessionLoadMessage[] = []
@@ -72,7 +73,7 @@ export async function loadClaudeHistoryPage(filePath: string, turnLimit: number,
         const pageEnds = rows.some(startsHistoryTurn) && (++turns >= turnLimit || historyPageIsFull(messages.length, bytes))
         if (pageEnds || historyPageMustCut(messages.length, bytes) || lineBytes >= TURN_READ_BYTES) {
           return {
-            messages: routeClaudeTaskReplies(messages.reverse()),
+            messages: withClaudeForkedSkills(filePath, routeClaudeTaskReplies(messages.reverse()), beforeTime),
             before: JSON.stringify({
               offset: start + index + 1, inode: String(stat.ino), anchorBytes: line.length,
               anchorHash: createHash('sha256').update(line).digest('hex'),
@@ -85,7 +86,7 @@ export async function loadClaudeHistoryPage(filePath: string, turnLimit: number,
     }
     const first = claudeHistoryRows(Buffer.concat(fragments.reverse()).toString('utf8'))
     for (const row of first.reverse()) messages.push(row)
-    return { messages: routeClaudeTaskReplies(messages.reverse()), before: null }
+    return { messages: withClaudeForkedSkills(filePath, routeClaudeTaskReplies(messages.reverse()), beforeTime), before: null }
   } finally {
     await file.close()
   }
@@ -99,11 +100,16 @@ export async function loadClaudeFirstTurn(filePath: string): Promise<SessionLoad
   const lines = createInterface({ input, crlfDelay: Infinity })
   const messages: SessionLoadMessage[] = []
   let turnStarted = false
+  let beforeTime: number | undefined
   try {
     for await (const line of lines) {
       const rows = claudeHistoryRows(line)
-      if (rows.some(startsHistoryTurn)) {
-        if (turnStarted) break
+      const prompt = rows.find(startsHistoryTurn)
+      if (prompt) {
+        if (turnStarted) {
+          beforeTime = prompt.timestamp
+          break
+        }
         turnStarted = true
       }
       for (const row of rows) messages.push(row)
@@ -112,5 +118,5 @@ export async function loadClaudeFirstTurn(filePath: string): Promise<SessionLoad
     lines.close()
     input.destroy()
   }
-  return routeClaudeTaskReplies(messages)
+  return withClaudeForkedSkills(filePath, routeClaudeTaskReplies(messages), beforeTime)
 }

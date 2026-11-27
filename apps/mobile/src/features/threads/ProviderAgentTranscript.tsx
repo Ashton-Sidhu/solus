@@ -15,7 +15,7 @@ import { mobileHost } from "../../state/mobile-host";
 import type { AgentId } from "@solus/contracts/types";
 import { remoteAgentChild } from "../../solus/agent-child-host";
 import { conversationFeed } from "../../solus/conversation-feed";
-import { useSessionController } from "../../solus/use-session-controller";
+import { useSessionStore } from "../../solus/use-session-controller";
 import { ReadOnlyThreadHistory } from "./LinkedThreadSheet";
 
 type Target = {
@@ -29,7 +29,8 @@ export function ProviderAgentTranscript({ route }: StaticScreenProps<Target>) {
   const gt = useGT();
   const target = route.params;
   const navigation = useNavigation();
-  const controller = useSessionController(target);
+  const store = useSessionStore(target);
+  const controller = store?.controller;
   const host = useAtomValue(mobileHost(target.environmentId));
   const scope = useAtomValue(hostQueryScopeAtom(target.environmentId));
   const source = controller?.historySource;
@@ -52,13 +53,15 @@ export function ProviderAgentTranscript({ route }: StaticScreenProps<Target>) {
         onClose={() => navigation.goBack()}
       />
       <ScreenContent>
-        {history && controller ? (
+        {history && store && controller ? (
           <Transcript
             key={JSON.stringify([scope, target.threadId, target.toolId])}
             history={history}
             sessionId={target.threadId}
             environmentId={target.environmentId}
             provider={controller.run.provider}
+            store={store}
+            toolId={target.toolId}
             readToolInput={readToolInput}
           />
         ) : (
@@ -78,21 +81,40 @@ function Transcript({
   environmentId,
   provider,
   readToolInput,
+  store,
+  toolId,
 }: {
   history: SubagentHistoryStore;
   sessionId: string;
   environmentId: EnvironmentId;
   provider: AgentId;
+  store: NonNullable<ReturnType<typeof useSessionStore>>;
+  toolId: string;
   readToolInput: (key: string) => Promise<string>;
 }) {
   const gt = useGT();
   const state = useSyncExternalStore(history.subscribe, history.read);
   const [older, setOlder] = useState(false);
+  // The parent already watches the host. Read the child from that same scoped
+  // transcript as it changes, with the saved pages as the history fallback.
+  const subscribe = useCallback((notify: () => void) => {
+    const stopOrder = store.order.subscribe(notify);
+    const stopItems = store.subscribeFeedItems(() => notify());
+    return () => {
+      stopOrder();
+      stopItems();
+    };
+  }, [store]);
+  const liveChild = useSyncExternalStore(subscribe, () => {
+    const row = store.controller.model.agentRows.find((item) => item.kind === "tool" && item.toolId === toolId);
+    const item = row && store.item(row.id);
+    return item?.kind === "tool" && item.children && !older && !state.page.before ? item : undefined;
+  });
   useEffect(() => {
     void history.load();
   }, [history]);
   const feed = useMemo(() => {
-    const model = TranscriptModel.fromHistory(sessionId, state.page);
+    const model = liveChild?.children ?? TranscriptModel.fromHistory(sessionId, state.page);
     return conversationFeed(
       { item: (key) => model.items.get(key), subscribeFeedItems: () => () => {} },
       sessionId,
@@ -103,7 +125,7 @@ function Transcript({
       readToolInput,
       { provider, child: remoteAgentChild(environmentId) },
     )(model.order).get();
-  }, [sessionId, state.page, readToolInput, provider, environmentId]);
+  }, [sessionId, state.page, readToolInput, provider, environmentId, liveChild]);
   const load = (earlier: boolean) => {
     setOlder(earlier);
     return history.load(earlier);
@@ -114,11 +136,11 @@ function Transcript({
         label={gt("host")}
         view={{
           feed,
-          ready: state.phase === "ready" || state.page.messages.length > 0,
+          ready: !!liveChild || state.phase === "ready" || state.page.messages.length > 0,
           paging: state.phase === "loading",
           hasOlder: !!state.page.before,
           historyFailed: older && state.phase === "error",
-          error: older ? null : state.error ?? null,
+          error: older || liveChild ? null : state.error ?? null,
           retry: () => load(older),
           loadEarlier: () => load(true),
         }}

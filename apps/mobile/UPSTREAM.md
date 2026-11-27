@@ -551,3 +551,5 @@ A paste with 100 or more line breaks becomes a pasted-text attachment, also when
   and source labels from T3 Code #43162. The scoped Solus host query checks the
   selected checkout and provider settings. The existing system notice row shows
   a fallback reported by the Solus host.
+
+The Solus provider-agent transcript uses child activity from the parent conversation watch while it is available. It keeps the existing saved transcript loader and T3 read-only history view.
