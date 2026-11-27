@@ -4,6 +4,7 @@ import { LegendList } from "@legendapp/list/react-native";
 import type { ProjectEntry } from "@t3tools/contracts";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { SymbolView } from "../../components/ui/AppSymbol";
+import { Menu } from "../../components/ui/Menu";
 import { T, useGT } from "gt-react-native";
 import { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, View } from "react-native";
@@ -12,6 +13,7 @@ import { RefreshControl } from "../../components/ui/RefreshControl";
 import { AppText as Text } from "../../components/ui/AppText";
 import { PierreEntryIcon } from "../../components/PierreEntryIcon";
 import { cn } from "../../lib/cn";
+import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { useContentBottomInset, useContentTopInset } from "../../components/ui/useBarInset";
 import {
   buildFileTree,
@@ -19,6 +21,7 @@ import {
   type FileTreeNode,
   type VisibleFileTreeNode,
 } from "./fileTree";
+import { resolveWorkspaceFilePath } from "./filePath";
 
 const fileTreeCache = new WeakMap<ReadonlyArray<ProjectEntry>, ReadonlyArray<FileTreeNode>>();
 const OPTIMISTIC_SELECTION_TIMEOUT_MS = 1_000;
@@ -35,6 +38,7 @@ function cachedFileTree(entries: ReadonlyArray<ProjectEntry>): ReadonlyArray<Fil
 
 const FileTreeRow = function FileTreeRow(props: {
   readonly item: VisibleFileTreeNode;
+  readonly cwd: string;
   readonly selected: boolean;
   readonly expanded: boolean;
   readonly loading: boolean;
@@ -45,7 +49,7 @@ const FileTreeRow = function FileTreeRow(props: {
   const { node, depth } = props.item;
   const gt = useGT();
 
-  return (
+  const row = (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={node.path}
@@ -100,9 +104,23 @@ const FileTreeRow = function FileTreeRow(props: {
       ) : null}
     </Pressable>
   );
+  return (
+    <Menu
+      shouldOpenOnLongPress
+      actions={[{ id: "copy-path", title: gt("Copy path"), image: "doc.on.doc" }]}
+      onPressAction={({ nativeEvent }) => {
+        if (nativeEvent.event === "copy-path") {
+          copyTextWithHaptic(resolveWorkspaceFilePath(props.cwd, node.path));
+        }
+      }}
+    >
+      {row}
+    </Menu>
+  );
 };
 
 export function FileTreeBrowser(props: {
+  readonly cwd: string;
   readonly revealSelection: (path: string | null) => void;
   readonly expandedPaths: ReadonlySet<string>;
   readonly setExpandedPaths: (
@@ -206,6 +224,7 @@ export function FileTreeBrowser(props: {
   };
   const renderItem = ({ item }: { readonly item: VisibleFileTreeNode }) => (
     <FileTreeRow
+      cwd={props.cwd}
       item={item}
       selected={item.node.kind === "file" && item.node.path === selectedPath}
       expanded={expandedPaths.has(item.node.path)}

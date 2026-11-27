@@ -66,14 +66,13 @@ interface ActiveToast {
 
 type ToastOptions = Omit<ToastSpec, "message" | "variant">
 
-/** Write text to the clipboard, falling back to a detached textarea where the
- *  async API is unavailable or denied. Exported because every surface that
- *  offers a "copy this" affordance needs the same fallback. */
-export async function copyText(text: string): Promise<void> {
+/** Write plain text to the clipboard. Use a temporary textarea when the
+ *  async API is unavailable, such as on a web client served over HTTP. */
+export async function copyText(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text)
-      return
+      return true
     }
 
     const textarea = document.createElement("textarea")
@@ -81,11 +80,14 @@ export async function copyText(text: string): Promise<void> {
     textarea.style.position = "fixed"
     textarea.style.opacity = "0"
     document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand("copy")
-    textarea.remove()
+    try {
+      textarea.select()
+      return document.execCommand("copy")
+    } finally {
+      textarea.remove()
+    }
   } catch {
-    // Clipboard access can be denied by the browser or OS.
+    return false
   }
 }
 

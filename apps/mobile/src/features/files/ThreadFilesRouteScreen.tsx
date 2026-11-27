@@ -527,6 +527,7 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
       <ScreenContent>
         <FileTreeBrowser
           key={JSON.stringify([environmentId, cwd])}
+          cwd={cwd}
           revealSelection={entriesQuery.revealSelection}
           expandedPaths={entriesQuery.expandedPaths}
           setExpandedPaths={entriesQuery.setExpandedPaths}
@@ -927,6 +928,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
         <ScreenContent>
           <FileTreeBrowser
             key={JSON.stringify([environmentId, directoryPath])}
+            cwd={directoryPath}
             revealSelection={entriesQuery.revealSelection}
             expandedPaths={entriesQuery.expandedPaths}
             setExpandedPaths={entriesQuery.setExpandedPaths}

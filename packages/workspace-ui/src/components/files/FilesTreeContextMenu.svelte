@@ -1,10 +1,13 @@
 <script lang="ts">
   import {
+    Copy as CopyIcon,
     FilePlus as FilePlusIcon,
     FolderPlus as FolderPlusIcon,
     Pen as PencilSimpleIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
+  import { requestInputFocus } from "../../lib/inputFocus";
+  import { copyText, toasts } from "../../lib/toasts";
   import * as ContextMenu from "../ui/context-menu";
   import FileOpenMenuItems from "./FileOpenMenuItems.svelte";
   import type { FileOpenAction, FileOpenRoute } from "./lib/file-open-actions";
@@ -17,6 +20,7 @@
     name: string;
     openRoute: FileOpenRoute | null;
     absolutePath: string | null;
+    copyPath: string | null;
     isFolder: boolean;
     onOpen: (action: FileOpenAction) => void;
     canWrite: boolean;
@@ -26,11 +30,21 @@
     onClose: () => void;
   }
 
-  let { x, y, name, openRoute, absolutePath, isFolder, onOpen, canWrite, onCreate, onRename, onDelete, onClose }: Props = $props();
+  let { x, y, name, openRoute, absolutePath, copyPath, isFolder, onOpen, canWrite, onCreate, onRename, onDelete, onClose }: Props = $props();
 
   function select(action: () => void) {
     action();
     onClose();
+  }
+
+  async function copyPathToClipboard() {
+    if (!copyPath) return;
+    const write = copyText(copyPath);
+    onClose();
+    requestInputFocus();
+    const copied = await write;
+    if (copied) toasts.success("Path copied");
+    else toasts.error("Could not copy path");
   }
 </script>
 
@@ -46,8 +60,14 @@
     {#if openRoute && absolutePath}
       <FileOpenMenuItems route={openRoute} path={absolutePath} {isFolder} onSelect={(action) => select(() => onOpen(action))} />
     {/if}
+    {#if copyPath}
+      <ContextMenu.Item onSelect={copyPathToClipboard}>
+        <CopyIcon />
+        Copy path
+      </ContextMenu.Item>
+    {/if}
     {#if canWrite}
-      {#if openRoute && absolutePath}<ContextMenu.Separator />{/if}
+      {#if copyPath || (openRoute && absolutePath)}<ContextMenu.Separator />{/if}
       <ContextMenu.Item onSelect={() => select(() => onCreate("file"))}>
         <FilePlusIcon />
         New file

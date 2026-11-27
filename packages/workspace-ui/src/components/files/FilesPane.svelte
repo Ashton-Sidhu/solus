@@ -1,5 +1,6 @@
 <script lang="ts">
   import { FILE_TREE_ICONS } from "@solus/client-core/file-icons";
+  import { joinHostPath } from "@solus/contracts/host-path";
   import { onMount, tick, untrack, type Snippet } from "svelte";
   import {
     FileTree,
@@ -645,6 +646,7 @@
     // filesystem target, so do not let an unrelated context update reload the
     // tree. A different host or directory still starts a fresh load.
     untrack(() => {
+      closeContextMenu();
       root = "";
       selectedPath = null;
       selectedContents = null;
@@ -956,13 +958,15 @@
 {#if contextMenu}
   {@const target = contextMenu}
   {@const absolutePath = openRoute && fileOpenPath(openRoute, root || cwd, target.path, target.isFolder)}
-  {#if canWriteFiles || absolutePath}
+  {@const copyPath = root ? joinHostPath(root, target.isFolder ? target.path.slice(0, -1) : target.path) : null}
+  {#if canWriteFiles || absolutePath || copyPath}
     <FilesTreeContextMenu
       x={target.x}
       y={target.y}
       name={entryDisplayName(target.path)}
       {openRoute}
       {absolutePath}
+      {copyPath}
       isFolder={target.isFolder}
       canWrite={canWriteFiles}
       onOpen={(action) => void openFileAction(action, {
