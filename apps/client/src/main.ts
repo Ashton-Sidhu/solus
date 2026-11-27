@@ -15,7 +15,8 @@ import { getActiveServerId, setActiveServerId } from '@solus/client-core/known-h
 import { hostCatalog } from '@solus/client-core/host-catalog'
 import { hostListSourceFor } from '@solus/client-core/host-list-source'
 import { accountDocumentCall, webAccountDocumentSend, type AccountDocumentCall } from '@solus/client-core/account-documents'
-import { cloudAccount, configureCloudAccount, webCloudAccount } from '@solus/client-core/cloud-account'
+import { cloudAccount, configureCloudAccount, startupAccountRead, webCloudAccount } from '@solus/client-core/cloud-account'
+import { skipsOnboarding } from '@solus/workspace-ui/components/onboarding/lib/skip-onboarding'
 import { appPairLink, pairServer } from '@solus/client-core/pairing'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { adoptAccountOrigin } from '@solus/client-core/uplink-account'
@@ -188,6 +189,10 @@ async function connectToServer(serverId: string, intent?: BootIntent): Promise<v
     pendingNotificationRoute = null
   }
 
+  await mountWorkspace(generation)
+}
+
+async function mountWorkspace(generation: number): Promise<void> {
   try {
     // Pairing and reconnect plumbing live in the small entry chunk; the
     // multi-megabyte shared workspace graph loads lazily behind it.
@@ -331,6 +336,12 @@ async function bootFromCatalog(intent?: BootIntent): Promise<void> {
     const [{ default: AccountSettings }] = await Promise.all([import('./routes/AccountSettings.svelte'), pageStyled])
     removeBootSplash()
     mount(AccountSettings, { target: root, props: { page: intent.hostlessPage } })
+  } else if (webSession && !intent?.opensResource && !skipsOnboarding(location.search, window)
+    && (await startupAccountRead())?.onboardingCompletedAt === null) {
+    // Onboarding can create or link the first machine. It needs the workspace
+    // context but does not need a host connection to open.
+    installServiceWorkerMessageBridge()
+    await mountWorkspace(++connectionGeneration)
   } else bootHostlessHome()
 }
 

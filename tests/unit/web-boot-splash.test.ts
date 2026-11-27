@@ -128,7 +128,7 @@ describe('every web surface waits for the stylesheet and takes the place of the 
   const source = ts.createSourceFile(path, read(path), ts.ScriptTarget.Latest, true)
   const transpiler = new Bun.Transpiler({ loader: 'ts' })
   // The surfaces' boot functions and the splash's own; the loaders and the rest are fakes.
-  const names = new Set(['removeBootSplash', 'revealPage', 'connectToServer', 'bootHostlessHome', 'offerAppOrPair', 'bootGuest', 'startPage'])
+  const names = new Set(['removeBootSplash', 'revealPage', 'connectToServer', 'mountWorkspace', 'bootHostlessHome', 'offerAppOrPair', 'bootGuest', 'startPage'])
   const declarations = source.statements.flatMap((statement) => ts.isFunctionDeclaration(statement) && names.has(statement.name?.text ?? '') ? [statement] : [])
   if (declarations.length !== names.size) throw new Error(`main.ts must declare ${[...names].join(', ')}`)
   const functions = declarations.map((statement) => transpiler.transformSync(statement.getText(source))).join('\n').replaceAll('import(', 'loadModule(')
@@ -186,6 +186,7 @@ describe('every web surface waits for the stylesheet and takes the place of the 
 
   const surfaces = {
     workspace: { start: "connectToServer('saved-host')", surface: 'App' },
+    'first-run Cloud workspace with no host': { start: 'mountWorkspace(++connectionGeneration)', surface: 'App' },
     'page with no host': { start: 'bootHostlessHome()', surface: 'HostlessHome' },
     'pairing on a phone': { start: "offerAppOrPair('pair-token')", surface: 'PairInApp' },
     'guest landing of a share link': { start: "bootGuest({}, { kind: 'failed', reason: 'gone' }, null)", surface: 'GuestLanding' },

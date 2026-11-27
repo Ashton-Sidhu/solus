@@ -6,6 +6,8 @@ import { HostCatalog } from '@solus/client-core/host-catalog'
 import { credentialFor, fakeList, listingFor, memoryCredentials } from './helpers/host-catalog-world'
 import { DEFAULT_HOST_RULES, type AccountResponse, type DirectoryResponse } from '@solus/contracts/uplink'
 import { WebTokenSession } from '@solus/client-core/web-token-session'
+import { skipsOnboarding } from '@solus/workspace-ui/components/onboarding/lib/skip-onboarding'
+import { accountSettingsDestination } from '@solus/contracts/account-web'
 
 // The web client's start on the account origin (docs/plans/fast-secure-startup.md). The
 // account origin's shell names itself and who is signed in, so no request is spent to
@@ -210,6 +212,46 @@ test('hosts become available while the onboarding account read is still pending'
   }
 })
 
+const compiledCatalog = new Bun.Transpiler({ loader: 'ts' }).transformSync(
+  source.slice(end, source.indexOf('\n}\n', end) + 3),
+)
+
+test.each([
+  { name: 'opens the workspace for first-run onboarding', status: null, search: '', opensResource: false, destination: 'workspace' },
+  { name: 'offers pairing when onboarding is complete', status: 1, search: '', opensResource: false, destination: 'pairing' },
+  { name: 'offers pairing when the URL skips onboarding', status: null, search: '?skip-onboarding', opensResource: false, destination: 'pairing' },
+  { name: 'leaves resource links on their own path', status: null, search: '', opensResource: true, destination: 'pairing' },
+])('a hostless Cloud page $name', async ({ status, search, opensResource, destination }) => {
+  const mounts: string[] = []
+  const dependencies = {
+    webState: {},
+    hostCatalog: { load: async () => {}, useListSource: async () => {} },
+    adoptCloudDirectory: async () => {},
+    loadWorkspaceApp: async () => {},
+    accountShell: {},
+    webAccountDocuments: () => null,
+    hostListSourceFor: () => null,
+    localStorage: {},
+    getActiveServerId: () => null,
+    serverConnections: { catalogServerIds: () => [] },
+    webSession: {},
+    startupAccountRead: () => Promise.resolve({ onboardingCompletedAt: status }),
+    skipsOnboarding,
+    location: { search },
+    window: {},
+    installServiceWorkerMessageBridge: () => {},
+    mountWorkspace: async () => { mounts.push('workspace') },
+    bootHostlessHome: () => { mounts.push('pairing') },
+  }
+  const run = new Function('intent', ...Object.keys(dependencies), `
+    let connectionGeneration = 0;
+    ${compiledCatalog}
+    return bootFromCatalog(intent);
+  `)
+  await run({ opensResource }, ...Object.values(dependencies))
+  expect(mounts).toEqual([destination])
+})
+
 // Exercise the real cached loader without importing the full Svelte workspace.
 const loaderStart = source.indexOf('function loadWorkspaceApp(')
 const loaderEnd = source.indexOf('function installServiceWorkerMessageBridge(', loaderStart)
@@ -257,10 +299,10 @@ function startPageAt(pathname: string, hash = '') {
   const webSession = { start: mock((_hostIds: string[]) => { order.push('token request') }) }
   const bootFromCatalog = mock(() => { order.push('boot'); return Promise.resolve() })
   const openShareLink = mock(() => Promise.resolve())
-  const run = new Function('webSession', 'dialableHostIds', 'pairTokenFromLocation', 'offerAppOrPair', 'location', 'parseCloudShareLink',
+  const run = new Function('accountSettingsDestination', 'webSession', 'dialableHostIds', 'pairTokenFromLocation', 'offerAppOrPair', 'location', 'parseCloudShareLink',
     'openShareLink', 'bootFromCatalog', 'addressedBootIntent', 'guestBoot', 'mount', 'root',
     `${compiledStartPage}\nreturn startPage();`)
-  void run(webSession, () => ['host-1'], () => null, () => {}, { href: `https://app.example${pathname}${hash}`, pathname, hash },
+  void run(accountSettingsDestination, webSession, () => ['host-1'], () => null, () => {}, { href: `https://app.example${pathname}${hash}`, pathname, hash },
     (path: string) => (path.startsWith('/t/') ? { secret: 's' } : null), openShareLink, bootFromCatalog, () => undefined,
     { fail() {} }, () => {}, null)
   return { webSession, bootFromCatalog, openShareLink, order }
