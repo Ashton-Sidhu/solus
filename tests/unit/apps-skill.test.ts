@@ -203,6 +203,43 @@ describe('the names the project\'s module posts', () => {
       host.desktop = false
     }
   })
+
+  test('system audio readies the capture, keeps only its audio, and names a block on macOS', async () => {
+    // WHY: getDisplayMedia gives a video track too; an app asked for audio only. A macOS block must be an error the app can tell apart.
+    // SAFETY: the module's host and the media devices are this test's own objects.
+    const host = (globalThis as unknown as { window: { solusApp: { desktop?: boolean; call: (name: string, args: object) => Promise<unknown> } } }).window.solusApp
+    const stopped: string[] = []
+    const track = (kind: string) => ({ kind, stop: () => { stopped.push(kind) } })
+    const tracks = [track('audio'), track('video')]
+    const stream = {
+      getVideoTracks: () => tracks.filter((entry) => entry.kind === 'video'),
+      getAudioTracks: () => tracks.filter((entry) => entry.kind === 'audio'),
+      removeTrack: (removed: { kind: string }) => { tracks.splice(tracks.indexOf(removed as never), 1) },
+    }
+    const navigatorHost = globalThis as unknown as { navigator: { mediaDevices?: { getDisplayMedia(options: object): Promise<unknown> } } }
+    const devices = navigatorHost.navigator.mediaDevices
+    navigatorHost.navigator.mediaDevices = { getDisplayMedia: async () => stream }
+    sent.length = 0
+    host.desktop = true
+    let isBlocked = false
+    host.call = async (name, args) => {
+      sent.push({ name, args })
+      if (isBlocked) throw Object.assign(new Error('Blocked.'), { name: 'SystemAudioBlocked', failure: { code: 'SystemAudioBlocked', message: 'Blocked.' } })
+      return null
+    }
+    try {
+      const captured = await app.desktop.audio.system()
+      expect(captured.getAudioTracks()).toHaveLength(1)
+      expect(captured.getVideoTracks()).toHaveLength(0)
+      expect(stopped).toEqual(['video'])
+      expect(sent.map((call) => parseAppCallName(call.name))).toEqual([{ kind: 'desktop', operation: 'system-audio' }])
+      isBlocked = true
+      await expect(app.desktop.audio.system()).rejects.toBeInstanceOf(app.SystemAudioBlocked)
+    } finally {
+      host.desktop = false
+      navigatorHost.navigator.mediaDevices = devices
+    }
+  })
 })
 
 describe('the create-app skill and the project template', () => {

@@ -302,7 +302,7 @@ export function useModelCall(id: string | null): { call: ModelCall | null; error
 // other call rejects with `DesktopUnavailable`, and a listener does nothing.
 
 /** A capability the person allows or refuses for this app, once, on this computer. */
-export type DesktopPermission = 'menuBar' | 'shortcuts' | 'floating' | 'startAtLogin' | 'microphone' | 'camera' | 'clipboardRead' | 'notifications'
+export type DesktopPermission = 'menuBar' | 'shortcuts' | 'floating' | 'startAtLogin' | 'microphone' | 'camera' | 'systemAudio' | 'clipboardRead' | 'notifications'
 /** `prompt`: the person has not answered, and the next call asks. */
 export type DesktopPermissionState = 'granted' | 'denied' | 'prompt' | 'unavailable'
 
@@ -334,13 +334,25 @@ export class DesktopInvalidInput extends Error {
     this.name = 'DesktopInvalidInput'
   }
 }
-export type DesktopError = DesktopUnavailable | DesktopPermissionDenied | ShortcutTaken | DesktopInvalidInput
+/**
+ * macOS has not allowed Solus to record system audio. The desktop app offered
+ * System Settings; the person turns on Solus under Privacy & Security > Screen
+ * & System Audio Recording, reopens Solus, and tries again.
+ */
+export class SystemAudioBlocked extends Error {
+  constructor(message = 'macOS has not allowed Solus to record system audio.') {
+    super(message)
+    this.name = 'SystemAudioBlocked'
+  }
+}
+export type DesktopError = DesktopUnavailable | DesktopPermissionDenied | ShortcutTaken | DesktopInvalidInput | SystemAudioBlocked
 
 type DesktopFailure =
   | { code: 'DesktopUnavailable'; message: string }
   | { code: 'DesktopPermissionDenied'; message: string; permission: DesktopPermission }
   | { code: 'ShortcutTaken'; message: string; accelerator: string }
   | { code: 'DesktopInvalidInput'; message: string }
+  | { code: 'SystemAudioBlocked'; message: string }
 
 function desktopError(reason: unknown): unknown {
   const failure = reason instanceof Error ? (reason as Error & { failure?: DesktopFailure }).failure : undefined
@@ -349,6 +361,7 @@ function desktopError(reason: unknown): unknown {
     case 'DesktopPermissionDenied': return new DesktopPermissionDenied(failure.message, failure.permission)
     case 'ShortcutTaken': return new ShortcutTaken(failure.message, failure.accelerator)
     case 'DesktopInvalidInput': return new DesktopInvalidInput(failure.message)
+    case 'SystemAudioBlocked': return new SystemAudioBlocked(failure.message)
     default: return reason
   }
 }
@@ -433,6 +446,31 @@ export const desktop = {
     /** The text on the clipboard. Needs `clipboardRead`. */
     readText: (): Promise<string> => desktopCall('clipboard-read'),
   },
+  audio: {
+    /**
+     * Everything this computer plays, such as the other people in a call, as
+     * an audio-only `MediaStream`. Call it from a click or a key press. Needs
+     * `systemAudio`, asked the first time; the first call after the question
+     * can need a second click. Rejects with `SystemAudioBlocked` when macOS has
+     * not allowed Solus to record it, and with `DesktopUnavailable` where this
+     * computer cannot give it (macOS before 13, or Linux with no PulseAudio or
+     * PipeWire sound server). Stop its tracks when you are done.
+     */
+    system: async (): Promise<MediaStream> => {
+      await desktopCall('system-audio')
+      const stream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true }).catch(async (reason: unknown) => {
+        // The grant or the system's access may have changed since: the desktop app says which.
+        await desktopCall('system-audio')
+        throw reason
+      })
+      for (const track of stream.getVideoTracks()) {
+        track.stop()
+        stream.removeTrack(track)
+      }
+      if (stream.getAudioTracks().length === 0) throw new DesktopUnavailable('This computer gave no system audio.')
+      return stream
+    },
+  },
 }
 
 /** Holds a global shortcut while the component is mounted. Gives why the latest registration failed, or null. */
@@ -477,6 +515,37 @@ export function useDesktopBadge(count: number | null): DesktopError | null {
   }, [count])
   useEffect(() => () => { if (desktop.available) void desktop.badge.set(null).catch(() => undefined) }, [])
   return failure?.count === count ? failure.error : null
+}
+
+/**
+ * A capture of system audio that `start` begins (from a click) and `stop`
+ * ends; it stops when the component unmounts. Gives the stream while it
+ * runs, and why the latest start failed, or null.
+ */
+export function useSystemAudio(): { stream: MediaStream | null; error: DesktopError | Error | null; start(): Promise<void>; stop(): void } {
+  const [stream, setStream] = useState<MediaStream | null>(null)
+  const [error, setError] = useState<DesktopError | Error | null>(null)
+  const current = useRef<MediaStream | null>(null)
+  const stop = useCallback(() => {
+    for (const track of current.current?.getTracks() ?? []) track.stop()
+    current.current = null
+    setStream(null)
+  }, [])
+  const start = useCallback(async () => {
+    stop()
+    try {
+      const next = await desktop.audio.system()
+      current.current = next
+      setStream(next)
+      setError(null)
+      // The person or the system can end the capture: the stream then has no live track.
+      for (const track of next.getAudioTracks()) track.addEventListener('ended', () => { if (current.current === next) stop() })
+    } catch (reason) {
+      setError(reason instanceof Error ? reason : new Error(String(reason)))
+    }
+  }, [stop])
+  useEffect(() => stop, [stop])
+  return { stream, error, start, stop }
 }
 
 /** The person's answer for one capability, read again each time the window gains focus. Undefined until it is read. */

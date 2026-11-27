@@ -4,7 +4,7 @@
 
 `preview_app` builds the project folder on the host, opens the UI in a window 800px tall, at the width you ask for (1100px by default), answers its calls, and takes a picture of the window. `route` opens one page. Nothing is saved or deployed, and it needs no approval.
 
-- A build error comes back with the end of the build log: a type error, an import that does not resolve, a native add-on, or an `icon.svg` that is not a plain SVG (the error says what to remove). Fix it and preview again.
+- A build error comes back with the end of the build log: a type error, an import that does not resolve, a native add-on, an `icon.svg` that is not a plain SVG (the error says what to remove), or a `menubar.html` without its `src/menubar.tsx` (or the other way). Fix it and preview again.
 - Operations run for real, against a new, empty database with the project's migrations. So the first picture shows the state of a first open. Sample rows that a migration adds are there; the user's own data is not. To see the app with real data, deploy; from your next turn each operation is a tool you can call.
 - A preview is a picture of one route. It does not click or type. Give each state that matters a route (a page, a tab, an open detail view) so that you can check it, and say which behavior you did not check.
 - A secret is not set in a preview, an integration is not called, a workflow does not start, and there is no app file. Design those states from the known shapes, and say that the live view was not checked.
