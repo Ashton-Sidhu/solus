@@ -1,3 +1,4 @@
+import { activityFor } from '../../data/activity/activity'
 import { createLogger } from '../../logger'
 import { linkSessionOutput } from '../../data/tasks/task-attachments'
 import { saveAsyncQuestion } from '../../data/sessions/async-questions'
@@ -40,7 +41,25 @@ export class ProviderEvents {
   /** Provider threads whose start this process has indexed, with the model and effort it recorded. */
   private indexedThreadStarts = new Map<string, string>()
 
+  private recordingAutoFallbacks = new Set<string>()
+
   constructor(private readonly rt: SessionRuntime) {}
+
+  private async recordAutoFallback(sessionId: string, providerSessionId: string, fallback: NonNullable<Extract<NormalizedEvent, { type: 'session_init' }>['claudeAutoFallback']>): Promise<void> {
+    if (this.recordingAutoFallbacks.has(providerSessionId)) return
+    this.recordingAutoFallbacks.add(providerSessionId)
+    const subject = { kind: 'session', id: sessionId } as const
+    const at = Date.now()
+    try {
+      const history = await activityFor(ANY_ORGANIZATION, subject, { kind: 'claude_auto_fallback' })
+      if (history.some((activity) => activity.kind === 'claude_auto_fallback' && activity.providerSessionId === providerSessionId)) return
+      await this.rt.recordActivity(subject, null, { kind: 'claude_auto_fallback', providerSessionId, ...fallback }, at)
+    } catch (error) {
+      log.warn('claude_auto_fallback_notice_failed', { sessionId, error: String(error) })
+    } finally {
+      this.recordingAutoFallbacks.delete(providerSessionId)
+    }
+  }
 
   /** Settle a session that waits in 'background' with no query open (Codex,
    *  or a session that waits on reports) once nothing is left running, no
@@ -305,6 +324,9 @@ export class ProviderEvents {
           // Created directly as running — applyStatus never sees a transition,
           // so the global feed needs its own emit.
           this.rt.emit('session-status', { sessionId: initSessionId, agentSessionId: event.sessionId, status: 'running', at: Date.now() })
+        }
+        if (backend.id === 'claude-code' && event.claudeAutoFallback) {
+          void this.recordAutoFallback(initSessionId, event.sessionId, event.claudeAutoFallback)
         }
         const goalObjective = initializedRun?.options.goalObjective
         if (backend.id === 'claude-code' && goalObjective) {

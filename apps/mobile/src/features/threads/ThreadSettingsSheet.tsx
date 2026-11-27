@@ -81,6 +81,8 @@ import {
 } from "../../state/use-model-option-memory";
 import { ChatGptSharingStatus } from "./ChatGptSharingStatus";
 import { environmentCatalog } from "../../connection/catalog";
+import type { ClaudeAutoModeTarget } from "@solus/contracts/claude-auto-mode";
+import { claudeAutoModeQuery } from "../../solus/claude-auto-mode-query";
 import { useEnvironmentQuery } from "../../state/query";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { useThreadReportedModelSelection } from "../../state/entities";
@@ -112,6 +114,7 @@ import { ModelRow, ChoiceRow } from "./ThreadSettingsRows";
 import {
   compatibleRuntimeModeForChoices,
   runtimeModeChoicesForSupportedModes,
+  withClaudeAutoRestriction,
   withManagedRuntimeModeLimits,
   type RuntimeModeChoice,
   selectableChoices,
@@ -300,6 +303,7 @@ type ThreadSettingsSessionProps = {
   readonly environmentId: EnvironmentId | null;
   readonly projectId: ProjectId | null;
   readonly cwd: string | null;
+  readonly claudeAutoModeTarget?: ClaudeAutoModeTarget;
   readonly providerInstanceId?: ProviderInstanceId;
   readonly lockedProviderInstanceId?: ProviderInstanceId;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
@@ -585,18 +589,32 @@ function ThreadSettingsSessionProvider(
     pendingModel ??
     props.providerGroups.flatMap((group) => group.models).find((option) => isApplied(option)) ??
     null;
+  const claudeAutoRestriction = useEnvironmentQuery(
+    props.claudeAutoModeTarget && props.environmentId &&
+    (displayedModel?.providerDriver ?? props.providerInstanceId) === "claudeAgent"
+      ? claudeAutoModeQuery({
+          environmentId: props.environmentId,
+          input: props.claudeAutoModeTarget,
+        })
+      : null,
+  ).data;
   const compatibleChoices = withManagedRuntimeModeLimits(
     runtimeModeChoicesForSupportedModes(displayedModel?.supportedRuntimeModes),
     [config?.managedPolicy],
     messages,
   );
-  const runtimeModeChoices = compatibleChoices.map((choice) => {
+  const policyChoices = compatibleChoices.map((choice) => {
     const disabledReason = props.pickerHost?.runtimeDenial(
       choice.mode,
       pendingModel?.selection ?? props.selectedModel,
     );
     return disabledReason ? { ...choice, disabledReason } : choice;
   });
+  const runtimeModeChoices = withClaudeAutoRestriction(
+    policyChoices,
+    claudeAutoRestriction,
+    messages,
+  );
   const compatibleRuntimeMode = compatibleRuntimeModeForChoices(
     props.runtimeMode,
     runtimeModeChoices,
@@ -1621,6 +1639,7 @@ export function ExistingThreadSettingsRouteScreen({
       environmentId={selectedThread.environmentId}
       projectId={selectedThread.projectId}
       cwd={selectedThreadCwd}
+      claudeAutoModeTarget={{ cwd: selectedThreadCwd ?? undefined, sessionId: selectedThread.id }}
       providerInstanceId={modelSelection.instanceId}
       {...(lockedProviderInstanceId ? { lockedProviderInstanceId } : {})}
       providerGroups={groupByProvider(modelOptions)}
@@ -1666,6 +1685,7 @@ export function NewTaskThreadSettingsRouteScreen() {
       environmentId={flow.selectedEnvironmentId}
       projectId={flow.selectedProject?.id ?? null}
       cwd={flow.workspaceCwd}
+      claudeAutoModeTarget={{ cwd: flow.workspaceCwd ?? undefined }}
       {...(flow.selectedModel ? { providerInstanceId: flow.selectedModel.instanceId } : {})}
       providerGroups={flow.providerGroups}
       selectedModel={flow.selectedModel}

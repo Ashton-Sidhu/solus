@@ -132,6 +132,9 @@ function Picker({
       environmentId={params.environmentId}
       projectId={ProjectId.make(cwd)}
       cwd={cwd}
+      claudeAutoModeTarget={!editingQueue && controller.mayDrive
+        ? { cwd: meta.run.workingDirectory || undefined, sessionId: params.threadId }
+        : undefined}
       providerInstanceId={modelInstanceId(provider)}
       pickerHost={{
         ...host,

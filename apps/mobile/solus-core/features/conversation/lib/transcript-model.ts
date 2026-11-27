@@ -4,6 +4,7 @@ import { EMPTY_THREAD_HISTORY_META, applyHistoryPageMeta, type ThreadHistoryMeta
 import { backgroundCommandWake, type BackgroundCommandWake } from '@solus/client-core/background-command-wake'
 import { agentActivityOfTool, type AgentActivity } from '@solus/contracts/agent-activity'
 import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
+import { claudeAutoFallbackText } from '@solus/contracts/claude-auto-mode'
 import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activity'
 import type { McpAppReference } from '@solus/contracts/mcp-apps'
 import type { SessionFolder } from '@solus/contracts/codebases'
@@ -284,7 +285,7 @@ export class TranscriptModel {
     if (row.activity?.kind === 'mcp_app') return this.addMcpApp(row.activity, false)
     if (row.activity?.kind === 'worktree_offered') return this.addWorktreeOffer(row.activity, false)
     if (row.activity?.kind === 'agent_switched' || row.activity?.kind === 'forked') return this.addDivider(row.activity, false)
-    if (row.activity?.kind === 'stopped') return this.addSessionEvent(row.activity, false)
+    if (row.activity?.kind === 'stopped' || row.activity?.kind === 'claude_auto_fallback') return this.addSessionEvent(row.activity, false)
     if (row.activity) return null
     const id = row.messageId ?? this.mintId('h')
     if (row.compaction) {
@@ -1145,15 +1146,15 @@ export class TranscriptModel {
     else if (activity.kind === 'worktree_offered') this.addWorktreeOffer(activity, true)
     else if (activity.kind === 'worktree_offer_decided') this.setWorktreeOfferResolution(activity.offerId, activity.resolution)
     else if (activity.kind === 'agent_switched' || activity.kind === 'forked') this.addDivider(activity, true)
-    else if (activity.kind === 'stopped') this.addSessionEvent(activity, true)
+    else if (activity.kind === 'stopped' || activity.kind === 'claude_auto_fallback') this.addSessionEvent(activity, true)
   }
 
-  /** Stops stay visible on every client, including the one that sent Stop. */
-  private addSessionEvent(activity: Activity, append: boolean): string | null {
-    if (activity.kind !== 'stopped') return null
+  /** Host notices use the same row in a live turn and in history. */
+  private addSessionEvent(activity: Extract<Activity, { kind: 'stopped' | 'claude_auto_fallback' }>, append: boolean): string | null {
     const id = `activity:${activity.id}`
     if (this.items.has(id)) return null
-    const text = activity.by.kind === 'agent'
+    const text = activity.kind === 'claude_auto_fallback' ? claudeAutoFallbackText(activity.restriction)
+      : activity.by.kind === 'agent'
       ? `Stopped by ${activity.by.title ?? 'an agent'}`
       : activity.by.kind === 'user' ? `Stopped by ${activity.by.user.displayName}` : 'Stopped'
     const item: TranscriptItem = { kind: 'notice', id, text, tone: 'info' }

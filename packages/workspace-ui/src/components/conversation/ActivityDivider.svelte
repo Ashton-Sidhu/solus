@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { claudeAutoFallbackText } from "@solus/contracts/claude-auto-mode";
   import type { Activity } from "@solus/contracts/activity";
   import { FolderGit2 as CodebaseIcon, GitFork as GitForkIcon, CirclePlus as PlusCircleIcon } from "@lucide/svelte";
   import { codebasesStore, getWorkspaceContext, getPlanStore } from "../../contexts";
@@ -69,6 +70,10 @@
   >
     {#snippet glyph()}<CodebaseIcon size={12} />{/snippet}
     <ActivityRow {activity} {self} short title={codebaseName} />
+  </TranscriptDivider>
+{:else if activity.kind === "claude_auto_fallback"}
+  <TranscriptDivider testid="claude-auto-fallback" {skipMotion}>
+    {claudeAutoFallbackText(activity.restriction)}
   </TranscriptDivider>
 {:else if activity.kind === "worktree_offered"}
   <WorktreeOfferCard offer={activity} {tabId} />

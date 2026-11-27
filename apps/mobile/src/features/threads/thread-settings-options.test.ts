@@ -17,8 +17,10 @@ import {
 } from "../../lib/providerOptions";
 import {
   RUNTIME_MODE_CHOICES,
+  compatibleRuntimeModeForChoices,
   resolveNewThreadRuntimeMode,
   selectableChoices,
+  withClaudeAutoRestriction,
   withManagedRuntimeModeLimits,
 } from "./thread-settings-options";
 
@@ -53,6 +55,19 @@ describe("managed runtime mode limits", () => {
     expect(resolveNewThreadRuntimeMode(undefined, "auto", capped)).toBe("auto");
     expect(resolveNewThreadRuntimeMode("full-access", "auto", undefined)).toBe("full-access");
   });
+});
+
+it("keeps Auto selected and shows the Claude reason unless Solus policy already disables it", () => {
+  const restricted = withClaudeAutoRestriction(RUNTIME_MODE_CHOICES, "project-settings");
+  expect(compatibleRuntimeModeForChoices("auto", restricted)).toBe("auto");
+  expect(restricted.find((choice) => choice.mode === "auto")?.disabledReason).toBe(
+    "This project's Claude settings turn auto mode off.",
+  );
+  expect(restricted.filter((choice) => choice.disabledReason)).toHaveLength(1);
+  const capped = withManagedRuntimeModeLimits(RUNTIME_MODE_CHOICES, [
+    policy("Corp", "approval-required"),
+  ]);
+  expect(withClaudeAutoRestriction(capped, "project-settings")).toEqual(capped);
 });
 
 const effortDescriptor: Extract<ProviderOptionDescriptor, { type: "select" }> = {

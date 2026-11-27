@@ -906,6 +906,8 @@
             {run}
             {onRun}
             {permissionMode}
+            provider={savedAgent}
+            lookupRun={run ?? sess?.run ?? (draftId ? session.drafts.sessionDrafts.get(draftId)?.run : undefined)}
             capabilities={modelMeta?.capabilities}
             bind:open={permissionOpen}
           />

@@ -546,3 +546,8 @@ A worktree offer shows its actions, then the host’s decision and branch, in a 
 MCP calls use T3’s work-log activities for both Claude and Codex. Expanding a call shows its details and any returned media. A tool with an MCP app can show the app separately while it runs and hand it over to the saved app when it finishes.
 
 A paste with 100 or more line breaks becomes a pasted-text attachment, also when it is smaller than T3's 32 KB limit. `pastedTextDisposition` in `packages/client-runtime/src/textPaste.ts` has the rule, and the native composer editors get the limit through the `textPasteThresholdLineBreaks` prop. Paste as Text (Command-Shift-V) still keeps the text inline. The desktop and web composer use the same rule (`isLargePaste`).
+
+- **Claude Auto.** The thread settings sheet uses the disabled runtime choice
+  and source labels from T3 Code #43162. The scoped Solus host query checks the
+  selected checkout and provider settings. The existing system notice row shows
+  a fallback reported by the Solus host.

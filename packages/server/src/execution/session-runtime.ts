@@ -921,9 +921,9 @@ export class SessionRuntime extends EventEmitter {
    * turn's id, so the history read places it inside the turn. `at` names the
    * moment when another record holds it too (a handoff's lineage member).
    */
-  async recordActivity(subject: ActivitySubject & { kind: 'session' }, actor: Actor, kind: ActivityKind, at?: number, via?: AgentVia): Promise<Activity> {
+  async recordActivity(subject: ActivitySubject & { kind: 'session' }, actor: Actor | null, kind: ActivityKind, at?: number, via?: AgentVia): Promise<Activity> {
     const sessionId = subject.id
-    const activity = newActivity({ kind: 'session', id: sessionId }, attributionOf(actor, via), kind, at)
+    const activity = newActivity({ kind: 'session', id: sessionId }, actor ? attributionOf(actor, via) : { kind: 'system' }, kind, at)
     const turn = this.activeSessions.has(sessionId) ? this.turns.current(sessionId) : undefined
     if (turn && !turn.isSettled) activity.turnId = turn.id
     try {

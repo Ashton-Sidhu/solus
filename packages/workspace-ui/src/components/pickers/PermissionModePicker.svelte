@@ -1,10 +1,13 @@
 <script lang="ts">
   import { getWorkspaceContext } from '../../contexts'
-  import { PERMISSION_MODES, type AgentMetadata, type PermissionMode, type RunConfig } from '@solus/contracts/types'
+  import { PERMISSION_MODES, type AgentId, type AgentMetadata, type PermissionMode, type RunConfig } from '@solus/contracts/types'
   import { PERMISSION_MODE_DISPLAY } from '../../lib/permission-modes'
   import * as DropdownMenu from '../ui/dropdown-menu'
   import { workPolicy } from '../../contexts/policy/work-policy.svelte'
-  import { runHost } from '../../contexts/workspace/run-location'
+  import { CLAUDE_AUTO_RESTRICTION_TEXT } from '@solus/contracts/claude-auto-mode'
+  import { hosts } from '../../contexts/hosts/hosts.svelte'
+  import { connectClaudeAutoRestriction } from './lib/claude-auto-restriction.svelte'
+  import { pendingClone, runHost, workingPlace } from '../../contexts/workspace/run-location'
   import { pickClosesModelPicker } from './lib/picker-selection'
 
   const session = getWorkspaceContext()
@@ -18,11 +21,13 @@
     run?: RunConfig;
     onRun?: (next: RunConfig) => void;
     permissionMode: PermissionMode;
+    provider: AgentId;
+    lookupRun?: RunConfig;
     capabilities?: AgentMetadata['capabilities'];
     /** The flyout, bound so the shortcut can open it with the model picker. */
     open?: boolean;
   }
-  let { tabId, run, onRun, permissionMode, capabilities, open = $bindable(false) }: Props = $props();
+  let { tabId, run, onRun, permissionMode, provider, lookupRun, capabilities, open = $bindable(false) }: Props = $props();
 
   const display = $derived(PERMISSION_MODE_DISPLAY[permissionMode])
   const supportsPermissions = $derived(capabilities?.permissions !== false)
@@ -30,6 +35,16 @@
   // The work's policy: its record organization, else the window's (plans/030 §7).
   const tabSession = $derived(onRun ? undefined : session.sessionFor(tabId ?? session.activeTabId))
   const policy = $derived(workPolicy(runHost((onRun ? run : tabSession?.run) ?? session.defaultRunConfig), tabSession?.organizationId))
+  const autoRestriction = connectClaudeAutoRestriction(() => {
+    if (!open || provider !== 'claude-code') return
+    const serverId = runHost(lookupRun)
+    if (!serverId) return
+    const host = hosts.get(serverId)
+    if (host.presence !== 'present') return
+    const clone = pendingClone(lookupRun)
+    const cwd = clone ? (clone.start.kind === 'worktree' ? clone.start.path : undefined) : workingPlace(lookupRun)?.path
+    return { serverId, cwd, sessionId: tabSession?.id, connection: host.serverInfo }
+  })
   const permissionOptions = $derived(PERMISSION_MODES.filter((mode) => mode !== 'plan' || supportsPlan))
 
   function selectPermissionMode(mode: PermissionMode) {
@@ -58,7 +73,8 @@
       {#each permissionOptions as mode (mode)}
         {@const option = PERMISSION_MODE_DISPLAY[mode]}
         {@const isChecked = permissionMode === mode}
-        {@const denial = policy.modeDenial(mode)?.message ?? null}
+        {@const restriction = mode === 'auto' ? autoRestriction.current : null}
+        {@const denial = policy.modeDenial(mode)?.message ?? (restriction ? CLAUDE_AUTO_RESTRICTION_TEXT[restriction] : null)}
         <DropdownMenu.RadioItem value={mode} disabled={denial !== null} title={denial ?? undefined} closeOnSelect={pickClosesModelPicker('permission-mode')} class="h-auto gap-3 py-1.5 pl-1.5" onSelect={() => selectPermissionMode(mode)}>
           <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
             <option.icon class="size-3.5" />

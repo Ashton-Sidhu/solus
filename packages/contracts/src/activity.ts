@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod'
+import { claudeAutoRestrictionSchema, type ClaudeAutoRestriction } from './claude-auto-mode'
 import { mcpAppReferenceSchema, type McpAppReference } from './mcp-apps'
 import type { IssueEventKind, IssueLinkKind } from './task-types'
 import type { AgentId, PermissionDecision, RateLimitDecisionAction } from './types'
@@ -43,6 +44,7 @@ export type ActivityKind =
   | { kind: 'worktree_offer_decided'; offerId: string; resolution: WorktreeOfferResolution }
   /** The host made a codebase for the session (docs/plans/codebases.md decision 13).
    *  `name` is its name at that time: a client shows the name that the codebase has now. */
+  | { kind: 'claude_auto_fallback'; providerSessionId: string; restriction: ClaudeAutoRestriction | null }
   | { kind: 'codebase_formed'; codebaseId: string; name: string }
   /** `model` and `fromModel` are model ids or, from a session switched before
    *  this record existed, the labels its lineage read. */
@@ -104,6 +106,7 @@ export const activityKindSchema: z.ZodType<ActivityKind> = z.discriminatedUnion(
   z.object({ kind: z.literal('moved_to_worktree'), path: z.string(), branch: z.string().optional(), projectFolder: z.literal(true).optional() }),
   z.object({ kind: z.literal('worktree_offered'), path: z.string(), branch: z.string().optional() }),
   z.object({ kind: z.literal('worktree_offer_decided'), offerId: z.string(), resolution: worktreeOfferResolutionSchema }),
+  z.object({ kind: z.literal('claude_auto_fallback'), providerSessionId: z.string(), restriction: claudeAutoRestrictionSchema.nullable() }),
   z.object({ kind: z.literal('codebase_formed'), codebaseId: z.string(), name: z.string() }),
   z.object({ kind: z.literal('agent_switched'), provider: agentIdSchema, model: z.string().optional(), fromProvider: agentIdSchema.optional(), fromModel: z.string().optional() }),
   z.object({ kind: z.literal('plan_decided'), planId: z.string(), decision: z.enum(['accepted', 'rejected']), newSessionId: z.string().optional() }),

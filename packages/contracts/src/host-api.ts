@@ -662,6 +662,7 @@ export interface SolusAPI {
   /** The origin a resource's guest link names (docs/plans/host-sharing.md §2): the account origin for a mirrored session, else this host's tunnel when online, else its first direct address; null when nobody off this machine can reach it. */
   shareLinkOrigin(resource: ShareResource): Promise<{ origin: string | null }>
   /** Provider seats (Step 2 plan §3.2): the caller's own Claude and Codex logins on this host. */
+  claudeAutoModeRestriction(request: import('./claude-auto-mode').ClaudeAutoModeTarget): Promise<import('./claude-auto-mode').ClaudeAutoRestriction | null>
   providerInstanceStatus(request: ProviderInstanceTarget): Promise<ProviderInstanceStatus>
   providerInstanceSignIn(request: ProviderInstanceTarget): Promise<SeatConnectStartResult>
   providerInstanceSubmitCode(request: ProviderInstanceCode): Promise<{ submitted: true }>

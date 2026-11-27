@@ -1,3 +1,4 @@
+import type { ClaudeAutoRestriction } from "@solus/contracts/claude-auto-mode";
 import { managedRuntimeModeDenial } from "@t3tools/client-runtime/contract-labels";
 import type { ManagedPolicySummary, RuntimeMode } from "@t3tools/contracts";
 import { msg } from "gt-react-native";
@@ -40,7 +41,7 @@ export function runtimeModeChoicesForSupportedModes(
 }
 
 export type RuntimeModeChoice = (typeof RUNTIME_MODE_CHOICES)[number] & {
-  /** Set when a target environment's managed policy caps runtime modes below this one. */
+  /** Set when policy or provider settings prevent the user from selecting this mode. */
   readonly disabledReason?: string;
 };
 
@@ -73,6 +74,24 @@ export function resolveNewThreadRuntimeMode(
   return draftMode !== undefined && managedRuntimeModeDenial(policy, draftMode) === undefined
     ? draftMode
     : defaultMode;
+}
+
+export function withClaudeAutoRestriction(
+  choices: ReadonlyArray<RuntimeModeChoice>,
+  restriction: ClaudeAutoRestriction | null | undefined,
+  resolve: MessageResolver = m,
+): ReadonlyArray<RuntimeModeChoice> {
+  if (!restriction) return choices;
+  const reason = {
+    "managed-settings": msg("Your organization's Claude settings turn auto mode off."),
+    "user-settings": msg("Your Claude settings turn auto mode off."),
+    "project-settings": msg("This project's Claude settings turn auto mode off."),
+  }[restriction];
+  return choices.map((choice) =>
+    choice.mode === "auto" && !choice.disabledReason
+      ? { ...choice, disabledReason: resolve(reason) }
+      : choice,
+  );
 }
 
 export function compatibleRuntimeModeForChoices(
