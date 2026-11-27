@@ -927,6 +927,24 @@ async function bootLocalHost(
   return true
 }
 
+/** A link from a browser or a launcher opens this Solus (docs/app-shortcuts.md §4). */
+function registerLinkScheme(): void {
+  if (isHeadless || isTestMode) return
+  void desktopPlatform.registerLinkScheme(app, solusInstall)
+    .catch((err) => log.warn('link_scheme_register_failed', { error: err instanceof Error ? err.message : String(err) }))
+}
+
+/**
+ * What the session gives a page that asks: the microphone of Solus's own
+ * pages, and an app window's permissions and system audio
+ * (docs/plans/app-desktop-capabilities.md §3). Every other display-media
+ * request gets nothing.
+ */
+function handleSessionRequests(): void {
+  handlePermissionRequests(appRuntime?.permissionRequest ?? null)
+  if (appRuntime) session.defaultSession.setDisplayMediaRequestHandler(appRuntime.displayMediaRequest)
+}
+
 // ─── App Lifecycle ───
 
 app.whenReady().then(async () => {
@@ -958,11 +976,7 @@ app.whenReady().then(async () => {
         .catch((err) => log.warn('login_shell_env_import_failed', { error: err instanceof Error ? err.message : String(err) }))
 
     desktopPlatform.ready(app)
-    // A link from a browser or a launcher opens this Solus (docs/app-shortcuts.md §4).
-    if (!isHeadless && !isTestMode) {
-      void desktopPlatform.registerLinkScheme(app, solusInstall)
-        .catch((err) => log.warn('link_scheme_register_failed', { error: err instanceof Error ? err.message : String(err) }))
-    }
+    registerLinkScheme()
 
     const windowDeps: WindowDeps | undefined = isHeadless ? undefined : {
       isAppVisible,
@@ -1047,9 +1061,7 @@ app.whenReady().then(async () => {
         },
       })
 
-      if (!isTestMode) handlePermissionRequests(appRuntime?.permissionRequest ?? null)
-      // An app's `desktop.audio.system()` (docs/plans/app-desktop-capabilities.md §3); every other page gets nothing.
-      if (!isTestMode && appRuntime) session.defaultSession.setDisplayMediaRequestHandler(appRuntime.displayMediaRequest)
+      if (!isTestMode) handleSessionRequests()
 
       if (!isTestMode) {
         currentAppShortcuts = loadAppShortcuts()

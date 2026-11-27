@@ -28,9 +28,6 @@ import { forwardedHostsStore } from "@solus/workspace-ui/components/connections/
 import { subscribeAllHosts } from "@solus/client-core/host-events";
 import { localApi } from "@solus/client-core/local-api";
 import { isSolusApiId } from "@solus/contracts/uplink";
-import { appShortcutsStore } from "@solus/workspace-ui/contexts/apps/app-shortcuts.store.svelte";
-import { AppDesktopFollower } from "@solus/workspace-ui/contexts/apps/app-desktop-follower";
-import { appPinOf } from "@solus/workspace-ui/lib/sidebar-places";
 import { notificationsStore } from "@solus/workspace-ui/contexts/notifications/notifications.store.svelte";
 import { notificationHubStore } from "@solus/workspace-ui/contexts/notifications/notification-hub.store.svelte";
 import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
@@ -256,22 +253,35 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   );
 
   // This computer's records of each app follow its host: a delete from any client clears them, and a deploy
-  // writes an out-of-date launcher again (docs/app-shortcuts.md §3 and §4).
-  onMount(() =>
-    new AppDesktopFollower({
-      shortcuts: appShortcutsStore,
-      answeredApps: async () => (await localApi.appPermissions?.()) ?? [],
-      // A record names its host as a sidebar pin does.
-      hostKeyOf: (serverId) => appPinOf(serverId, "", serversStore.hostFor(serverId)).host,
-      readyHosts: () => serverConnections.serverIds().filter((serverId) => !isSolusApiId(serverId) && serverConnections.readinessFor(serverId).readiness === "ready"),
-      appList: (serverId) => serverConnections.apiFor(serverId).appList(),
-      onAppsChanged: (listener) => subscribeAllHosts("apps.changed", listener),
-      onHostReady: (listener) =>
-        serverConnections.onReadinessChange((serverId, readiness) => {
-          if (readiness === "ready" && !isSolusApiId(serverId)) listener(serverId);
-        }),
-    }).start(),
-  );
+  // writes an out-of-date launcher again (docs/app-shortcuts.md §3 and §4). Loaded after the first screen.
+  onMount(() => {
+    let stop: (() => void) | null = null;
+    let isMounted = true;
+    void Promise.all([
+      import("@solus/workspace-ui/contexts/apps/app-desktop-follower"),
+      import("@solus/workspace-ui/contexts/apps/app-shortcuts.store.svelte"),
+      import("@solus/workspace-ui/lib/sidebar-places"),
+    ]).then(([{ AppDesktopFollower }, { appShortcutsStore }, { appPinOf }]) => {
+      if (!isMounted) return;
+      stop = new AppDesktopFollower({
+        shortcuts: appShortcutsStore,
+        answeredApps: async () => (await localApi.appPermissions?.()) ?? [],
+        // A record names its host as a sidebar pin does.
+        hostKeyOf: (serverId) => appPinOf(serverId, "", serversStore.hostFor(serverId)).host,
+        readyHosts: () => serverConnections.serverIds().filter((serverId) => !isSolusApiId(serverId) && serverConnections.readinessFor(serverId).readiness === "ready"),
+        appList: (serverId) => serverConnections.apiFor(serverId).appList(),
+        onAppsChanged: (listener) => subscribeAllHosts("apps.changed", listener),
+        onHostReady: (listener) =>
+          serverConnections.onReadinessChange((serverId, readiness) => {
+            if (readiness === "ready" && !isSolusApiId(serverId)) listener(serverId);
+          }),
+      }).start();
+    });
+    return () => {
+      isMounted = false;
+      stop?.();
+    };
+  });
 
   // The notifications hub reads every source once for the page and the badge (plan 015).
   onMount(() => notificationHubStore.start());

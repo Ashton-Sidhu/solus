@@ -31,7 +31,7 @@ export function popoverPosition(
   size: { width: number; height: number },
   anchor: AppWindowBounds | { x: number; y: number; width: 0; height: 0 },
   workArea: AppWindowBounds,
-): { x: number; y: number } {
+): Pick<AppWindowBounds, 'x' | 'y'> {
   const isBelow = anchor.y < workArea.y + workArea.height / 2
   return {
     x: clamp(Math.round(anchor.x + anchor.width / 2 - size.width / 2), workArea.x, workArea.x + workArea.width - size.width),
