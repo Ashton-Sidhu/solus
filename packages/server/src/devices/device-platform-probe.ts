@@ -22,7 +22,6 @@ export interface AndroidSdk {
   adb: boolean
   emulator: boolean
   avdmanager: boolean
-  legacyAvdmanager: boolean
 }
 
 export function findAndroidSdk(deps: Pick<ProbeDeps, 'env' | 'hostPlatform' | 'exists' | 'realpath'>): AndroidSdk {
@@ -50,11 +49,10 @@ export function findAndroidSdk(deps: Pick<ProbeDeps, 'env' | 'hostPlatform' | 'e
     const emulator = exists(join(root, 'emulator', exe('emulator')))
     if (explicit || adb || emulator) {
       const avdmanager = exists(join(root, 'cmdline-tools', 'latest', 'bin', 'avdmanager'))
-      const legacyAvdmanager = !avdmanager && exists(join(root, 'tools', 'bin', 'avdmanager'))
-      return { root, adb, emulator, avdmanager, legacyAvdmanager }
+      return { root, adb, emulator, avdmanager }
     }
   }
-  return { root: null, adb: false, emulator: false, avdmanager: false, legacyAvdmanager: false }
+  return { root: null, adb: false, emulator: false, avdmanager: false }
 }
 
 /** The environment helpers run with: the SDK's tools first on PATH. */
@@ -107,19 +105,13 @@ export async function iosUnavailableReason(deps: ProbeDeps): Promise<string | nu
   return null
 }
 
-export function androidUnavailableReason(sdk: AndroidSdk): string | null {
-  if (!sdk.root) return 'Android SDK was not found. Install it with Android Studio or set ANDROID_HOME on this host.'
-  if (!sdk.adb) return `Android SDK Platform-Tools are missing from ${sdk.root}. Install them in Android Studio's SDK Manager.`
-  if (!sdk.emulator) return `Android Emulator is missing from ${sdk.root}. Install it in Android Studio's SDK Manager.`
-  if (!sdk.avdmanager) {
-    return sdk.legacyAvdmanager
-      ? `The Android SDK command-line tools in ${sdk.root} are an old, unsupported version. Install "Android SDK Command-line Tools (latest)".`
-      : `Android SDK Command-line Tools (latest) are missing from ${sdk.root}. Install them in Android Studio's SDK Manager.`
-  }
-  return null
+async function androidUnavailableReason(deps: ProbeDeps): Promise<string | null> {
+  const sdk = findAndroidSdk(deps)
+  if (sdk.adb || (await deps.run('adb', ['version'], { timeoutMs: 5_000, env: deps.env })).code === 0) return null
+  return 'Android SDK Platform-Tools were not found. Install them and set ANDROID_HOME or add adb to PATH on this host.'
 }
 
 export async function probePlatform(platform: DevicePlatform, deps: ProbeDeps): Promise<DevicePlatformAvailability> {
-  const reason = platform === 'ios' ? await iosUnavailableReason(deps) : androidUnavailableReason(findAndroidSdk(deps))
+  const reason = platform === 'ios' ? await iosUnavailableReason(deps) : await androidUnavailableReason(deps)
   return reason === null ? { platform, available: true } : { platform, available: false, reason }
 }
