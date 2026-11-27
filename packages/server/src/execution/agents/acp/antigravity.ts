@@ -205,7 +205,13 @@ export const antigravityAgent: AcpAgent = {
   hasThread: (profile, agentSessionId) => /^[\w-]+$/.test(agentSessionId) && managedPath(profile, [ANTIGRAVITY_APP_DATA_DIR, 'conversations', `${agentSessionId}.db`], 'file') !== null,
   // A recurring `schedule`, or a command, that agy keeps running after the prompt answers.
   startsDaemon: (toolCall) => daemonInputSchema.safeParse(toolCall.rawInput).success,
-  childCalls: (request, threadId) => antigravityChildCalls(antigravityProfileOf(request), threadId),
+  childCalls: (request, threadId) => {
+    const launch = request.seat?.launch
+    // The host places a member's durable agy folders in their home and links
+    // the profile to them. Use that host-owned path as the read boundary.
+    const home = launch?.user && launch.env.HOME
+    return antigravityChildCalls(antigravityProfileOf(request), threadId, home ? join(home, '.antigravity-sessions') : undefined)
+  },
   isClientRead: (title) => title === 'Running client_view_file' || title === 'Run client_view_file?',
   isSignInRequired: isAntigravitySignInRequired,
   isQuestion: isAntigravityQuestion,

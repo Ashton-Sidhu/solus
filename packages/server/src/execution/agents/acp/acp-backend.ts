@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises'
 import type { ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync } from 'node:fs'
@@ -294,7 +295,11 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     // The turn is registered first: the agent's updates for the prompt can arrive at once.
     live.turn = turn
     const providerPrompt = this.promptWithContext(live, request, tools !== null)
-    const stopReason = await this.followPrompts(live, threadId, turn, this.sendPrompt(live, turn, providerPrompt, request.imageAttachments))
+    const stopReason = await turn.normalizer.followChildTranscripts(
+      handle.abortController.signal,
+      () => this.followPrompts(live, threadId, turn, this.sendPrompt(live, turn, providerPrompt, request.imageAttachments)),
+      (event) => this.emitTurnEvent(turn, threadId, event),
+    )
     this.endTurn(live, threadId, turn, request.persistence)
     if (stopReason === 'cancelled' || handle.abortController.signal.aborted) return this.endStopped(handle, live, threadId)
     const failure = outcome?.(stopReason) ?? null
@@ -363,10 +368,13 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     for (const update of live.agentWork.take()) {
       for (const event of turn.normalizer.push(update)) this.emitTurnEvent(turn, threadId, event)
     }
-    while (!signal.aborted && !(live.agentWork.isQuiet() && !turn.normalizer.hasOpenTools) && !live.connection.isClosed) {
-      await new Promise((resolve) => setTimeout(resolve, 250))
-    }
-    if (signal.aborted) live.connection.notify('session/cancel', { sessionId: live.agentSessionId })
+    await turn.normalizer.followChildTranscripts(signal, async () => {
+      while (!signal.aborted && !(live.agentWork.isQuiet() && !turn.normalizer.hasOpenTools) && !live.connection.isClosed) {
+        await delay(250)
+      }
+      if (signal.aborted) live.connection.notify('session/cancel', { sessionId: live.agentSessionId })
+      return signal.aborted ? 'cancelled' : 'end_turn'
+    }, (event) => this.emitTurnEvent(turn, threadId, event))
     this.endTurn(live, threadId, turn, request.persistence)
     if (signal.aborted) return this.endStopped(turn.handle, live, threadId)
     this.complete(turn.handle, threadId, turn, 'end_turn')

@@ -4,6 +4,7 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { SessionHistoryPage, SessionSubagentRequest } from "@solus/contracts/session-history";
 import { expect, it, vi } from "vite-plus/test";
 import type { ReadOnlyThreadHistory } from "./LinkedThreadSheet";
+import { TranscriptModel } from "@solus-mobile/features/conversation/lib/transcript-model";
 import { ProviderAgentTranscript } from "./ProviderAgentTranscript";
 
 const host = vi.hoisted(() => ({
@@ -13,14 +14,25 @@ const host = vi.hoisted(() => ({
       loadSessionSubagent: vi.fn<(q: SessionSubagentRequest) => Promise<SessionHistoryPage>>(),
     },
   },
+  listeners: new Set<() => void>(),
   controller: {
     run: { provider: "claude-code" },
     historySource: { sessionId: "parent", provider: "claude-code", projectPath: "/repo" },
+    // SAFETY: The mock installs a transcript model before each screen uses it.
+    model: null as TranscriptModel | null,
   },
 }));
 vi.mock("../../solus/agent-child-host", () => ({ remoteAgentChild: () => () => undefined }));
 vi.mock("../../solus/use-session-controller", () => ({
-  useSessionController: () => host.controller,
+  useSessionStore: () => ({
+    controller: host.controller,
+    order: { subscribe: () => () => {} },
+    item: (id: string) => host.controller.model?.items.get(id),
+    subscribeFeedItems: (listener: () => void) => {
+      host.listeners.add(listener);
+      return () => host.listeners.delete(listener);
+    },
+  }),
 }));
 vi.mock("../../state/host-query-scope", () => ({ hostQueryScopeAtom: () => host.scope }));
 vi.mock("../../state/mobile-host", () => ({ mobileHost: () => host.connection }));
@@ -46,6 +58,8 @@ vi.mock("./LinkedThreadSheet", () => ({
     </>
   ),
 }));
+
+host.controller.model = new TranscriptModel("parent");
 
 it("retries a failed page and drops a late page after a scope change", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -100,6 +114,31 @@ it("retries a failed page and drops a late page after a scope change", async () 
     await render();
     await act(async () => finish(page("Old account earlier page", null)));
     expect(dom.textContent).toBe("Second account");
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+
+it("shows live replies in the existing child transcript view before history is saved", async () => {
+  const model = new TranscriptModel("parent");
+  model.apply({ type: "tool_call", toolName: "Agent", toolId: "provider-call", index: 0, isSubagent: true });
+  host.controller.model = model;
+  host.connection.api.loadSessionSubagent.mockRejectedValueOnce(new Error("The child is still running."));
+  const dom = document.createElement("div");
+  const root = createRoot(dom);
+  try {
+    await act(async () => root.render(<ProviderAgentTranscript route={{ params: {
+      environmentId: EnvironmentId.make("host"),
+      threadId: ThreadId.make("parent"),
+      toolId: "provider-call",
+      title: "Reader",
+    } }} />));
+    await act(async () => {
+      model.apply({ type: "assistant_message", text: "A reply from the child", parentToolUseId: "provider-call" });
+      for (const notify of host.listeners) notify();
+    });
+    expect(dom.textContent).toContain("A reply from the child");
   } finally {
     act(() => root.unmount());
   }

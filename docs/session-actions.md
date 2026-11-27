@@ -7,3 +7,7 @@ Use **Snooze session** to choose a preset or set a date and time. You can also s
 On mobile, use the session list menu for pin, snooze, wake, settle, un-settle, and archive. An open completed session also shows **Reopen** in the pill above the composer. Use the Archive screen to restore an archived session.
 
 On desktop and web, **Shared with you**, **Working**, **Snoozed**, and **Completed** can each open to about one third of the session sidebar. Scroll inside a section to see more rows. Pinned and active sessions use the main list.
+
+## Child agent transcripts
+
+Open a subagent card to see its commands and replies while it runs. This includes Claude skills that use `context: fork`. The final report stays with the card when you reopen the session.

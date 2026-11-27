@@ -6,6 +6,7 @@ import { privateProviderInstances } from '../../seats/provider-instances'
 import { providerHistoryInstanceId } from '../../seats/provider-runtime'
 import { captureActingScope } from '../../../vault/acting-scope'
 import { historyFileRevision, ProviderHistoryPages } from '../history-page-cache'
+import { claudeForkHistoryPath, withClaudeForkedSkills } from './claude-forked-skills'
 import { loadClaudeFirstTurn, loadClaudeHistoryPage } from './claude-history-page'
 import { createInterface } from 'node:readline'
 import { open, readdir, stat as fsStat } from 'node:fs/promises'
@@ -219,7 +220,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const personKey = captureActingScope()?.personKey
     const privateHome = personKey ? privateProviderInstances().threadHome(personKey, 'claude-code', sessionId) : undefined
     return resolveClaudeSessionFilePath(
-      join(privateHome ?? join(homedir(), '.claude'), 'projects'),
+      join(privateHome ?? claudeConfigDir(), 'projects'),
       sessionId,
       projectPath || process.cwd(),
       () => {
@@ -544,7 +545,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       // An unreadable transcript (another user's file) reads as empty; it never crashes the server.
       rl.on('error', () => resolve())
     })
-    return routeClaudeTaskReplies(messages)
+    return withClaudeForkedSkills(filePath, routeClaudeTaskReplies(messages))
   }
 
 
@@ -580,7 +581,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         }
         // Enough to fill the window, or we've already read the whole file.
         if (messages.length > limit || from <= 0) {
-          return routeClaudeTaskReplies(messages).slice(-limit)
+          return withClaudeForkedSkills(filePath, routeClaudeTaskReplies(messages)).slice(-limit)
         }
         windowBytes = Math.min(size, windowBytes * 4)
       }
@@ -610,7 +611,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       // A run only appends to the file, and each write changes its revision: a page stays
       // correct for one revision while the session runs too. The run is part of the key.
       const key = JSON.stringify([filePath, turnLimit, before, runningPage])
-      const revision = await historyFileRevision(filePath)
+      const revision = await claudePageRevision(filePath)
       revisionMs = performance.now() - locatedAt
       const cached = await this.historyPages.readShared(key, revision)
       cache = cached ? 'hit' : 'miss'
@@ -622,7 +623,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         const page = await loadClaudeHistoryPage(filePath, turnLimit, before)
         const result = { ...page, messages: claudeForkResponses(page.messages, runningPage) }
         const stillRunningPage = this.isSessionRunning(sessionId) && before === undefined
-        if (revision && stillRunningPage === runningPage && revision === await historyFileRevision(filePath)) this.historyPages.save(key, revision, result)
+        if (revision && stillRunningPage === runningPage && revision === await claudePageRevision(filePath)) this.historyPages.save(key, revision, result)
         return result
       })())
       messageCount = result.messages.length
@@ -886,4 +887,12 @@ function stopAboveCeiling(event: NormalizedEvent, ceiling: PermissionMode | null
   if (event.type !== 'permission_mode_changed' || !isPermissionModeAbove(event.permissionMode, ceiling)) return
   log.warn('permission_mode_above_ceiling', { sessionId: handle.agentSessionId, permissionMode: event.permissionMode, ceiling })
   handle.abortController.abort()
+}
+
+async function claudePageRevision(filePath: string): Promise<string | null> {
+  const [main, forks] = await Promise.all([
+    historyFileRevision(filePath),
+    historyFileRevision(claudeForkHistoryPath(filePath)),
+  ])
+  return main === null ? null : JSON.stringify([main, forks])
 }

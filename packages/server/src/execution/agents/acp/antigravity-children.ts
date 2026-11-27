@@ -8,6 +8,7 @@
  * with (`trajectory_metadata_blob`, fields 5 and 8). Read-only, and only a file
  * at its own path in the profile.
  */
+import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
 import { createLogger } from '../../../logger'
@@ -15,6 +16,7 @@ import type { AcpToolCall } from './acp-protocol'
 import type { AcpChildCalls } from './acp-turn-normalizer'
 import { ANTIGRAVITY_APP_DATA_DIR } from './antigravity-auth'
 import { antigravityLaunches } from './antigravity-subagents'
+import { AntigravityChildTranscript } from './antigravity-child-transcript'
 import { managedPath } from './antigravity-turn-outcome'
 
 const log = createLogger('AntigravityChildren', 'antigravity-children.ts')
@@ -81,8 +83,8 @@ export function antigravityChildRecord(metadata: Uint8Array): AntigravityChildRe
 }
 
 /** The record of a child session in a profile; null when its file is not at its own path or cannot be read. */
-function readChildRecord(profile: string, childId: string): AntigravityChildRecord | null {
-  const file = managedPath(profile, [ANTIGRAVITY_APP_DATA_DIR, 'conversations', `${childId}.db`], 'file')
+function readChildRecord(storage: string, childId: string): AntigravityChildRecord | null {
+  const file = managedPath(storage, ['conversations', `${childId}.db`], 'file')
   if (!file) return null
   try {
     const database = new DatabaseSync(file.path, { readOnly: true })
@@ -110,25 +112,43 @@ export class AntigravityChildCalls implements AcpChildCalls {
   private readonly launches: Launch[] = []
   private readonly cardOfChild = new Map<string, string>()
 
-  constructor(private readonly threadId: string, private readonly readRecord: (childId: string) => AntigravityChildRecord | null) {}
+  constructor(
+    private readonly threadId: string,
+    private readonly readRecord: (childId: string) => AntigravityChildRecord | null,
+    readonly transcript?: AntigravityChildTranscript,
+  ) {}
 
   note(toolCall: AcpToolCall): void {
     if (CHILD_CALL.test(toolCall.toolCallId) || this.launches.some((launch) => launch.cardId === toolCall.toolCallId)) return
-    for (const launch of antigravityLaunches(toolCall)) this.launches.push({ cardId: toolCall.toolCallId, ...launch })
+    const launches = antigravityLaunches(toolCall)
+    for (const launch of launches) this.launches.push({ cardId: toolCall.toolCallId, ...launch })
+    if (launches.length && /^Run(?:ning)? (?:invoke|start)_subagent\??$/.test(toolCall.title?.trim() ?? '')) {
+      this.transcript?.noteLaunch(toolCall.toolCallId, launches.length)
+    }
+  }
+
+  toolIdOf(call: AcpToolCall): string {
+    const childId = CHILD_CALL.exec(call.toolCallId)?.[1]
+    return childId && this.transcript ? this.transcript.toolIdOf(childId, call) : call.toolCallId
   }
 
   parentOf(toolCallId: string): string | null {
     const childId = CHILD_CALL.exec(toolCallId)?.[1]
     if (!childId || this.launches.length === 0) return null
-    const known = this.cardOfChild.get(childId)
+    const known = this.cardOfChild.get(childId) ?? this.transcript?.parentOf(childId)
     if (known) return known
-    const card = this.cardFor(childId)
+    const record = this.readRecord(childId)
+    const card = this.cardFor(record)
     this.cardOfChild.set(childId, card)
+    // Only the native child's own record can authorize transcript reads when
+    // routing ACP calls had to fall back to the most recent launch.
+    if (record?.parentSessionId === this.threadId && record.prompt && this.launches.some((launch) =>
+      launch.cardId === card && launch.prompt === record.prompt && (!record.role || launch.role === record.role)
+    )) this.transcript?.noteChild(childId, card)
     return card
   }
 
-  private cardFor(childId: string): string {
-    const record = this.readRecord(childId)
+  private cardFor(record: AntigravityChildRecord | null): string {
     // A child of a child works in its parent's card.
     const parentCard = record?.parentSessionId && record.parentSessionId !== this.threadId ? this.cardOfChild.get(record.parentSessionId) : undefined
     if (parentCard) return parentCard
@@ -140,6 +160,7 @@ export class AntigravityChildCalls implements AcpChildCalls {
 }
 
 /** The child calls of one session, read from the profile it runs in. */
-export function antigravityChildCalls(profile: string, threadId: string): AcpChildCalls {
-  return new AntigravityChildCalls(threadId, (childId) => readChildRecord(profile, childId))
+export function antigravityChildCalls(profile: string, threadId: string, retainedStorage?: string): AcpChildCalls {
+  const storage = retainedStorage ?? join(profile, ANTIGRAVITY_APP_DATA_DIR)
+  return new AntigravityChildCalls(threadId, (childId) => readChildRecord(storage, childId), new AntigravityChildTranscript(storage, threadId))
 }

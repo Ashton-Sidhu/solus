@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, closeSync, constants, mkdirSync, openSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { launchedProcess, type ProcessUser } from '../../cli-env'
 
@@ -13,6 +13,8 @@ import { launchedProcess, type ProcessUser } from '../../cli-env'
 export type MemberFileChange =
   /** Writes the file when its content differs, making its folders; sets its mode. */
   | { kind: 'write'; path: string; content: string | Buffer; mode: number }
+  /** Appends rows to a file owned by the member, making its folders when needed. */
+  | { kind: 'append'; path: string; content: string; mode: number }
   /** Removes a file or, with `recursive`, a folder; nothing there is not an error. */
   | { kind: 'remove'; path: string; recursive?: boolean }
   /** Removes a folder if it is empty. */
@@ -63,6 +65,10 @@ function applyHere(changes: MemberFileChange[]): void {
       writeFileSync(change.path, change.content, { mode: change.mode })
       // `mode` above applies only to a new file.
       chmodSync(change.path, change.mode)
+    } else if (change.kind === 'append') {
+      mkdirSync(dirname(change.path), { recursive: true, mode: 0o700 })
+      const file = openSync(change.path, constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND | constants.O_NOFOLLOW | constants.O_NONBLOCK, change.mode)
+      try { appendFileSync(file, change.content) } finally { closeSync(file) }
     } else if (change.kind === 'remove') {
       rmSync(change.path, { force: true, recursive: change.recursive ?? false })
     } else if (change.kind === 'folder') {
@@ -97,6 +103,11 @@ for (const change of changes) {
       fs.writeFileSync(change.path, content, { mode });
     }
     fs.chmodSync(change.path, mode);
+  } else if (change.kind === 'append') {
+    fs.mkdirSync(path.dirname(change.path), { recursive: true, mode: ${MEMBER_FOLDER_MODE} });
+    const flags = fs.constants;
+    const file = fs.openSync(change.path, flags.O_WRONLY | flags.O_CREAT | flags.O_APPEND | flags.O_NOFOLLOW | flags.O_NONBLOCK, change.mode | ${GROUP_READ});
+    try { fs.appendFileSync(file, change.content); } finally { fs.closeSync(file); }
   } else if (change.kind === 'remove') {
     fs.rmSync(change.path, { force: true, recursive: !!change.recursive });
   } else if (change.kind === 'folder') {
