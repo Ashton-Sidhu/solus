@@ -57,8 +57,10 @@
   });
 
   function close(): void {
+    // Closing clears the prompt that supplies this prop.
+    const targetTabId = tabId;
     onClose();
-    requestInputFocus({ tabId });
+    requestInputFocus({ tabId: targetTabId });
   }
 
   async function pick(task: Issue): Promise<void> {

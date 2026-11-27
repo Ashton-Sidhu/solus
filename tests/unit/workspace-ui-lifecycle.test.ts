@@ -32,6 +32,76 @@ async function run(name: string, code: string) {
 }
 const processExecPath = process.execPath
 
+test('closing the task link dialog returns focus to the session input', async () => {
+  const directoryPath = 'packages/workspace-ui/src/components/session/'
+  const prompts = readFileSync(new URL(directoryPath + 'SessionLinkPrompts.svelte', root), 'utf8')
+  const dialog = readFileSync(new URL(directoryPath + 'LinkSessionTaskDialog.svelte', root), 'utf8')
+  // Keep the production prompt and modal dismissal. The task list and host
+  // search do not take part in closing the modal.
+  const close = dialog.slice(dialog.indexOf('  function close()'), dialog.indexOf('  async function pick('))
+  const backdrop = dialog.slice(dialog.indexOf('<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->'), dialog.lastIndexOf('{/if}'))
+  writeFileSync(join(directory, 'task-link-dialog.mjs'), executable(compile(`
+    <script lang="ts">
+      let { tabId, onClose } = $props();
+      let dialogEl = $state(null);
+      function requestInputFocus(target) {
+        window.dispatchEvent(new CustomEvent('solus:focus-input', { detail: target }));
+      }
+      ${close}
+    </script>
+    {#snippet taskList()}<input aria-label="Search issues" />{/snippet}
+    ${backdrop}
+  `, { generate: 'client' }).js.code))
+  const promptsPath = join(directory, 'session-link-prompts.mjs')
+  writeFileSync(promptsPath, executable(compile(prompts
+    .replace('import { getWorkspaceContext } from "../../contexts";', 'let { workspace } = $props();')
+    .replace('getWorkspaceContext()', 'workspace')
+    .replace('./LinkSessionTaskDialog.svelte', './task-link-dialog.mjs'),
+  { generate: 'client' }).js.code))
+  const fixture = join(directory, 'task-link-fixture.mjs')
+  writeFileSync(fixture, executable(compile(`
+    <script>
+      import Prompts from ${JSON.stringify(promptsPath)};
+      let { onWorkspace } = $props();
+      let workspace = $state({ ui: { linkPrompt: null }, tabs: { session: {} } });
+      onWorkspace(workspace);
+    </script>
+    <Prompts {workspace} />
+  `, { generate: 'client' }).js.code))
+  await run('task-link-focus', `
+    import assert from 'node:assert/strict';
+    import { JSDOM } from ${JSON.stringify(new URL('node_modules/jsdom/lib/api.js', root).href)};
+    const dom = new JSDOM('<!doctype html><body></body>');
+    for (const key of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'Text', 'Comment', 'Event', 'CustomEvent']) {
+      globalThis[key] = dom.window[key];
+    }
+    const { mount, unmount, flushSync } = await import(${JSON.stringify(client)});
+    const { default: Fixture } = await import(${JSON.stringify(fixture)});
+    // Load the fixture dialog before opening the prompt so the await block
+    // only needs to finish its microtasks.
+    await import(${JSON.stringify(join(directory, 'task-link-dialog.mjs'))});
+    let workspace;
+    const app = mount(Fixture, { target: document.body, props: { onWorkspace: (value) => { workspace = value; } } });
+    const focusRequests = [];
+    window.addEventListener('solus:focus-input', (event) => focusRequests.push(event.detail));
+    for (const dismiss of [
+      (modal) => modal.querySelector('input').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+      (modal) => modal.parentElement.click(),
+    ]) {
+      workspace.ui.linkPrompt = { kind: 'session-task', tabId: 'session' };
+      flushSync();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      flushSync();
+      dismiss(document.querySelector('[role="dialog"]'));
+      flushSync();
+      assert.equal(workspace.ui.linkPrompt, null);
+      assert.equal(document.querySelector('[role="dialog"]'), null);
+      assert.deepEqual(focusRequests.splice(0), [{ tabId: 'session' }]);
+    }
+    await unmount(app);
+  `)
+})
+
 test('changing the default model keeps focus on its visible icon button', async () => {
   const source = readFileSync(new URL('packages/workspace-ui/src/components/settings/ProviderInstanceModels.svelte', root), 'utf8')
   const start = source.indexOf('{#snippet defaultButton(')
