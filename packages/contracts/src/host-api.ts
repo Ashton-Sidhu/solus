@@ -708,8 +708,8 @@ export interface SolusAPI {
   appList(): Promise<AppSummary[]>
   /** What a client needs to show one app: its header and the policy of its frame. `appId` is an id or a slug. */
   appRead(request: AppRequest): Promise<AppState>
-  /** The UI of the active version; null when the app has none. */
-  appUi(request: AppRequest): Promise<AppUi | null>
+  /** One page of the UI of the active version (the main page unless `page` names another); null when the version has none. */
+  appUi(request: import('./apps').AppUiRequest): Promise<AppUi | null>
   /** The icon of the active version; null when it has none. Read it again only when `AppSummary.iconHash` changes. */
   appIcon(request: AppRequest): Promise<AppIcon | null>
   /** Runs one call for the app's UI as the caller: an operation, its storage, or an integration tool. Answers the result as JSON text. */

@@ -17,6 +17,8 @@ const ZOD_MODULE = createRequire(import.meta.url).resolve('zod')
 const BACKEND_MODULE = resolve(import.meta.dir, '../../../resources/plugins/solus/skills/visual-artifacts/assets/react/src/solus-app-backend.ts')
 /** The built UI of a test project: a source file the test builder copies, in place of a React build. */
 const TEST_UI_FILE = 'ui.built.html'
+/** The built menu-bar page of a test project, copied as `TEST_UI_FILE` is. */
+const TEST_MENU_BAR_FILE = 'menubar.built.html'
 
 export interface AppProjectFiles {
   /** The text of `app.ts`. It imports from `@solus/app/backend`. */
@@ -25,6 +27,8 @@ export interface AppProjectFiles {
   migrations?: { [name: string]: string }
   /** The built UI; omitted for an app with no UI. */
   ui?: string
+  /** The built menu-bar page; omitted for an app with none. */
+  menuBar?: string
   /** Other source files, by path from the project root. */
   source?: { [path: string]: string }
 }
@@ -41,6 +45,7 @@ export function writeAppProject(folder: string, files: AppProjectFiles): void {
   for (const [path, text] of Object.entries(files.source ?? {})) write(path, text)
   for (const [name, sql] of Object.entries(files.migrations ?? {})) write(`migrations/${name}`, sql)
   if (files.ui !== undefined) write(TEST_UI_FILE, files.ui)
+  if (files.menuBar !== undefined) write(TEST_MENU_BAR_FILE, files.menuBar)
 }
 
 /** Builds the project in `folder` into its `dist/app/`, as the host's bundler does. */
@@ -65,6 +70,7 @@ async function buildFolder(folder: string): Promise<AppBuildResult> {
   writeFileSync(join(out, 'descriptor.json'), JSON.stringify(descriptor))
   if (descriptor.operations.length === 0 && descriptor.workflows.length === 0) rmSync(backend)
   if (existsSync(join(folder, TEST_UI_FILE))) cpSync(join(folder, TEST_UI_FILE), join(out, 'ui.html'))
+  if (existsSync(join(folder, TEST_MENU_BAR_FILE))) cpSync(join(folder, TEST_MENU_BAR_FILE), join(out, 'menubar.html'))
   if (existsSync(join(folder, 'migrations'))) cpSync(join(folder, 'migrations'), join(out, 'migrations'), { recursive: true })
   return { build: await readAppBuild(folder), log: 'Test build ready.\n', ms: Date.now() - startedAt }
 }

@@ -9,6 +9,7 @@ import {
   appDeployRequestSchema,
   appFileRequestSchema,
   appRequestSchema,
+  appUiRequestSchema,
   appRevisionRequestSchema,
   appRunRequestSchema,
   appRunsRequestSchema,
@@ -71,7 +72,10 @@ export interface AppHandlerParts {
 export function registerAppHandlers(server: SolusServer, { apps, schedules, webhooks, workflows, signals, modelCalls, deployments, hostedContainers, preflights }: AppHandlerParts): void {
   server.register('appList', (_args, ctx) => apps.list(ctx))
   server.register('appRead', ([input], ctx) => apps.read(ctx, appRequestSchema.parse(input).appId))
-  server.register('appUi', ([input], ctx) => apps.ui(ctx, appRequestSchema.parse(input).appId))
+  server.register('appUi', ([input], ctx) => {
+    const request = appUiRequestSchema.parse(input)
+    return apps.ui(ctx, request.appId, request.page)
+  })
   server.register('appIcon', ([input], ctx) => apps.icon(ctx, appRequestSchema.parse(input).appId))
   server.register('appCall', ([input], ctx) => {
     const request = appCallRequestSchema.parse(input)

@@ -485,6 +485,44 @@ export interface AppState {
 export interface AppUi {
   version: number
   html: string
+  /**
+   * The size of the app's menu-bar page, for the page `main`: the desktop
+   * shows that page in a popover under the app's menu-bar item. Null when
+   * the version has no such page.
+   */
+  menuBarPage: AppMenuBarPage | null
+}
+
+/** A page of an app's UI: its main page, or its menu-bar page (`menubar.html` beside `index.html`). */
+export const APP_UI_PAGES = ['main', 'menubar'] as const
+export type AppUiPage = (typeof APP_UI_PAGES)[number]
+
+/** The file of a build that holds the menu-bar page. */
+export const APP_MENU_BAR_FILE = 'menubar.html'
+
+/** The size of the popover of a menu-bar page, in CSS pixels. */
+export interface AppMenuBarPage {
+  width: number
+  height: number
+}
+
+const MENU_BAR_DEFAULT: AppMenuBarPage = { width: 320, height: 400 }
+const clampSize = (value: number, minimum: number, maximum: number) => Math.min(Math.max(value, minimum), maximum)
+
+/**
+ * The popover size that a menu-bar page asks for:
+ * `<meta name="solus:menubar" content="width=320, height=240">`. A page with
+ * no such meta, or with a part it cannot read, gets 320 × 400; each side is
+ * held to 200–640 by 120–720, as Executor does.
+ */
+export function appMenuBarPageSize(html: string): AppMenuBarPage {
+  const meta = /<meta\b[^>]*\bname\s*=\s*["']solus:menubar["'][^>]*>/i.exec(html)?.[0] ?? ''
+  const content = /\bcontent\s*=\s*["']([^"']*)["']/i.exec(meta)?.[1] ?? ''
+  const part = (name: string, fallback: number) => Number(new RegExp(`(?:^|[\\s,])${name}\\s*=\\s*(\\d{1,4})`).exec(content)?.[1] ?? fallback)
+  return {
+    width: clampSize(part('width', MENU_BAR_DEFAULT.width), 200, 640),
+    height: clampSize(part('height', MENU_BAR_DEFAULT.height), 120, 720),
+  }
 }
 
 /** The file of an app project that holds its icon: beside `app.ts`. */
@@ -1011,6 +1049,10 @@ export interface AppActivityEvent {
 
 export const appRequestSchema = z.object({ appId: z.string().min(1) })
 export type AppRequest = z.infer<typeof appRequestSchema>
+
+/** The read of one page of an app's UI. With no page, the main page. */
+export const appUiRequestSchema = appRequestSchema.extend({ page: z.enum(APP_UI_PAGES).optional() })
+export type AppUiRequest = z.infer<typeof appUiRequestSchema>
 
 export const appCallRequestSchema = appRequestSchema.extend({
   name: appCallNameSchema,

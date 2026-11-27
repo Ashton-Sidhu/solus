@@ -27,6 +27,7 @@ import type {
   AppState,
   AppSummary,
   AppUi,
+  AppUiPage,
   AppUpdate,
   AppVersionDiff,
   AppVersionView,
@@ -42,6 +43,13 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { AppResource, appKey } from './app-resource.svelte'
 import { AppSignalTails } from './app-signal-tail.svelte'
+
+const MENU_BAR_PAGE_SUFFIX = '\nmenubar'
+
+/** The key of one page of an app's UI: the main page has the app's own key. */
+function uiKey(serverId: string, appId: string, page: AppUiPage): string {
+  return page === 'main' ? appKey(serverId, appId) : `${appKey(serverId, appId)}${MENU_BAR_PAGE_SUFFIX}`
+}
 
 /**
  * Every app this client can see (docs/plans/apps.md §9), read from each
@@ -259,14 +267,14 @@ export class AppsStore {
     return this.stateErrors.get(appKey(serverId, appId)) ?? null
   }
 
-  /** The UI of `version`: its HTML, null when the version has none, undefined until it is read. */
-  uiFor(serverId: string, appId: string, version: number | null): AppUi | null | undefined {
-    const read = this.uis.get(appKey(serverId, appId))
+  /** One page of the UI of `version`: its HTML, null when the version has none, undefined until it is read. */
+  uiFor(serverId: string, appId: string, version: number | null, page: AppUiPage = 'main'): AppUi | null | undefined {
+    const read = this.uis.get(uiKey(serverId, appId, page))
     return read && read.version === version ? read.ui : undefined
   }
 
-  uiErrorFor(serverId: string, appId: string): string | null {
-    return this.uiErrors.get(appKey(serverId, appId)) ?? null
+  uiErrorFor(serverId: string, appId: string, page: AppUiPage = 'main'): string | null {
+    return this.uiErrors.get(uiKey(serverId, appId, page)) ?? null
   }
 
   /** Rises each time a mutation changed the app's data. An open frame runs its queries again. */
@@ -366,15 +374,15 @@ export class AppsStore {
     }
   }
 
-  /** Read the UI of the active version, unless the kept one already is that version. */
-  async loadUi(serverId: string, appId: string, version: number): Promise<void> {
-    const key = appKey(serverId, appId)
+  /** Read one page of the UI of the active version, unless the kept one already is that version. */
+  async loadUi(serverId: string, appId: string, version: number, page: AppUiPage = 'main'): Promise<void> {
+    const key = uiKey(serverId, appId, page)
     if (this.uis.get(key)?.version === version || this.uisInFlight.get(key) === version) return
     const read = (this.uiReads.get(key) ?? 0) + 1
     this.uiReads.set(key, read)
     this.uisInFlight.set(key, version)
     try {
-      const ui = await serverConnections.apiFor(serverId).appUi({ appId })
+      const ui = await serverConnections.apiFor(serverId).appUi(page === 'main' ? { appId } : { appId, page })
       if (this.uiReads.get(key) !== read) return
       this.uiErrors.delete(key)
       // The host answers for the version that is active now, which a deploy can have moved.
@@ -695,10 +703,12 @@ export class AppsStore {
     this.stateErrors.delete(key)
     this.stateReads.set(key, (this.stateReads.get(key) ?? 0) + 1)
     this.statesInFlight.delete(key)
-    this.uis.delete(key)
-    this.uiErrors.delete(key)
-    this.uiReads.set(key, (this.uiReads.get(key) ?? 0) + 1)
-    this.uisInFlight.delete(key)
+    for (const pageKey of [key, `${key}${MENU_BAR_PAGE_SUFFIX}`]) {
+      this.uis.delete(pageKey)
+      this.uiErrors.delete(pageKey)
+      this.uiReads.set(pageKey, (this.uiReads.get(pageKey) ?? 0) + 1)
+      this.uisInFlight.delete(pageKey)
+    }
     this.dataVersions.delete(key)
     for (const resource of this.resources) resource.drop(key)
   }

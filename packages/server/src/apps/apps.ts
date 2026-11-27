@@ -28,6 +28,9 @@ import {
   type AppStorageOperation,
   type AppSummary,
   type AppUi,
+  type AppUiPage,
+  APP_MENU_BAR_FILE,
+  appMenuBarPageSize,
   type AppUpdate,
   type AppVersionDiff,
   type AppVersionView,
@@ -219,6 +222,8 @@ interface LoadedBuild {
   backend: string | null
   migrations: AppMigration[]
   ui: string | null | undefined
+  /** The menu-bar page; undefined until a read asks for it. */
+  menuBar: string | null | undefined
 }
 
 /** Why a preview does not answer a call that reaches past the project: an integration or a model. */
@@ -301,14 +306,22 @@ export class Apps {
     return this.state(await this.app(authority, idOrSlug), authority)
   }
 
-  /** The UI of the active version; null when the app has none. */
-  async ui(authority: AppAuthority, idOrSlug: string): Promise<AppUi | null> {
+  /**
+   * One page of the UI of the active version; null when the version has no
+   * such page. The main page names the size of the menu-bar page, so the
+   * desktop knows to show its popover without a second read.
+   */
+  async ui(authority: AppAuthority, idOrSlug: string, page: AppUiPage = 'main'): Promise<AppUi | null> {
     const app = await this.app(authority, idOrSlug)
     const version = await this.activeVersion(app)
     if (!version?.hasUi) return null
     const build = await this.build(app, version)
-    if (build.ui === undefined) build.ui = (await this.deps.repositories.readFile(app.repository, version.buildCommit, UI_FILE))?.toString('utf8') ?? null
-    return build.ui === null ? null : { version: version.number, html: build.ui }
+    const { repositories } = this.deps
+    if (build.ui === undefined) build.ui = (await repositories.readFile(app.repository, version.buildCommit, UI_FILE))?.toString('utf8') ?? null
+    if (build.menuBar === undefined) build.menuBar = (await repositories.readFile(app.repository, version.buildCommit, APP_MENU_BAR_FILE))?.toString('utf8') ?? null
+    const html = page === 'menubar' ? build.menuBar : build.ui
+    if (html === null) return null
+    return { version: version.number, html, menuBarPage: build.menuBar === null ? null : appMenuBarPageSize(build.menuBar) }
   }
 
   /** The icon of the active version; null when it has none. The build checked it, so a client shows it as it is. */
@@ -564,7 +577,7 @@ export class Apps {
     version.buildCommit = await this.deps.repositories.commitBuild(app.repository, { number, revision, files: buildFiles(build), at: now })
     Object.assign(version, { descriptor: build.descriptor, hasBackend: build.backend !== null, hasUi: build.ui !== null, iconHash: build.icon === null ? null : appIconHash(build.icon), buildLog: built.log, buildMs: built.ms })
     await saveVersionBuild(version)
-    this.builds.set(app.id, { version: number, backend: build.backend, migrations: build.migrations, ui: build.ui })
+    this.builds.set(app.id, { version: number, backend: build.backend, migrations: build.migrations, ui: build.ui, menuBar: build.menuBar })
     const error = await this.makeActive(app, version, input.createdBy)
     if (error) {
       // The failed version's files must not answer for the version that still runs.
@@ -925,7 +938,7 @@ export class Apps {
       const sql = await repositories.readFile(app.repository, version.buildCommit, path)
       if (sql) migrations.push({ name: path.slice(MIGRATIONS_FOLDER.length + 1), sql: sql.toString('utf8') })
     }
-    const build: LoadedBuild = { version: version.number, backend, migrations, ui: undefined }
+    const build: LoadedBuild = { version: version.number, backend, migrations, ui: undefined, menuBar: undefined }
     this.builds.set(app.id, build)
     return build
   }

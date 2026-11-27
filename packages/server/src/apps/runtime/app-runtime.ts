@@ -303,7 +303,7 @@ export class AppRuntime {
       }
       const buildCommit = await this.builds.commitBuild(app.repository, {
         number: push.number, revision: push.sourceCommit, at,
-        files: buildFiles({ descriptor, backend: push.build.backend, ui: push.build.ui, icon: null, migrations: push.build.migrations }),
+        files: buildFiles({ descriptor, backend: push.build.backend, ui: push.build.ui, menuBar: null, icon: null, migrations: push.build.migrations }),
       })
       await saveVersionBuild({ appId: app.id, number: push.number, buildCommit, descriptor, hasBackend: push.build.backend !== null, hasUi: push.build.ui !== null, iconHash: null, buildLog: null, buildMs: null })
     }

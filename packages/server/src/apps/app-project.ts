@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { APP_ICON_FILE, APP_PROTOCOLS, appDescriptorSchema, type AppDescriptor } from '@solus/contracts/apps'
+import { APP_ICON_FILE, APP_MENU_BAR_FILE, APP_PROTOCOLS, appDescriptorSchema, type AppDescriptor } from '@solus/contracts/apps'
 import { z } from 'zod'
 import { appIconProblem } from './app-icon'
 import type { AppFile } from './app-repository'
@@ -45,6 +45,8 @@ export interface AppBuild {
   backend: string | null
   /** The UI, one built HTML file; null when the app has none. */
   ui: string | null
+  /** The menu-bar page, one built HTML file (`menubar.html`); null when the app has none. */
+  menuBar: string | null
   /** The project's `icon.svg`, checked; null when it has none and the tile is the monogram. */
   icon: string | null
   migrations: AppMigration[]
@@ -78,9 +80,11 @@ export async function readAppBuild(project: string): Promise<AppBuild> {
   if (!descriptor.success) throw new AppProjectError(`The descriptor is not valid: ${z.prettifyError(descriptor.error)}`)
   const backend = await readOptional(join(folder, BACKEND_FILE), MAX_BACKEND_BYTES, 'The backend module')
   const ui = await readOptional(join(folder, UI_FILE), MAX_UI_BYTES, 'The UI')
+  const menuBar = await readOptional(join(folder, APP_MENU_BAR_FILE), MAX_UI_BYTES, 'The menu-bar page')
+  if (menuBar !== null && ui === null) throw new AppProjectError('The build has a menu-bar page and no UI. A menu-bar page is a second page of an app with a UI.')
   if ((descriptor.data.operations.length > 0 || descriptor.data.workflows.length > 0) && backend === null) throw new AppProjectError(`The descriptor declares operations, and the build wrote no ${APP_BUILD_FOLDER}/${BACKEND_FILE}.`)
   if (backend === null && ui === null) throw new AppProjectError('This app has no UI and no operation. Add a UI in src/, or an operation in app.ts.')
-  return { descriptor: descriptor.data, backend, ui, icon: await readAppIcon(project), migrations: await readMigrations(join(folder, MIGRATIONS_FOLDER)) }
+  return { descriptor: descriptor.data, backend, ui, menuBar, icon: await readAppIcon(project), migrations: await readMigrations(join(folder, MIGRATIONS_FOLDER)) }
 }
 
 /** The project's icon, as the build keeps it. An icon that is not a plain, self-contained SVG stops the build with the reason. */
@@ -117,6 +121,7 @@ export function buildFiles(build: AppBuild): AppFile[] {
   const files: AppFile[] = [{ path: DESCRIPTOR_FILE, bytes: Buffer.from(JSON.stringify(build.descriptor)) }]
   if (build.backend !== null) files.push({ path: BACKEND_FILE, bytes: Buffer.from(build.backend) })
   if (build.ui !== null) files.push({ path: UI_FILE, bytes: Buffer.from(build.ui) })
+  if (build.menuBar !== null) files.push({ path: APP_MENU_BAR_FILE, bytes: Buffer.from(build.menuBar) })
   if (build.icon !== null) files.push({ path: APP_ICON_FILE, bytes: Buffer.from(build.icon) })
   for (const migration of build.migrations) files.push({ path: `${MIGRATIONS_FOLDER}/${migration.name}`, bytes: Buffer.from(migration.sql) })
   return files

@@ -13,6 +13,11 @@ import { fileURLToPath } from 'node:url'
 
 const APP_ENTRIES = ['app.ts', 'app.js']
 const APP_BUILD_FOLDER = 'dist/app'
+// The menu-bar page of an app (the desktop's popover under its menu-bar item):
+// its shell beside index.html, its entry beside src/main.tsx, and the page in the build.
+const MENU_BAR_SHELL = 'menubar.html'
+const MENU_BAR_ENTRY = 'src/menubar.tsx'
+const MENU_BAR_PAGE = 'menubar.html'
 
 /** Asks the built backend what it declares, in a process of its own: loading it runs the app's top-level code. */
 const DESCRIBE_SCRIPT = `
@@ -77,7 +82,7 @@ async function writeAtomically(path, text) {
 }
 
 /** Writes dist/app/ whole: a file a build no longer makes must not stay from the build before it. */
-async function writeAppBuild(projectDirectory, backend, html) {
+async function writeAppBuild(projectDirectory, backend, html, menuBarHtml = null) {
   const folder = resolve(projectDirectory, APP_BUILD_FOLDER)
   // A backend with only workflows still runs: a schedule of a later version, or the owner, starts them.
   const hasOperations = backend.descriptor.operations.length > 0 || (backend.descriptor.workflows ?? []).length > 0
@@ -86,24 +91,26 @@ async function writeAppBuild(projectDirectory, backend, html) {
   else await rm(resolve(folder, 'backend.cjs'), { force: true })
   if (html !== null) await writeAtomically(resolve(folder, 'ui.html'), html)
   else await rm(resolve(folder, 'ui.html'), { force: true })
+  if (menuBarHtml !== null) await writeAtomically(resolve(folder, MENU_BAR_PAGE), menuBarHtml)
+  else await rm(resolve(folder, MENU_BAR_PAGE), { force: true })
   const migrations = resolve(folder, 'migrations')
   await rm(migrations, { recursive: true, force: true })
   const source = resolve(projectDirectory, 'migrations')
   const names = (await readdir(source).catch(() => [])).filter((name) => name.endsWith('.sql')).sort()
   if (names.length > 0) await mkdir(migrations, { recursive: true })
   for (const name of names) await cp(resolve(source, name), resolve(migrations, name))
-  return { folder, operations: backend.descriptor.operations.length, migrations: names.length, hasUi: html !== null }
+  return { folder, operations: backend.descriptor.operations.length, migrations: names.length, hasUi: html !== null, hasMenuBarPage: menuBarHtml !== null }
 }
 
-export function assembleHtml(shell, javascript, css) {
+export function assembleHtml(shell, javascript, css, shellName = 'index.html') {
   for (const marker of ['<!-- artifact:styles -->', '<!-- artifact:script -->']) {
-    if (shell.split(marker).length !== 2) throw new Error(`index.html must contain exactly one ${marker}`)
+    if (shell.split(marker).length !== 2) throw new Error(`${shellName} must contain exactly one ${marker}`)
   }
   if (!/<!doctype html>/i.test(shell) || !/<title>[^<]+<\/title>/i.test(shell)) {
-    throw new Error('index.html needs a doctype and a non-empty title.')
+    throw new Error(`${shellName} needs a doctype and a non-empty title.`)
   }
   if (/<script\b|<link\b|\b(?:src|href)\s*=\s*["'](?!data:|#)/i.test(shell)) {
-    throw new Error('Keep index.html free of scripts and external assets. Import assets from src instead.')
+    throw new Error(`Keep ${shellName} free of scripts and external assets. Import assets from src instead.`)
   }
   const safeScript = javascript
     .replace(/<!--/g, '\\x3c!--')
@@ -114,26 +121,12 @@ export function assembleHtml(shell, javascript, css) {
     .replace('<!-- artifact:script -->', () => `<script>${safeScript}</script>`)
 }
 
-export async function bundleArtifact(directory) {
-  const projectDirectory = await realpath(resolve(directory))
-  const require = createRequire(resolve(projectDirectory, 'package.json'))
-  const { build } = require('esbuild')
-  const postcss = require('postcss')
-  const tailwind = require('@tailwindcss/postcss')
-  const typescriptManifest = require.resolve('typescript/package.json')
-  const typescript = require('typescript/package.json')
-  const typecheck = resolve(dirname(typescriptManifest), typescript.bin.tsc)
-  execFileSync(process.execPath, [typecheck, '--noEmit', '--project', resolve(projectDirectory, 'tsconfig.json')], {
-    cwd: projectDirectory,
-    stdio: 'inherit',
-  })
-  const backend = await buildBackend(projectDirectory, build)
-  // An app with `ui: false` has no page: its operations are what an agent, a schedule, and a webhook call.
-  if (backend && !backend.ui) return { output: null, bytes: 0, app: await writeAppBuild(projectDirectory, backend, null) }
+/** One page: an entry in src/ bundled into its HTML shell, with the project's stylesheet. */
+async function bundlePage(projectDirectory, build, postcss, tailwind, entry, shellName) {
   const stylesheet = resolve(projectDirectory, 'src/styles.css')
   const result = await build({
     absWorkingDir: projectDirectory,
-    entryPoints: ['src/main.tsx'],
+    entryPoints: [entry],
     outfile: 'artifact.js',
     bundle: true,
     write: false,
@@ -171,13 +164,47 @@ export async function bundleArtifact(directory) {
   if (scripts.length !== 1 || styles.length > 1 || scripts.length + styles.length !== result.outputFiles.length) {
     throw new Error('Expected one JavaScript bundle and at most one stylesheet, with no separate assets or chunks.')
   }
-  const shell = await readFile(resolve(projectDirectory, 'index.html'), 'utf8')
-  const html = assembleHtml(shell, scripts[0].text, styles[0]?.text ?? '')
+  const shell = await readFile(resolve(projectDirectory, shellName), 'utf8')
+  const html = assembleHtml(shell, scripts[0].text, styles[0]?.text ?? '', shellName)
+  if (Buffer.byteLength(html) > 8 * 1024 * 1024) throw new Error(`${shellName} exceeds 8 MiB. Reduce data, assets, or dependencies.`)
+  return html
+}
+
+/**
+ * The app's menu-bar page, when it has one: menubar.html with src/menubar.tsx.
+ * Null without both files; one without the other is a mistake the build names.
+ */
+async function bundleMenuBarPage(projectDirectory, build, postcss, tailwind) {
+  const hasShell = existsSync(resolve(projectDirectory, MENU_BAR_SHELL))
+  const hasEntry = existsSync(resolve(projectDirectory, MENU_BAR_ENTRY))
+  if (!hasShell && !hasEntry) return null
+  if (!hasShell) throw new Error(`${MENU_BAR_ENTRY} needs ${MENU_BAR_SHELL} beside index.html, with <meta name="solus:menubar" content="width=320, height=240">.`)
+  if (!hasEntry) throw new Error(`${MENU_BAR_SHELL} needs its entry, ${MENU_BAR_ENTRY}.`)
+  return bundlePage(projectDirectory, build, postcss, tailwind, MENU_BAR_ENTRY, MENU_BAR_SHELL)
+}
+
+export async function bundleArtifact(directory) {
+  const projectDirectory = await realpath(resolve(directory))
+  const require = createRequire(resolve(projectDirectory, 'package.json'))
+  const { build } = require('esbuild')
+  const postcss = require('postcss')
+  const tailwind = require('@tailwindcss/postcss')
+  const typescriptManifest = require.resolve('typescript/package.json')
+  const typescript = require('typescript/package.json')
+  const typecheck = resolve(dirname(typescriptManifest), typescript.bin.tsc)
+  execFileSync(process.execPath, [typecheck, '--noEmit', '--project', resolve(projectDirectory, 'tsconfig.json')], {
+    cwd: projectDirectory,
+    stdio: 'inherit',
+  })
+  const backend = await buildBackend(projectDirectory, build)
+  // An app with `ui: false` has no page: its operations are what an agent, a schedule, and a webhook call.
+  if (backend && !backend.ui) return { output: null, bytes: 0, app: await writeAppBuild(projectDirectory, backend, null) }
+  const html = await bundlePage(projectDirectory, build, postcss, tailwind, 'src/main.tsx', 'index.html')
   const bytes = Buffer.byteLength(html)
-  if (bytes > 8 * 1024 * 1024) throw new Error('Artifact exceeds 8 MiB. Reduce data, assets, or dependencies.')
+  const menuBarHtml = backend ? await bundleMenuBarPage(projectDirectory, build, postcss, tailwind) : null
   const output = resolve(projectDirectory, 'bundle.html')
   await writeAtomically(output, html)
-  return { output, bytes, app: backend ? await writeAppBuild(projectDirectory, backend, html) : null }
+  return { output, bytes, app: backend ? await writeAppBuild(projectDirectory, backend, html, menuBarHtml) : null }
 }
 
 // Compare real paths: the skill is often reached through a symlink (~/.solus/plugins),
@@ -191,7 +218,7 @@ if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(f
       const { output, bytes, app } = await bundleArtifact(process.argv[2] ?? process.cwd())
       if (output) console.log(`Artifact ready: ${output} (${Math.ceil(bytes / 1024)} KiB)`)
       if (app) {
-        console.log(`App build ready: ${app.folder} (${app.operations} operation${app.operations === 1 ? '' : 's'}, ${app.migrations} migration${app.migrations === 1 ? '' : 's'}, ${app.hasUi ? 'with a UI' : 'no UI'}).`)
+        console.log(`App build ready: ${app.folder} (${app.operations} operation${app.operations === 1 ? '' : 's'}, ${app.migrations} migration${app.migrations === 1 ? '' : 's'}, ${app.hasUi ? 'with a UI' : 'no UI'}${app.hasMenuBarPage ? ' and a menu-bar page' : ''}).`)
         console.log(app.hasUi ? 'Check it with preview_app and this folder as path, then save it with save_app and deploy it with deploy_app.' : 'Save it with save_app and this folder as path, then deploy it with deploy_app.')
       }
     } catch (error) {
