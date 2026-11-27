@@ -94,6 +94,19 @@ describe('session shell reducer', () => {
     expect(next.cursor.sequence).toBe(7)
   })
 
+  test("an activity change sets the agent's activity of the row it names, and of no row the phone does not hold", () => {
+    const held = snapshot(5, [row('s1', 3), row('s2', 2)])
+    const next = applySessionShellChanges(held, {
+      cursor: cursor(7),
+      changes: [{ kind: 'row.activity', sessionId: 's1', agentActivity: 'edit' }, { kind: 'row.activity', sessionId: 'gone', agentActivity: 'run' }],
+    })
+    expect(next.rows.map(item => [item.record.sessionId, item.agentActivity])).toEqual([['s1', 'edit'], ['s2', null]])
+    expect(next.rows[0]!.record).toBe(held.rows[0]!.record)
+    expect(next.rows[1]).toBe(held.rows[1]!)
+    // The same activity again changes nothing.
+    expect(applySessionShellChanges(next, { cursor: cursor(7), changes: [{ kind: 'row.activity', sessionId: 's1', agentActivity: 'edit' }] })).toBe(next)
+  })
+
   test('a change that repeats a row keeps the row and the snapshot', () => {
     const held = snapshot(5, [row('s1', 3)])
     expect(applySessionShellChanges(held, { cursor: cursor(5), changes: [{ kind: 'row.updated', row: row('s1', 3) }] })).toBe(held)

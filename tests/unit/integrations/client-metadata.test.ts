@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { clientMetadataDocumentSchema, isClientIdUrl, namesItsUrl, SOLUS_CLIENT_ID_URL, SOLUS_CLIENT_METADATA } from '@solus/contracts/integrations/client-metadata-document'
 import { DEFAULT_DESKTOP_SERVER_PORT, DEFAULT_SERVER_PORT } from '@solus/contracts/types'
 import { INTEGRATION_OAUTH_CALLBACK_PATH } from '@solus/server/integrations/oauth'
+import { INTEGRATION_OAUTH_LOOPBACK_URL } from '@solus/contracts/integrations/oauth-callback'
 import { PublishedClientMetadata } from '@solus/server/integrations/client-metadata'
 import { GET } from '../../../apps/site/src/routes/oauth/client-metadata.json/+server'
 
@@ -60,10 +61,15 @@ describe('the document the site serves', () => {
     }
   })
 
-  test('names the callback the desktop host and a standalone host build on loopback, on their default ports', () => {
+  test('names the loopback callback a host on this build sends for a browser on the host', () => {
+    // WHY: the host signs in with the document only for a callback it names; without this one, every desktop sign-in registers dynamically.
+    expect(SOLUS_CLIENT_METADATA.redirect_uris).toContain(INTEGRATION_OAUTH_LOOPBACK_URL)
+  })
+
+  test('still names the host routes that hosts before the loopback callback build, on their default ports', () => {
     for (const port of [DEFAULT_DESKTOP_SERVER_PORT, DEFAULT_SERVER_PORT]) {
       for (const host of ['127.0.0.1', 'localhost']) {
-        // WHY: the host signs in with the document only for a callback it names; these are the ones Solus builds.
+        // WHY: an older host reads the same published document; dropping these would send its sign-ins to dynamic registration.
         expect(SOLUS_CLIENT_METADATA.redirect_uris).toContain(`http://${host}:${port}${INTEGRATION_OAUTH_CALLBACK_PATH}`)
       }
     }

@@ -3,6 +3,7 @@
   import type { TurnFlag, TurnFlagKind } from "@solus/contracts/observability-types";
   import { Button } from "../ui/button";
   import * as Popover from "../ui/popover";
+  import { runtime } from "../../contexts";
   import { Textarea } from "../ui/textarea";
   import { flagChoice, flagColor, flagTitle, TURN_FLAG_CHOICES } from "./lib/turn-flags";
 
@@ -41,6 +42,20 @@
     if (!flag) return;
     if (noteDraft.trim() === flag.note) return;
     onSet(flag.kind, noteDraft);
+  }
+
+  /** Set when a first mark is chosen, so the note box that then appears takes focus. */
+  let asksForNote = false;
+
+  function choose(kind: TurnFlagKind): void {
+    asksForNote = !flag;
+    onSet(kind, noteDraft);
+  }
+
+  function focusNewNote(element: HTMLTextAreaElement): void {
+    if (!asksForNote) return;
+    asksForNote = false;
+    if (!runtime.shouldSuppressFocus) element.focus();
   }
 
   function clear(): void {
@@ -94,7 +109,7 @@
           class="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-workspace-chrome outline-none transition-colors hover:bg-[var(--wash-2)] focus-visible:bg-[var(--wash-2)] pointer-coarse:tap-area {selected
             ? 'text-foreground'
             : 'text-muted-foreground hover:text-foreground'}"
-          onclick={() => onSet(choice.kind, noteDraft)}
+          onclick={() => choose(choice.kind)}
         >
           <choice.icon class="size-3.5 shrink-0" style="color:{flagColor(choice.kind)}" aria-hidden="true" />
           <span class="flex-1 truncate">{choice.label}</span>
@@ -113,6 +128,7 @@
           placeholder="Why? Saved when you leave the field."
           aria-label="Why this turn is marked"
           bind:value={noteDraft}
+          {@attach focusNewNote}
           onblur={saveNote}
           onkeydown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {

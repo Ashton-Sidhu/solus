@@ -98,7 +98,8 @@ export interface CommandProcessAction {
 /**
  * The state of the person's process of one command, as every client shows it.
  * `not-started`: none ran yet. `stopped`: it stopped when idle, on Stop, or
- * when the host stopped; the next use starts it. `ended`: it stopped by
+ * when the host stopped; the next use starts it. Both read "Ready" when
+ * nothing blocks a start, except after Stop. `ended`: it stopped by
  * itself; the next use starts it. `failed`, `not-installed`, `cannot-run`:
  * only Start again starts it.
  */
@@ -155,15 +156,19 @@ export function commandProcessStatus(input: CommandProcessInput): CommandProcess
   const process = input.facts?.process
   if (!process) return status('checking', 'Checking…', 'muted', null, [])
   const stderrTail = process.stderrTail?.trim() ? process.stderrTail : null
+  // A command that is not running but that nothing blocks is ready: an agent's next call starts it.
+  const idleLabel = blockedReason === null ? 'Ready' : 'Stopped'
+  const idleTone: CommandProcessStatus['tone'] = blockedReason === null ? 'ready' : 'muted'
   switch (process.state) {
     case 'running':
       return status('running', 'Running', 'ready', null, actions('stop', 'test-again'))
     case 'stopped':
       if (process.message) return status('ended', 'Stopped by itself', 'attention', `${process.message} The next use starts it again.`, actions('start-again', 'test-again'), stderrTail)
-      if (process.stopReason) return status('stopped', 'Stopped', 'muted', `${STOP_REASON_TEXT[process.stopReason]} The next use starts it again.`, actions('start', 'test-again'))
+      if (process.stopReason === 'stop') return status('stopped', 'Stopped', 'muted', `${STOP_REASON_TEXT.stop} The next use starts it again.`, actions('start', 'test-again'))
+      if (process.stopReason) return status('stopped', idleLabel, idleTone, `${STOP_REASON_TEXT[process.stopReason]} The next use starts it again.`, actions('start', 'test-again'))
       // A saved verdict or saved facts mean it ran before this host started: it stopped with the host.
-      if (input.facts?.era) return status('stopped', 'Stopped', 'muted', 'It stops after 10 minutes without use. The next use starts it again.', actions('start', 'test-again'))
-      return status('not-started', 'Not started', 'muted', 'It starts when an agent first uses it. Start and test it now to see its tools.', actions('start'))
+      if (input.facts?.era) return status('stopped', idleLabel, idleTone, 'It stops after 10 minutes without use. The next use starts it again.', actions('start', 'test-again'))
+      return status('not-started', blockedReason === null ? 'Ready' : 'Not started', idleTone, 'It starts when an agent first uses it. Start and test it now to see its tools.', actions('start'))
     case 'failed':
       if (process.startFailure === 'not-installed') return status('not-installed', 'Not installed', 'error', process.message ?? null, actions('start-again'), stderrTail)
       if (process.startFailure === 'not-runnable') return status('cannot-run', 'Cannot run', 'error', process.message ?? null, actions('start-again'), stderrTail)

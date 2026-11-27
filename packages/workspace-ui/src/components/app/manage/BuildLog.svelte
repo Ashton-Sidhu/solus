@@ -3,6 +3,7 @@
   import { appsStore } from "../../../contexts/apps/apps.store.svelte";
   import { formatDuration } from "../../insights/lib/format";
   import { Button } from "../../ui/button";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
 
   /** The text of one version's build (docs/plans/apps.md §1). A build that still runs has more text later: the owner reads it again. */
   interface Props {
@@ -34,14 +35,18 @@
       {/if}
     </div>
     {#if answer.log}
-      <pre class="m-0 max-h-96 overflow-auto rounded-md bg-muted/50 p-2 font-mono text-xs whitespace-pre">{answer.log}</pre>
+      <pre class="m-0 max-h-96 overflow-auto rounded-[10px] bg-[var(--wash-2)] px-3 py-2.5 font-mono text-xs whitespace-pre">{answer.log}</pre>
     {:else}
       <p class="m-0 text-xs text-muted-foreground">{isBuilding ? "The build wrote no text yet." : "The build wrote no text."}</p>
     {/if}
   </div>
 {:catch error}
-  <div class="flex flex-wrap items-center gap-2" role="alert">
-    <span class="text-xs text-destructive">{error instanceof Error ? error.message : "Could not load the build log."}</span>
-    <Button size="xs" variant="outline" onclick={() => (attempt += 1)}>Try again</Button>
-  </div>
+  <MarkdownAlert alertType="error">
+    {#snippet content()}
+      <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs">
+        <p class="m-0 min-w-0 flex-1 text-pretty text-foreground" role="alert">{error instanceof Error ? error.message : "Could not load the build log."}</p>
+        <Button size="xs" variant="link" class="h-auto px-0" onclick={() => (attempt += 1)}>Try again</Button>
+      </div>
+    {/snippet}
+  </MarkdownAlert>
 {/await}

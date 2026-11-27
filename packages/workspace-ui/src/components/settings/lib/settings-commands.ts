@@ -1,4 +1,4 @@
-import { Building2, Cloud, FileSearch, FolderGit2, RefreshCw, Share2, ShieldCheck, SquareTerminal, Webhook } from '@lucide/svelte'
+import { Building2, Cloud, FileSearch, FolderGit2, Gauge, RefreshCw, Share2, ShieldCheck, SquareTerminal, Webhook } from '@lucide/svelte'
 import type { Via } from '@solus/contracts/analytics-events'
 import type { Command } from '../../command-palette/lib/commands'
 import type { SettingsTab } from '../../../contexts/workspace/routing/route-registry'
@@ -26,6 +26,13 @@ export function settingsOwnerCommands(shell: { showSettings(tab: SettingsTab, vi
     icon: Building2,
     keywords: ['organization', 'projects', 'owner', 'team'],
     run: () => shell.showSettings('organization', 'palette'),
+  }, {
+    id: 'open-usage-settings',
+    label: 'Open usage',
+    group: 'General',
+    icon: Gauge,
+    keywords: ['usage', 'usage limits', 'usage settings', 'quota', 'limits', 'rate limit', 'remaining', 'left', 'pace', 'reset', 'subscription', 'harness', 'claude', 'codex', 'antigravity'],
+    run: () => shell.showSettings('usage', 'palette'),
   }, {
     id: 'open-policy',
     label: 'Policy',

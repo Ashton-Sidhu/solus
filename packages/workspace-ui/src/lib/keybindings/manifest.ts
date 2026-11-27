@@ -12,7 +12,7 @@ export const KEYBINDINGS = {
   'global.new-session-without-task': { combo: { mod: true, alt: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyU' }, scope: 'global', label: 'New session without issue', group: 'Sessions' },
   // Browsers reserve the desktop combo for a private window.
   'global.new-chat':          { combo: { mod: true, shift: true, code: 'KeyN' }, web: { mod: true, alt: true, code: 'KeyN' }, scope: 'global', label: 'New chat', group: 'Sessions' },
-  'global.new-session-in-task': { combo: null,                                             scope: 'global',             label: 'New session in issue',     group: 'Sessions' },
+  'global.new-session-in-task': { combo: null,                                             scope: 'global',             label: 'New session in current issue', group: 'Sessions' },
   'global.new-task':          { combo: null,                                             scope: 'global',             label: 'New issue',                group: 'Issues' },
   'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'Toggle split chat',        group: 'Tabs' },
   'global.fork-tab':          { combo: { alt: true, code: 'KeyF' },                       scope: 'global',             label: 'Fork session',             group: 'Tabs' },
@@ -247,6 +247,8 @@ export const KEYBINDINGS = {
   // ⌥G for "manaGe" (docs/plans/apps.md §9.2). Not ⌥M: that key is the pane's,
   // and an app opens in a companion pane, where the pane needs it.
   'app-surface.toggle-manage':     { combo: { alt: true, code: 'KeyG' },                   scope: 'app-surface',        label: 'Switch between the app and Manage', group: 'App' },
+  // "/" focuses the search of a Manage section that has one (Files), as on the list pages.
+  'app-manage.focus-search':       { combo: { code: 'Slash' },                              scope: 'app-surface',        label: 'Focus search',             group: 'App' },
 
   // ── Shortcuts help modal ───────────────────────────────────────────────────
 

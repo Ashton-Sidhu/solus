@@ -2,10 +2,13 @@ import { describe, expect, jest, test } from 'bun:test'
 import { TEST_HANDLER_CTX, localOwnerCtx } from './helpers/handler-ctx'
 import type { AgentUsageLimits } from '@solus/contracts/types'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
+import { newProviderInstance } from '@solus/contracts/provider-instances'
 import type { HandlerCtx } from '@solus/server/transport/server'
 import { registerUsageHandlers } from '@solus/server/transport/handlers/usage-handlers'
 import { SolusServer } from '@solus/server/transport/server'
 import { UsageLimitsStore } from '@solus/server/usage/usage-store'
+import { withActingScope } from '@solus/server/vault/acting-scope'
+import { identityFor } from '@solus/server/execution/seats/acting-identity'
 import { installTestIdentities } from './helpers/acting-identities'
 
 const BOB_SEAT: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'bob' } }
@@ -216,5 +219,100 @@ describe('usage handlers', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(published.at(-1)).toMatchObject([{ provider: 'claude-code' }])
     expect(await server.handle('usageLimits', [], bob)).toMatchObject([{ provider: 'claude-code' }])
+  })
+
+  test('force refresh bypasses the 5-minute cache and re-reads usage', async () => {
+    const server = new SolusServer()
+    let reads = 0
+    registerUsageHandlers(server, {
+      sessionRuntime: {
+        history: {
+          usageCapableAgents: () => ['codex'],
+          readUsageLimits: async () => {
+            reads += 1
+            return {
+              provider: 'codex',
+              fiveHour: { usedPercent: reads * 10, resetsAt: null, resetsLabel: null },
+              weekly: null,
+              planType: 'Plus',
+              fetchedAt: reads,
+              stale: false,
+            }
+          },
+        },
+        usageLimits: new UsageLimitsStore(),
+      } as never,
+      events: { broadcast: () => 1 } as never,
+    })
+
+    const initial = await server.handle('usageLimits', [], TEST_HANDLER_CTX)
+    expect(initial[0]?.fiveHour?.usedPercent).toBe(10)
+    // Cached read within the 5-minute window does not re-probe.
+    const cached = await server.handle('usageLimits', [], TEST_HANDLER_CTX)
+    expect(cached[0]?.fiveHour?.usedPercent).toBe(10)
+    expect(reads).toBe(1)
+
+    // Forced refresh probes again immediately.
+    const forced = await server.handle('usageLimits', [{ force: true }], TEST_HANDLER_CTX)
+    expect(forced[0]?.fiveHour?.usedPercent).toBe(20)
+    expect(reads).toBe(2)
+  })
+
+  test('reads usage for enabled extra configured provider instances and invalidates on change', async () => {
+    const server = new SolusServer()
+    const seenRuntimes: Array<string | undefined> = []
+    const builtIn = newProviderInstance('codex', 'codex', 'Codex')
+    const work = { ...newProviderInstance('codex', 'work-codex', 'Work Codex'), homePath: '~/.codex-work' }
+    const disabled = { ...newProviderInstance('codex', 'off-codex', 'Off Codex'), enabled: false, homePath: '~/.codex-off' }
+
+    const watches = registerUsageHandlers(server, {
+      sessionRuntime: {
+        history: {
+          usageCapableAgents: () => ['codex'],
+          readUsageLimits: async (_agentId: string, _seat: unknown, runtime?: { homePath?: string }) => {
+            seenRuntimes.push(runtime?.homePath)
+            return {
+              provider: 'codex',
+              fiveHour: { usedPercent: runtime?.homePath ? 75 : 25, resetsAt: null, resetsLabel: null },
+              weekly: null,
+              planType: 'Plus',
+              fetchedAt: Date.now(),
+              stale: false,
+            }
+          },
+        },
+        usageLimits: new UsageLimitsStore(),
+      } as never,
+      events: { broadcast: () => 1 } as never,
+      providerInstances: {
+        snapshot: () => ({
+          revision: 1,
+          configurationVersion: 2,
+          projects: [],
+          instances: [builtIn, work, disabled],
+          selected: { 'claude-code': 'claude-code', codex: 'codex', antigravity: 'antigravity' },
+          healthCheckSeconds: 300,
+          idleCompaction: 'onReturn',
+        }),
+      },
+    })
+
+    const snapshots = await withActingScope(
+      { personKey: 'owner', identity: identityFor(HOST_LOGIN_SEAT) },
+      () => server.handle('usageLimits', [], TEST_HANDLER_CTX),
+    )
+
+    expect(snapshots).toHaveLength(2)
+    expect(snapshots[0]).toMatchObject({ provider: 'codex', instanceId: 'codex', instanceLabel: 'Codex' })
+    expect(snapshots[1]).toMatchObject({ provider: 'codex', instanceId: 'work-codex', instanceLabel: 'Work Codex' })
+    expect(snapshots[1]?.fiveHour?.usedPercent).toBe(75)
+    expect(seenRuntimes).toHaveLength(2)
+
+    watches.providerInstancesChanged()
+    await withActingScope(
+      { personKey: 'owner', identity: identityFor(HOST_LOGIN_SEAT) },
+      () => server.handle('usageLimits', [], TEST_HANDLER_CTX),
+    )
+    expect(seenRuntimes).toHaveLength(4)
   })
 })

@@ -107,6 +107,7 @@ describe('first-party clients on this host', () => {
       // SAFETY: a sign-in start reaches only the clients and the fetch.
       connections: {} as never, integrations: { get: () => null }, vault: { save: () => {} }, clients: memoryClients(),
       events: { connectionChanged: () => {}, authFinished: () => {} },
+      loopbackPort: 0,
       fetch: async (input) => String(input) === discover ? Response.json(google) : String(input) === SOLUS_CLIENT_ID_URL ? Response.json(SOLUS_CLIENT_METADATA) : new Response(null, { status: 404 }),
     })
     const calendar: Integration = { ...GITHUB_MCP, id: 'int-cal', url: 'solus:google-calendar', auth: { kind: 'oauth', discover, registration: 'metadata-document', firstParty: 'google' } }

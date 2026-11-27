@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { delegatedRows, nestedRequestMark, nestedRowParents, nestedStateMarks, visibleNestedSessions } from '@solus/workspace-ui/components/session/lib/session-tree'
 import type { SidebarSession } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
+import { parentSessionIdOf } from '@solus/workspace-ui/contexts/workspace/session.utils'
 
 type Row = Pick<SidebarSession, 'id' | 'lifecycle'>
 
@@ -154,5 +155,15 @@ describe('delegated rows', () => {
     const rows = ['grandchild', 'root', 'other-child', 'child', 'cycle']
     expect(delegatedRows('root-session', rows, (row) => sessions.get(row) ?? null)).toEqual(['child', 'grandchild'])
     expect(delegatedRows('child-session', rows, (row) => sessions.get(row) ?? null)).toEqual(['grandchild'])
+  })
+})
+
+describe('the parent a session nests under', () => {
+  test('an independent session nests under the session that started it, as a delegated one does', () => {
+    // WHY: independent means the session reports to no one, not that it has no
+    // parent. Its starter's row must list it and show it working.
+    expect(parentSessionIdOf({ startedBy: { kind: 'session', sessionId: 'starter' } })).toBe('starter')
+    expect(parentSessionIdOf({ startedBy: { kind: 'session', sessionId: 'remote-starter', hostLabel: 'Studio' } })).toBe('remote-starter')
+    expect(parentSessionIdOf({ startedBy: { kind: 'person', personKey: 'local' } })).toBeUndefined()
   })
 })

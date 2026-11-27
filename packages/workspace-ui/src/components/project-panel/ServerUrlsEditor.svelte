@@ -16,6 +16,12 @@
   let loading = $state(true);
   let saving = $state(false);
   let error = $state<string | null>(null);
+
+  /** The URLs box takes focus once it holds the chosen folder's URLs; until then it is disabled. */
+  function focusWhenLoaded(element: HTMLTextAreaElement): void {
+    if (loading || loadedPath !== checkoutPath) return;
+    element.focus();
+  }
   useScope('modal-dialog', { exclusive: true, pre: true });
   $effect(() => {
     const path = checkoutPath;
@@ -54,7 +60,7 @@
           </select>
         </label>
       {/if}
-      <Textarea aria-label="Server URLs" bind:value disabled={loading || saving || loadedPath !== checkoutPath} rows={5} placeholder="https://localhost:3000/admin" />
+      <Textarea aria-label="Server URLs" bind:value disabled={loading || saving || loadedPath !== checkoutPath} rows={5} placeholder="https://localhost:3000/admin" {@attach focusWhenLoaded} />
       {#if error}<p role="alert" class="text-(--solus-status-error)">{error}</p>{/if}
       <div class="flex justify-end gap-2"><Button variant="ghost" disabled={saving} onclick={onClose}>Cancel</Button><Button disabled={loading || saving || loadedPath !== checkoutPath} onclick={() => void save()}>{saving ? 'Saving…' : 'Save'}</Button></div>
     </Dialog.Content>

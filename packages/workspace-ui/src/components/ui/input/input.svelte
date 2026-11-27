@@ -1,6 +1,8 @@
 <!-- DIVERGED FROM STOCK: Solus field dictation and submit behavior lives here.
-     The field uses the shared form background, no outline at rest, and an
-     accent outline on focus.
+     The field has a hairline border at rest, so it stays visible on a white
+     surface (a page, a transcript card, a popover), and an accent border with a
+     soft ring on focus. A field that sits inside a frame of its own passes
+     `border-0 bg-transparent shadow-none`.
      The size default inherits from the surface rather than pinning a size, so a
      page declares its chrome rung once and its fields obey; `#root` in index.css
      guarantees there is always a size to inherit.
@@ -77,7 +79,7 @@
 		bind:this={ref}
 		data-slot={dataSlot}
 		class={cn(
-			"h-8 rounded-lg border-0 bg-(--solus-form-input-bg) focus-visible:ring-1 focus-visible:ring-[color:color-mix(in_oklch,var(--primary)_45%,transparent)] aria-invalid:shadow-[0_0_0_1px_color-mix(in_oklch,var(--destructive)_55%,transparent)] px-2.5 py-1 text-[length:inherit] max-md:text-[length:inherit] transition-shadow duration-150 file:h-6 file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent! disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
+			"h-8 rounded-lg border border-input bg-(--solus-form-input-bg) shadow-xs/5 focus-visible:border-(--solus-accent) focus-visible:ring-2 focus-visible:ring-[color:color-mix(in_srgb,var(--solus-accent)_30%,transparent)] aria-invalid:border-[color:color-mix(in_oklch,var(--destructive)_55%,transparent)] px-2.5 py-1 text-[length:inherit] max-md:text-[length:inherit] transition-[border-color,box-shadow] duration-150 file:h-6 file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent! disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
 			className
 		)}
 		type="file"
@@ -95,7 +97,7 @@
 			bind:this={ref}
 			data-slot={dataSlot}
 			class={cn(
-				"h-8 rounded-lg border-0 bg-(--solus-form-input-bg) focus-visible:ring-1 focus-visible:ring-[color:color-mix(in_oklch,var(--primary)_45%,transparent)] aria-invalid:shadow-[0_0_0_1px_color-mix(in_oklch,var(--destructive)_55%,transparent)] px-2.5 py-1 text-[length:inherit] max-md:text-[length:inherit] transition-shadow duration-150 file:h-6 file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent! disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
+				"h-8 rounded-lg border border-input bg-(--solus-form-input-bg) shadow-xs/5 focus-visible:border-(--solus-accent) focus-visible:ring-2 focus-visible:ring-[color:color-mix(in_srgb,var(--solus-accent)_30%,transparent)] aria-invalid:border-[color:color-mix(in_oklch,var(--destructive)_55%,transparent)] px-2.5 py-1 text-[length:inherit] max-md:text-[length:inherit] transition-[border-color,box-shadow] duration-150 file:h-6 file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent! disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
 				micShown && "pr-8",
 				field.micState === "recording" && "invisible pointer-events-none",
 				className
@@ -127,7 +129,7 @@
 		bind:this={ref}
 		data-slot={dataSlot}
 		class={cn(
-			"h-8 rounded-lg border-0 bg-(--solus-form-input-bg) focus-visible:ring-1 focus-visible:ring-[color:color-mix(in_oklch,var(--primary)_45%,transparent)] aria-invalid:shadow-[0_0_0_1px_color-mix(in_oklch,var(--destructive)_55%,transparent)] px-2.5 py-1 text-[length:inherit] max-md:text-[length:inherit] transition-shadow duration-150 file:h-6 file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent! disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
+			"h-8 rounded-lg border border-input bg-(--solus-form-input-bg) shadow-xs/5 focus-visible:border-(--solus-accent) focus-visible:ring-2 focus-visible:ring-[color:color-mix(in_srgb,var(--solus-accent)_30%,transparent)] aria-invalid:border-[color:color-mix(in_oklch,var(--destructive)_55%,transparent)] px-2.5 py-1 text-[length:inherit] max-md:text-[length:inherit] transition-[border-color,box-shadow] duration-150 file:h-6 file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent! disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
 			className
 		)}
 		{type}

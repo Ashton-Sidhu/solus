@@ -25,9 +25,9 @@ export function makeSession(
   settings: SettingsContext,
   overrides?: Partial<Omit<Session, 'run'>> & { run?: Partial<RunConfig> },
 ): Session {
-  const { run, ...rest } = overrides ?? {}
+  const { id = uuid(), run, ...rest } = overrides ?? {}
   const session: Session = {
-    id: uuid(),
+    id,
     run: makeRunConfig({ permissionMode: settings.defaultPermissionMode ?? 'full-access', ...run }),
     agentSessionId: null,
     status: 'idle',

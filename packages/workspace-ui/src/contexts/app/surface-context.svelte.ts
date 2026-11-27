@@ -11,6 +11,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import type { SettingsContext } from './settings.context.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
 import type { SessionOpening } from '../workspace/session-opening'
+import type { SessionDrafts } from '../workspace/session-drafts.svelte'
 import type { PrReviewActions } from '../workspace/pr-review-actions'
 import type { PaneId } from '../workspace/routing/location'
 import type { Via } from '@solus/contracts/analytics-events'
@@ -140,6 +141,7 @@ export type WorkspaceCommands = Pick<WorkspaceContext,
   | 'openUrlInBrowser'
   | 'showSettings'
 > & {
+  readonly drafts: Pick<SessionDrafts, 'openDraft'>
   readonly opening: Pick<SessionOpening, 'resumeSession' | 'openTaskSession' | 'openTaskLinkedSession'>
   readonly prReview: Pick<PrReviewActions, 'openReviewMode'>
 }

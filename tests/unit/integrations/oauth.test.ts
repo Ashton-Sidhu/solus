@@ -3,11 +3,15 @@ import { OAUTH_CLIENT_REQUIRED_MESSAGE } from '@solus/contracts/integrations/oau
 import { SOLUS_CLIENT_ID_URL, SOLUS_CLIENT_METADATA } from '@solus/contracts/integrations/client-metadata-document'
 import { DEFAULT_DESKTOP_SERVER_PORT } from '@solus/contracts/types'
 import { rmSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { INTEGRATION_OAUTH_LOOPBACK_URL } from '@solus/contracts/integrations/oauth-callback'
 import { join } from 'node:path'
 import { DatabaseSync } from '../helpers/bun-sqlite'
 import type { Integration, IntegrationAuthFinishedEvent, IntegrationConnectionChangedEvent } from '@solus/contracts/integration-types'
 import { resetTestDatabase } from '../helpers/test-db'
 import { startFakeServers, type FakeServers } from './fake-servers'
+import { documentNaming, freeLoopbackPort } from './loopback-port'
 import { memoryClients, memorySecretStore } from './memory-secrets'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
@@ -35,7 +39,7 @@ const START = { callbackBaseUrl: 'https://host.example', fallbackHost: '127.0.0.
 let fake: FakeServers
 let integration: Integration
 
-function setup(now = () => Date.now(), fetchImpl?: typeof fetch) {
+function setup(now = () => Date.now(), fetchImpl?: typeof fetch, loopbackPort = 0) {
   const store = new IntegrationConnectionStore()
   const secrets = memorySecretStore()
   const vault = new Vault({ secrets })
@@ -52,9 +56,12 @@ function setup(now = () => Date.now(), fetchImpl?: typeof fetch) {
     authFinished: (user: string, event: IntegrationAuthFinishedEvent) => { finished.push({ user, event }) },
   }
   const integrations = { get: (id: string) => (id === integration.id ? integration : null) }
-  const oauth = new IntegrationOAuth({ connections: store, integrations, vault, clients, events, now, fetch: fetchImpl })
+  /** The client IDs the host reported for the record, as boot writes them on it. */
+  const registered: string[] = []
+  const recordRegisteredClient = (_integration: Integration, clientId: string) => { registered.push(clientId) }
+  const oauth = new IntegrationOAuth({ connections: store, integrations, vault, clients, events, now, fetch: fetchImpl, loopbackPort, recordRegisteredClient })
   const connections = new IntegrationConnections({ store, integrations, vault, clients, oauth, events })
-  return { hostToken, store, oauth, connections, changed, finished }
+  return { hostToken, store, oauth, connections, clients, registered, changed, finished }
 }
 
 /** What the authorization server would send the browser back with, for this authorization URL. */
@@ -139,12 +146,14 @@ describe('integration OAuth', () => {
   })
 
   test('registers a client once and reuses it for the next sign-in', async () => {
-    const { oauth } = setup()
+    const { oauth, registered } = setup()
     const before = fake.registrations.length
     await startAs(ALICE, oauth)
     await startAs(BOB, oauth)
     // WHY: a registration belongs to the host per integration; one per sign-in would flood the server.
     expect(fake.registrations.length - before).toBe(1)
+    // WHY: the ID the server gave Solus goes on the record once, so the owner's client form can start from it.
+    expect(registered).toEqual([`client-${before + 1}`])
     expect(fake.registrations.at(-1)).toMatchObject({ redirect_uris: ['https://host.example/oauth/integration/callback'], token_endpoint_auth_method: 'none' })
   })
 
@@ -184,7 +193,7 @@ describe('integration OAuth', () => {
     const { oauth, connections } = setup()
     const flow = await startAs(ALICE, oauth, { fallbackHost: '127.0.0.1', fallbackPort: 4100 })
     expect(flow.input).toBe('redirect-url')
-    const pasted = `http://127.0.0.1:4100/oauth/integration/callback?${approve(flow.url)}`
+    const pasted = `${INTEGRATION_OAUTH_LOOPBACK_URL}?${approve(flow.url)}`
     // WHY: a flow id is not a credential; another person cannot finish someone else's sign-in.
     await expect(withActingScope(BOB, () => oauth.submitRedirect(flow.flowId, pasted))).rejects.toThrow(/expired/)
     await withActingScope(ALICE, () => oauth.submitRedirect(flow.flowId, pasted))
@@ -280,14 +289,16 @@ function publishing(answer: () => Response) {
 describe('the Client ID Metadata Document (§13.1)', () => {
   test('signs in with the document when it is published and the server reads such documents', async () => {
     fake.options.metadataDocument = true
-    const { fetchImpl } = publishing(() => Response.json(SOLUS_CLIENT_METADATA))
-    const { oauth, connections } = setup(undefined, fetchImpl)
+    // A test host's port stands in for the fixed one, which the document names exactly.
+    const port = await freeLoopbackPort()
+    const { fetchImpl } = publishing(() => Response.json(documentNaming(port)))
+    const { oauth, connections } = setup(undefined, fetchImpl, port)
     const before = fake.registrations.length
     const flow = await startAs(ALICE, oauth, DESKTOP)
     const url = new URL(flow.url)
     // WHY: the server reads Solus's name and callbacks from the URL; no registration is made or kept.
     expect(url.searchParams.get('client_id')).toBe(SOLUS_CLIENT_ID_URL)
-    expect(url.searchParams.get('redirect_uri')).toBe(`http://127.0.0.1:${DEFAULT_DESKTOP_SERVER_PORT}/oauth/integration/callback`)
+    expect(url.searchParams.get('redirect_uri')).toBe(`http://127.0.0.1:${port}/callback`)
     expect(fake.registrations.length).toBe(before)
     expect((await oauth.complete(approve(flow.url))).status).toBe(200)
     // A public client: the exchange names the client and sends no secret.
@@ -321,8 +332,8 @@ describe('the Client ID Metadata Document (§13.1)', () => {
     const { fetchImpl } = publishing(() => Response.json(SOLUS_CLIENT_METADATA))
     const { oauth } = setup(undefined, fetchImpl)
     const before = fake.registrations.length
-    // A host on its own origin, and the desktop host on a port that moved.
-    for (const start of [START, { ...DESKTOP, callbackBaseUrl: `http://127.0.0.1:${DEFAULT_DESKTOP_SERVER_PORT + 1}` }]) {
+    // A host on its own origin, and a loopback callback on a port the system picked.
+    for (const start of [START, DESKTOP]) {
       const flow = await startAs(ALICE, oauth, start)
       // WHY: the server compares the callback as a plain string; one the document does not list would be refused.
       expect(new URL(flow.url).searchParams.get('client_id')).not.toBe(SOLUS_CLIENT_ID_URL)
@@ -347,5 +358,117 @@ describe('the Client ID Metadata Document (§13.1)', () => {
     if (result.kind !== 'waiting') throw new Error(`expected waiting, got ${result.kind}`)
     // WHY: an explicit choice wins; the owner registered this client and its callbacks at the server.
     expect(new URL(result.url).searchParams.get('client_id')).toBe('owner-client')
+  })
+
+  /** A host whose document is published for `port`, at a server whose authorize page gives `answer`. `asked` holds the client IDs it was asked about. */
+  async function refusingAuthorize(answer: () => Response) {
+    const port = await freeLoopbackPort()
+    const asked: string[] = []
+    const { fetchImpl: published } = publishing(() => Response.json(documentNaming(port)))
+    const fetchImpl: typeof fetch = Object.assign(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input))
+      if (url.pathname.endsWith('/as/authorize')) {
+        asked.push(url.searchParams.get('client_id') ?? '')
+        return answer()
+      }
+      return published(input, init)
+    }, { preconnect: fetch.preconnect })
+    return { ...setup(undefined, fetchImpl, port), asked }
+  }
+
+  // Lovable's answer to Solus's document today: it trusts only some domains.
+  const LOVABLE_REFUSAL = () => new Response('<title>Authorization failed - Lovable</title>', { status: 400, headers: { 'content-type': 'text/html' } })
+
+  test('a server that refuses the document at its authorize page gets a dynamic registration instead', async () => {
+    fake.options.metadataDocument = true
+    const { oauth, asked } = await refusingAuthorize(LOVABLE_REFUSAL)
+    const before = fake.registrations.length
+    const flow = await startAs(ALICE, oauth, DESKTOP)
+    // WHY: the server would show its refusal in the browser and never return to Solus, so Solus asks first and falls back.
+    expect(asked).toEqual([SOLUS_CLIENT_ID_URL])
+    expect(new URL(flow.url).searchParams.get('client_id')).toBe(`client-${before + 1}`)
+    expect(fake.registrations.length).toBe(before + 1)
+  })
+
+  test('a server that refuses the document and does not register clients asks for the person\'s own client', async () => {
+    fake.options.metadataDocument = true
+    fake.options.registration = false
+    const { oauth } = await refusingAuthorize(LOVABLE_REFUSAL)
+    // WHY: a plain message in Solus, not a dead end in the browser.
+    await expect(startAs(ALICE, oauth, DESKTOP)).rejects.toThrow(OAUTH_CLIENT_REQUIRED_MESSAGE)
+  })
+
+  test('an unclear answer keeps the document', async () => {
+    fake.options.metadataDocument = true
+    const { oauth } = await refusingAuthorize(() => new Response('Too many requests', { status: 429 }))
+    const flow = await startAs(ALICE, oauth, DESKTOP)
+    // WHY: only a clear refusal changes the sign-in; a rate limit or a bot wall says nothing about the client.
+    expect(new URL(flow.url).searchParams.get('client_id')).toBe(SOLUS_CLIENT_ID_URL)
+  })
+})
+
+describe('one callback (§13.1)', () => {
+  test('a browser on the host returns to the loopback listener, which closes once the sign-in ends', async () => {
+    const { oauth, connections } = setup()
+    const flow = await startAs(ALICE, oauth, DESKTOP)
+    const redirect = new URL(new URL(flow.url).searchParams.get('redirect_uri') ?? '')
+    // WHY: `/callback` on a loopback IP is the shape servers that allow only known clients accept (HiddenLayer refuses the host route).
+    expect(redirect.hostname).toBe('127.0.0.1')
+    expect(redirect.pathname).toBe('/callback')
+    expect(flow.input).toBe('callback')
+    const page = await fetch(`${redirect.href}?${approve(flow.url)}`)
+    expect(page.status).toBe(200)
+    expect(await connections.authorizationFor(integration.id, ALICE.personKey)).toMatch(/^Bearer access-/)
+    // WHY: Solus holds the port only while a sign-in waits on it.
+    await expect(fetch(redirect.href)).rejects.toThrow()
+  })
+
+  test('a browser elsewhere returns to the host route on its origin; one that cannot reach the host pastes the loopback address', async () => {
+    const { oauth } = setup()
+    const remote = await startAs(ALICE, oauth, START)
+    expect(new URL(remote.url).searchParams.get('redirect_uri')).toBe('https://host.example/oauth/integration/callback')
+    expect(remote.input).toBe('callback')
+    const unreachable = await startAs(BOB, oauth, { fallbackHost: '127.0.0.1', fallbackPort: 4100 })
+    expect(new URL(unreachable.url).searchParams.get('redirect_uri')).toBe(INTEGRATION_OAUTH_LOOPBACK_URL)
+    expect(unreachable.input).toBe('redirect-url')
+  })
+
+  test('an owner app saved now returns to the loopback callback from any device; one saved before keeps the host route', async () => {
+    const { oauth, clients } = setup()
+    const owned = (clientId: string): Integration => ({ ...integration, auth: { kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'client-required', clientId } })
+    const auth = await oauth.withOwnerClient({ ...integration, auth: { kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'dynamic', registeredClientId: 'static-id' } }, { clientId: 'new-app' })
+    // The server's ID stays on the record, so removing the owner's client starts the form from it again.
+    expect(auth).toMatchObject({ clientId: 'new-app', registeredClientId: 'static-id' })
+    // WHY: the owner registered the URL Solus showed them, so every sign-in must send that exact URL.
+    const fromElsewhere = await withActingScope(ALICE, () => oauth.start(owned('new-app'), START))
+    if (fromElsewhere.kind !== 'waiting') throw new Error('expected waiting')
+    expect(new URL(fromElsewhere.url).searchParams.get('redirect_uri')).toBe(INTEGRATION_OAUTH_LOOPBACK_URL)
+    expect(fromElsewhere.input).toBe('redirect-url')
+
+    clients.saveClient(integration.id, await oauth.issuerOf(integration), { clientId: 'old-app', tokenEndpointAuthMethod: 'none', redirectUris: [] })
+    const legacy = await withActingScope(BOB, () => oauth.start(owned('old-app'), START))
+    if (legacy.kind !== 'waiting') throw new Error('expected waiting')
+    expect(new URL(legacy.url).searchParams.get('redirect_uri')).toBe('https://host.example/oauth/integration/callback')
+  })
+
+  test('with the fixed port in use, a dynamic client takes another port and an owner app is refused plainly', async () => {
+    const holder = createServer()
+    await new Promise<void>((resolve) => holder.listen(0, '127.0.0.1', resolve))
+    const busyPort = (holder.address() as AddressInfo).port
+    try {
+      const { oauth, clients } = setup(undefined, undefined, busyPort)
+      const flow = await startAs(ALICE, oauth, DESKTOP)
+      const redirect = new URL(new URL(flow.url).searchParams.get('redirect_uri') ?? '')
+      expect(redirect.pathname).toBe('/callback')
+      expect(Number(redirect.port)).not.toBe(busyPort)
+      await withActingScope(ALICE, () => oauth.cancel(flow.flowId))
+
+      clients.saveClient(integration.id, await oauth.issuerOf(integration), { clientId: 'owner-app', tokenEndpointAuthMethod: 'none', redirectUris: [INTEGRATION_OAUTH_LOOPBACK_URL] })
+      const owned: Integration = { ...integration, auth: { kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'client-required', clientId: 'owner-app' } }
+      // WHY: the owner's app lists the fixed port; another port would fail at the server's sign-in page, where Solus cannot explain it.
+      await expect(withActingScope(BOB, () => oauth.start(owned, DESKTOP))).rejects.toThrow(/needs port/)
+    } finally {
+      holder.close()
+    }
   })
 })

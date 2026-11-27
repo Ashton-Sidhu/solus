@@ -1293,6 +1293,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
         call ||
         fetchedOutput ||
         viewedImagePath ||
+        row.renderHostResult ||
         outputImages.length > 0 ||
         row.workEntry.questionAnswer) ? (
         <Animated.View
@@ -1301,6 +1302,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
           layout={WORK_LOG_LAYOUT_TRANSITION}
           className={reasoning ? "ml-7 py-1" : "pb-1 pt-0.5"}
         >
+          {row.renderHostResult?.()}
           {row.workEntry.questionAnswer ? (
             <QuestionAnswerHistory
               environmentId={props.environmentId}

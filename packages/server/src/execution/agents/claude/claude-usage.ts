@@ -1,22 +1,23 @@
 import type { SDKControlGetUsageResponse } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentUsageLimits, UsageWindow } from '@solus/contracts/types'
 
-/** The two windows the `/usage` report exposes, before they're wrapped in a
+/** The windows the `/usage` report exposes, before they're wrapped in a
  *  provider envelope. */
-export type ClaudeUsageWindows = Pick<AgentUsageLimits, 'fiveHour' | 'weekly'>
+export type ClaudeUsageWindows = Pick<AgentUsageLimits, 'fiveHour' | 'weekly' | 'fableWeekly'>
 
 /** The windows plus the plan tier and spend cap, which only the structured usage API names. */
-export type ClaudeUsageReport = Pick<AgentUsageLimits, 'fiveHour' | 'weekly' | 'monthly' | 'planType'>
+export type ClaudeUsageReport = Pick<AgentUsageLimits, 'fiveHour' | 'weekly' | 'fableWeekly' | 'monthly' | 'planType'>
 
 type ApiUsageWindow = { utilization: number | null; resets_at: string | null } | null | undefined
-type ApiExtraUsage = NonNullable<SDKControlGetUsageResponse['rate_limits']>['extra_usage']
+type ApiRateLimits = NonNullable<SDKControlGetUsageResponse['rate_limits']>
+type ApiExtraUsage = ApiRateLimits['extra_usage']
 
 /**
  * Maps the SDK's structured usage answer. `utilization` is already a percent
  * (0-100), and `resets_at` is ISO 8601. Returns null when plan limits do not
  * apply (API key, Bedrock, Vertex) or the answer carries no window, so the
- * meter reads "unknown" rather than 0%. Per-model weekly windows are not kept:
- * the usage shape has no place for them.
+ * meter reads "unknown" rather than 0%. Of the per-model weekly windows, only
+ * Fable's is kept (`fableWeekly`).
  *
  * An Enterprise seat has no 5h or weekly window. Its limit is a monthly spend
  * cap, which the answer carries as `extra_usage`. On a seat with windows,
@@ -28,7 +29,7 @@ export function claudeUsageFromApi(response: SDKControlGetUsageResponse): Claude
   const fiveHour = apiUsageWindow(response.rate_limits.five_hour)
   const weekly = apiUsageWindow(response.rate_limits.seven_day)
   const planType = response.subscription_type ?? null
-  if (fiveHour || weekly) return { fiveHour, weekly, planType }
+  if (fiveHour || weekly) return { fiveHour, weekly, fableWeekly: fableWindow(response.rate_limits.model_scoped), planType }
   const monthly = spendCapWindow(response.rate_limits.extra_usage)
   return monthly && { fiveHour: null, weekly: null, monthly, planType }
 }
@@ -40,6 +41,13 @@ function spendCapWindow(extraUsage: ApiExtraUsage): UsageWindow | null {
   const { utilization, used_credits: used } = extraUsage
   const usedPercent = typeof utilization === 'number' ? utilization : typeof used === 'number' ? (used / limit) * 100 : null
   return usedPercent === null ? null : { usedPercent, resetsAt: null, resetsLabel: null }
+}
+
+/** The server names each per-model bucket with a display label ('Fable'); it
+ *  gives no stable id, so the label is the match. */
+function fableWindow(modelScoped: ApiRateLimits['model_scoped']): UsageWindow | null {
+  const bucket = modelScoped?.find((entry) => entry.display_name.trim().toLowerCase() === 'fable')
+  return apiUsageWindow(bucket)
 }
 
 function apiUsageWindow(window: ApiUsageWindow): UsageWindow | null {
@@ -61,18 +69,19 @@ function apiUsageWindow(window: ApiUsageWindow): UsageWindow | null {
 // block — a window at 0% is a fact worth showing, countdown or not.
 const SESSION_LINE = /^Current session: (\d+)% used(?: · resets (.+))?$/m
 const WEEKLY_LINE = /^Current week \(all models\): (\d+)% used · resets (.+)$/m
+const FABLE_WEEKLY_LINE = /^Current week \(Fable\): (\d+)% used(?: · resets (.+))?$/m
 
 /**
  * Reads the quota windows out of the plain-text report `/usage` prints. Claude
  * Code exposes no JSON usage API (anthropics/claude-code#13585), so text is all
- * there is. Returns null when neither window matches, so a wording change
- * degrades to "unknown" instead of a fabricated number.
+ * there is. Returns null when neither provider-wide window matches, so a
+ * wording change degrades to "unknown" instead of a fabricated number.
  */
 export function parseClaudeUsageReport(report: string): ClaudeUsageWindows | null {
   const fiveHour = usageWindow(report.match(SESSION_LINE))
   const weekly = usageWindow(report.match(WEEKLY_LINE))
   if (!fiveHour && !weekly) return null
-  return { fiveHour, weekly }
+  return { fiveHour, weekly, fableWeekly: usageWindow(report.match(FABLE_WEEKLY_LINE)) }
 }
 
 function usageWindow(match: RegExpMatchArray | null): UsageWindow | null {

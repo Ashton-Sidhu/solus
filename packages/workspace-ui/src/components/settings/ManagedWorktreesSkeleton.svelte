@@ -22,7 +22,8 @@
     </div>
     <RowCard>
       {#each TITLE_WIDTHS as width, i (i)}
-        <div class="flex min-h-15 items-center gap-4 py-2.5 pr-2.5 pl-4">
+        <div class="flex min-h-15 items-center gap-3 py-2.5 pr-2.5 pl-4">
+          <div class="size-4 shrink-0"></div>
           <div class="flex min-w-0 flex-1 flex-col gap-2">
             <Skeleton class="h-3 rounded-[0.1875rem] opacity-70" style="width:{width}%" />
             <Skeleton class="h-2.5 w-40 max-w-[70%] rounded-[0.1875rem] opacity-45" />

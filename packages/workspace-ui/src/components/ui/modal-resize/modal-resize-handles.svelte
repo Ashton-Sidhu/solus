@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { clampModalSize, measureModal, resizeModal, type ModalBox, type ModalEdge, type ModalSize } from "./modal-size";
+  import { clampModalSize, hasTopHandles, measureModal, resizeModal, type ModalBox, type ModalEdge, type ModalSize } from "./modal-size";
   import type { ResizableModal } from "./modal-size.svelte";
 
   /** The resize handles of one modal card. Put them as the last children of the
-   *  card, which must be positioned (`relative` or `fixed`). The right and bottom
-   *  edges and the corner drag; the corner also takes focus, and the arrow keys
-   *  resize from it (Shift for bigger steps). Home or a double-click on any
+   *  card, which must be positioned (`relative` or `fixed`). Every edge and
+   *  corner drags, except the top ones of a modal pinned near the top. The
+   *  bottom-right corner also takes focus, and the arrow keys resize from it
+   *  (Shift for bigger steps). Home or a double-click on any
    *  handle goes back to the default size. A touch screen gets no handles. */
   let { modal, label }: {
     modal: ResizableModal;
@@ -81,7 +82,33 @@
 </script>
 
 <!-- The edges are thin, so a scroller's thumb beside them stays grabbable; the
-     corner is the main grip. -->
+     corners are the main grips. -->
+{#if hasTopHandles(modal.anchor)}
+  <div
+    class="group absolute inset-x-4 top-0 z-40 h-1 cursor-ns-resize touch-none select-none pointer-coarse:hidden"
+    aria-hidden="true"
+    {...handlers("top")}
+  >
+    <span class="pointer-events-none absolute inset-x-0 top-0 h-px bg-transparent transition-colors duration-150 group-hover:bg-border group-active:bg-primary/60"></span>
+  </div>
+  <div
+    class="absolute top-0 left-0 z-40 size-4 cursor-nwse-resize touch-none select-none rounded-tl-[inherit] pointer-coarse:hidden"
+    aria-hidden="true"
+    {...handlers("top-left")}
+  ></div>
+  <div
+    class="absolute top-0 right-0 z-40 size-4 cursor-nesw-resize touch-none select-none rounded-tr-[inherit] pointer-coarse:hidden"
+    aria-hidden="true"
+    {...handlers("top-right")}
+  ></div>
+{/if}
+<div
+  class="group absolute inset-y-4 left-0 z-40 w-[3px] cursor-ew-resize touch-none select-none pointer-coarse:hidden"
+  aria-hidden="true"
+  {...handlers("left")}
+>
+  <span class="pointer-events-none absolute inset-y-0 left-0 w-px bg-transparent transition-colors duration-150 group-hover:bg-border group-active:bg-primary/60"></span>
+</div>
 <div
   class="group absolute inset-y-4 right-0 z-40 w-[3px] cursor-ew-resize touch-none select-none pointer-coarse:hidden"
   aria-hidden="true"
@@ -96,8 +123,13 @@
 >
   <span class="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-transparent transition-colors duration-150 group-hover:bg-border group-active:bg-primary/60"></span>
 </div>
-<!-- A focusable separator is the ARIA splitter pattern; Svelte counts every
-     separator as static. -->
+<div
+  class="absolute bottom-0 left-0 z-40 size-4 cursor-nesw-resize touch-none select-none rounded-bl-[inherit] pointer-coarse:hidden"
+  aria-hidden="true"
+  {...handlers("bottom-left")}
+></div>
+<!-- The one corner the keyboard reaches. A focusable separator is the ARIA
+     splitter pattern; Svelte counts every separator as static. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
   class="absolute right-0 bottom-0 z-40 size-4 cursor-nwse-resize touch-none select-none rounded-br-[inherit] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--solus-accent-border) pointer-coarse:hidden"
@@ -106,5 +138,5 @@
   aria-valuetext={modal.size ? `${modal.size.width} by ${modal.size.height} pixels` : "Default size"}
   tabindex="0"
   onkeydown={onKeyDown}
-  {...handlers("corner")}
+  {...handlers("bottom-right")}
 ></div>

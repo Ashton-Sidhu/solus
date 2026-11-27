@@ -8,6 +8,7 @@
   import { toasts } from "../../../lib/toasts";
   import RecordTranscript from "../../session/record/RecordTranscript.svelte";
   import { Button } from "../../ui/button";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
   import { Skeleton } from "../../ui/skeleton";
   import { Textarea } from "../../ui/textarea";
   import { appSessionByline, appSessionTitle, lastTurnMessages } from "./lib/app-sessions";
@@ -96,11 +97,11 @@
 
 <!-- The one card of the section: the conversation the person works inside. -->
 <section
-  class="flex min-h-[30rem] min-w-0 flex-1 flex-col rounded-2xl border border-border bg-background shadow-[0_1px_2px_rgb(0_0_0/0.03),0_6px_20px_rgb(0_0_0/0.04)] dark:bg-card dark:shadow-none"
+  class="flex min-h-[30rem] min-w-0 flex-1 flex-col rounded-2xl bg-background shadow-[shadow:var(--elev-lift)] dark:bg-card"
   aria-label={link ? appSessionTitle(link) : "New session"}
   data-testid="app-session-card"
 >
-  <header class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border/60 px-5 py-4">
+  <header class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 px-5 pt-4 pb-1">
     <div class="flex min-w-0 flex-1 flex-col gap-0.5">
       <h3 class="m-0 truncate text-base leading-5 font-semibold text-foreground">{link ? appSessionTitle(link) : "New session"}</h3>
       <p class="m-0 truncate text-[13px] leading-4 text-(--solus-text-tertiary)">
@@ -124,7 +125,12 @@
       </p>
     {:else if record?.messages == null}
       {#if record?.transcriptError || record?.error}
-        <p class="m-0 text-(--solus-text-secondary)" role="alert">{record.error ?? record.transcriptError}</p>
+        {@const recordError = record.error ?? record.transcriptError}
+      <MarkdownAlert alertType="error">
+        {#snippet content()}
+          <p class="m-0 text-pretty text-foreground" role="alert">{recordError}</p>
+        {/snippet}
+      </MarkdownAlert>
       {:else}
         <div class="flex flex-col gap-3" aria-busy="true">
           <Skeleton class="ml-auto h-10 w-2/3 rounded-xl" />
@@ -153,7 +159,7 @@
       void send();
     }}
   >
-    <div class="flex min-w-0 items-end gap-2.5 rounded-[14px] border border-border bg-background py-1.75 pr-1.75 pl-4 shadow-[0_2px_8px_rgb(0_0_0/0.05)] focus-within:border-ring dark:bg-card dark:shadow-none">
+    <div class="flex min-w-0 items-end gap-2.5 rounded-[14px] bg-background py-1.75 pr-1.75 pl-4 shadow-[shadow:var(--elev-ring)] focus-within:shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent)] dark:bg-card">
       <Textarea
         bind:ref={composer}
         bind:value={draft}

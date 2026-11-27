@@ -14,6 +14,14 @@
   let port = $state<number | undefined>(undefined);
   let busy = $state(false);
   let error = $state<string | null>(null);
+  let portEl = $state<HTMLInputElement | null>(null);
+
+  /** The host is usually chosen already, so the dialog opens on the port. */
+  function focusPort(event: Event): void {
+    if (!canStart || !portEl) return;
+    event.preventDefault();
+    portEl.focus();
+  }
   const remoteHosts = $derived(serversStore.servers.filter((host) => !host.local));
   const eligibleHosts = $derived(remoteHosts.filter((host) =>
     host.readiness === 'ready' && hosts.get(host.id).me.may('host.admin') &&
@@ -70,7 +78,7 @@
 <Dialog.Root open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
   <Dialog.Portal>
     <Dialog.Overlay class="fixed inset-0 z-50 modal-backdrop" />
-    <Dialog.Content data-solus-ui onCloseAutoFocus={(event) => { event.preventDefault(); requestInputFocus(); }} class="no-drag fixed inset-0 z-50 m-auto flex h-fit max-h-[75vh] w-[min(29rem,calc(100vw-2rem))] flex-col gap-4 overflow-auto rounded-2xl border border-(--solus-tool-border) bg-(--solus-container-bg) p-6 text-workspace-chrome shadow-(--solus-popover-shadow)">
+    <Dialog.Content data-solus-ui onOpenAutoFocus={focusPort} onCloseAutoFocus={(event) => { event.preventDefault(); requestInputFocus(); }} class="no-drag fixed inset-0 z-50 m-auto flex h-fit max-h-[75vh] w-[min(29rem,calc(100vw-2rem))] flex-col gap-4 overflow-auto rounded-2xl border border-(--solus-tool-border) bg-(--solus-container-bg) p-6 text-workspace-chrome shadow-(--solus-popover-shadow)">
       <Dialog.Title class="font-medium">Forwarded ports</Dialog.Title>
       <Dialog.Description class="text-(--solus-text-secondary)">Reach a remote TCP service from apps on this computer.</Dialog.Description>
 
@@ -88,7 +96,7 @@
             </label>
             <label class="flex w-24 flex-col gap-1">
               <span>Remote port</span>
-              <input bind:value={port} type="number" min="1" max="65535" step="1" required placeholder="5432" disabled={busy} class="h-8 rounded-md border border-(--solus-tool-border) bg-(--solus-container-bg) px-2 tabular-nums" />
+              <input bind:this={portEl} bind:value={port} type="number" min="1" max="65535" step="1" required placeholder="5432" disabled={busy} class="h-8 rounded-md border border-(--solus-tool-border) bg-(--solus-container-bg) px-2 tabular-nums" />
             </label>
             <Button type="submit" size="sm" disabled={busy || !canStart || port === undefined}>Forward</Button>
           </div>

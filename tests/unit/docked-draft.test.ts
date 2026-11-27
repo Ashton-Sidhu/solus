@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import type { RunConfig } from '@solus/contracts/types'
+import type { RunConfig, SessionSpec } from '@solus/contracts/types'
+import type { RouteRef } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
+import type { CreateTabOptions } from '@solus/workspace-ui/contexts/workspace/workspace.context.svelte'
 import { leadingHomeRoute } from '@solus/workspace-ui/contexts/workspace/leading-home'
 import { checkoutPlace, folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
@@ -13,6 +15,9 @@ mock.module('@solus/workspace-ui/contexts/connections/servers.store.svelte', () 
   serversStore: { readinessFor: () => ({ readiness: 'ready', away: false, unreachableReason: null, refusedReason: null, lastSeenAt: null }) },
 }))
 mock.module('@solus/workspace-ui/lib/git-actions.svelte', () => ({ disposeGitActions: () => {} }))
+mock.module('@solus/workspace-ui/lib/dictation.svelte', () => ({
+  dictation: { isMessageInFlight: () => false, releaseMessageConsumer: () => {} },
+}))
 mock.module('svelte-sonner', () => ({ toast: Object.assign(() => '', { success: () => '', error: () => '', dismiss: () => {} }) }))
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -42,8 +47,9 @@ function runIn(workingDirectory: string): RunConfig {
 }
 
 /** One pane showing a work page, and the workspace members the controller reads. */
-function draftsBesideAWorkPage() {
+function draftsBesideAWorkPage(createSession?: (sessionId: string) => void) {
   const pane = { id: 'lead', surfaces: [{ name: 'work', params: { workId: 'w1' } }], activeSurfaceIndex: 0 }
+  const navigated: RouteRef[] = []
   let drafts: InstanceType<typeof SessionDrafts>
   const workspace = {
     settings: { modelOptionsByProvider: {}, hostBalancing: { enabled: false, preferences: {} } },
@@ -55,23 +61,41 @@ function draftsBesideAWorkPage() {
     rootTaskIdFor: () => null,
     opening: { moveToRunOnHost: () => {} },
     refreshStartTarget: async () => {},
+    createSession: (_spec: SessionSpec, _options: CreateTabOptions, sessionId: string) => {
+      createSession?.(sessionId)
+      return 'created-tab'
+    },
+    sessionFor: () => undefined,
     router: {
       focusedPaneId: pane.id,
       panes: [pane],
       leadingPane: pane,
       storedSurfaces: [],
       pane: () => pane,
-      navigate: () => {},
+      navigate: (route: RouteRef) => navigated.push(route),
       dropStrip: () => {},
     },
   }
   drafts = new SessionDrafts(workspace as never)
-  return drafts
+  return { drafts, navigated }
 }
 
 describe('a page’s docked draft', () => {
+  test('starting the draft preserves the id that its session chip links to', () => {
+    const started: string[] = []
+    const { drafts, navigated } = draftsBesideAWorkPage((sessionId) => started.push(sessionId))
+    const draft = drafts.openDockedDraft({ freshTask: true, workId: 'w1' })
+    draft.prompt.text = 'Check the proposal'
+
+    expect(drafts.openDraft(draft.id)).toBe(true)
+    expect(navigated).toEqual([{ name: 'draft', params: { draftId: draft.id } }])
+    expect(drafts.startSessionDraft(draft.id, { activate: false })).toBe('created-tab')
+    expect(started).toEqual([draft.id])
+    expect(drafts.openDraft(draft.id)).toBe(false)
+  })
+
   test('is aimed at what the page is', () => {
-    const drafts = draftsBesideAWorkPage()
+    const { drafts } = draftsBesideAWorkPage()
 
     const docked = drafts.openDockedDraft({ freshTask: true, workId: 'w1' }, '/code/solus')
 
@@ -82,7 +106,7 @@ describe('a page’s docked draft', () => {
   })
 
   test('is not taken as the leading pane’s home while the page holds it', () => {
-    const drafts = draftsBesideAWorkPage()
+    const { drafts } = draftsBesideAWorkPage()
     const docked = drafts.openDockedDraft({ freshTask: true, workId: 'w1' }, '/code/solus')
     docked.prompt.text = 'tighten the intro'
 
@@ -101,7 +125,7 @@ describe('a page’s docked draft', () => {
   })
 
   test('folded empty leaves nothing behind', () => {
-    const drafts = draftsBesideAWorkPage()
+    const { drafts } = draftsBesideAWorkPage()
     const docked = drafts.openDockedDraft({ freshTask: true, workId: 'w1' })
 
     drafts.undockDraft(docked.id)
@@ -111,7 +135,7 @@ describe('a page’s docked draft', () => {
   })
 
   test('left with words in it becomes a draft the sidebar lists', () => {
-    const drafts = draftsBesideAWorkPage()
+    const { drafts } = draftsBesideAWorkPage()
     const docked = drafts.openDockedDraft({ freshTask: true, workId: 'w1' })
     docked.prompt.text = 'half a thought'
 

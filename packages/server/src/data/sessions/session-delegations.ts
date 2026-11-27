@@ -28,24 +28,29 @@ const parentRowSchema = z.object({
   delegation_depth: z.number().nullable(),
 })
 
+/** Where a child sits in its parent's tree: under the parent, in its root, one level below it. */
+export type SessionChildColumns = Pick<SessionDelegationColumns, 'parentSessionId' | 'rootSessionId' | 'depth'>
+
 /**
  * The child inherits its parent's root and sits one level below it. Written with
  * the child's first index row (`persistIndexedSessionStart`), so the child is
  * never indexed without its parent. Provider-index upserts later leave these
  * columns alone, so the relation survives history refreshes.
  */
-export function delegationColumnsFor(start: SessionDelegationStart, db: DatabaseSync = getDb()): SessionDelegationColumns {
+export function childColumnsFor(parentSessionId: string, db: DatabaseSync = getDb()): SessionChildColumns {
   const parent = parentRowSchema.nullish().parse(db.prepare(`
     SELECT root_session_id, delegation_depth
     FROM transcript_index
     WHERE session_id = ?
-  `).get(activeThreadOf(start.parentSessionId, db) ?? start.parentSessionId))
+  `).get(activeThreadOf(parentSessionId, db) ?? parentSessionId))
   return {
-    parentSessionId: start.parentSessionId,
-    rootSessionId: parent?.root_session_id ?? start.parentSessionId,
-    messageId: start.messageId,
+    parentSessionId,
+    rootSessionId: parent?.root_session_id ?? parentSessionId,
     depth: (parent?.delegation_depth ?? 0) + 1,
-    intent: start.intent,
-    createdAt: start.createdAt,
   }
+}
+
+/** A delegated child's columns: its place in the tree and the message that created it. */
+export function delegationColumnsFor(start: SessionDelegationStart, db: DatabaseSync = getDb()): SessionDelegationColumns {
+  return { ...childColumnsFor(start.parentSessionId, db), messageId: start.messageId, intent: start.intent, createdAt: start.createdAt }
 }

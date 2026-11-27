@@ -39,8 +39,10 @@ function turnComponent(directory: string): string {
       import McpAppLiveCard from ${JSON.stringify(liveCard)};
       const BackgroundWorkRow = Stub, TurnActivityRow = Stub, StatusCard = Stub, TurnEndDivider = Stub;
       const ToolInputStatus = Stub, TurnImageGallery = Stub, ToolGroupItem = Stub, McpTaskRows = Stub, ResourceWatchRows = Stub;
-      const describeBackgroundWait = () => null, settledBackgroundWait = () => null;
-      const getSettingsContext = () => ({ showToolCalls: true });
+      const describeBackgroundWait = () => null, settledBackgroundWait = () => null, backgroundWorkEntries = () => [];
+      const getSettingsContext = () => ({ showToolCalls: true, projectPanelHiddenItems: [] });
+      const getClientShellContext = () => ({ hasProjectPanel: true });
+      const isSectionShown = () => true;
       const TurnArtifacts = Stub;
       const NO_BURST = {};
       // No pull request cards: the final reply renders as any other item.

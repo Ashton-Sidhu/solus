@@ -71,7 +71,7 @@
         <span class="inline-flex size-7 shrink-0"><CodebaseBadge mark={previewMark} /></span>
         <Input
           bind:value={() => iconText, (next) => (iconDraft = next)}
-          class="h-8 w-24 shadow-[inset_0_0_0_1px_var(--input)]"
+          class="h-8 w-24"
           aria-label="Codebase icon"
           aria-invalid={isIconInvalid}
           aria-describedby={isIconInvalid ? "codebase-icon-error" : undefined}

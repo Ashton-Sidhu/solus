@@ -35,7 +35,9 @@
         An app on another computer needs an address that reaches {hostName}. Pick one way:
       {/if}
     </p>
-    <OutsideAppsAddressWays {serverId} {hostName} reach={gate.reach} />
+    <div class="rounded-[0.875rem] bg-(--solus-tx-card-bg) p-2 shadow-[shadow:var(--solus-card-shadow-collapsed)]">
+      <OutsideAppsAddressWays {serverId} {hostName} reach={gate.reach} />
+    </div>
   {:else}
     <div class="flex flex-col gap-1 text-[0.8125rem] leading-[1.45] text-(--solus-text-secondary) select-text">
       <p class="font-medium text-(--solus-text-primary)">
@@ -55,7 +57,7 @@
       </p>
     {/if}
     <div class="flex flex-wrap items-center gap-2">
-      <Button variant="outline" size="sm" onclick={() => void outsideApps.check(serverId)}>Check again</Button>
+      <Button variant="ghost" size="sm" class="bg-muted" onclick={() => void outsideApps.check(serverId)}>Check again</Button>
       {#if gate.canGoOn && gate.address}
         {@const url = gate.address.url}
         <Button size="sm" onclick={() => outsideApps.goOnUntested(url)}>Go on anyway</Button>

@@ -87,7 +87,7 @@
           spellcheck={false}
           autocomplete="off"
           aria-invalid={error ? true : undefined}
-          class="font-mono text-sm"
+          class="font-mono text-sm text-foreground"
           onblur={save}
           onkeydown={(event) => {
             if (event.key === "Enter") save();

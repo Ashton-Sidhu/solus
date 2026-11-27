@@ -146,6 +146,17 @@ const SETTINGS_SEARCH_TERMS = {
     msg("login", { $context: "settings search keyword" }),
     msg("auth", { $context: "settings search keyword" }),
   ],
+  SettingsUsage: [
+    msg("usage", { $context: "settings search keyword" }),
+    msg("quota", { $context: "settings search keyword" }),
+    msg("limits", { $context: "settings search keyword" }),
+    msg("rate limit", { $context: "settings search keyword" }),
+    msg("remaining", { $context: "settings search keyword" }),
+    msg("pace", { $context: "settings search keyword" }),
+    "claude",
+    "codex",
+    "antigravity",
+  ],
   SettingsEnvironmentSourceControl: [
     "git",
     msg("pull requests", { $context: "settings search keyword" }),

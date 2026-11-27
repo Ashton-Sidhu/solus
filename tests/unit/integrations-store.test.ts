@@ -327,8 +327,6 @@ describe('integrations store: OAuth client', () => {
       },
     })
     await store.load('oauth-client')
-    expect(store.oauthRedirectUrl('oauth-client')).toBe('http://test.invalid/oauth/integration/callback')
-
     expect(await store.setOAuthClient('oauth-client', 'acme', { clientId: 'cid', clientSecret: 'top-secret' })).not.toBeNull()
     expect(sent).toEqual([{ id: 'acme', oauthClient: { clientId: 'cid', clientSecret: 'top-secret' } }])
     expect(store.states.get('oauth-client')?.integrations?.[0]?.auth).toMatchObject({ clientId: 'cid', hasClientSecret: true })

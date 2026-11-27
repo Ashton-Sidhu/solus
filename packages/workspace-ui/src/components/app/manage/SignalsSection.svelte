@@ -6,8 +6,11 @@
   import { requestInputFocus } from "../../../lib/inputFocus";
   import { toasts } from "../../../lib/toasts";
   import { Button } from "../../ui/button";
-  import * as Tabs from "../../ui/tabs";
+  import { FILTER_CHIP, FILTER_CHIP_COUNT, FILTER_CHIP_OFF, FILTER_CHIP_ON } from "../../ui/list-page/filter-styles";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
+  import StateIcon from "./StateIcon.svelte";
   import ManageSectionState from "./ManageSectionState.svelte";
+  import { SIGNALS_EMPTY } from "./lib/section-empty";
   import SignalActionEditor from "./SignalActionEditor.svelte";
   import SignalFlowCanvas from "./SignalFlowCanvas.svelte";
   import {
@@ -125,23 +128,31 @@
 <ManageSectionState
   count={signals?.length}
   error={appsStore.signals.errorFor(serverId, app.id)}
-  empty="This app declares no signal."
+  {serverId}
+  {app}
+  empty={SIGNALS_EMPTY}
   onRetry={() => void appsStore.signals.load(serverId, app.id)}
 >
   {#if signals && signal}
     {@const editedAction = editing?.signal === signal.name && editing.actionId ? signal.actions.find((action) => action.id === editing?.actionId) : undefined}
     <div class="flex min-w-0 flex-col gap-4" data-testid="app-signals">
       <div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-2">
-        <Tabs.Root bind:value={() => signal.name, choose}>
-          <Tabs.List class="h-auto max-w-full flex-wrap justify-start rounded-[10px] bg-(--wash-2) group-data-horizontal/tabs:h-auto">
-            {#each signals as entry (entry.name)}
-              <Tabs.Trigger value={entry.name} class="h-7.5 flex-none gap-1.5 px-3 text-sm">
-                {entry.name}
-                <span class="text-xs font-normal tabular-nums text-muted-foreground">{entry.count7d}</span>
-              </Tabs.Trigger>
-            {/each}
-          </Tabs.List>
-        </Tabs.Root>
+        <!-- The signals as chips of the list pages' filter band: the chosen one is on, with its count of the week on each. -->
+        <div class="flex max-w-full flex-wrap items-center gap-1.5 text-workspace-chrome" role="group" aria-label="Signals">
+          {#each signals as entry (entry.name)}
+            {@const isChosen = entry.name === signal.name}
+            <button
+              type="button"
+              class="{FILTER_CHIP} {isChosen ? FILTER_CHIP_ON : `${FILTER_CHIP_OFF} hover:bg-[var(--wash-2)] hover:text-foreground`} focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+              aria-pressed={isChosen}
+              title="{entry.count7d} this week"
+              onclick={() => choose(entry.name)}
+            >
+              {entry.name}
+              <span class={FILTER_CHIP_COUNT}>{entry.count7d}</span>
+            </button>
+          {/each}
+        </div>
         {#if signal.description}
           <p class="m-0 min-w-0 text-[13px] text-muted-foreground text-pretty">{signal.description}</p>
         {/if}
@@ -185,7 +196,11 @@
         {#if !tail || !tail.isLoaded}
           <p class="m-0 px-1 text-[13px] text-muted-foreground" role="status" aria-busy="true">Loading…</p>
         {:else if tail.error && tail.occurrences.length === 0}
-          <p class="m-0 px-1 text-[13px] text-destructive" role="alert">{tail.error}</p>
+          <MarkdownAlert alertType="error">
+            {#snippet content()}
+              <p class="m-0 text-[13px] text-pretty text-foreground" role="alert">{tail.error}</p>
+            {/snippet}
+          </MarkdownAlert>
         {:else if tail.occurrences.length === 0}
           <p class="m-0 px-1 text-[13px] text-muted-foreground">The app did not emit this signal yet. Each occurrence shows here as it comes.</p>
         {:else}
@@ -207,7 +222,8 @@
                     <td class="h-11 max-w-0 truncate px-1 text-sm text-foreground" title={occurrence.payload}>{payloadSummary(occurrence.payload)}</td>
                     {#each signal.actions as action (action.id)}
                       {@const cell = tailCell(occurrence, action.id)}
-                      <td class="h-11 max-w-0 truncate px-1 text-sm {cell.isFailed ? 'text-(--failure)' : 'text-muted-foreground'}" title={cell.text}>
+                      <td class="h-11 max-w-0 truncate px-1 text-sm text-muted-foreground" title={cell.text}>
+                        {#if cell.mark}<StateIcon state={cell.mark} size={14} class="mr-1.5 inline align-[-2px]" />{/if}
                         {#if cell.sessionId}
                           {@const sessionId = cell.sessionId}
                           <Button size="xs" variant="link" class="h-auto px-0 text-sm text-muted-foreground" onclick={() => shell.openResource({ kind: "session", sessionId, serverId })}>{cell.text}</Button>

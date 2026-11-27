@@ -194,6 +194,40 @@ describe.serial('opening a session mid-turn', () => {
     } finally { runtime.shutdown() }
   })
 
+  test('a prompt after the turn settled, into a query that background work keeps open, starts the next turn', async () => {
+    // The page cut and the replay start at the same prompt. A query held open by
+    // background work takes the next prompt as a steer; when that steer joined the
+    // settled turn, the "running turn" grew across every later prompt, the page
+    // left out all of it, and the replay was only the tail of the turn log.
+    const { backend, runtime, lifecycle, sessionId } = await openMidTurn(true)
+    try {
+      // The first turn ends with work left running, so the query stays open.
+      for (const row of backend.runningRows!) row.timestamp -= 5_000
+      backend.emit('normalized', 'thread-1', { type: 'background_task_started', taskId: 'task-1', awaitable: false } satisfies NormalizedEvent)
+      backend.emit('normalized', 'thread-1', { type: 'task_complete', result: 'done', costUsd: 0, durationMs: 1, numTurns: 1, usage: {}, sessionId: 'thread-1' } satisfies NormalizedEvent)
+      expect(runtime.turns.current(sessionId)?.isSettled).toBe(true)
+      await runtime.runTurn({
+        target: { kind: 'session', sessionId }, sessionId, input: { ...input(), agentSessionId: 'thread-1' }, tools: [],
+        options: { prompt: 'the next prompt', promptSource: 'typed', clientPromptId: 'next' },
+      })
+      const prompts = runtime.turnLog.get(sessionId)!.filter((event) => event.type === 'user_message')
+      // The next prompt starts the turn log, as a prompt: no client draws it inside the settled turn.
+      expect(prompts.map((event) => event.type === 'user_message' && [event.text, event.delivery])).toEqual([['the next prompt', undefined]])
+      backend.runningRows!.push({ role: 'user', content: 'the next prompt', timestamp: Date.now() })
+      const replay: NormalizedEvent[] = []
+      runtime.on('event', (_id, event: NormalizedEvent, to?: { only?: string }) => { if (to?.only === 'joining') replay.push(event) })
+      const watched = runtime.watchers.watchSession({ sessionId, attachRuntime: true }, 'joining')
+      const page = await runtime.history.loadSessionPage({ sessionId, provider: 'codex', turnLimit: 10 }, undefined, watched.runningTurnStartedAt ?? null)
+      expect(shown(page, replay)).toEqual([
+        'user:an earlier turn', 'assistant:its reply',
+        'user:the running prompt', 'tool:tool-1',
+        'user:the next prompt',
+      ])
+      backend.complete()
+      await lifecycle.done
+    } finally { runtime.shutdown() }
+  })
+
   test('a long turn keeps its prompt when the turn log drops its oldest events', async () => {
     const { backend, runtime, lifecycle, sessionId } = await openMidTurn(false)
     try {

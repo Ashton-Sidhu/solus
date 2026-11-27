@@ -4,7 +4,7 @@ import { appTime } from '../../lib/app-view'
 
 /**
  * The file browser of the Files section (docs/plans/apps.md §9.2) in plain
- * terms: which files show for a search, a source, and an order, the figures
+ * terms: which files show for a search, the filters (source and type), and an order, the figures
  * above the table, and the words of each column. Pure, so the rules are
  * tested without a host.
  */
@@ -22,22 +22,48 @@ export const FILE_ORDER_OPTIONS: { value: FileOrder; label: string }[] = [
 /** The rows the table shows at first, and how many more each Show more adds. */
 export const FILE_PAGE = 50
 
-/** The source choices, with how many files each one holds. */
+/** The source choices of the Filters menu, with how many files each one holds. */
 export function fileSourceOptions(files: readonly AppFileView[]): { value: FileSourceFilter; label: string; count: number }[] {
   const uploaded = files.filter((file) => file.createdBy === 'ui').length
   return [
-    { value: 'all', label: 'All', count: files.length },
+    { value: 'all', label: 'Any source', count: files.length },
     { value: 'uploaded', label: 'Uploaded', count: uploaded },
     { value: 'written', label: 'Written by the app', count: files.length - uploaded },
   ]
 }
 
-/** The files that match the search and the source, in the chosen order. The same instant keeps a stable order by id. */
-export function visibleFiles(files: readonly AppFileView[], query: string, source: FileSourceFilter, order: FileOrder): AppFileView[] {
+/** The type choices of the Filters menu: each type the files have, the most common first, with its count. */
+export function fileTypeOptions(files: readonly AppFileView[]): { value: string; label: string; count: number }[] {
+  const counts = new Map<string, number>()
+  for (const file of files) {
+    const name = fileTypeName(file)
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  const types = [...counts].sort(([a, countA], [b, countB]) => countB - countA || a.localeCompare(b))
+  return [{ value: 'all', label: 'Any type', count: files.length }, ...types.map(([name, count]) => ({ value: name, label: name, count }))]
+}
+
+/** What the Filters menu narrows the table to. */
+export interface FileFilter {
+  source: FileSourceFilter
+  /** The type a file must have to show, as `fileTypeName` names it, or 'all'. */
+  type: string
+}
+
+export const ALL_FILES: FileFilter = { source: 'all', type: 'all' }
+
+/** How many filters of the Filters menu narrow the table: the count on its button. */
+export function activeFileFilterCount(filter: FileFilter): number {
+  return Number(filter.source !== 'all') + Number(filter.type !== 'all')
+}
+
+/** The files that match the search and the filters, in the chosen order. The same instant keeps a stable order by id. */
+export function visibleFiles(files: readonly AppFileView[], query: string, filter: FileFilter, order: FileOrder): AppFileView[] {
   const needle = query.trim().toLowerCase()
   const shown = files.filter(
     (file) =>
-      (source === 'all' || (source === 'uploaded') === (file.createdBy === 'ui')) &&
+      (filter.source === 'all' || (filter.source === 'uploaded') === (file.createdBy === 'ui')) &&
+      (filter.type === 'all' || fileTypeName(file) === filter.type) &&
       (needle === '' || file.name.toLowerCase().includes(needle) || file.type.toLowerCase().includes(needle) || fileTypeName(file).toLowerCase().includes(needle)),
   )
   const compare: (a: AppFileView, b: AppFileView) => number =

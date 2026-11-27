@@ -2,6 +2,7 @@
   import type { Automation } from "@solus/contracts/types";
   import { Button } from "../../ui/button";
   import { Input } from "../../ui/input";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
   import { Switch } from "../../ui/switch";
   import { Textarea } from "../../ui/textarea";
   import SettingsSelect from "../../settings/SettingsSelect.svelte";
@@ -88,7 +89,11 @@
   {/if}
 
   {#if error}
-    <p class="m-0 text-xs text-destructive" role="alert">{error}</p>
+    <MarkdownAlert alertType="error">
+      {#snippet content()}
+        <p class="m-0 text-[13px] text-pretty text-foreground" role="alert">{error}</p>
+      {/snippet}
+    </MarkdownAlert>
   {/if}
   <div class="flex flex-wrap gap-2">
     <Button size="xs" {disabled} onclick={onSave}>{saveLabel}</Button>

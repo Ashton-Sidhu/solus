@@ -1,3 +1,19 @@
+import type { Component } from 'svelte'
+import {
+  Braces,
+  CalendarClock,
+  Folder,
+  History,
+  KeyRound,
+  LayoutDashboard,
+  MessagesSquare,
+  Radio,
+  Rocket,
+  ScrollText,
+  SlidersHorizontal,
+  Webhook,
+  Workflow,
+} from '@lucide/svelte'
 import type { AppState, AppSummary } from '@solus/contracts/apps'
 import { APP_MANAGE_SECTIONS, type AppManageSection } from '../../../contexts/workspace/routing/route-registry'
 import type { AppProblem } from './app-view'
@@ -24,9 +40,35 @@ const SECTION_LABELS = {
   sessions: 'Sessions',
 } satisfies { [Section in AppManageSection]: string }
 
+/** The icon of each section: the strip of a narrow pane shows it, and the section's empty state. */
+const SECTION_ICONS = {
+  overview: LayoutDashboard,
+  activity: ScrollText,
+  workflows: Workflow,
+  versions: History,
+  deployment: Rocket,
+  schedules: CalendarClock,
+  webhooks: Webhook,
+  signals: Radio,
+  secrets: KeyRound,
+  config: SlidersHorizontal,
+  files: Folder,
+  operations: Braces,
+  sessions: MessagesSquare,
+} satisfies { [Section in AppManageSection]: Component }
+
 export interface AppManageSectionEntry {
   id: AppManageSection
   label: string
+  icon: Component
+}
+
+function sectionEntry(id: AppManageSection): AppManageSectionEntry {
+  return { id, label: SECTION_LABELS[id], icon: SECTION_ICONS[id] }
+}
+
+export function manageSectionIcon(section: AppManageSection): Component {
+  return SECTION_ICONS[section]
 }
 
 export function manageSectionLabel(section: AppManageSection): string {
@@ -35,7 +77,7 @@ export function manageSectionLabel(section: AppManageSection): string {
 
 /** Every section. The section list and the strip draw the same list. */
 export function manageSections(): AppManageSectionEntry[] {
-  return APP_MANAGE_SECTIONS.map((id) => ({ id, label: SECTION_LABELS[id] }))
+  return APP_MANAGE_SECTIONS.map(sectionEntry)
 }
 
 export interface AppManageSectionGroup {
@@ -52,7 +94,7 @@ const SECTION_GROUPS: { label: string; sections: AppManageSection[] }[] = [
 
 /** The sections under their headings. The groups hold every section once, in the order of `manageSections`. */
 export function manageSectionGroups(): AppManageSectionGroup[] {
-  return SECTION_GROUPS.map((group) => ({ label: group.label, sections: group.sections.map((id) => ({ id, label: SECTION_LABELS[id] })) }))
+  return SECTION_GROUPS.map((group) => ({ label: group.label, sections: group.sections.map(sectionEntry) }))
 }
 
 /**

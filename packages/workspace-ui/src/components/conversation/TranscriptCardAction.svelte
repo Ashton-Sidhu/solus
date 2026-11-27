@@ -14,6 +14,8 @@
    */
   interface Props {
     kind?: "primary" | "filled" | "ghost" | "icon" | "item";
+    /** Round ends: the actions on a setup card's line. */
+    pill?: boolean;
     /** Accessible name and tooltip; required for `icon`. */
     label?: string;
     disabled?: boolean;
@@ -28,6 +30,7 @@
 
   let {
     kind = "primary",
+    pill = false,
     label,
     disabled = false,
     destructive = false,
@@ -47,6 +50,7 @@
   class:is-filled={kind === "filled"}
   class:is-ghost={kind === "ghost"}
   class:is-icon={kind === "icon"}
+  class:is-pill={pill}
   class:text-destructive={destructive}
   aria-label={label}
   title={label}
@@ -121,6 +125,17 @@
   :global(.tx-card-action.is-icon:hover) {
     background: color-mix(in oklch, var(--foreground) 6%, transparent);
     color: var(--solus-text-primary);
+  }
+
+  /* A pill keeps the fill of its kind and takes round ends; a ghost pill
+     shows a hairline so its shape reads at rest. */
+  :global(.tx-card-action.is-pill) {
+    border-radius: 9999px;
+    padding: 0 0.75rem;
+  }
+
+  :global(.tx-card-action.is-pill.is-ghost) {
+    box-shadow: inset 0 0 0 0.0625rem var(--border);
   }
 
   :global(.tx-card-action:active) {

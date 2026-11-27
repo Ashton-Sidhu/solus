@@ -28,10 +28,10 @@ const view = (patch: Partial<CommandProcessInput>) => {
 describe('the process state of a command', () => {
   test('each state the host reports has its label and its actions', () => {
     expect(view({})).toEqual({ state: 'checking', label: 'Checking…', actions: [] })
-    expect(view({ facts: facts({ state: 'stopped' }) })).toEqual({ state: 'not-started', label: 'Not started', actions: ['Start and test'] })
+    expect(view({ facts: facts({ state: 'stopped' }) })).toEqual({ state: 'not-started', label: 'Ready', actions: ['Start and test'] })
     expect(view({ facts: facts({ state: 'running' }, 'modern') })).toEqual({ state: 'running', label: 'Running', actions: ['Stop', 'Test again'] })
     // It ran before (a verdict is saved), and stopped when idle, on Stop, or with the host.
-    expect(view({ facts: facts({ state: 'stopped' }, 'legacy') })).toEqual({ state: 'stopped', label: 'Stopped', actions: ['Start and test', 'Test again'] })
+    expect(view({ facts: facts({ state: 'stopped' }, 'legacy') })).toEqual({ state: 'stopped', label: 'Ready', actions: ['Start and test', 'Test again'] })
     expect(view({ facts: facts({ state: 'stopped', message: 'Files stopped by itself.' }, 'modern') })).toEqual({ state: 'ended', label: 'Stopped by itself', actions: ['Start again', 'Test again'] })
     // The host says why a process that ran stopped; the row says it too.
     expect(view({ facts: facts({ state: 'stopped', stopReason: 'stop' }, 'modern') })).toEqual({ state: 'stopped', label: 'Stopped', actions: ['Start and test', 'Test again'] })
@@ -40,6 +40,18 @@ describe('the process state of a command', () => {
     expect(view({ facts: facts({ state: 'failed', message: 'It ended 3 times.' }) })).toEqual({ state: 'failed', label: 'Failed', actions: ['Start again'] })
     expect(view({ facts: facts({ state: 'failed', message: '`npx` is not installed on this host.', startFailure: 'not-installed' }) })).toEqual({ state: 'not-installed', label: 'Not installed', actions: ['Start again'] })
     expect(view({ facts: facts({ state: 'failed', message: 'Not a program.', startFailure: 'not-runnable' }) })).toEqual({ state: 'cannot-run', label: 'Cannot run', actions: ['Start again'] })
+  })
+
+  test('a command that is not running but that an agent can start reads as ready, not as a fault', () => {
+    // The next tool call starts it, so an idle close, room at the limit, or a host restart is no problem to show.
+    for (const process of [{ state: 'stopped' as const }, { state: 'stopped' as const, stopReason: 'idle' as const }, { state: 'stopped' as const, stopReason: 'limit' as const }]) {
+      const status = commandProcessStatus(input({ facts: facts(process, 'modern') }))
+      expect({ label: status.label, tone: status.tone }).toEqual({ label: 'Ready', tone: 'ready' })
+    }
+    // A Stop the person pressed, or a start that something blocks, still reads as stopped.
+    expect(commandProcessStatus(input({ facts: facts({ state: 'stopped', stopReason: 'stop' }, 'modern') })).tone).toBe('muted')
+    expect(view({ facts: facts({ state: 'stopped' }), needsValues: true }).label).toBe('Not started')
+    expect(view({ facts: facts({ state: 'stopped', stopReason: 'idle' }, 'modern'), mayRunCommands: false }).label).toBe('Stopped')
   })
 
   test('a start that runs offers Cancel, which stops the process', () => {

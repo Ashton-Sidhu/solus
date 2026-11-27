@@ -1,4 +1,6 @@
-import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
+import { mcpAppLiveFor } from "@solus/client-core/mcp-app-live";
+import { solus } from "./runtime";
+import { conversationIdOf, type ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import { createContext, type ReactNode } from "react";
 import { Atom } from "effect/reactivity";
 import { resolveConversationImage } from "./session-media";
@@ -26,6 +28,10 @@ export const sessionFeed = Atom.family((store: ConversationStore) => {
       (path, refresh) => resolveConversationImage(store, path, refresh).then((image) => image.uri),
       (key) => store.controller.readToolInput(key),
       { get provider() { return store.controller.run.provider; }, child: remoteAgentChild(store.controller.hostId) },
+      (toolUseId) => {
+        const api = solus.connections.connection(store.controller.hostId)?.api;
+        return !!api && mcpAppLiveFor(api).isHeld(conversationIdOf(store), toolUseId);
+      },
     );
     let lastOrder: readonly string[] | undefined;
     let lastReader: ReturnType<FeedProjector> | undefined;

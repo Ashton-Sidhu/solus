@@ -14,6 +14,7 @@
     Mic as MicrophoneIcon,
     Binoculars as BinocularsIcon,
     Cpu as ProvidersIcon,
+    Gauge as UsageIcon,
     MessagesSquare as SessionsIcon,
     MessageSquareText as ChatIcon,
     Radio as BroadcastIcon,
@@ -42,6 +43,7 @@
     agentProfileLocalStore,
     codebasesStore,
     accountStore,
+    runtime,
   } from "../../contexts";
   import { settingsNavGroups, settingsTabShown, type SettingsNavGroup } from "./lib/settings-nav";
   import { NEW_CODEBASE } from "../codebases/lib/codebase-view";
@@ -64,6 +66,7 @@
     policySearchWords as policySearch,
     webhooksSearchWords as webhooksSearch,
     codebasesSearchWords as codebasesSearch,
+    usageSearchWords as usageSearch,
     sharingSearchWords as sharingSearch,
     solusCloudSearchWords as solusCloudSearch
   } from "./lib/settings-search-data";
@@ -168,6 +171,13 @@
       label: "Providers",
       description: "Provider setup and your default models, reasoning, and model options.",
       icon: ProvidersIcon,
+      group: "Agents",
+    },
+    {
+      id: "usage",
+      label: "Usage",
+      description: "Remaining subscription quota and pace across your connected hosts and harnesses.",
+      icon: UsageIcon,
       group: "Agents",
     },
     {
@@ -324,6 +334,7 @@
     integrations: ["integration", "github", "google", "drive", "atlassian", "jira", "confluence", "linear", "account", "accounts"],
     mcp: mcpSearch,
     providers: ["claude", "claude code", "codex", "agent", "harness", "seat", "sign in", "login", "cli", "default", "default model", "model options", "model", "reasoning", "context", "fast", "instructions", "project", "projects", "override"],
+    usage: usageSearch,
     telemetry: analyticsSearch,
     host: hostSearch,
     webhooks: webhooksSearch,
@@ -425,6 +436,16 @@
   });
 
   let searchInputEl = $state<HTMLInputElement | null>(null);
+
+  // Settings opens on its search field. The frame takes focus first, so the
+  // page keeps its keys when the field is hidden (the narrow layout has no
+  // navigation column). A touch device without a keyboard stays on the frame,
+  // so no on-screen keyboard covers the page.
+  function focusOnOpen(element: HTMLElement) {
+    element.focus({ preventScroll: true });
+    if (untrack(() => runtime.shouldSuppressFocus)) return;
+    element.querySelector<HTMLInputElement>('[data-slot="sidebar-header"] input')?.focus({ preventScroll: true });
+  }
 
   function goBack() {
     if (session.settingsTab === "api-access" && connectionsNav.isOnPage) {
@@ -607,9 +628,9 @@
   aria-label="Settings content"
   data-slot="settings-page"
   tabindex="-1"
-  {@attach (element) => element.focus({ preventScroll: true })}
+  {@attach focusOnOpen}
   onkeydown={handleKeydown}
-  class="flex h-full w-full min-w-0 overflow-hidden text-workspace-chrome outline-none [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [&_button]:text-[length:inherit] [&_input[data-slot=input]:not(.bg-transparent)]:border [&_input[data-slot=input]:not(.bg-transparent)]:border-input [&_input[data-slot=input]:not(.bg-transparent)]:bg-white [&_input[data-slot=input]:not(.bg-transparent)]:shadow-xs/5 dark:[&_input[data-slot=input]:not(.bg-transparent)]:bg-input/30 [&_input[data-slot=input]:not(.bg-transparent):focus-visible]:border-(--solus-accent) [&_input[data-slot=input]:not(.bg-transparent):focus-visible]:ring-0 [&_input[data-slot=input]:not(.bg-transparent):focus-visible]:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)]"
+  class="flex h-full w-full min-w-0 overflow-hidden text-workspace-chrome outline-none [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [&_button]:text-[length:inherit]"
 >
   <!-- The dialog is the pane container. Below 48rem, section buttons replace
        the fixed navigation column. A page under Hosts takes the whole dialog:

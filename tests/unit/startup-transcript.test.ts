@@ -138,46 +138,81 @@ test('secondary work yields a paint opportunity and still runs when frames are s
   }
 })
 
-test('restored history and live attachment finish before secondary metadata, with a stale-tab guard', async () => {
+/** Run the real `hydrateTab` of a restored tab against fake host answers. */
+function restoreTab(options: {
+  page: { runningTurnStartedAt?: number }
+  watch: Promise<{ runningTurnStartedAt?: number }>
+  events: string[]
+  paintPending: Promise<void>
+  selected: () => unknown
+}) {
   const bootstrap = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/session-bootstrap.ts', import.meta.url), 'utf8')
   const hydration = transpiler.transformSync(bootstrap.slice(bootstrap.indexOf('async function hydrateTab(')))
+  const { events } = options
+  const location = folderLocation({ serverId: 'local', path: '/repo' })
+  const session = { id: 'stable', agentSessionId: 'thread', run: { provider: 'codex', location }, messages: [{ content: 'already visible' }], loadingHistory: false }
+  const context = {
+    tabs: { tab: { sessionId: 'stable' } }, sessions: { byId: { stable: session } },
+    settings: { activeAgent: 'codex' }, apiFor: () => ({
+      describeSession: async () => null,
+      watchSession: () => { events.push('watch'); return options.watch.then((watched) => ({ sessionId: 'stable', runtime: null, ...watched })) },
+    }),
+    ctxFor: () => ({}), sessionFor: options.selected,
+    eventReducer: {
+      rebuildAgentConversations() {}, dropHeldEvents() {},
+      holdEvents() { events.push('hold') }, releaseEvents() { events.push('release') },
+    },
+    lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
+    planStore: { hydrateAnnotations() {} }, cloudTranscripts: { release() {} }, adoptSessionId() {}, refreshThreadGoal() {}, applyPendingQuestions() {},
+    environment: { refreshEnvironment: async () => { events.push('git'); return new Promise(() => {}) } },
+    issuesStore: { ensureSessionBinding: async () => { events.push('task'); return new Promise(() => {}) } },
+  }
+  const execute = new Function('serverConnections', 'afterPaint', 'requestSessionHistoryPage', 'loadRestoredSessionTranscript',
+    'replaceHydratedMessages', 'markStartupTranscriptApplied', 'INITIAL_HISTORY_TURNS', 'isSessionBusyStatus',
+    'runHost', 'checkoutPlace', 'checkoutGit', 'projectHome', 'fitTranscriptToWatch',
+    `${hydration}\nreturn hydrateTab;`)
+  const hydrate = execute({ presenceOf: () => 'present' }, () => options.paintPending, async () => ({ messages: [], ...options.page }),
+    async () => ({ messages: [{ content: 'ready' }], planIds: [] }),
+    (target: { messages: Array<{ content: string }> }, messages: Array<{ content: string }>) => { target.messages.push(...messages); events.push('history') },
+    () => {}, 200, () => false, runHost, checkoutPlace, checkoutGit, projectHome, async () => {})
+  return { session, done: hydrate(context, { tabId: 'tab', agentSessionId: 'thread', provider: 'codex', location }) as Promise<boolean> }
+}
+
+// docs/plans/running-turn-open.md: the watch of a restored tab travels beside its
+// history page. Its events are held, so none applies before the page does.
+test('restored history paints before any live event and before secondary metadata, with a stale-tab guard', async () => {
   for (const replaceTab of [false, true]) {
     let paint!: () => void
     const paintPending = new Promise<void>((resolve) => { paint = resolve })
     const events: string[] = []
-    const location = folderLocation({ serverId: 'local', path: '/repo' })
-    const session = { id: 'stable', agentSessionId: 'thread', run: { provider: 'codex', location }, messages: [{ content: 'already visible' }], loadingHistory: false }
-    let selected = session
-    const context = {
-      tabs: { tab: { sessionId: 'stable' } }, sessions: { byId: { stable: session } },
-      settings: { activeAgent: 'codex' }, apiFor: () => ({
-        describeSession: async () => null,
-        watchSession: async () => { events.push('watch'); return { sessionId: 'stable', runtime: null } },
-      }),
-      ctxFor: () => ({}), sessionFor: () => selected,
-      eventReducer: { rebuildAgentConversations() {} }, lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
-      planStore: { hydrateAnnotations() {} }, adoptSessionId() {}, refreshThreadGoal() {}, applyPendingQuestions() {},
-      environment: { refreshEnvironment: async () => { events.push('git'); return new Promise(() => {}) } },
-      issuesStore: { ensureSessionBinding: async () => { events.push('task'); return new Promise(() => {}) } },
-    }
-    const execute = new Function('serverConnections', 'afterPaint', 'requestSessionHistoryPage', 'loadRestoredSessionTranscript',
-      'replaceHydratedMessages', 'markStartupTranscriptApplied', 'INITIAL_HISTORY_TURNS', 'isSessionBusyStatus',
-      'runHost', 'checkoutPlace', 'checkoutGit', 'projectHome',
-      `${hydration}\nreturn hydrateTab;`)
-    const hydrate = execute({ presenceOf: () => 'present' }, () => paintPending, async () => ({ messages: [] }),
-      async () => { expect(session.loadingHistory).toBe(false); return { messages: [{ content: 'ready' }], planIds: [] } },
-      (target: { messages: Array<{ content: string }> }, messages: Array<{ content: string }>) => { target.messages.push(...messages); events.push('history') },
-      () => {}, 200, () => false, runHost, checkoutPlace, checkoutGit, projectHome)
-    await hydrate(context, { tabId: 'tab', agentSessionId: 'thread', provider: 'codex', location })
+    let selected: unknown
+    const { session, done } = restoreTab({ page: {}, watch: Promise.resolve({}), events, paintPending, selected: () => selected })
+    selected = session
+    await done
     expect(session.loadingHistory).toBe(false)
-    expect(events).toEqual(['history', 'watch'])
+    expect(events).toEqual(['hold', 'watch', 'history', 'release'])
     if (replaceTab) selected = { ...session, id: 'replacement' }
     paint()
     await Promise.resolve()
-    expect(events).toEqual(replaceTab ? ['history', 'watch'] : ['history', 'watch', 'git', 'task'])
+    expect(events).toEqual(replaceTab ? ['hold', 'watch', 'history', 'release'] : ['hold', 'watch', 'history', 'release', 'git', 'task'])
   }
 })
 
+test('a restored page that leaves out a running turn paints only with the replay of that turn', async () => {
+  let answerWatch!: () => void
+  const watch = new Promise<{ runningTurnStartedAt?: number }>((resolve) => { answerWatch = () => resolve({ runningTurnStartedAt: 1_000 }) })
+  const events: string[] = []
+  let selected: unknown
+  const { session, done } = restoreTab({ page: { runningTurnStartedAt: 1_000 }, watch, events, paintPending: new Promise(() => {}), selected: () => selected })
+  selected = session
+  for (let i = 0; i < 10; i++) await Promise.resolve()
+  // The page is in hand, but the turn it left out is not: nothing paints yet.
+  expect(events).toEqual(['hold', 'watch'])
+  answerWatch()
+  await done
+  // The held replay applies right after the page, in the same step.
+  expect(events.slice(0, 4)).toEqual(['hold', 'watch', 'history', 'release'])
+})
 
 function loadMaterializeStartupTranscript(dependencies: {
   page: unknown; transcript: unknown; marks: string[]

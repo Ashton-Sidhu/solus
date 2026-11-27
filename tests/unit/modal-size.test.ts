@@ -3,6 +3,7 @@ import {
   MODAL_MIN_HEIGHT,
   MODAL_MIN_WIDTH,
   clampModalSize,
+  hasTopHandles,
   maxModalSize,
   modalSizeStyle,
   readSavedModalSize,
@@ -27,7 +28,23 @@ describe('modal size', () => {
     // WHY: the edge moves half the size change. A 1:1 rule leaves the pointer
     // behind the edge, and the drag feels broken.
     const max = maxModalSize(window, 150, 'center')
-    expect(resizeModal(start, { x: 50, y: 40 }, 'corner', 'center', max)).toEqual({ width: 900, height: 680 })
+    expect(resizeModal(start, { x: 50, y: 40 }, 'bottom-right', 'center', max)).toEqual({ width: 900, height: 680 })
+  })
+
+  test('a left or top handle grows the modal when it moves away from the centre', () => {
+    // WHY: every edge and corner drags. A left or top handle that used the
+    // right or bottom sign would shrink the modal as the reader pulls it wider.
+    const max = maxModalSize(window, 150, 'center')
+    expect(resizeModal(start, { x: -50, y: -40 }, 'top-left', 'center', max)).toEqual({ width: 900, height: 680 })
+    expect(resizeModal(start, { x: 50, y: -40 }, 'top-right', 'center', max)).toEqual({ width: 900, height: 680 })
+    expect(resizeModal(start, { x: -50, y: 40 }, 'bottom-left', 'center', max)).toEqual({ width: 900, height: 680 })
+    expect(resizeModal(start, { x: -30, y: 200 }, 'left', 'center', max)).toEqual({ width: 860, height: 600 })
+    expect(resizeModal(start, { x: 200, y: -30 }, 'top', 'center', max)).toEqual({ width: 800, height: 660 })
+  })
+
+  test('a modal pinned near the top has no top handles, because its top cannot move', () => {
+    expect(hasTopHandles('top')).toBe(false)
+    expect(hasTopHandles('center')).toBe(true)
   })
 
   test('a modal pinned near the top grows downward only', () => {
@@ -43,8 +60,8 @@ describe('modal size', () => {
 
   test('never grows past the window or shrinks below a usable floor', () => {
     const max = maxModalSize(window, 150, 'center')
-    expect(resizeModal(start, { x: 5000, y: 5000 }, 'corner', 'center', max)).toEqual({ width: 1368, height: 868 })
-    expect(resizeModal(start, { x: -5000, y: -5000 }, 'corner', 'center', max)).toEqual({
+    expect(resizeModal(start, { x: 5000, y: 5000 }, 'bottom-right', 'center', max)).toEqual({ width: 1368, height: 868 })
+    expect(resizeModal(start, { x: -5000, y: -5000 }, 'bottom-right', 'center', max)).toEqual({
       width: MODAL_MIN_WIDTH,
       height: MODAL_MIN_HEIGHT,
     })

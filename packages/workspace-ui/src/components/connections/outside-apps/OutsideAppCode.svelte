@@ -45,29 +45,23 @@
   }
 </script>
 
-<div class="flex min-w-0 items-center justify-between gap-3 rounded-[0.625rem] bg-(--solus-code-bg) px-3.5 py-3 ring-1 ring-border" aria-live="polite">
-  <div class="flex min-w-0 flex-col gap-0.75">
-    <span class="text-chrome-dense text-(--solus-text-tertiary)">When {appName} asks for a code</span>
+<div class="flex min-w-0 flex-col gap-1.5 rounded-xl bg-(--solus-tx-card-bg) px-4 pt-3 pb-3.5 shadow-[shadow:var(--solus-card-shadow-collapsed)]" aria-live="polite">
+  <div class="flex min-w-0 items-center justify-between gap-3">
+    <span class="truncate text-[0.6875rem] leading-3.5 font-medium tracking-[0.08em] text-(--solus-text-tertiary) uppercase">Code for {appName}</span>
+    {#if code && timeLeft}<span class="shrink-0 font-mono text-chrome-dense text-(--solus-text-tertiary) tabular-nums">{timeLeft}</span>{/if}
+  </div>
+  <div class="flex min-w-0 items-center justify-between gap-3">
     {#if code && timeLeft}
-      <span class="truncate text-[1.375rem] leading-7 font-semibold tracking-[0.06em] text-(--solus-text-primary) tabular-nums select-text">{code.code}</span>
+      <span class="truncate font-mono text-[1.375rem] leading-7 font-medium tracking-[0.08em] text-(--solus-text-primary) tabular-nums select-text">{code.code}</span>
+      <Button variant="ghost" size="sm" class="shrink-0 bg-muted" onclick={() => void copy()}>{isCopied ? "Copied" : "Copy"}</Button>
     {:else if codeError}
       <span role="alert" class="text-chrome-dense text-(--solus-status-error)">{codeError}</span>
+      <Button variant="ghost" size="sm" class="shrink-0 bg-muted" disabled={connections.appPairingCodeCreating} onclick={() => void connections.createAppPairingCode(serverId, access)}>Try again</Button>
     {:else if code}
       <span class="text-workspace-chrome text-(--solus-text-secondary)">The code expired.</span>
+      <Button variant="ghost" size="sm" class="shrink-0 bg-muted" disabled={connections.appPairingCodeCreating} onclick={() => void connections.createAppPairingCode(serverId, access)}>New code</Button>
     {:else}
       <span class="text-workspace-chrome text-(--solus-text-tertiary)">Getting a code…</span>
-    {/if}
-  </div>
-  <div class="flex shrink-0 flex-col items-end gap-0.75">
-    {#if code && timeLeft}
-      <Button variant="ghost" size="xs" class="-mr-2 text-[0.8125rem] text-primary hover:text-primary" onclick={() => void copy()}>
-        {isCopied ? "Copied" : "Copy"}
-      </Button>
-      <span class="text-chrome-dense text-(--solus-text-tertiary) tabular-nums">{timeLeft}</span>
-    {:else if code || codeError}
-      <Button variant="outline" size="sm" disabled={connections.appPairingCodeCreating} onclick={() => void connections.createAppPairingCode(serverId, access)}>
-        {codeError ? "Try again" : "New code"}
-      </Button>
     {/if}
   </div>
 </div>

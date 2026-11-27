@@ -8,7 +8,7 @@
     Search as MagnifyingGlassIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import type { PinnedSession } from "@solus/contracts/types";
+  import type { PinnedSession, SessionReference } from "@solus/contracts/types";
   import {
     CHATS_GROUP_KEY,
     getSettingsContext,
@@ -59,7 +59,6 @@
   import { writeSessionDrag } from "../../lib/session-drag";
   import {
     referencesForRows,
-    type ReferencedRow,
     type SessionReferenceSources,
   } from "./lib/session-reference";
   import { shareToast } from "../../contexts/workspace/shared-sessions";
@@ -290,6 +289,7 @@
     pinnedRow,
     onOpenDraft: openDraft,
     onDiscardDraft: discardDraft,
+    onDragDraft: runtime.isTouchDevice ? undefined : dragDraft,
     onToggleSection: toggleSection,
     onCloseRow: closeRowByKey,
     onNestedOpenChange: setNestedOpenByKey,
@@ -567,10 +567,9 @@
   /** A row dragged onto an input bar becomes its session's chip there. A row
    *  in the selection carries every selected session. Touch has no drag: its
    *  long press opens the menu, which has "Reference in Prompt". */
-  function dragSessions(event: DragEvent, rows: readonly ReferencedRow[]) {
+  function dragSessions(event: DragEvent, references: readonly SessionReference[]) {
     // A session listed under a row is its own drag, not the row's.
     event.stopPropagation();
-    const references = referencesForRows(referenceSources, rows);
     if (!event.dataTransfer || references.length === 0) {
       event.preventDefault();
       return;
@@ -579,11 +578,16 @@
   }
 
   function dragRow(event: DragEvent, task: SidebarSession) {
-    dragSessions(event, selectedTaskIds.has(task.id) ? selectedTasks() : [task]);
+    dragSessions(event, referencesForRows(referenceSources, selectedTaskIds.has(task.id) ? selectedTasks() : [task]));
+  }
+
+  function dragDraft(event: DragEvent, draft: DraftRowModel) {
+    const reference = sidebarStore.draftReferenceForRow(draft);
+    dragSessions(event, reference ? [reference] : []);
   }
 
   function dragChild(event: DragEvent, child: SidebarSessionChild) {
-    dragSessions(event, [{ tabIds: child.tabId ? [child.tabId] : [], sessionId: child.sessionId }]);
+    dragSessions(event, referencesForRows(referenceSources, [{ tabIds: child.tabId ? [child.tabId] : [], sessionId: child.sessionId }]));
   }
 
   async function bulkComplete() {

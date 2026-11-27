@@ -375,6 +375,19 @@ export const integrationServerFacts = defineTable('integration_server_facts', {
 }, { primaryKey: ['integration_id', 'user_id', 'account_id'] })
 
 /**
+ * The icon an integration's server names in its `serverInfo` (MCP `Implementation.icons`),
+ * fetched once by the host: `icon` is an `IntegrationIcon` of `data:` URIs,
+ * `source_key` the addresses it came from, and `fetched_at` when. A cache of
+ * the server's answer, not part of the record, so it is never synced.
+ */
+export const integrationIcon = defineTable('integration_icon', {
+  integration_id: text({ primaryKey: true }),
+  icon: json({ notNull: true }),
+  source_key: text({ notNull: true }),
+  fetched_at: bigint({ notNull: true }),
+})
+
+/**
  * One tool call that a server runs as an MCP task (docs/plans/mcp-first-class.md
  * §12.2). The host polls it as `user_id`, the person who made the call, and
  * gives its end to `session_id` once: `delivered_at` is set in the same write

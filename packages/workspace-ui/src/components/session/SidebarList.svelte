@@ -17,6 +17,7 @@
     pinnedRow: Snippet<[PinnedSession]>;
     onOpenDraft: (draft: DraftRowModel) => void;
     onDiscardDraft: (draft: DraftRowModel) => void;
+    onDragDraft?: (event: DragEvent, draft: DraftRowModel) => void;
     onToggleSection: (section: SidebarSection) => void;
     /** ⌫ on a row: the row's X. `rowKey` is absent on a session listed
      *  under a row. */
@@ -58,6 +59,7 @@
     folderHeader,
     onOpenDraft,
     onDiscardDraft,
+    onDragDraft,
     onToggleSection,
     onCloseRow,
     onNestedOpenChange,
@@ -159,6 +161,7 @@
             inFolder={item.folderKey !== undefined}
             onSelect={() => onOpenDraft(item.draft)}
             onDiscard={() => onDiscardDraft(item.draft)}
+            onDragStart={onDragDraft ? (event) => onDragDraft(event, item.draft) : undefined}
           />
         </div>
       {:else if item.kind === "drafts-divider"}

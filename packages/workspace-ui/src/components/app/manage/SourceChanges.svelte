@@ -3,12 +3,13 @@
   import { appsStore } from "../../../contexts/apps/apps.store.svelte";
   import { versionDiffFiles } from "../lib/app-version-diff";
   import { shortCommit } from "@solus/client-core/app-versions";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
   import DiffFiles from "./DiffFiles.svelte";
 
   /**
    * The source change of one version against the version before it, or of one
    * revision against the revision before it or against `against` (what a
-   * rollback moved between), as a flat list of files.
+   * rollback moved between), as a flat list of files with no card around it.
    */
   interface Props {
     serverId: string;
@@ -41,10 +42,12 @@
 {:then answer}
   <div class="flex min-w-0 flex-col gap-2">
     <p class="m-0 text-xs text-(--solus-text-tertiary)">{answer.baseText}</p>
-    <div class="min-w-0 overflow-hidden rounded-lg border border-[var(--hairline)]">
-      <DiffFiles files={versionDiffFiles(answer.patch)} patch={answer.patch} truncated={answer.truncated} />
-    </div>
+    <DiffFiles files={versionDiffFiles(answer.patch)} patch={answer.patch} truncated={answer.truncated} />
   </div>
 {:catch error}
-  <p class="m-0 text-xs text-destructive" role="alert">{error instanceof Error ? error.message : "Could not load the changes."}</p>
+  <div class="text-[13px] [--prose-ink-strong:var(--solus-text-primary)]" role="alert">
+    <MarkdownAlert alertType="error">
+      {#snippet content()}{error instanceof Error ? error.message : "Could not load the changes."}{/snippet}
+    </MarkdownAlert>
+  </div>
 {/await}

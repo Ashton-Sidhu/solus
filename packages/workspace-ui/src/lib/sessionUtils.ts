@@ -268,6 +268,19 @@ export function sessionTitle(sess: Session): string {
   }
 }
 
+/** The name a session goes by on a surface that shows one session (tab strip,
+ *  breadcrumb, the sessions under a sidebar row). A session an automation
+ *  started goes by its automation's current name, as its sidebar row does, so
+ *  a rename reaches every surface; any other session by `sessionTitle`.
+ *  `automationName` answers for an automation on the session's host. */
+export function sessionName(
+  sess: Session,
+  automationName: (automationId: string, serverId: string | null | undefined) => string | undefined,
+): string {
+  const automationId = sess.startedBy?.kind === 'automation' ? sess.startedBy.automationId : undefined
+  return (automationId && automationName(automationId, runHost(sess.run))) || sessionTitle(sess)
+}
+
 /** Relative time label from a numeric timestamp (ms). Returns null for 0/unset. */
 export function formatTimeAgoFromTimestamp(ts: number): string | null {
   if (!ts) return null

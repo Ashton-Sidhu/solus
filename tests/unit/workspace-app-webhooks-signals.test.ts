@@ -7,6 +7,7 @@ import { SvelteRunes } from './helpers/svelte-runes'
 import {
   answerStatus,
   callText,
+  deliveryMark,
   deliveryTitle,
   headerRows,
   isTestDelivery,
@@ -93,10 +94,13 @@ describe('the live tail of a signal', () => {
     const ended = occurrence('a', 1, { deliveries: [
       { actionId: 'notify', type: 'notify', status: 'delivered', detail: null },
       { actionId: 'session', type: 'send_to_session', status: 'failed', detail: 'session stopped' },
+      { actionId: 'limited', type: 'send_to_session', status: 'throttled', detail: null },
     ] })
-    expect(tailCell(ended, 'notify')).toEqual({ text: 'Sent', isFailed: false, sessionId: null })
-    expect(tailCell(ended, 'session')).toEqual({ text: 'Failed · session stopped', isFailed: true, sessionId: null })
-    expect(tailCell(ended, 'off')).toEqual({ text: '—', isFailed: false, sessionId: null })
+    expect(tailCell(ended, 'notify')).toEqual({ text: 'Sent', mark: null, sessionId: null })
+    expect(tailCell(ended, 'session')).toEqual({ text: 'Failed · session stopped', mark: 'failed', sessionId: null })
+    // Over the limit did not run, but nothing is broken: a warning, not a failure.
+    expect(tailCell(ended, 'limited')).toEqual({ text: 'Over the limit', mark: 'warning', sessionId: null })
+    expect(tailCell(ended, 'off')).toEqual({ text: '—', mark: null, sessionId: null })
     expect(payloadSummary('{"repo":"sveltejs/kit","version":"2.48.0","notes":{"a":1}}')).toBe('sveltejs/kit 2.48.0')
     expect(payloadSummary('[1,2]')).toBe('[1,2]')
   })
@@ -183,6 +187,11 @@ describe('the deliveries of an app webhook', () => {
     expect(answerStatus('ran')).toBe(202)
     expect(answerStatus('unverified')).toBe(401)
     expect(answerStatus('paused')).toBe(409)
+    // The mark carries what the green and red status code said: a refusal is never ok.
+    expect(deliveryMark('ran')).toBe('ok')
+    expect(deliveryMark('unverified')).toBe('failed')
+    expect(deliveryMark('partial')).toBe('failed')
+    expect(deliveryMark('pending')).toBe('running')
     expect(deliveryTitle({ outcome: 'ran', replayOf: null }, 'recordRelease')).toBe('Ran recordRelease')
     expect(deliveryTitle({ outcome: 'failed', replayOf: 'd0' }, 'recordRelease')).toBe('Replay: recordRelease failed')
   })

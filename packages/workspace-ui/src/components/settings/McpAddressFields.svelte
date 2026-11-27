@@ -61,7 +61,7 @@
     <!-- svelte-ignore a11y_autofocus -->
     <Input id="mcp-address-url" type="url" inputmode="url" bind:value={form.address} oninput={() => (form.problem = null)} placeholder="https://mcp.example.com/mcp"
       autocomplete="off" spellcheck={false} dictation={false} {disabled} autofocus aria-invalid={form.problemOf("address") ? true : undefined}
-      aria-describedby="mcp-address-url-hint" class="h-8 min-w-0 font-mono text-workspace-chrome" />
+      aria-describedby="mcp-address-url-hint" class="h-8 min-w-0 text-workspace-chrome" />
     {@render hint("mcp-address-url-hint", form.problemOf("address"), true)}
   </div>
 
@@ -98,7 +98,7 @@
       <div class="flex flex-col gap-1.5">
         {@render label("mcp-address-client-id", "Client ID")}
         <Input id="mcp-address-client-id" bind:value={form.clientId} placeholder="Optional" autocomplete="off" spellcheck={false} dictation={false} {disabled}
-          aria-invalid={form.problemOf("clientId") ? true : undefined} aria-describedby="mcp-address-client-hint" class="h-8 min-w-0 font-mono text-workspace-chrome" />
+          aria-invalid={form.problemOf("clientId") ? true : undefined} aria-describedby="mcp-address-client-hint" class="h-8 min-w-0 text-workspace-chrome" />
       </div>
       <div class="flex flex-col gap-1.5">
         {@render label("mcp-address-client-secret", "Client secret")}
@@ -109,13 +109,13 @@
       <div class="flex flex-col gap-1.5">
         {@render label("mcp-address-scopes", "Scopes")}
         <Input id="mcp-address-scopes" bind:value={form.scopes} placeholder="Optional, such as read write" autocomplete="off" spellcheck={false} dictation={false} {disabled}
-          aria-invalid={form.problemOf("scopes") ? true : undefined} aria-describedby="mcp-address-scopes-hint" class="h-8 min-w-0 font-mono text-workspace-chrome" />
+          aria-invalid={form.problemOf("scopes") ? true : undefined} aria-describedby="mcp-address-scopes-hint" class="h-8 min-w-0 text-workspace-chrome" />
         {@render hint("mcp-address-scopes-hint", form.problemOf("scopes") ?? "Separated by spaces. Empty asks for the scopes the server names.", !!form.problemOf("scopes"))}
       </div>
       <div class="flex flex-col gap-1.5">
-        <span class="text-workspace-chrome font-medium text-foreground">Callback URL</span>
+        <label for="mcp-address-callback" class="text-workspace-chrome font-medium text-foreground">Callback URL</label>
         <div class="flex min-w-0 items-center gap-2">
-          <span class="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1.5 font-mono text-chrome-dense text-foreground" title={callbackUrl}>{callbackUrl}</span>
+          <Input id="mcp-address-callback" value={callbackUrl} readonly dictation={false} class="h-8 min-w-0 flex-1 text-workspace-chrome" onfocus={(event) => event.currentTarget.select()} />
           <Button type="button" variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" onclick={copyCallback}>
             {#if isCopied}<Check size={14} />Copied{:else}<Copy size={14} />Copy{/if}
           </Button>
@@ -128,7 +128,7 @@
       {#each form.headers as header, index (index)}
         <div class="flex min-w-0 items-center gap-2">
           <Input bind:value={header.name} oninput={() => (form.problem = null)} placeholder="X-API-Key" aria-label="Header name {index + 1}"
-            autocomplete="off" spellcheck={false} dictation={false} {disabled} aria-invalid={form.problemOf("headers") ? true : undefined} class="h-8 min-w-0 flex-2 font-mono text-workspace-chrome" />
+            autocomplete="off" spellcheck={false} dictation={false} {disabled} aria-invalid={form.problemOf("headers") ? true : undefined} class="h-8 min-w-0 flex-2 text-workspace-chrome" />
           <Input type="password" bind:value={header.value} placeholder="Value" aria-label="Value of header {index + 1}"
             autocomplete="off" spellcheck={false} dictation={false} {disabled} class="h-8 min-w-0 flex-3 text-workspace-chrome" />
           <Button type="button" variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" {disabled}

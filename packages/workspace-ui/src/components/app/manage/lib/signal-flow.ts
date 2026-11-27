@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { Edge, Node } from '@xyflow/svelte'
 import type { AppJsonSchema, AppSignalAction, AppSignalActionView, AppSignalEmitter, AppSignalOccurrence, AppSignalView } from '@solus/contracts/apps'
 import { flowEdge } from './flow'
+import { deliveryState, type ManageState } from './states'
 
 /**
  * The Signals section (docs/plans/apps.md §9.2): the flow of one signal (what
@@ -147,18 +148,19 @@ export function actionColumnLabel(action: AppSignalAction): string {
 /** How one action ended for one occurrence, as a cell of the live tail. */
 export interface TailCell {
   text: string
-  isFailed: boolean
+  /** The mark of an action that did not deliver: failed, or warning when it was over the limit. Null when it delivered or did not run. */
+  mark: ManageState | null
   /** The session the action sent the prompt to. */
   sessionId: string | null
 }
 
 export function tailCell(occurrence: Pick<AppSignalOccurrence, 'deliveries'>, actionId: string): TailCell {
   const delivery = occurrence.deliveries.find((entry) => entry.actionId === actionId)
-  if (!delivery) return { text: '—', isFailed: false, sessionId: null }
+  if (!delivery) return { text: '—', mark: null, sessionId: null }
   switch (delivery.status) {
-    case 'delivered': return { text: 'Sent', isFailed: false, sessionId: delivery.sessionId ?? null }
-    case 'throttled': return { text: 'Over the limit', isFailed: true, sessionId: null }
-    case 'failed': return { text: delivery.detail ? `Failed · ${delivery.detail}` : 'Failed', isFailed: true, sessionId: null }
+    case 'delivered': return { text: 'Sent', mark: null, sessionId: delivery.sessionId ?? null }
+    case 'throttled': return { text: 'Over the limit', mark: deliveryState(delivery.status), sessionId: null }
+    case 'failed': return { text: delivery.detail ? `Failed · ${delivery.detail}` : 'Failed', mark: deliveryState(delivery.status), sessionId: null }
   }
 }
 

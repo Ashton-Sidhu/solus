@@ -7,6 +7,7 @@
   import { Button } from "../../ui/button";
   import { Switch } from "../../ui/switch";
   import ManageSectionState from "./ManageSectionState.svelte";
+  import { OPERATIONS_EMPTY } from "./lib/section-empty";
   import OperationRow from "./OperationRow.svelte";
   import OperationRunner from "./OperationRunner.svelte";
   import { isLongText, operationGroups } from "./lib/operations";
@@ -119,14 +120,16 @@
     <ManageSectionState
       count={operations?.length}
       error={appsStore.stateErrorFor(serverId, app.id)}
-      empty="This app declares no operation."
+      {serverId}
+      {app}
+      empty={OPERATIONS_EMPTY}
       onRetry={() => void appsStore.loadState(serverId, app.id)}
     >
-      <div class="grid min-w-0 grid-cols-1 items-start gap-x-6 gap-y-6 @min-[48rem]/pane:grid-cols-[15rem_minmax(0,1fr)]">
-        <nav class="flex min-w-0 flex-col gap-4" aria-label="Operations" data-operation-list data-testid="app-operations">
+      <div class="grid min-w-0 grid-cols-1 items-start gap-x-6 gap-y-6 @min-[48rem]/pane:grid-cols-[14.5rem_minmax(0,1fr)]">
+        <nav class="flex min-w-0 flex-col gap-3.5" aria-label="Operations" data-operation-list data-testid="app-operations">
           {#each groups as group (group.label)}
-            <div class="flex min-w-0 flex-col gap-1">
-              <h3 class="m-0 px-3 text-xs font-normal text-muted-foreground">{group.label}</h3>
+            <div class="flex min-w-0 flex-col gap-0.5">
+              <h3 class="m-0 px-2.5 pt-1 pb-1.5 text-xs font-normal text-(--solus-text-tertiary)">{group.label}</h3>
               {#each group.operations as operation (operation.name)}
                 <OperationRow
                   {operation}
@@ -138,7 +141,7 @@
               {/each}
             </div>
           {/each}
-          <p class="m-0 px-3 text-xs text-muted-foreground">Calls in the last 24 hours</p>
+          <p class="m-0 px-2.5 text-xs text-(--solus-text-tertiary)">Calls in the last 24 hours</p>
         </nav>
 
         {#if chosen}

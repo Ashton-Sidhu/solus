@@ -44,7 +44,7 @@
 </script>
 
 <div
-  class="relative min-w-0 overflow-hidden rounded-2xl border border-(--hairline-strong) bg-background shadow-[0_1px_2px_rgb(0_0_0/0.03),0_6px_20px_rgb(0_0_0/0.04)] [--xy-background-color:transparent] [--xy-background-pattern-color:var(--hairline-strongest)] [--xy-edge-stroke-width:1.5] [--xy-edge-stroke:color-mix(in_oklch,var(--foreground)_22%,transparent)] [--xy-handle-background-color:transparent] [--xy-handle-border-color:transparent] dark:bg-card dark:shadow-none pointer-coarse:[&_.svelte-flow\_\_pane]:[touch-action:pan-x_pan-y]! {className}"
+  class="relative min-w-0 overflow-hidden rounded-2xl bg-background shadow-[shadow:var(--elev-lift)] [--xy-background-color:transparent] [--xy-background-pattern-color:var(--hairline-strongest)] [--xy-edge-stroke-width:1.5] [--xy-edge-stroke:color-mix(in_oklch,var(--foreground)_22%,transparent)] [--xy-handle-background-color:transparent] [--xy-handle-border-color:transparent] dark:bg-card pointer-coarse:[&_.svelte-flow\_\_pane]:[touch-action:pan-x_pan-y]! {className}"
   role="group"
   aria-label={label}
   data-testid={testId}

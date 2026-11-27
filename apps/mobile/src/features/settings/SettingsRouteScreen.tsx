@@ -255,6 +255,7 @@ function useSettingsIndexSections(): SettingsListSection[] {
       rows: [
         page("SettingsAgentProfile", "person.crop.circle", gt("Agent profile")),
         page("SettingsProviderAccounts", "person.crop.circle", gt("Providers")),
+        page("SettingsUsage", "waveform.path.ecg", gt("Usage")),
         page("SettingsThreads", "text.bubble", gt("Sessions")),
         page("SettingsScheduledTasks", "workflow", gt("Scheduled tasks")),
       ],

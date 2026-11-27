@@ -178,10 +178,10 @@ describe('the sub-steps in the setup card contract', () => {
 })
 
 describe('the row of a sub-step on the desktop card', () => {
-  test('says "running" or "skipped", then the time of its repository, and nothing while it waits', () => {
+  test('says "skipped" or the time of its repository, and nothing while it runs or waits: its mark shows that', () => {
     const row = (status: StatusCardSubstep['status'], times: Pick<StatusCardSubstep, 'startedAt' | 'endedAt'> = {}): StatusCardSubstep => ({ id: API, label: 'api', status, ...times })
     expect(substepNote(row('pending'))).toBe('')
-    expect(substepNote(row('active', { startedAt: 1_000 }))).toBe('running')
+    expect(substepNote(row('active', { startedAt: 1_000 }))).toBe('')
     expect(substepNote(row('skipped'))).toBe('skipped')
     expect(substepNote(row('done', { startedAt: 1_000, endedAt: 3_100 }))).toBe('2.1s')
     expect(substepNote(row('warning', { startedAt: 1_000, endedAt: 2_000 }))).toBe('1.0s')

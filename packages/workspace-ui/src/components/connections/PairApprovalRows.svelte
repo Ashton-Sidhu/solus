@@ -56,6 +56,7 @@
       <Button
         variant="ghost"
         size="sm"
+        class="bg-muted"
         disabled={isDeciding || isExpired}
         aria-label="Deny {approval.deviceLabel}"
         onclick={() => void pairApprovalsStore.decide(serverId, approval.requestId, "deny")}

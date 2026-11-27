@@ -96,7 +96,11 @@ export class HostFacts {
     private readonly now: () => number = Date.now,
   ) {
     this.stopEvents = [
-      source.events.subscribe('provider-instances.changed', () => { void this.refresh('machine'); void this.refresh('capabilities'); }),
+      source.events.subscribe('provider-instances.changed', () => {
+        void this.refresh('machine')
+        void this.refresh('capabilities')
+        if (this.requested.has('usage')) void this.refresh('usage', { force: true })
+      }),
       source.events.subscribe('host.modelProfilesChanged', () => { if (this.requested.has('machine')) void this.refresh('machine'); }),
       source.events.subscribe('usage.limitsChanged', ({ snapshots }) => this.set('usage', snapshots)),
       source.events.subscribe('voice.modelStatusChanged', (status) => this.set('voiceModel', status)),
@@ -128,15 +132,18 @@ export class HostFacts {
     if (this.get(key).state === 'loading' && !this.inFlight.has(key)) void this.load(key)
   }
 
-  /** Read the fact again. With `maxAgeMs`, a fact read more recently stays. */
-  async refresh(key: HostFactKey, opts: { maxAgeMs?: number } = {}): Promise<void> {
+  /** Read the fact again. With `maxAgeMs`, a fact read more recently stays.
+   *  With `force: true` on `usage`, bypasses the host's usage refresh cache. */
+  async refresh(key: HostFactKey, opts: { maxAgeMs?: number; force?: boolean } = {}): Promise<void> {
     if (this.disposed) return
     this.requested.add(key)
     const readAt = this.readAt.get(key)
-    if (opts.maxAgeMs !== undefined && readAt !== undefined && this.now() - readAt < opts.maxAgeMs) return
-    const pending = this.inFlight.get(key)
-    if (pending) return pending
-    return this.load(key)
+    if (!opts.force && opts.maxAgeMs !== undefined && readAt !== undefined && this.now() - readAt < opts.maxAgeMs) return
+    if (!opts.force) {
+      const pending = this.inFlight.get(key)
+      if (pending) return pending
+    }
+    return this.load(key, opts.force === true)
   }
 
   /** The fact once it is ready. A failed fact is read once more before this
@@ -229,7 +236,8 @@ export class HostFacts {
 
   /** The quota, under a watch while a reader holds one. A host older than
    *  `usageWatch` is asked again each minute, as the meter asked before. */
-  private async readUsage(api: HostApi): Promise<AgentUsageLimits[]> {
+  private async readUsage(api: HostApi, force = false): Promise<AgentUsageLimits[]> {
+    if (force) return api.usageLimits({ force: true })
     if (this.usageWatchers === 0) return api.usageLimits()
     try {
       const snapshots = await api.usageWatch()
@@ -253,9 +261,9 @@ export class HostFacts {
     this.inFlight.clear()
   }
 
-  private load(key: HostFactKey): Promise<void> {
+  private load(key: HostFactKey, force = false): Promise<void> {
     const generation = this.generation
-    const promise = this.read(key)
+    const promise = this.read(key, force)
       .then((fact) => {
         if (this.disposed || generation !== this.generation) return
         // A failed read never holds the next one back.
@@ -270,7 +278,7 @@ export class HostFacts {
     return promise
   }
 
-  private async read(key: HostFactKey): Promise<AnyFact> {
+  private async read(key: HostFactKey, force = false): Promise<AnyFact> {
     const { api } = this.source
     try {
       switch (key) {
@@ -282,7 +290,7 @@ export class HostFacts {
         case 'machine':
           return { state: 'ready', value: await api.start() }
         case 'usage':
-          return { state: 'ready', value: await this.readUsage(api) }
+          return { state: 'ready', value: await this.readUsage(api, force) }
         case 'policy':
           return { state: 'ready', value: new HostPolicies(await api.hostPolicy()) }
         case 'voiceModel': {

@@ -118,7 +118,7 @@ export interface IntegrationWritesDeps {
   gateway: Pick<IntegrationGateway, 'forget' | 'invalidate'>
   connections: Pick<IntegrationConnections, 'removeAllFor'>
   /** The OAuth of a server the person chose OAuth for, and the owner's client they gave with it. */
-  oauth: Pick<IntegrationOAuth, 'oauthAuthAt' | 'withOwnerClient'>
+  oauth: Pick<IntegrationOAuth, 'oauthAuthAt' | 'withOwnerClient' | 'registerAhead'>
 }
 
 /**
@@ -138,6 +138,13 @@ export class IntegrationWrites {
    * the chosen scopes go on the record and the owner's client is saved. With
    * `projectRoot` it joins only that project's runs (§8.4).
    */
+  /** The client ID the server gave Solus when Solus registered itself, kept for the owner's client form (docs/plans/mcp-oauth-callback.md). */
+  recordRegisteredClient(integration: Integration, clientId: string): void {
+    if (integration.auth.kind !== 'oauth') return
+    this.deps.store.update(integration.id, { auth: { ...integration.auth, registeredClientId: clientId } }, integration.organizationId)
+    void this.deps.events.broadcast('integration.changed', { integrationId: integration.id, change: 'updated' })
+  }
+
   async addServer(principal: Principal, owner: string, request: IntegrationUrlCreateRequest, projectRoot?: string): Promise<Integration> {
     const choice = request.auth ?? { kind: 'automatic' }
     const auth = await chosenAuth(request.url, choice, this.deps.oauth)
@@ -148,6 +155,11 @@ export class IntegrationWrites {
     let integration = this.deps.store.create(input, organizationForNew(principal), owner)
     const client = auth.kind === 'oauth' ? oauthChoice?.client : undefined
     if (client) integration = await this.withClient(integration, client)
+    else if (auth.kind === 'oauth' && auth.registration === 'dynamic') {
+      // The client ID the server gives Solus is on the record before the sign-in step shows.
+      await this.deps.oauth.registerAhead(integration)
+      integration = this.deps.store.get(integration.id, integration.organizationId) ?? integration
+    }
     // The kind only: a header name or a scope is the person's setup, not a fact to log.
     log.info('integration_server_added', { integrationId: integration.id, choice: choice.kind, auth: auth.kind, client: client !== undefined })
     void this.deps.events.broadcast('integration.changed', { integrationId: integration.id, change: 'created' })

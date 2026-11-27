@@ -63,13 +63,15 @@ export function copiedMcpAddress(endpoint: AppEndpoint, onHostComputer: boolean)
 export interface OutsideAppAccessLevel {
   access: AppAccess
   label: string
+  /** The level as the access sentence says it: "Claude can <phrase> on Build Mac". */
+  phrase: string
   effect: string
 }
 
 export const OUTSIDE_APP_ACCESS_LEVELS: readonly OutsideAppAccessLevel[] = [
-  { access: 'read', label: appAccessLabel('read'), effect: 'Reads works, projects, tasks, automations, sessions, and pull requests. Changes nothing.' },
-  { access: 'write', label: appAccessLabel('write'), effect: 'Also creates and changes records, starts, messages, and stops sessions, and reruns checks.' },
-  { access: 'full', label: appAccessLabel('full'), effect: 'Also uses tools that ask for approval in Solus, such as running an automation or merging a pull request.' },
+  { access: 'read', label: appAccessLabel('read'), phrase: 'read', effect: 'Reads works, projects, tasks, automations, sessions, and pull requests. Changes nothing.' },
+  { access: 'write', label: appAccessLabel('write'), phrase: 'read and write', effect: 'Also creates and changes records, starts, messages, and stops sessions, and reruns checks.' },
+  { access: 'full', label: appAccessLabel('full'), phrase: 'do everything you can', effect: 'Also uses tools that ask for approval in Solus, such as running an automation or merging a pull request.' },
 ]
 
 /** The level an open row starts at. */

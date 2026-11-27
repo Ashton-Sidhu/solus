@@ -37,6 +37,7 @@ export type SettingsTab =
   | 'codebases'
   | 'review'
   | 'providers'
+  | 'usage'
   | 'api-access'
   | 'sharing'
   | 'cloud'
@@ -67,6 +68,7 @@ const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'codebases',
   'review',
   'providers',
+  'usage',
   'api-access',
   'sharing',
   'cloud',

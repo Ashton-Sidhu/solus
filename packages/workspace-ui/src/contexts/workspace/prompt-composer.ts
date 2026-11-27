@@ -18,6 +18,7 @@ export class PromptComposer {
   constructor(
     private planStore: PlanStore,
     private worksStore: WorksStore,
+    private draftPromptFor: (sessionId: string) => Prompt | undefined = () => undefined,
   ) {}
 
   compose(prompt: string, input: Prompt, session: Session): string {
@@ -47,14 +48,22 @@ export class PromptComposer {
       fullPrompt = fullPrompt ? `${fullPrompt}\n\n${workCtx}` : workCtx
     }
     if (input.sessionRefs.length > 0) {
-      // Reference each session by id — the agent reads the transcript on demand
-      // via read_session rather than us inlining it. Provider-agnostic: both
-      // Claude and Codex export read_session, so the text is identical.
-      const sessionCtx = input.sessionRefs.map((ref) =>
-        [
+      const sessionCtx = input.sessionRefs.map((ref) => {
+        // An unsent draft has no transcript on its host. Give the agent its
+        // current text while the sent message still displays the same chip.
+        const draft = ref.sessionId === session.id ? undefined : this.draftPromptFor(ref.sessionId)
+        if (draft) {
+          return `[Referenced Draft] ${JSON.stringify({
+            title: ref.title,
+            text: draft.text,
+            attachments: draft.attachments.map((attachment) => attachment.name),
+          })}`
+        }
+        return [
           `[Referenced Session: "${ref.title}" (session_id: ${ref.sessionId}, provider: ${ref.provider})]`,
           `Call read_session with session_id "${ref.sessionId}" to read its transcript before responding.`,
-        ].join('\n')).join('\n\n')
+        ].join('\n')
+      }).join('\n\n')
       fullPrompt = fullPrompt ? `${fullPrompt}\n\n${sessionCtx}` : sessionCtx
     }
     // A host chip is a link in the typed text, so the text itself says which

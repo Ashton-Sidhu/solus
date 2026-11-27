@@ -6,32 +6,38 @@
    * step that says what is ready. Escape, the close button, and Cancel before
    * the end take back what the dialog added. It fades and scales in and out,
    * and each step opens and closes in place; with reduced motion it only swaps.
-   * Add server opens it on a form in place of the sign-in, with a switch
-   * between a command and an address. For a command (docs/plans/mcp-first-class.md
-   * §7.7) the form ends in Start and test; a person without `host.admin` gets
-   * the reason in place of the form. An address goes on, after Continue, as a
-   * catalog entry does: the check, the sign-in, and the tools.
+   * The steps are one timeline (`StepRail`): the server, its sign-in (Start
+   * and test for a command), and the tools. A done step folds to one line.
+   * Add server opens on one field that takes an address, a command, or the
+   * JSON of a setup page, which fills the rest of the form. For a command
+   * (docs/plans/mcp-first-class.md §7.7) the step ends in Start and test; a
+   * person without `host.admin` gets the reason in place of the form. An
+   * address goes on, after Continue, as a catalog entry does: the check, the
+   * sign-in, and the tools. The sign-in method is chosen only after a refusal.
    */
   import { onMount, untrack } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
   import { Dialog } from "bits-ui";
   import { blur, fade, scale } from "svelte/transition";
   import { backOut } from "svelte/easing";
-  import { Bot, Check, ExternalLink, Globe, LoaderCircle, SquareTerminal, X } from "@lucide/svelte";
+  import { Bot, Check, ExternalLink, LoaderCircle, X } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
-  import { RowCard } from "../ui/row-card";
-  import * as Tabs from "../ui/tabs";
+  import MarkdownAlert from "../ui/MarkdownAlert.svelte";
   import * as Table from "../ui/table";
+  import StepRail from "../steps/StepRail.svelte";
   import McpServerIcon from "./McpServerIcon.svelte";
   import McpToolSwitches from "./McpToolSwitches.svelte";
   import McpCommandFields from "./McpCommandFields.svelte";
+  import McpSourceKindTag from "./McpSourceKindTag.svelte";
   import McpCommandProcess from "./McpCommandProcess.svelte";
   import McpAddressFields from "./McpAddressFields.svelte";
   import McpCommandValues from "./McpCommandValues.svelte";
-  import { commandHostNote } from "@solus/contracts/integrations/command-server";
+  import McpBasicCredentialsForm from "./McpBasicCredentialsForm.svelte";
+  import { commandHostNote, suggestedCommandName } from "@solus/contracts/integrations/command-server";
   import IntegrationOAuthClientForm from "./IntegrationOAuthClientForm.svelte";
   import { mcpStore } from "../../contexts/mcp";
+  import { INTEGRATION_OAUTH_LOOPBACK_URL } from "@solus/contracts/integrations/oauth-callback";
   import { toolAccess } from "@solus/contracts/integration-types";
   import { IntegrationSignIn } from "@solus/contracts/integrations/integration-sign-in";
   import type { SetupHandoff } from "@solus/contracts/integrations/setup-handoff";
@@ -39,6 +45,7 @@
   import { openChatDraft } from "../../contexts/workspace/new-chat";
   import { connectionStatusText, readyToolsText, urlHost } from "./lib/integration-labels";
   import { McpConnect, type ConnectRequest } from "./lib/mcp-connect.svelte";
+  import { connectTimeline, signInWords } from "./lib/connect-timeline";
   import type { McpCatalog } from "./lib/mcp-catalog.svelte";
 
   interface Props {
@@ -73,20 +80,46 @@
   const connection = $derived(integration ? hostState?.connections.get(integration.id) ?? null : null);
   const flow = $derived(integration ? hostState?.connectFlows.get(integration.id) ?? null : null);
   const step = $derived(connect.step);
+  let contentEl = $state<HTMLElement | null>(null);
+
+  /** The dialog opens on its first field (the URL on a new server), not on the Close button. */
+  function focusFirstField(event: Event) {
+    const field = contentEl?.querySelector<HTMLElement>("form input:not([disabled])");
+    if (!field) return;
+    event.preventDefault();
+    field.focus();
+  }
   const tools = $derived(integration ? hostState?.tools.get(integration.id) : undefined);
   const toolError = $derived(integration ? hostState?.toolErrors.get(integration.id) : undefined);
   const enabledTools = $derived(tools?.filter((tool) => !connect.disabledDraft.has(tool.name)) ?? []);
   const name = $derived(integration?.name ?? connect.target.name);
   const commandForm = $derived(connect.command);
-  const addKind = $derived(connect.addKind);
+  const addForm = $derived(connect.addForm);
+  /** The server is a command: its second step is Start and test. */
+  const isCommand = $derived(!!commandForm && connect.sourceKind === "command" && (addForm === "source" || connect.isCommandStarted));
+  /** What the field reads as, shown at its end. */
+  const sourceTag = $derived(isCommand ? "command" : connect.sourceKind === "url" ? "url" : null);
   const isOffline = $derived(!!hostState?.isDisconnected);
   const connectionProblem = $derived(connection && connection.status !== "connected" ? connectionStatusText(connection) : null);
   /** What the sign-in step shows now; a change fades the new content in. */
-  const signInView = $derived(addKind ?? (!integration ? "adding" : step === "oauth-client" ? step : flow && flow.kind !== "failed" ? flow.kind : "ready"));
-  const title = $derived(step === "tools" ? `Choose the tools of ${name}` : addKind === "url" || (addKind === "command" && !integration) ? "Add an MCP server" : addKind === "command" ? `Add ${name}` : `Connect ${name}`);
+  const signInView = $derived(addForm ?? (!integration ? "adding" : step === "oauth-client" ? step : flow && flow.kind !== "failed" ? flow.kind : "ready"));
+  const title = $derived(request.addsServer ? "Add an MCP server" : `Connect ${name}`);
+  const commandPreview = $derived(commandForm?.preview ?? null);
+  const timeline = $derived(connectTimeline({
+    step,
+    isCommand,
+    isStarting: connect.isStartingCommand,
+    server: isCommand
+      ? { name: integration?.name ?? (commandForm?.name.trim() || (commandPreview ? suggestedCommandName(commandPreview) : "Command")), where: commandForm?.line ?? "" }
+      : { name: name || urlHost(connect.target.url), where: [urlHost(integration?.url ?? connect.target.url), signInWords(integration?.auth)].filter(Boolean).join(" · ") },
+    signedInText: connection?.status === "connected" ? connectionStatusText(connection).text : "Ready",
+  }));
+
   const description = $derived(tools ? `Your agents get ${tools.length === 1 ? "1 new tool" : `${tools.length} new tools`} once this is connected.` : `Its tools reach every agent on ${hostLabel}.`);
   /** The names a `headers` server takes values for (docs/plans/mcp-add-server.md); empty for the other kinds. */
   const valueNames = $derived(integration ? new IntegrationSignIn(integration).valueNames : []);
+  /** The server asks for HTTP Basic: a user name and a password in place of a key. */
+  const takesUsernameAndPassword = $derived(integration ? new IntegrationSignIn(integration).takesUsernameAndPassword : false);
   /** The header values typed in the sign-in step, until Save hands them over. */
   const valueDrafts = new SvelteMap<string, string>();
 
@@ -127,6 +160,11 @@
     if (!(await mcpStore.integrations.submit(serverId, integration.id, value))) pasted = value;
   }
 
+  /** A user name and a password, encoded by their form, go as the key. */
+  async function submitKey(key: string): Promise<boolean> {
+    return integration ? mcpStore.integrations.submit(serverId, integration.id, key) : false;
+  }
+
   /** The header values go to the host in this one call; the drafts are cleared. */
   async function submitValues(event: SubmitEvent) {
     event.preventDefault();
@@ -146,6 +184,12 @@
   </p>
 {/snippet}
 
+<!-- An error of the whole step is a Caution callout; an error of one field stays under that field. -->
+{#snippet errorAlert(message: string)}
+  {#snippet body()}<p class="m-0 break-words text-pretty">{message}</p>{/snippet}
+  <div role="alert"><MarkdownAlert alertType="caution" content={body} /></div>
+{/snippet}
+
 {#snippet pasteForm(label: string, fieldId: string, type: "text" | "password", error: string | undefined)}
   <form class="flex flex-col gap-1.5" onsubmit={submitPasted}>
     <label for={fieldId} class="text-workspace-chrome font-medium text-foreground">{label}</label>
@@ -162,29 +206,24 @@
 {#snippet signIn()}
   {#if !integration}
     {#if connect.addError}
-      <div class="flex flex-col gap-2">
-        <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{connect.addError}</p>
-        <div class="flex items-center gap-2">
+      <div class="flex flex-col gap-3">
+        {@render errorAlert(connect.addError)}
+        <div class="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => connect.start()}>Try again</Button>
           {#if request.addsServer}
-            <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={() => connect.editAddress()}>Change URL</Button>
+            <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={() => connect.editAddress()}>Change the address or sign-in method</Button>
           {/if}
         </div>
       </div>
     {:else}
-      {@render pending(`Adding ${connect.target.name} to ${hostLabel}…`)}
+      {@render pending(`Checking ${urlHost(connect.target.url)}…`)}
     {/if}
   {:else if step === "oauth-client"}
     <IntegrationOAuthClientForm {serverId} {integration} />
   {:else if flow?.kind === "starting"}
     {@render pending("Starting the sign-in…")}
   {:else if flow?.kind === "waiting"}
-    <RowCard>
-      <div class="flex items-center gap-2.5 px-4 py-3">
-        <LoaderCircle size={16} class="shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" />
-        <span class="text-workspace-chrome text-foreground">{flow.through === "cloud" ? "Authorizing through Solus Cloud" : "Authorizing"}</span>
-      </div>
-    </RowCard>
+    {@render pending(flow.through === "cloud" ? "Authorizing through Solus Cloud…" : `Waiting for ${name}’s sign-in page…`)}
     <p class="text-workspace-chrome text-(--solus-text-secondary)">
       Window not showing up?
       <button type="button" class="rounded text-(--solus-accent) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring" onclick={() => mcpStore.integrations.openInBrowser(flow.url)}>Reopen it</button>
@@ -192,6 +231,8 @@
     {#if flow.input === "redirect-url"}
       {@render pasteForm("Paste the address of the page you landed on", `mcp-connect-redirect-${integration.id}`, "text", flow.error)}
     {/if}
+  {:else if flow?.kind === "token" && takesUsernameAndPassword}
+    <McpBasicCredentialsForm idPrefix="mcp-connect-basic-{integration.id}" error={flow.error} disabled={isOffline} autofocus onsubmit={submitKey} />
   {:else if flow?.kind === "token"}
     {@render pasteForm(`API key for ${name}`, `mcp-connect-key-${integration.id}`, "password", flow.error)}
   {:else if flow?.kind === "submitting"}
@@ -201,31 +242,36 @@
       <p class="text-pretty text-workspace-chrome text-(--solus-text-secondary)">{name} takes {valueNames.length === 1 ? "a header" : "headers"} from you. Each value is a secret, saved for you alone on {hostLabel}.</p>
       <McpCommandValues names={[...valueNames]} values={valueDrafts} hasSaved={connection?.status === "connected"} idPrefix="mcp-connect-header-{integration.id}" disabled={isOffline} autofocus />
       {#if flow?.kind === "values" && flow.error}
-        <p role="alert" class="break-words text-chrome-dense text-(--solus-status-error)">{flow.error}</p>
+        {@render errorAlert(flow.error)}
       {:else if connectionProblem}
-        <p role="alert" class="break-words text-chrome-dense text-(--solus-status-error)">{connectionProblem.text}{connectionProblem.detail ? `: ${connectionProblem.detail}` : ""}</p>
+        {@render errorAlert(`${connectionProblem.text}${connectionProblem.detail ? `: ${connectionProblem.detail}` : ""}`)}
       {/if}
       <div><Button type="submit" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline}>Save values</Button></div>
     </form>
   {:else}
-    {#if integration.auth.kind === "bearer"}
+    {#if takesUsernameAndPassword}
+      <p class="text-workspace-chrome text-(--solus-text-secondary)">{name} asks for a user name and a password. They are saved for you alone, and agents never see them.</p>
+    {:else if integration.auth.kind === "bearer"}
       <p class="text-workspace-chrome text-(--solus-text-secondary)">{name} signs in with an API key. Create one at {urlHost(integration.url)}, then paste it here.</p>
     {:else}
       <p class="text-pretty text-workspace-chrome text-(--solus-text-secondary)">Approve Solus on {name}’s sign-in page, then come back here to choose the tools.</p>
     {/if}
     {#if flow?.kind === "failed"}
-      <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{flow.message}</p>
+      {@render errorAlert(flow.message)}
     {:else if connectionProblem}
-      <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{connectionProblem.text}{connectionProblem.detail ? `: ${connectionProblem.detail}` : ""}</p>
+      {@render errorAlert(`${connectionProblem.text}${connectionProblem.detail ? `: ${connectionProblem.detail}` : ""}`)}
     {/if}
-    <div>
+    {#snippet signInButton()}
       <Button class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || hostState?.connectionsStatus !== "loaded"} onclick={() => mcpStore.integrations.connect(serverId, integration.id)}>
-        {integration.auth.kind === "bearer" ? `Enter an API key` : `Sign in to ${name}`}{#if integration.auth.kind !== "bearer"}<ExternalLink size={14} />{/if}
+        {takesUsernameAndPassword ? "Enter a user name and password" : integration.auth.kind === "bearer" ? `Enter an API key` : `Sign in to ${name}`}{#if integration.auth.kind !== "bearer"}<ExternalLink size={14} />{/if}
       </Button>
-    </div>
-  {/if}
-  {#if integration?.auth.kind === "oauth" && step !== "oauth-client"}
-    <IntegrationOAuthClientForm {serverId} {integration} />
+    {/snippet}
+    {#if integration.auth.kind === "oauth"}
+      <!-- The form puts Sign in and "Use your own OAuth app" in one row. -->
+      <IntegrationOAuthClientForm {serverId} {integration} primaryAction={signInButton} />
+    {:else}
+      <div>{@render signInButton()}</div>
+    {/if}
   {/if}
   {#if request.authHelp && connect.setupHandoff}
     <!-- The vendor's own page for the client or the key (§13.5). -->
@@ -244,23 +290,54 @@
   {/if}
 {/snippet}
 
-{#snippet commandStep()}
-  {#if commandForm?.refusal}
-    <p role="alert" class="text-pretty text-workspace-chrome text-(--solus-text-secondary)" data-testid="mcp-command-refusal">{commandForm.refusal}</p>
-  {:else if commandForm}
-    <form id="mcp-command-form" class="flex flex-col gap-4" onsubmit={(event) => { event.preventDefault(); void connect.startCommand(); }}>
-      <McpCommandFields form={commandForm} idPrefix="mcp-command-add" showValues disabled={connect.isStartingCommand || isOffline}
+{#snippet configNote()}
+  <p class="m-0 text-pretty">Filled in from the pasted config.{#if isCommand && commandForm?.hasValues} Each value is a secret, saved for you alone on {hostLabel}.{/if}{#if !isCommand && connect.addressForm.clientId} Its OAuth client ID goes with the add.{/if}</p>
+{/snippet}
+
+<!-- The one field: an address, a command, or a setup page's JSON. A command shows its own fields under it. -->
+{#snippet sourceStep()}
+  <form id="mcp-source-form" class="flex flex-col gap-3" onsubmit={(event) => { event.preventDefault(); void connect.continueFromSource(); }}>
+    <label for="mcp-source" class="sr-only">URL, command, or config</label>
+    <!-- The same field as every other one in the dialog; pasted JSON arrives on one line and reads the same. -->
+    <div class="relative min-w-0">
+      <!-- svelte-ignore a11y_autofocus -->
+      <Input id="mcp-source" value={connect.source} oninput={(event) => connect.setSource(event.currentTarget.value)}
+        placeholder="https://mcp.example.com/mcp" autocomplete="off" spellcheck={false} dictation={false} autofocus
+        disabled={isOffline || connect.isStartingCommand} aria-invalid={connect.sourceProblem || commandForm?.lineProblem ? true : undefined} aria-describedby="mcp-source-hint"
+        class="h-8 min-w-0 text-workspace-chrome {isCommand ? 'font-mono' : ''} {sourceTag ? 'pr-28' : ''}" />
+      {#if sourceTag}<McpSourceKindTag kind={sourceTag} />{/if}
+    </div>
+    {#if connect.sourceProblem}
+      <p id="mcp-source-hint" role="alert" class="break-words text-chrome-dense text-(--solus-status-error)">{connect.sourceProblem}</p>
+    {:else if isCommand && commandForm?.lineProblem}
+      <p id="mcp-source-hint" role="alert" class="break-words text-chrome-dense text-(--solus-status-error)">{commandForm.lineProblem}</p>
+    {:else}
+      <p id="mcp-source-hint" class="text-pretty text-chrome-dense text-(--solus-text-secondary)">
+        {isCommand ? commandHostNote(hostLabel) : connect.sourceKind === "url" ? "Solus checks how it signs in when you continue." : "Paste an https:// address, a command such as npx -y @acme/mcp, or the JSON from a server’s setup page."}
+      </p>
+    {/if}
+    {#if connect.isFilledFromConfig}
+      <MarkdownAlert alertType="note" content={configNote} />
+    {/if}
+    {#if isCommand && commandForm?.refusal}
+      <MarkdownAlert alertType="caution" content={commandRefusal} />
+    {:else if isCommand && commandForm}
+      <McpCommandFields form={commandForm} idPrefix="mcp-command-add" showLine={false} showValues disabled={connect.isStartingCommand || isOffline}
         hasSavedValues={connection?.status === "connected"} />
       {#if integration}
         <McpCommandProcess {serverId} {integration} {mayRunCommands} withActions={false} />
       {/if}
-    </form>
-  {/if}
+    {/if}
+  </form>
+{/snippet}
+
+{#snippet commandRefusal()}
+  <p class="m-0 text-pretty" data-testid="mcp-command-refusal">{commandForm?.refusal}</p>
 {/snippet}
 
 {#snippet addressStep()}
   <form id="mcp-address-form" onsubmit={(event) => { event.preventDefault(); void connect.continueWithAddress(); }}>
-    <McpAddressFields form={connect.addressForm} callbackUrl={mcpStore.integrations.oauthRedirectUrl(serverId)} disabled={isOffline} />
+    <McpAddressFields form={connect.addressForm} callbackUrl={INTEGRATION_OAUTH_LOOPBACK_URL} disabled={isOffline} />
   </form>
 {/snippet}
 
@@ -268,8 +345,8 @@
   {#if !integration}
     <!-- Not reached: the tools step needs the record. -->
   {:else if toolError}
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{toolError}</p>
+    {@render errorAlert(toolError)}
+    <div>
       <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.loadTools(serverId, integration.id)}>Retry</Button>
     </div>
   {:else if !tools}
@@ -281,14 +358,17 @@
       onToggle={(toolName, isOn) => connect.setTool(toolName, isOn)} />
   {/if}
   {#if connect.saveError}
-    <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{connect.saveError}</p>
+    {@render errorAlert(connect.saveError)}
   {/if}
 {/snippet}
 
 {#snippet footerButtons()}
-  {#if step === "command" && !commandForm?.refusal}
+  {#if step === "source"}
+    <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={close}>Cancel</Button>
+    <Button type="submit" form="mcp-source-form" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || connect.sourceKind === "empty"}>Continue</Button>
+  {:else if step === "command" && !commandForm?.refusal}
     <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => (connect.isStartingCommand ? connect.cancelCommandStart() : close())}>{connect.isStartingCommand ? "Stop" : "Cancel"}</Button>
-    <Button type="submit" form="mcp-command-form" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={connect.isStartingCommand || isOffline || !commandForm?.line.trim()}>
+    <Button type="submit" form="mcp-source-form" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={connect.isStartingCommand || isOffline || !commandForm?.line.trim()}>
       {#if connect.isStartingCommand}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Starting…{:else}Start and test{/if}
     </Button>
   {:else if step === "address"}
@@ -297,7 +377,7 @@
   {:else if step === "tools"}
     <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={close}>Cancel</Button>
     <Button size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={!tools || connect.isSaving || isOffline} onclick={() => connect.finish()}>
-      {connect.isSaving ? "Saving…" : `Connect ${name}`}
+      {connect.isSaving ? "Saving…" : request.addsServer ? `Add ${name}` : `Connect ${name}`}
     </Button>
   {:else}
     <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={close}>{commandForm?.refusal ? "Close" : "Cancel"}</Button>
@@ -310,7 +390,9 @@
     <Dialog.Overlay class="fixed inset-0 z-[10001] modal-backdrop duration-150 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 motion-reduce:animate-none" />
     <!-- Centred with margins, not a translate, so the zoom of the animation does not fight the position. -->
     <Dialog.Content
-      class="text-workspace-chrome fixed inset-0 z-[10001] m-auto flex h-fit max-h-[calc(100dvh-2rem)] w-[min(42rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-2xl bg-(--solus-popover-bg) p-6 shadow-(--solus-popover-shadow) duration-150 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 motion-reduce:animate-none"
+      bind:ref={contentEl}
+      onOpenAutoFocus={focusFirstField}
+      class="text-workspace-chrome fixed inset-0 z-[10001] m-auto flex h-fit max-h-[calc(100dvh-2rem)] w-[min(46rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-2xl bg-(--solus-popover-bg) p-6 shadow-(--solus-popover-shadow) duration-150 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 motion-reduce:animate-none"
       data-testid="mcp-connect-dialog"
     >
       <Dialog.Close>
@@ -338,7 +420,7 @@
         </div>
         <div class="flex flex-col" in:fade={{ duration: motionMs * 1.5, delay: motionMs * 1.2 }}>
         {#if enabledTools.length > 0}
-          <Table.Root containerClass="max-h-64 overflow-y-auto" class="table-fixed" aria-label="Tools agents can use">
+          <Table.Root containerClass="max-h-64 overflow-y-auto bg-white" class="table-fixed" aria-label="Tools agents can use">
             <Table.Body>
               {#each enabledTools as tool (tool.name)}
                 <Table.Row>
@@ -359,36 +441,42 @@
       {:else}
         <div class="flex flex-col gap-5">
           <div class="flex flex-col gap-1 pr-8">
-            <span class="mb-3">
-              {#if addKind === "url"}
-                <span class="grid size-8 shrink-0 place-items-center rounded-lg border border-border/50 bg-muted text-muted-foreground" aria-hidden="true"><Globe size={16} /></span>
-              {:else}
-                <McpServerIcon name={name || "Command"} url={integration?.url ?? connect.target.url} icon={request.icon} />
-              {/if}
-            </span>
+            {#if !request.addsServer}
+              <span class="mb-3">
+                <McpServerIcon name={name || "Server"} url={integration?.url ?? connect.target.url} icon={request.icon} serverIcon={integration?.icon} />
+              </span>
+            {/if}
             <Dialog.Title class="font-medium text-foreground">{title}</Dialog.Title>
             <Dialog.Description class="text-pretty text-(--solus-text-secondary)">{description}</Dialog.Description>
           </div>
 
-          {#if connect.canChangeKind}
-            <!-- A command the host starts, or a server it reaches by its address. -->
-            <Tabs.Root value={addKind ?? "command"} onValueChange={(value) => connect.chooseKind(value === "url" ? "url" : "command")}>
-              <Tabs.List class="w-full group-data-horizontal/tabs:h-8" aria-label="Kind of server">
-                <Tabs.Trigger value="command" class="text-workspace-chrome"><SquareTerminal />Command</Tabs.Trigger>
-                <Tabs.Trigger value="url" class="text-workspace-chrome"><Globe />URL</Tabs.Trigger>
-              </Tabs.List>
-            </Tabs.Root>
-          {/if}
-
-          {#key `${signInView}:${step}`}
-            <div class="flex flex-col gap-3" in:fade={{ duration: motionMs }}>
-              {#if step === "tools"}{@render toolsStep()}{:else if addKind === "command"}{@render commandStep()}{:else if addKind === "url"}{@render addressStep()}{:else}{@render signIn()}{/if}
-            </div>
-          {/key}
-
-          {#if step === "command" && !commandForm?.refusal}
-            <p class="text-pretty text-chrome-dense text-(--solus-text-secondary)">{commandHostNote(hostLabel)}</p>
-          {/if}
+          <div class="border-t border-(--hairline) pt-5 text-workspace-chrome">
+            <StepRail steps={timeline}>
+              {#snippet trailing(item)}
+                {#if item.key === "server" && item.state === "done" && connect.canChangeServer}
+                  <button type="button" class="shrink-0 rounded-sm font-medium leading-5.5 text-(--solus-text-tertiary) outline-none hover:text-(--solus-text-primary) focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 pointer-coarse:min-h-11"
+                    aria-label="Change the server" disabled={isOffline || connect.isStartingCommand} onclick={() => void connect.changeServer()}>Change</button>
+                {/if}
+              {/snippet}
+              {#snippet detail(item)}
+                {#if item.state === "current"}
+                  <div class="mt-3 flex min-w-0 flex-col gap-3">
+                    {#if item.key === "server"}
+                      {#if step === "address"}{@render addressStep()}{:else}{@render sourceStep()}{/if}
+                    {:else if item.key === "sign-in"}
+                      {#key signInView}
+                        <div class="flex flex-col gap-3" in:fade={{ duration: motionMs }}>
+                          {#if isCommand}{@render pending("Starting the command and listing its tools…")}{:else}{@render signIn()}{/if}
+                        </div>
+                      {/key}
+                    {:else}
+                      {@render toolsStep()}
+                    {/if}
+                  </div>
+                {/if}
+              {/snippet}
+            </StepRail>
+          </div>
 
           <div class="flex justify-end gap-2">{@render footerButtons()}</div>
         </div>

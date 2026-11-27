@@ -49,30 +49,37 @@ export function controlLabel(control: DeviceControlState, holdsControl: boolean)
   return 'Nobody has control'
 }
 
-/** Devices that can be added to a session: simulators and emulators not already open there, grouped by host. Connected phones take builds but have no preview. */
-export function addableDevices(state: DeviceState | undefined, sessionId: string): { deviceHostId: string; label: string; devices: DeviceSummary[] }[] {
+/** A simulator or emulator in the picker, with its tab in this session when it is already open there. */
+export interface PickerDevice {
+  device: DeviceSummary
+  devicePreviewId: string | null
+}
+
+/** Every simulator and emulator, grouped by host. One already open in the session links to its tab. Connected phones take builds but have no preview. */
+export function pickerDevices(state: DeviceState | undefined, sessionId: string): { deviceHostId: string; label: string; devices: PickerDevice[] }[] {
   if (!state) return []
-  const open = new Set(state.previews.filter((preview) => preview.sessionId === sessionId).map((preview) => `${preview.deviceHostId}\u0000${preview.deviceId}`))
+  const open = new Map(state.previews.filter((preview) => preview.sessionId === sessionId).map((preview) => [`${preview.deviceHostId}\u0000${preview.deviceId}`, preview.devicePreviewId]))
   return state.hosts.map((host) => ({
     deviceHostId: host.deviceHostId,
     label: host.label,
     devices: state.devices
-      .filter((device) => device.deviceHostId === host.deviceHostId && !device.physical && !open.has(`${device.deviceHostId}\u0000${device.deviceId}`))
-      .sort((a, b) => Number(b.booted) - Number(a.booted) || a.platform.localeCompare(b.platform) || a.name.localeCompare(b.name)),
+      .filter((device) => device.deviceHostId === host.deviceHostId && !device.physical)
+      .sort((a, b) => Number(b.booted) - Number(a.booted) || a.platform.localeCompare(b.platform) || a.name.localeCompare(b.name))
+      .map((device) => ({ device, devicePreviewId: open.get(`${device.deviceHostId}\u0000${device.deviceId}`) ?? null })),
   })).filter((group) => group.devices.length > 0)
 }
 
 /** A platform that cannot run on any host, with the first reason given. */
-export function unavailablePlatformReasons(state: DeviceState | undefined): string[] {
+export function unavailablePlatforms(state: DeviceState | undefined): { platform: string; reason: string }[] {
   if (!state) return []
-  const reasons: string[] = []
+  const unavailable: { platform: string; reason: string }[] = []
   for (const platform of ['ios', 'android'] as const) {
     const entries = state.hosts.flatMap((host) => host.platforms.filter((entry) => entry.platform === platform))
     if (entries.length > 0 && entries.every((entry) => !entry.available)) {
-      reasons.push(`${platform === 'ios' ? 'iOS' : 'Android'}: ${entries[0]?.reason ?? 'unavailable'}`)
+      unavailable.push({ platform: platform === 'ios' ? 'iOS' : 'Android', reason: entries[0]?.reason ?? 'unavailable' })
     }
   }
-  return reasons
+  return unavailable
 }
 
 /** A file name for a screenshot download. */

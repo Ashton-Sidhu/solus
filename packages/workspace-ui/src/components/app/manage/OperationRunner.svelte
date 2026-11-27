@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { Play as RunIcon } from "@lucide/svelte";
   import type { AppOperation } from "@solus/contracts/apps";
   import { operationFields, operationInputTemplate, operationKindLabel, operationSchemaNode, operationTimeLimitText, type OperationField } from "@solus/client-core/app-operations";
   import { appsStore } from "../../../contexts/apps/apps.store.svelte";
@@ -8,15 +7,19 @@
   import CodeEditor from "../../code-editor/CodeEditor.svelte";
   import { jsonSchemaCompletionSource, jsonSchemaProblems } from "../../code-editor/lib/json-schema";
   import { Button } from "../../ui/button";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
+  import StateIcon from "./StateIcon.svelte";
   import { hasSchema, jsonText, operationInput, runOperation, spanSummary } from "./lib/operations";
 
   /**
    * The request console of the Operations section (docs/plans/apps.md §9.2):
-   * one card that runs one operation as the app's UI does. The request
-   * column has the JSON input in the code editor, which starts from the
-   * operation's fields, completes them from its input schema, and marks a
-   * field or a value the schema does not take; and what it takes; the response column has the status, the time, the value,
-   * and what the call waited for. ⌘↵ runs it.
+   * one floating card that runs one operation as the app's UI does. The
+   * request column has the JSON input in the code editor, which starts from
+   * the operation's fields, completes them from its input schema, and marks
+   * a field or a value the schema does not take; then what it takes, and its
+   * facts as plain text. The response column, in the same card, has the
+   * state, the time, the value, and what the call waited for. Space, not
+   * rules, separates the groups. ⌘↵ runs it.
    */
   interface Props {
     serverId: string;
@@ -76,24 +79,20 @@
   }
 </script>
 
-{#snippet fieldTable(label: string, list: OperationField[] | null, none: string)}
-  <div class="flex min-w-0 flex-col">
-    <h4 class="m-0 border-b border-border/60 pb-2 text-sm font-medium text-foreground">{label}</h4>
+{#snippet fieldList(label: string, list: OperationField[] | null, none: string)}
+  <div class="flex min-w-0 flex-col gap-2">
+    <h4 class="m-0 text-xs font-normal text-(--solus-text-tertiary)">{label}</h4>
     {#if list === null}
-      <p class="m-0 py-2 text-[13px] text-(--solus-text-secondary)">A shape the JSON schema describes.</p>
+      <p class="m-0 text-[13px] text-(--solus-text-secondary)">A shape the JSON schema describes.</p>
     {:else if list.length === 0}
-      <p class="m-0 py-2 text-[13px] text-(--solus-text-secondary)">{none}</p>
+      <p class="m-0 text-[13px] text-(--solus-text-secondary)">{none}</p>
     {:else}
-      <dl class="m-0 flex flex-col">
+      <dl class="m-0 flex min-w-0 flex-col gap-1.5">
         {#each list as field (field.name)}
-          <div class="flex min-w-0 flex-col gap-0.5 border-b border-border/50 py-2 last:border-b-0">
-            <div class="flex min-w-0 items-baseline justify-between gap-3">
-              <dt class="min-w-0 truncate text-sm text-foreground">{field.name}</dt>
-              <dd class="m-0 shrink-0 text-[13px] text-(--solus-text-secondary)">{field.type}{field.required ? " · required" : ""}</dd>
-            </div>
-            {#if field.description}
-              <dd class="m-0 text-[13px] text-pretty text-(--solus-text-secondary)">{field.description}</dd>
-            {/if}
+          <div class="flex min-w-0 items-baseline gap-3">
+            <dt class="w-34 shrink-0 truncate font-mono text-xs text-foreground" title={field.name}>{field.name}</dt>
+            <dd class="m-0 min-w-0 flex-1 truncate text-[13px] text-(--solus-text-tertiary)" title={field.description}>{field.description ?? ""}</dd>
+            <dd class="m-0 shrink-0 text-xs text-(--solus-text-tertiary)">{field.type}{field.required ? " · required" : ""}</dd>
           </div>
         {/each}
       </dl>
@@ -102,27 +101,26 @@
 {/snippet}
 
 <section
-  class="grid min-w-0 grid-cols-1 overflow-hidden rounded-2xl border border-border bg-background shadow-[0_1px_2px_rgb(0_0_0/0.03),0_6px_20px_rgb(0_0_0/0.04)] @min-[60rem]/pane:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] dark:bg-card dark:shadow-none"
+  class="grid min-w-0 grid-cols-1 gap-7 rounded-2xl bg-background px-5.5 pt-5 pb-5.5 shadow-[shadow:var(--elev-lift)] @min-[60rem]/pane:grid-cols-[minmax(0,1fr)_15rem]"
   aria-label="Run {operation.name}"
   data-testid="app-operation-runner"
 >
-  <div class="flex min-w-0 flex-col">
-    <header class="flex min-w-0 items-start gap-3 px-5 pt-4 pb-3">
-      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <h3 class="m-0 truncate text-base font-semibold text-foreground">{operation.name}</h3>
-        <p class="m-0 truncate text-[13px] text-(--solus-text-secondary)" title={operation.description}>
+  <div class="flex min-w-0 flex-col gap-5">
+    <header class="flex min-w-0 items-start gap-3">
+      <div class="flex min-w-0 flex-1 flex-col gap-0.75">
+        <h3 class="m-0 truncate text-[15px] leading-5 font-semibold text-foreground">{operation.name}</h3>
+        <p class="m-0 truncate text-[13px] text-(--solus-text-tertiary)" title={operation.description}>
           {operationKindLabel(operation.kind)}{#if operation.description} · {operation.description}{/if}
         </p>
       </div>
-      <Button class="shrink-0" disabled={isRunning || refusal !== null} title={refusal ?? `Run ${operation.name} (${runKey})`} onclick={() => void run()}>
-        <RunIcon />
+      <Button class="h-7.5 gap-2 pr-2.5 pl-3 text-[13px]" disabled={isRunning || refusal !== null} title={refusal ?? `Run ${operation.name} (${runKey})`} onclick={() => void run()}>
         {isRunning ? "Running…" : "Run"}
-        <span class="text-xs opacity-70" aria-hidden="true">{runKey}</span>
+        <span class="font-mono text-[11px] opacity-80" aria-hidden="true">{runKey}</span>
       </Button>
     </header>
 
     {#if takesInput}
-      <div class="border-y border-border/60 bg-[var(--wash-1)] py-3 pr-5 pl-3">
+      <div class="rounded-[10px] bg-[var(--wash-2)] py-3 pr-3">
         <CodeEditor
           value={inputText}
           onChange={(text) => (inputText = text)}
@@ -138,58 +136,68 @@
         />
       </div>
     {:else}
-      <p class="m-0 border-y border-border/60 bg-[var(--wash-1)] px-5 py-3 text-[13px] text-(--solus-text-secondary)">It takes no input. Run calls it with one press.</p>
+      <p class="m-0 text-[13px] text-(--solus-text-secondary)">No input. Run calls it with one press.</p>
     {/if}
 
-    <div class="flex min-w-0 flex-col gap-5 px-5 pt-4 pb-5">
-      {@render fieldTable("Takes", inputFields, "No input")}
-      {@render fieldTable("Answers", outputFields, operation.output ? "An empty object" : "Any value: no output schema")}
-      <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-(--solus-text-secondary)">
-        <span>Time limit <span class="tabular-nums text-foreground">{operationTimeLimitText(operation.timeoutSeconds)}</span></span>
-        <span>{refusal ?? (operation.kind === "mutation" ? "Run changes the app's data, as a call from its UI does." : "It only reads.")}</span>
-        {#if hasSchema(operation.input) || hasSchema(operation.output)}
-          <Button size="xs" variant="ghost" class="ml-auto text-(--solus-text-secondary)" aria-expanded={showsSchemas} onclick={() => (showsSchemas = !showsSchemas)}>
-            {showsSchemas ? "Hide the JSON schemas" : "JSON schemas"}
-          </Button>
-        {/if}
-      </div>
-      {#if showsSchemas}
-        {#each [["Input", operation.input], ["Output", operation.output]] as const as [label, schema] (label)}
-          {#if hasSchema(schema)}
-            <div class="flex min-w-0 flex-col gap-1">
-              <span class="text-xs text-(--solus-text-secondary)">{label}</span>
-              <pre class="m-0 max-h-56 overflow-auto rounded-lg bg-[var(--wash-2)] p-3 font-mono text-xs whitespace-pre">{jsonText(schema)}</pre>
-            </div>
-          {/if}
-        {/each}
+    {#if takesInput}
+      {@render fieldList("Takes", inputFields, "No input")}
+    {/if}
+    {#if outputFields === null || outputFields.length > 0}
+      {@render fieldList("Answers", outputFields, "An empty object")}
+    {/if}
+
+    <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-(--solus-text-tertiary)">
+      <span class="tabular-nums">Time limit {operationTimeLimitText(operation.timeoutSeconds)}</span>
+      <span title={refusal ?? (operation.kind === "mutation" ? "Run changes the app's data, as a call from its UI does." : undefined)}>
+        {refusal ?? (operation.kind === "mutation" ? "Writes app data" : "Only reads")}
+      </span>
+      {#if hasSchema(operation.input) || hasSchema(operation.output)}
+        <Button size="xs" variant="ghost" class="-mr-2 ml-auto text-xs font-normal text-(--solus-text-secondary)" aria-expanded={showsSchemas} onclick={() => (showsSchemas = !showsSchemas)}>
+          {showsSchemas ? "Hide the JSON schemas" : "JSON schemas"}
+        </Button>
       {/if}
     </div>
+    {#if showsSchemas}
+      {#each [["Input", operation.input], ["Output", operation.output]] as const as [label, schema] (label)}
+        {#if hasSchema(schema)}
+          <div class="flex min-w-0 flex-col gap-1">
+            <span class="text-xs text-(--solus-text-tertiary)">{label}</span>
+            <pre class="m-0 max-h-56 overflow-auto rounded-[10px] bg-[var(--wash-2)] p-3 font-mono text-xs whitespace-pre">{jsonText(schema)}</pre>
+          </div>
+        {/if}
+      {/each}
+    {/if}
   </div>
 
-  <div class="flex min-w-0 flex-col gap-3 border-t border-border/60 px-5 pt-4 pb-5 @min-[60rem]/pane:border-t-0 @min-[60rem]/pane:border-l" aria-live="polite">
-    <div class="flex min-w-0 items-baseline justify-between gap-3">
-      <h4 class="m-0 text-sm font-semibold text-foreground">Response</h4>
-      {#if response}
-        <span class="shrink-0 text-xs tabular-nums" data-testid="app-operation-status">
-          <span class={response.ok ? "text-(--success)" : "text-(--failure)"}>{response.ok ? "OK" : "Failed"}</span>
-          {#if response.durationMs !== null}<span class="text-muted-foreground"> · {formatDuration(response.durationMs)}</span>{/if}
+  <div class="flex min-w-0 flex-col gap-3 @min-[60rem]/pane:pt-0.5" aria-live="polite">
+    <div class="flex min-w-0 items-center gap-2">
+      <h4 class="m-0 min-w-0 flex-1 text-[13px] font-medium text-foreground">Response</h4>
+      {#if isRunning}
+        <StateIcon state="running" size={12} />
+        <span class="shrink-0 text-xs text-(--solus-text-tertiary)" role="status" aria-busy="true">Running…</span>
+      {:else if response}
+        <StateIcon state={response.ok ? "ok" : "failed"} size={12} />
+        <span class="shrink-0 text-xs tabular-nums text-(--solus-text-tertiary)" data-testid="app-operation-status">
+          {response.ok ? "OK" : "Failed"}{#if response.durationMs !== null} · {formatDuration(response.durationMs)}{/if}
         </span>
       {/if}
     </div>
-    {#if isRunning}
-      <p class="m-0 text-[13px] text-muted-foreground" role="status" aria-busy="true">Running…</p>
-    {:else if response?.ok}
-      <pre class="m-0 max-h-80 overflow-auto rounded-lg bg-[var(--wash-2)] p-3 font-mono text-xs whitespace-pre select-text" aria-label="Value" data-testid="app-operation-value">{response.value}</pre>
-    {:else if response}
-      <p class="m-0 text-[13px] text-(--failure) text-pretty select-text" role="alert">{response.error}</p>
-    {:else}
-      <p class="m-0 text-[13px] text-muted-foreground">Run the operation to see what it answers.</p>
+    {#if response?.ok && !isRunning}
+      <pre class="m-0 max-h-80 overflow-auto rounded-[10px] bg-[var(--wash-2)] p-3 font-mono text-xs leading-5 whitespace-pre text-(--solus-text-secondary) select-text" aria-label="Value" data-testid="app-operation-value">{response.value}</pre>
+    {:else if response && !isRunning}
+      <div class="min-w-0 text-[13px] select-text" role="alert">
+        <MarkdownAlert alertType="error">
+          {#snippet content()}<p class="m-0 text-pretty text-foreground">{response?.ok === false ? response.error : ""}</p>{/snippet}
+        </MarkdownAlert>
+      </div>
+    {:else if !isRunning}
+      <p class="m-0 text-[13px] text-(--solus-text-tertiary)">Run the operation to see what it answers.</p>
     {/if}
-    {#if response?.summary}
-      <p class="m-0 text-[13px] text-(--solus-text-secondary) text-pretty">{response.summary}</p>
+    {#if response?.summary && !isRunning}
+      <p class="m-0 text-xs text-pretty text-(--solus-text-tertiary)">{response.summary}</p>
     {/if}
     {#if onOpenActivity}
-      <Button size="xs" variant="link" class="self-start px-0 text-foreground underline underline-offset-4" onclick={onOpenActivity}>Open in Activity</Button>
+      <Button size="xs" variant="link" class="h-auto self-start px-0 text-[13px] font-normal text-foreground underline decoration-foreground/25 underline-offset-[3px]" onclick={onOpenActivity}>Open in Activity</Button>
     {/if}
   </div>
 </section>

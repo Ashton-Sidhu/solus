@@ -169,8 +169,8 @@ export function AgentProfileSettings() {
       </SettingsSection>
       <SettingsSection title="Add an MCP server">
         <AppTextInput
-          accessibilityLabel="Server address"
-          placeholder="https://"
+          accessibilityLabel="Server address or config"
+          placeholder="https:// or the JSON from a setup page"
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"

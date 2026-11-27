@@ -749,7 +749,7 @@
     aggregateOpenKey = null;
     unlistedOpen = null;
     reviewSelection.clear();
-    void tick().then(() => searchEl?.focus());
+    if (!runtime.shouldSuppressFocus) void tick().then(() => searchEl?.focus());
   });
 
   function removeProject(option: ListProjectOption): void {

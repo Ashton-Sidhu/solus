@@ -9,10 +9,13 @@
   import { Button } from "../../ui/button";
   import CodeBlock from "../../ui/CodeBlock.svelte";
   import CopyButton from "../../ui/CopyButton.svelte";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
   import * as Tabs from "../../ui/tabs";
   import SettingsSelect from "../../settings/SettingsSelect.svelte";
   import { REACHABILITY_TEXT } from "../../webhooks/lib/webhook-reachability";
   import ManageSectionState from "./ManageSectionState.svelte";
+  import { WEBHOOKS_EMPTY } from "./lib/section-empty";
+  import StateIcon from "./StateIcon.svelte";
   import {
     answerStatus,
     answerText,
@@ -22,7 +25,7 @@
     deliveryTime,
     deliveryTitle,
     headerRows,
-    isFailedDelivery,
+    deliveryMark,
     isRefused,
     isTestDelivery,
     maskedSecret,
@@ -151,7 +154,9 @@
 <ManageSectionState
   count={webhooks?.length}
   error={appsStore.webhooks.errorFor(serverId, app.id)}
-  empty="This app declares no webhook."
+  {serverId}
+  {app}
+  empty={WEBHOOKS_EMPTY}
   onRetry={() => void appsStore.webhooks.load(serverId, app.id)}
 >
   {#if webhook}
@@ -163,9 +168,10 @@
           {:else}
             <h3 class="m-0 min-w-0 truncate text-lg leading-5.5 font-semibold text-foreground">{webhook.name}</h3>
           {/if}
-          <span class="min-w-0 truncate text-[13px] text-muted-foreground">
-            {webhookSummaryText(webhook.run, deliveries, DELIVERY_PAGE)}{webhook.enabled ? "" : " · Paused"}
-          </span>
+          {#if !webhook.enabled}
+            <StateIcon state="paused" label="Paused" />
+          {/if}
+          <span class="min-w-0 truncate text-[13px] text-muted-foreground">{webhookSummaryText(webhook.run, deliveries, DELIVERY_PAGE)}</span>
           <span class="flex-1"></span>
           {#if webhook.webhookId}
             {@const id = webhook.webhookId}
@@ -176,7 +182,11 @@
         </div>
 
         {#if webhook.problem}
-          <p class="m-0 text-[13px] text-(--failure) text-pretty" role="alert">{webhook.problem}</p>
+          <MarkdownAlert alertType="error">
+            {#snippet content()}
+              <p class="m-0 text-[13px] text-pretty text-foreground" role="alert">{webhook.problem}</p>
+            {/snippet}
+          </MarkdownAlert>
         {/if}
         <div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-2">
           {#if webhook.url}
@@ -207,10 +217,14 @@
             </div>
             {#if deliveries === undefined}
               {#if deliveriesError}
-                <div class="flex flex-wrap items-center gap-2 px-3" role="alert">
-                  <span class="text-[13px] text-destructive">{deliveriesError}</span>
-                  <Button size="xs" variant="outline" onclick={() => void webhooksStore.loadDeliveries(serverId, id).catch(() => {})}>Try again</Button>
-                </div>
+                <MarkdownAlert alertType="error">
+                  {#snippet content()}
+                    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13px]">
+                      <p class="m-0 min-w-0 flex-1 text-pretty text-foreground" role="alert">{deliveriesError}</p>
+                      <Button size="xs" variant="link" class="h-auto px-0 text-[13px]" onclick={() => void webhooksStore.loadDeliveries(serverId, id).catch(() => {})}>Try again</Button>
+                    </div>
+                  {/snippet}
+                </MarkdownAlert>
               {:else}
                 <p class="m-0 px-3 text-[13px] text-muted-foreground" role="status" aria-busy="true">Loading…</p>
               {/if}
@@ -229,12 +243,15 @@
                     class="flex min-w-0 items-center gap-3 overflow-hidden rounded-[10px] px-3 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50 {isSelected ? 'bg-(--wash-2)' : 'hover:bg-(--wash-1)'}"
                     onclick={() => (chosenDeliveryId = delivery.id)}
                   >
-                    <span class="w-7.5 shrink-0 text-[13px] font-semibold tabular-nums {isFailedDelivery(delivery.outcome) ? 'text-(--failure)' : 'text-(--success)'}">{answerStatus(delivery.outcome)}</span>
+                    <StateIcon state={deliveryMark(delivery.outcome)} label="Answered {answerStatus(delivery.outcome)}" />
                     <span class="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span class="truncate text-sm leading-4.5 text-foreground {isSelected ? 'font-medium' : ''}">{deliveryTitle(delivery, webhook.run)}</span>
                       <span class="truncate text-xs text-muted-foreground">{deliverySubtitle(delivery)}</span>
                     </span>
-                    <span class="shrink-0 text-xs tabular-nums text-muted-foreground" title={new Date(delivery.arrivedAt).toLocaleString()}>{deliveryTime(delivery.arrivedAt)}</span>
+                    <span class="flex shrink-0 flex-col items-end gap-0.5 text-xs tabular-nums text-muted-foreground">
+                      <span title={new Date(delivery.arrivedAt).toLocaleString()}>{deliveryTime(delivery.arrivedAt)}</span>
+                      <span class="font-mono" aria-hidden="true">{answerStatus(delivery.outcome)}</span>
+                    </span>
                   </button>
                 {/each}
               </div>
@@ -242,9 +259,9 @@
           </section>
 
           {#if selected}
-            <section class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-background pb-2 shadow-[0_1px_2px_rgb(0_0_0/0.03),0_6px_20px_rgb(0_0_0/0.04)] dark:bg-card dark:shadow-none @max-[48rem]/pane:w-full" aria-label="The chosen delivery" data-testid="app-webhook-delivery">
+            <section class="@container flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background pb-2 shadow-[shadow:var(--elev-lift)] dark:bg-card @max-[48rem]/pane:w-full" aria-label="The chosen delivery" data-testid="app-webhook-delivery">
               <Tabs.Root bind:value={() => tab, (next) => (tab = next === "response" || next === "call" ? next : "request")}>
-                <div class="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-border/60 px-5 py-3.5">
+                <div class="flex min-w-0 flex-wrap items-center justify-between gap-2 px-5 pt-3.5 pb-1">
                   <Tabs.List>
                     <Tabs.Trigger value="request" class="px-2.5 text-[13px]">Request</Tabs.Trigger>
                     <Tabs.Trigger value="response" class="px-2.5 text-[13px]">Response</Tabs.Trigger>
@@ -269,9 +286,9 @@
                           <span class="w-50 shrink-0 truncate font-mono text-xs text-muted-foreground @max-[30rem]/pane:w-32">{header.name}</span>
                           <span class="min-w-0 truncate font-mono text-xs text-foreground select-text" title={header.value}>{header.value}</span>
                           {#if header.check === "valid"}
-                            <span class="shrink-0 text-xs text-(--success)">Valid</span>
+                            <StateIcon state="ok" label="Valid" size={14} />
                           {:else if header.check === "invalid"}
-                            <span class="shrink-0 text-xs text-(--failure)">Not valid</span>
+                            <StateIcon state="failed" label="Not valid" size={14} />
                           {/if}
                         </div>
                       {/each}
@@ -284,20 +301,42 @@
                   </Tabs.Content>
                   <Tabs.Content value="response" class="flex flex-col gap-2 px-5 pt-3.5 pb-5">
                     {@const answer = answerText(detail)}
-                    <p class="m-0 text-[13px] text-foreground"><span class="font-semibold tabular-nums {isRefused(detail.outcome) ? 'text-(--failure)' : 'text-(--success)'}">{answer.status}</span> {isRefused(detail.outcome) ? "Refused" : "Accepted"}</p>
-                    {#if refusalText(detail)}
-                      <p class="m-0 text-[13px] text-(--failure) text-pretty">{refusalText(detail)}</p>
+                    {@const refusal = refusalText(detail)}
+                    <p class="m-0 flex items-center gap-2 text-[13px] text-foreground">
+                      <StateIcon state={isRefused(detail.outcome) ? "failed" : "ok"} size={14} />
+                      <span><span class="font-mono font-medium tabular-nums">{answer.status}</span> {isRefused(detail.outcome) ? "Refused" : "Accepted"}</span>
+                    </p>
+                    {#if refusal}
+                      <MarkdownAlert alertType="error">
+                        {#snippet content()}
+                          <p class="m-0 text-[13px] text-pretty text-foreground">{refusal}</p>
+                        {/snippet}
+                      </MarkdownAlert>
                     {/if}
                     <CodeBlock text={answer.body} lang="json" showHeader={false} />
                   </Tabs.Content>
                   <Tabs.Content value="call" class="flex flex-col gap-2 px-5 pt-3.5 pb-5">
-                    <p class="m-0 text-[13px] text-pretty {call?.status === 'failed' || call?.status === 'busy' ? 'text-(--failure)' : 'text-foreground'}">{callText(call, webhook.run)}</p>
+                    {#if call?.status === "failed" || call?.status === "busy"}
+                      <MarkdownAlert alertType="error">
+                        {#snippet content()}
+                          <p class="m-0 text-[13px] text-pretty text-foreground">{callText(call, webhook.run)}</p>
+                        {/snippet}
+                      </MarkdownAlert>
+                    {:else}
+                      <p class="m-0 text-[13px] text-pretty text-foreground">{callText(call, webhook.run)}</p>
+                    {/if}
                     {#if call}
                       <p class="m-0 text-xs text-muted-foreground">The mutation ran with the request's headers, query, and body as its input. Activity lists the call with its logs.</p>
                     {/if}
                   </Tabs.Content>
                 {:else if detailError}
-                  <p class="m-0 px-5 py-4 text-[13px] text-destructive" role="alert">{detailError}</p>
+                  <div class="px-5 py-4">
+                    <MarkdownAlert alertType="error">
+                      {#snippet content()}
+                        <p class="m-0 text-[13px] text-pretty text-foreground" role="alert">{detailError}</p>
+                      {/snippet}
+                    </MarkdownAlert>
+                  </div>
                 {:else}
                   <p class="m-0 px-5 py-4 text-[13px] text-muted-foreground" role="status" aria-busy="true">Loading…</p>
                 {/if}

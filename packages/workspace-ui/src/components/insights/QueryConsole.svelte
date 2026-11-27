@@ -94,6 +94,8 @@
   let now = $state(Date.now());
   let sqlEditor = $state<ReturnType<typeof SqlEditor> | null>(null);
   let popoutSqlEditor = $state<ReturnType<typeof SqlEditor> | null>(null);
+  /** The question field of the console on the page, not of the popout. */
+  let questionEl: HTMLInputElement | null = null;
   let editorPopoutOpen = $state(false);
   let popoutForm = $state<QueryForm>("sql");
   /** The saved chip whose menu is on screen, anchored where it was summoned —
@@ -109,6 +111,22 @@
   export function insertIntoSql(text: string): void {
     if (sqlEditor) sqlEditor.insertAtCursor(text);
     else onSqlChange(sqlText.trim() ? `${sqlText} ${text}` : text);
+  }
+
+  /** Put the cursor in the query on the page: the question, or the SQL editor. */
+  export function focusQuery(): void {
+    if (form === "sql") sqlEditor?.focus();
+    else questionEl?.focus({ preventScroll: true });
+  }
+
+  function keepQuestionField(isPopout: boolean) {
+    return (element: HTMLInputElement) => {
+      if (isPopout) return;
+      questionEl = element;
+      return () => {
+        if (questionEl === element) questionEl = null;
+      };
+    };
   }
 
   function canRun(queryForm: QueryForm): boolean {
@@ -257,6 +275,7 @@
             onblur={() => (focused = false)}
             aria-label="Ask a question about your sessions"
             mic
+            {@attach keepQuestionField(isPopout)}
           />
         </div>
         <div class="flex shrink-0 items-center gap-2.5">

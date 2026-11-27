@@ -69,9 +69,28 @@ export function integrationConnectCardCopy(integrationName: string): ConnectCard
 export function connectRequestCopy(request: ConnectRequest): ConnectCardCopy {
   if (request.kind === 'custom-server') {
     const name = request.name ?? 'MCP server'
-    return { name, providerLabel: name, purpose: 'Enter its address to add it.' }
+    return { name, providerLabel: name, purpose: 'Add it, then sign in to use its tools.' }
   }
   return request.kind === 'integration' ? integrationConnectCardCopy(request.integrationName) : connectCardCopy(request.provider, request.reason)
+}
+
+/** One step of adding a server by its address, as `StepRail` draws it. */
+export interface CustomServerStep {
+  title: string
+  hint?: string
+  state: 'done' | 'current' | 'next'
+}
+
+/**
+ * Adding a server by its address is two steps: the address, then the sign-in.
+ * Once it is added, the first step keeps the address, so the person sees what
+ * they are signing in to.
+ */
+export function customServerSteps(addedUrl: string | undefined): CustomServerStep[] {
+  return [
+    { title: 'Add the server', hint: addedUrl ?? 'A URL, a command, or the JSON from a server’s setup page.', state: addedUrl ? 'done' : 'current' },
+    { title: 'Sign in', hint: 'Give Solus access to its tools.', state: addedUrl ? 'current' : 'next' },
+  ]
 }
 
 /** The card's eyebrow: how many sign-ins it asks for, or that it asks for none now. */

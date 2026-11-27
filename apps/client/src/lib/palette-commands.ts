@@ -93,23 +93,6 @@ export function webPaletteCommands(deps: WebPaletteDeps): Command[] {
     keywords: ["create", "chat", "tab"],
     run: () => session.drafts.openSessionDraft({ freshTask: true, via: "palette" }),
   },
-  {
-    id: "new-session-in-task",
-    label: "New session in issue",
-    group: "General",
-    hint: comboHint("global.new-session-in-task"),
-    keywords: ["create", "chat", "tab", "task"],
-    run: () => session.drafts.openSessionDraft({ via: "palette" }),
-  },
-  {
-    id: "new-session-without-task",
-    label: "New session without issue",
-    group: "General",
-    hint: comboHint("global.new-session-without-task"),
-    keywords: ["create", "chat", "tab", "no issue", "no task"],
-    run: () =>
-      session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
-  },
   newChatCommand(session),
   {
     id: "workspace",

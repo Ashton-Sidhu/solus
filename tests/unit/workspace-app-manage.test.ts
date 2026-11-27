@@ -4,17 +4,16 @@ import {
   CALL_FIRST_PAGE,
   CALL_FULL_PAGE,
   NEW_ACTIVITY_VIEW,
+  activityFilterCount,
   activityViewOf,
   callAtPoint,
   callBarText,
   callBars,
-  callColumnFits,
-  callDetailTab,
+  callChipText,
   callDurationText,
-  callOrderOf,
+  callMessage,
   callQuery,
   callRunGroups,
-  callSortOf,
   callTrendPoints,
   callZoomText,
   callsSummary,
@@ -25,8 +24,10 @@ import {
   rememberActivityView,
   withChip,
 } from '@solus/workspace-ui/components/app/manage/lib/activity'
-import { deliveryState, runState, stepState, versionState } from '@solus/workspace-ui/components/app/manage/lib/states'
+import { appState, deliveryState, runState, stepState, versionState } from '@solus/workspace-ui/components/app/manage/lib/states'
+import { activityEmptyTitle, appAddPrompt, emptyDescriptionParts, sectionErrorTitle, workflowsEmpty, WORKFLOWS_EMPTY } from '@solus/workspace-ui/components/app/manage/lib/section-empty'
 import { callTraceView } from '@solus/workspace-ui/components/app/manage/lib/trace'
+import { callSheetFacts, callSheetSummary, callsAround, neighbourCall } from '@solus/workspace-ui/components/app/manage/lib/call-sheet'
 import {
   SIGNAL_ACTION_TYPES,
   SIGNAL_EMPTY_TEMPLATE_TEXT,
@@ -37,7 +38,7 @@ import {
 } from '@solus/workspace-ui/components/app/manage/lib/signal-actions'
 import { canRetryRun, canTerminateRun } from '@solus/workspace-ui/components/app/manage/lib/runs'
 import { stepCodeRefusal } from '@solus/workspace-ui/components/app/manage/lib/run-graph'
-import { appRunState, appStateText, appVersionHostLine, failureRateText, hourBars, hourPoints, hourSpanStartLabel, hostFoldersText, madeText, nextScheduleRun, runtimeText, scheduleNextText, versionDetail } from '@solus/workspace-ui/components/app/manage/lib/overview'
+import { appMemoryText, appRunState, appStateText, appStateTitle, appVersionText, failureRateText, hourBars, hourPoints, hourSpanStartLabel, hostFoldersText, madeText, nextScheduleRun, runtimeText, scheduleNextText, versionDetail } from '@solus/workspace-ui/components/app/manage/lib/overview'
 import { operationGroups, operationInput, spanSummary } from '@solus/workspace-ui/components/app/manage/lib/operations'
 import { uploadPercent, uploadRefusal } from '@solus/workspace-ui/components/app/manage/lib/app-file-transfer'
 import { KEYBINDINGS } from '@solus/workspace-ui/lib/keybindings/manifest'
@@ -51,7 +52,7 @@ describe('the query of the Activity section', () => {
   test('a drag across the chart zooms the query to that time, in place of the range', () => {
     // WHY: the zoom narrows what the host reads — the rows, the totals, and the bars — not only what the chart draws.
     const zoom = { from: now - 3 * 60 * 60 * 1000, to: now - 60 * 60 * 1000 }
-    expect(callQuery({ ...NEW_ACTIVITY_VIEW, zoom }, now)).toEqual({ kind: 'operation', since: zoom.from, until: zoom.to, limit: CALL_FIRST_PAGE })
+    expect(callQuery({ ...NEW_ACTIVITY_VIEW, zoom }, now)).toEqual({ since: zoom.from, until: zoom.to, limit: CALL_FIRST_PAGE })
     expect(callQuery({ ...NEW_ACTIVITY_VIEW, range: 'all', zoom }, now).since).toBe(zoom.from)
     // The heading names the time; a zoom on another day names the day too.
     expect(callZoomText(zoom, now)).toMatch(/–/)
@@ -65,13 +66,23 @@ describe('the query of the Activity section', () => {
     expect(callBarText({ total: 1, failed: 0 })).toBe('1 call')
   })
 
-  test('a read asks the host for the kind, the range, and each filter as a group that must match', () => {
+  test('one log holds both kinds of call; the Model calls view narrows it to the model calls', () => {
+    // WHY: the log is one list of events. A read without a kind is what gives the host's rows of
+    // operations and of model calls together; a kind in every read would hide one of them.
+    expect(callQuery(NEW_ACTIVITY_VIEW, now).kind).toBeUndefined()
+    expect(callQuery({ ...NEW_ACTIVITY_VIEW, kind: 'model' }, now).kind).toBe('model')
+    expect(isActivityFiltered({ ...NEW_ACTIVITY_VIEW, kind: 'model' })).toBe(true)
+    // The Filters button counts the kind and the outcome it holds.
+    expect(activityFilterCount({ kind: 'model', outcome: 'failed' })).toBe(2)
+    expect(activityFilterCount(NEW_ACTIVITY_VIEW)).toBe(0)
+  })
+
+  test('a read asks the host for the range, and each filter as a group that must match', () => {
     // WHY: the host applies the query to the whole log. A chip and the outcome narrow
     // the query; they must not join an `or` group of the typed text.
-    expect(callQuery(NEW_ACTIVITY_VIEW, now)).toEqual({ kind: 'operation', since: now - 24 * 60 * 60 * 1000, limit: CALL_FIRST_PAGE })
+    expect(callQuery(NEW_ACTIVITY_VIEW, now)).toEqual({ since: now - 24 * 60 * 60 * 1000, limit: CALL_FIRST_PAGE })
     const view = { ...NEW_ACTIVITY_VIEW, range: 'all', text: 'operation:save or caller:workflow', chips: [{ field: 'version', value: '14' }], outcome: 'failed' } as const
     expect(callQuery({ ...view, chips: [...view.chips] }, now, CALL_FULL_PAGE)).toEqual({
-      kind: 'operation',
       limit: CALL_FULL_PAGE,
       match: [
         [{ field: 'operation', value: 'save' }, { field: 'caller', value: 'workflow' }],
@@ -87,6 +98,8 @@ describe('the query of the Activity section', () => {
     expect(isActivityFiltered({ ...NEW_ACTIVITY_VIEW, outcome: 'running' })).toBe(true)
     const chip = { field: 'caller', value: 'agent' } as const
     expect(withChip([chip], { ...chip })).toEqual([chip])
+    // Filter out after filter for turns the chip over; it does not ask for a call that both is and is not.
+    expect(withChip([chip], { ...chip, not: true })).toEqual([{ ...chip, not: true }])
   })
 
   test('a view that opens again shows the query it left, unless another section opened it on a filter', () => {
@@ -139,26 +152,6 @@ describe('the trend and the rows of the Activity section', () => {
     expect(calls.map((entry) => entry.id)).toEqual(['new', 'running', 'old'])
   })
 
-  test('the Time head turns the order over and the Duration head puts the slowest first, then goes back to the newest', () => {
-    // WHY: the heads are the only way to sort the table. A head the table shows as sorted must be the order the rows are in.
-    for (const order of ['newest', 'oldest', 'slowest'] as const) expect(callOrderOf(callSortOf(order))).toBe(order)
-    expect(callOrderOf({ id: 'time', desc: false })).toBe('oldest')
-    expect(callOrderOf({ id: 'duration', desc: true })).toBe('slowest')
-    // A second click on Duration asks for the fastest first, which the log does not keep.
-    expect(callOrderOf({ id: 'duration', desc: false })).toBe('newest')
-    expect(callOrderOf(undefined)).toBe('newest')
-  })
-
-  test('a narrow log drops the columns it can spare, never Time, Operation, or Duration', () => {
-    // WHY: the open call spans the columns drawn. A column hidden by CSS alone would still count, and leave a gap.
-    const at = (widthPx: number) => ['time', 'operation', 'caller', 'run', 'outcome', 'version', 'duration'].filter((column) => callColumnFits(column, widthPx))
-    expect(at(320)).toEqual(['time', 'operation', 'duration'])
-    expect(at(30 * 16)).toEqual(['time', 'operation', 'caller', 'duration'])
-    expect(at(40 * 16)).toEqual(['time', 'operation', 'caller', 'run', 'outcome', 'version', 'duration'])
-    // Before the log is measured, every column shows.
-    expect(at(0)).toHaveLength(7)
-  })
-
   test('the band says how many calls are in view, that a full page is the newest ones, and how many failed', () => {
     expect(callsSummary([call('a')], 100)).toBe('1 call')
     expect(callsSummary([call('a'), call('b', { outcome: 'failed' })], 2)).toBe('The newest 2 calls · 1 failed')
@@ -178,12 +171,50 @@ describe('the trend and the rows of the Activity section', () => {
     expect(callRunGroups(calls).map((group) => [group.runId, group.calls.map((entry) => entry.id)])).toEqual([['r1', ['a', 'd']], [null, ['b']], ['r2', ['c']]])
   })
 
-  test('a call opens on its log lines when it wrote any, else on its input, else on its trace', () => {
-    const line = { atMs: 1, level: 'info' as const, text: 'hello' }
-    const span = { kind: 'sql' as const, name: '2 statements', startMs: 0, durationMs: 1, ok: true }
-    expect(callDetailTab({ logs: [line], input: '{}', spans: [] })).toBe('logs')
-    expect(callDetailTab({ logs: [], input: '{}', spans: [span] })).toBe('input')
-    expect(callDetailTab({ logs: [], input: null, spans: [span] })).toBe('trace')
+  test('a row reads as an event: the error of a failed call, the work of a model call, and its fields as chips', () => {
+    // WHY: the document column is how a reader scans the log; a field the call does not hold must not show as an empty chip.
+    expect(callMessage(call('a', { outcome: 'failed', error: 'TimeoutError' }))).toBe('TimeoutError')
+    expect(callMessage(call('m', { kind: 'model', caller: { kind: 'workflow', runId: 'r1', workflow: 'summarizeRelease', step: 'ask' } }))).toBe('model call in summarizeRelease')
+    expect(callMessage(call('b', { logCount: 2, spanCount: 1 }))).toBe('2 log lines · 1 span')
+    expect(callMessage(call('c'))).toBeNull()
+    expect(callChipText(call('d', { caller: { kind: 'schedule', name: 'hourly' } }), 'caller')).toBe('Schedule')
+    expect(callChipText(call('e'), 'run')).toBeNull()
+    expect(callChipText(call('f', { durationMs: null, outcome: 'running' }), 'duration')).toBeNull()
+  })
+})
+
+describe('the call sheet of the Activity section', () => {
+  const at = Date.parse('2026-11-13T12:00:00Z')
+  const call = (id: string, patch: Partial<AppCallView> = {}): AppCallView => ({
+    id, kind: 'operation', version: 14, operation: 'summarizeRelease', caller: { kind: 'workflow', runId: 'run_8f2c', workflow: 'weekly-digest', step: 'ask-model' },
+    startedAt: at, finishedAt: at + 30_000, outcome: 'failed', error: 'TimeoutError', durationMs: 30_000, logCount: 0, spanCount: 0, traceId: null, spanId: null, ...patch,
+  })
+
+  test('the key facts name the caller, the run and its step, the duration against the p95, and whether the version is live', () => {
+    const facts = callSheetFacts(call('a'), 4100, 14, [])
+    expect(facts.map((fact) => [fact.label, fact.value, fact.detail])).toEqual([
+      ['Caller', 'Workflow', 'weekly-digest'],
+      ['Run', 'run_8f2c', 'step ask-model'],
+      ['Duration', '30.0s', 'p95 is 4.1s'],
+      ['Version', '14', 'live'],
+    ])
+    // A call outside a run has no Run fact, and an old version is not called live.
+    expect(callSheetFacts(call('b', { caller: { kind: 'ui' } }), null, 15, []).map((fact) => [fact.label, fact.detail])).toEqual([['Caller', null], ['Duration', null], ['Version', null]])
+  })
+
+  test('the head says how the call ended before when it started', () => {
+    expect(callSheetSummary(call('a'))).toMatch(/^Failed after 30\.0s · /)
+    expect(callSheetSummary(call('b', { outcome: 'running', durationMs: null }))).toMatch(/^Running · /)
+  })
+
+  test('j and k step through the calls in the order shown, and stop at either end', () => {
+    // WHY: the sheet steps through the log the reader sees; a step past the end must not wrap to a call far away.
+    const calls = ['a', 'b', 'c'].map((id) => call(id))
+    expect(neighbourCall(calls, 'b', 1)?.id).toBe('c')
+    expect(neighbourCall(calls, 'b', -1)?.id).toBe('a')
+    expect(neighbourCall(calls, 'c', 1)).toBeNull()
+    expect(neighbourCall(calls, 'x', 1)).toBeNull()
+    expect(callsAround(calls, 'a', 1).map((entry) => entry.id)).toEqual(['a', 'b'])
   })
 })
 
@@ -280,8 +311,29 @@ describe('the Overview section', () => {
   })
 
   test('the status line names the version that runs and the host', () => {
-    expect(appVersionHostLine({ activeVersion: 14 }, 'Studio')).toBe('version 14 · Studio')
-    expect(appVersionHostLine({ activeVersion: null }, 'Studio')).toBe('no version · Studio')
+    expect(appVersionText({ activeVersion: 14 }, null)).toBe('v14')
+    expect(appVersionText({ activeVersion: null }, null)).toBe('No version')
+    expect(appVersionText({ activeVersion: 14 }, { number: 15 })).toBe('v14 → v15')
+    expect(appVersionText({ activeVersion: null }, { number: 1 })).toBe('v1')
+  })
+
+  test('the status line shows memory only for a process that runs', () => {
+    // WHY: the memory of a process that stopped is not the memory the app uses now.
+    expect(appMemoryText({ running: true, rssBytes: 47 * 1024 * 1024 })).toBe('47 MB')
+    expect(appMemoryText({ running: false, rssBytes: 47 * 1024 * 1024 })).toBeNull()
+    expect(appMemoryText({ running: true, rssBytes: null })).toBeNull()
+    expect(appMemoryText(null)).toBeNull()
+  })
+
+  test('the words of the state mark agree with the mark', () => {
+    // WHY: the mark is the only status on the line; its name must not say Running where the mark says idle or offline.
+    const live = { stopped: false, activeVersion: 2, buildingVersion: null }
+    const idle = { running: false, startedAt: null, inFlight: 0, rssBytes: null }
+    const busy = { running: true, startedAt: 1, inFlight: 1, rssBytes: null }
+    expect(appStateTitle(live, null, busy, false)).toBe('Running · 1 call in progress')
+    expect(appStateTitle(live, null, idle, false)).toBe('Idle until the next call')
+    expect(appStateTitle({ ...live, stopped: true }, null, idle, false)).toBe('Stopped · No operation runs and no schedule fires.')
+    expect(appStateTitle(live, null, busy, true)).toBe('Offline · The host does not answer')
   })
 
   test('the next schedule is the first planned run of a schedule that runs', () => {
@@ -403,7 +455,26 @@ describe('the mark that says how a thing stands', () => {
   test('a thing that ended well and a thing that failed each have one mark, whatever the thing is', () => {
     expect([runState('succeeded'), stepState('done'), versionState('active'), deliveryState('delivered')]).toEqual(['ok', 'ok', 'ok', 'ok'])
     expect([runState('failed'), stepState('failed'), versionState('failed'), deliveryState('failed')]).toEqual(['failed', 'failed', 'failed', 'failed'])
-    expect(versionState('building')).toBe('running')
+    // A build is the session mark of a start, not of work: the version does not serve calls yet.
+    expect(versionState('building')).toBe('starting')
+  })
+
+  test('an app shows the working mark only while its backend has a process', () => {
+    // WHY: the mark is the sidebar's mark of a working session. An app with no process, a stopped
+    // app, and an app with no version do no work; the working mark there says that something runs.
+    const live = { stopped: false, activeVersion: 2, buildingVersion: null }
+    expect(appState(live, { running: true }, false)).toBe('running')
+    expect(appState(live, { running: false }, false)).toBe('idle')
+    expect(appState(live, null, false)).toBe('idle')
+    expect(appState({ ...live, stopped: true }, { running: true }, false)).toBe('idle')
+    expect(appState({ ...live, activeVersion: null }, null, false)).toBe('idle')
+    expect(appState({ ...live, buildingVersion: 3 }, { running: true }, false)).toBe('starting')
+  })
+
+  test('an app on a host that does not answer shows the offline mark, whatever it last reported', () => {
+    // WHY: a host that does not answer cannot say that the app runs; a working mark there is stale.
+    expect(appState({ stopped: false, activeVersion: 2, buildingVersion: null }, { running: true }, true)).toBe('offline')
+    expect(appState({ stopped: false, activeVersion: 2, buildingVersion: 3 }, null, true)).toBe('offline')
   })
 })
 
@@ -416,5 +487,50 @@ describe('the Code button of a workflow step', () => {
     expect(stepCodeRefusal('ask-model', 14, null, null)).toBe("The source of version 14 has no step.do('ask-model') call.")
     expect(stepCodeRefusal('ask-model', null, null, null)).toBe("The source of the active version has no step.do('ask-model') call.")
     expect(stepCodeRefusal('ask-model', 14, undefined, 'The host did not answer.')).toBe('The source was not read: The host did not answer.')
+  })
+})
+
+describe('the empty state of a Manage section', () => {
+  test('a filter that hides every run shows no medallion and offers to clear it', () => {
+    // WHY: a filter miss is not a blank slate. The medallion and "add one" there send the owner to make a workflow that exists.
+    let cleared = false
+    const filtered = workflowsEmpty(true, true, () => (cleared = true))
+    expect(filtered.icon).toBeUndefined()
+    const clear = filtered.actions?.[0]
+    expect(clear && 'run' in clear).toBe(true)
+    if (clear && 'run' in clear) clear.run()
+    expect(cleared).toBe(true)
+  })
+
+  test('an app that declares workflows but ran none does not ask for a new workflow', () => {
+    expect(workflowsEmpty(false, true, () => {}).actions).toBeUndefined()
+    expect(workflowsEmpty(false, false, () => {})).toBe(WORKFLOWS_EMPTY)
+  })
+
+  test('a part of the description in backticks is code', () => {
+    expect(emptyDescriptionParts('Declare one in `app.ts` to keep a key out.')).toEqual([
+      { text: 'Declare one in ', isCode: false },
+      { text: 'app.ts', isCode: true },
+      { text: ' to keep a key out.', isCode: false },
+    ])
+  })
+
+  test('an empty Activity log names the range it looked in, because the range is why it is empty', () => {
+    expect(activityEmptyTitle('hour')).toBe('No calls in the last hour')
+    expect(activityEmptyTitle('day')).toBe('No calls in the last 24 hours')
+    expect(activityEmptyTitle('week')).toBe('No calls in the last 7 days')
+    expect(activityEmptyTitle('all')).toBe('No calls yet')
+  })
+
+  test('a failed read names the host only when the host does not answer', () => {
+    // WHY: "did not answer" for a host that answered with an error sends the owner to check a host that is up.
+    expect(sectionErrorTitle('studio-mini', true)).toBe('studio-mini did not answer')
+    expect(sectionErrorTitle('studio-mini', false)).toBe('This section did not load')
+  })
+
+  test('the prompt that asks an agent to add a thing names the app and the app tools', () => {
+    expect(appAddPrompt({ name: 'Query Watch', slug: 'query-watch' }, 'a schedule')).toBe(
+      'Add a schedule to the app Query Watch (query-watch). Change it with checkout_app, save_app, and deploy_app.',
+    )
   })
 })

@@ -12,22 +12,25 @@ test('restored status reads batch per host without mixing session ids', async ()
   await flushRpcContinuations()
 })
 
-test('history starts beside lineage, but live events attach only after history is applied', async () => {
+// docs/plans/running-turn-open.md: the watch travels beside the history page,
+// and the session's events are held until the page is on screen.
+test('history and the watch start beside lineage, and live events apply only after history', async () => {
   const fixture = sessionOpenRpcFixture(1)
   const opening = fixture.open()
   expect(fixture.reads.map((read) => read.method)).toEqual(['loadSessionPage', 'describeSession'])
-  expect(fixture.historyRequests).toEqual([{ sessionId: 'session-0', projectPath: '/fixture', provider: 'codex', turnLimit: 10, deferArtifactHtml: true }])
+  expect(fixture.historyRequests).toEqual([{ sessionId: 'session-0', projectPath: '/fixture', provider: 'codex', turnLimit: 10, deferArtifactHtml: true, replyLayout: true }])
   fixture.reads[1].resolve()
   await flushRpcContinuations()
-  expect(fixture.reads).toHaveLength(2)
+  expect(fixture.reads.map((read) => read.method)).toEqual(['loadSessionPage', 'describeSession', 'watchSession'])
+  expect(fixture.eventHolds).toEqual(['hold with 0 rows'])
   expect(fixture.session.messages).toHaveLength(0)
   fixture.reads[0].resolve()
   await flushRpcContinuations()
   expect(fixture.session.messages[0]?.content).toBe('Ready')
   expect(fixture.session.loadingHistory).toBe(false)
-  expect(fixture.reads[2].method).toBe('watchSession')
   fixture.reads[2].resolve()
   expect(await opening).toBe(true)
+  expect(fixture.eventHolds).toEqual(['hold with 0 rows', 'release with 1 rows'])
 })
 
 test('early history and conversion use the stable session identity', async () => {
@@ -54,7 +57,9 @@ test('an early history failure is observed and still rejects hydration for retry
   fixture.reads[1].resolve()
   expect(await outcome).toMatchObject({ message: 'offline' })
   expect(fixture.session.loadingHistory).toBe(false)
-  expect(fixture.reads).toHaveLength(2)
+  // The watch went out beside the page. With no page, its events are not held back.
+  expect(fixture.reads.map((read) => read.method)).toEqual(['loadSessionPage', 'describeSession', 'watchSession'])
+  expect(fixture.eventHolds.at(-1)).toBe('release with 0 rows')
 })
 
 test('closing a tab while lineage is pending cannot attach its runtime', async () => {

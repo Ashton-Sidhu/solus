@@ -11,9 +11,11 @@
     value: string;
     /** What the value is, for the dialog that shows it when the clipboard does not work. */
     kind: CopiedValueKind;
+    /** After a copy that landed: "Set up another way" marks its step done. */
+    onCopied?: () => void;
   }
 
-  let { label, value, kind }: Props = $props();
+  let { label, value, kind, onCopied }: Props = $props();
 
   let isCopied = $state(false);
   let resetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -21,6 +23,7 @@
   async function copy() {
     if (!(await outsideApps.copy(kind, value))) return;
     isCopied = true;
+    onCopied?.();
     if (resetTimer) clearTimeout(resetTimer);
     resetTimer = setTimeout(() => (isCopied = false), 1500);
   }
@@ -30,7 +33,7 @@
   });
 </script>
 
-<div class="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-(--solus-surface-hover) py-1.5 pr-1.5 pl-3">
+<div class="flex min-w-0 items-center gap-2 rounded-lg bg-muted py-1.5 pr-1.5 pl-3">
   <span class="shrink-0 text-chrome-dense text-(--solus-text-secondary)">{label}</span>
   <span class="min-w-0 flex-1 truncate text-chrome-dense text-(--solus-text-primary) select-text">{value}</span>
   <Button

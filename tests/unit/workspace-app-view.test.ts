@@ -195,6 +195,13 @@ describe('the sections of the Manage page', () => {
     expect(groups.flatMap((group) => group.sections.map((section) => section.id))).toEqual([...APP_MANAGE_SECTIONS])
   })
 
+  test('each section has its own icon, because the dock of a narrow pane names a section only by its icon', () => {
+    // WHY: in the dock every section but the one on screen is its icon alone. Two sections with one icon cannot be told apart.
+    const icons = manageSections().map((section) => section.icon)
+    expect(icons.every(Boolean)).toBe(true)
+    expect(new Set(icons).size).toBe(icons.length)
+  })
+
   test('Source is not a section: its facts are on Overview', () => {
     expect((APP_MANAGE_SECTIONS as readonly string[]).includes('source')).toBe(false)
   })

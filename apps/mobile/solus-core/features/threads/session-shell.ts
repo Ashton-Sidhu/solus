@@ -125,6 +125,12 @@ class ShellEdit {
       case 'row.removed':
         this.rowMap().delete(change.sessionId)
         return
+      case 'row.activity': {
+        const rows = this.rowMap()
+        const held = rows.get(change.sessionId)
+        if (held && keepEqual(change.agentActivity, held.agentActivity) !== held.agentActivity) rows.set(change.sessionId, { ...held, agentActivity: change.agentActivity })
+        return
+      }
       case 'project.updated': {
         const projects = this.projectMap()
         const held = projects.get(change.project.path)

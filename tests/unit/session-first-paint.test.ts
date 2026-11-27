@@ -42,7 +42,7 @@ test('messages display while git identity and task binding are still pending', a
     const runtimeAttach = Promise.resolve(null), INITIAL_HISTORY_TURNS = 10, firstPage = { projectPath: '/repo' };
     const isSolusWorktreePath = () => false, isTaskFolderPath = () => false, gitCheckoutFromState = () => null;
     const isGuessed = false, requestSessionHistoryPage = () => Promise.resolve({ messages: [], before: null });
-    const watchedTurn = undefined, fitTranscriptToWatch = async () => {};
+    let watchedTurn = undefined; const fitTranscriptToWatch = async () => {};
     const measureOpenStep = () => {}, openedAt = 0;
     const loadSessionTranscript = async () => transcript;
     const requestConversationScrollToBottom = () => {}, track = () => {};
@@ -64,3 +64,69 @@ test('messages display while git identity and task binding are still pending', a
   expect(selected.run.location).toBe(replacementLocation)
 })
 
+
+// docs/plans/running-turn-open.md: the history page leaves out a running turn
+// and the watch replays it. The two paint together, so the conversation opens
+// once at its end with that turn, instead of painting the page and then
+// sliding down while the replayed turn lands below the reader.
+function openWith(page: { runningTurnStartedAt?: number }, attach: { promise: Promise<null>; watchedTurn: () => number | undefined }) {
+  const session = { messages: [] as { content: string }[], run: { location: runLocation.folderLocation({ serverId: 'local', path: '/repo' }) }, loadingHistory: true }
+  const releases: { rows: number; isLoading: boolean }[] = []
+  const context = {
+    sessionFor: () => session,
+    apiFor: () => ({ gitIdentity: () => new Promise(() => {}), sessionFolders: async () => [] }),
+    ctxFor: () => ({}), runFor: () => session.run,
+    issuesStore: { ensureSessionBinding: () => new Promise(() => {}) },
+    eventReducer: {
+      rebuildAgentConversations() {}, holdEvents() {}, dropHeldEvents() {},
+      releaseEvents() { releases.push({ rows: session.messages.length, isLoading: session.loadingHistory }) },
+    },
+    environment: { async registerEnvironment() {}, async refreshEnvironment() { return null } },
+    lifecycle: { recomputeChangedFiles() {}, refreshPluginCommands() {} },
+    planStore: { hydrateAnnotations() {} },
+  }
+  const transcript = { messages: [{ content: 'settled turn' }], progress: null, truncated: false, before: null, planIds: [] }
+  const execute = new Function('context', 'transcript', 'runLocation', 'page', 'attach', `
+    const { projectHome, adoptGit, workingPlace, workInStandIn } = runLocation;
+    const defaultDir = '/repo', workingDirectory = '/repo', tabId = 'tab',
+      resumedSessionId = 'session', provider = 'codex', meta = {}, background = false, intoTabId = undefined;
+    const INITIAL_HISTORY_TURNS = 10, firstPage = { projectPath: '/repo' };
+    const runtimeAttach = attach.promise.then((result) => { watchedTurn = attach.watchedTurn(); return result });
+    const isSolusWorktreePath = () => false, isTaskFolderPath = () => false, gitCheckoutFromState = () => null;
+    const isGuessed = false, requestSessionHistoryPage = () => Promise.resolve({ messages: [], before: null, ...page });
+    let watchedTurn = undefined; const fitTranscriptToWatch = async () => {};
+    const measureOpenStep = () => {}, openedAt = 0;
+    const loadSessionTranscript = async () => transcript;
+    const requestConversationScrollToBottom = () => {}, track = () => {};
+    ${compiled}
+    return resume.call({ workspace: context });
+  `)
+  return { session, releases, done: execute(context, transcript, runLocation, page, attach) as Promise<unknown> }
+}
+
+const settle = async () => { for (let i = 0; i < 10; i++) await Promise.resolve() }
+
+test('a page that leaves out a running turn paints only with the replay of that turn', async () => {
+  let answerWatch!: () => void
+  const attach = { promise: new Promise<null>((resolve) => { answerWatch = () => resolve(null) }), watchedTurn: () => 1_000 }
+  const { session, releases, done } = openWith({ runningTurnStartedAt: 1_000 }, attach)
+  await settle()
+  // The page is in hand, but the turn it left out is not: nothing paints yet.
+  expect(session.messages).toEqual([])
+  expect(session.loadingHistory).toBe(true)
+  answerWatch()
+  await done
+  // The held replay applies in the same step that puts the page on screen,
+  // before the spinner clears: there is no frame with the page alone.
+  expect(releases[0]).toEqual({ rows: 1, isLoading: true })
+  expect(session.loadingHistory).toBe(false)
+})
+
+test('a page with no running turn paints at once, while the watch is still on its way', async () => {
+  const attach = { promise: new Promise<null>(() => {}), watchedTurn: () => undefined }
+  const { session, releases } = openWith({}, attach)
+  await settle()
+  expect(session.messages).toEqual([{ content: 'settled turn' }])
+  expect(session.loadingHistory).toBe(false)
+  expect(releases).toEqual([])
+})

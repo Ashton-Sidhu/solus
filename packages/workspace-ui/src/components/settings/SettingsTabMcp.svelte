@@ -99,7 +99,7 @@
   });
   // The palette asked for the command form: it opens once the page shows.
   $effect(() => {
-    if (mcpPageRequest.isAddServerAsked && hostState?.integrations) untrack(() => { if (mcpPageRequest.takeAddServer()) addServer(); });
+    if (mcpPageRequest.isAddServerAsked && hostState?.integrations) untrack(() => { const ask = mcpPageRequest.takeAddServer(); if (ask) addServer(ask.source); });
   });
   // The settings search follows into the page's own search.
   $effect(() => {
@@ -128,8 +128,8 @@
     if (next !== "installed") catalog.setCategory(next === "all" ? null : next);
   }
 
-  function addServer() {
-    connectRequest = { name: "", url: "", addsServer: true };
+  function addServer(source = "") {
+    connectRequest = source ? { name: "", url: "", addsServer: true, source } : { name: "", url: "", addsServer: true };
   }
 
   async function confirmFound(useFileValues: boolean) {
@@ -307,37 +307,49 @@
 {/snippet}
 
 {#snippet installedSection()}
-  <SettingsSection {...settingsDefinitions["mcp.section-installed"]} description="Their tools reach every agent on {hostLabel}. Servers with sign-in use your own account.">
-    {#snippet action()}
-      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline} onclick={addServer}><Plus size={14} />Add server</Button>
-    {/snippet}
+  <!-- Drawn as the catalog group below is: a small muted label over plain rows,
+       so an installed server and a catalog entry read as the same kind of row. -->
+  <section class="flex flex-col gap-1" aria-labelledby="mcp-installed-label">
+    <div class="flex min-h-7 items-center justify-between gap-4">
+      <h2 id="mcp-installed-label" class="flex items-baseline gap-2 text-chrome-dense font-medium text-muted-foreground">
+        {settingsDefinitions["mcp.section-installed"].label}
+        {#if installed.length > 0}<span class="font-normal tabular-nums">{installed.length}</span>{/if}
+      </h2>
+      <Button variant="outline" size="sm" class="shrink-0 border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11" disabled={isOffline} onclick={() => addServer()}><Plus size={14} />Add server</Button>
+    </div>
     {#if hostState?.error}
-      <div class="flex flex-wrap items-center justify-between gap-3 p-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-4">
         <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{hostState.error}</p>
         <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.load(serverId)} disabled={hostState.loading}>Retry</Button>
       </div>
     {:else if visibleInstalled.length === 0}
-      <p class="p-6 text-center text-workspace-chrome text-muted-foreground">
+      <p class="rounded-xl border border-dashed border-border p-6 text-center text-workspace-chrome text-muted-foreground">
         {installed.length === 0 ? "No MCP servers yet. Connect one from the catalog, or add a server by its command or URL." : `No installed server matches “${catalog.query.trim()}”.`}
       </p>
+    {:else}
+      <!-- The catalog's grid. An open server spans it, and dense flow lets the
+           tiles after it fill the row it leaves. -->
+      <ul class="grid grid-flow-row-dense grid-cols-1 gap-x-14 @min-[56rem]/mcp:grid-cols-2" aria-label="Installed">
+        {#each visibleInstalled as integration (integration.id)}
+          <McpServerRow
+            {serverId}
+            {hostLabel}
+            {integration}
+            isExpanded={expanded.has(integration.id)}
+            onToggle={() => toggle(integration.id)}
+            onRemoved={() => removed(integration)}
+            onConnect={() => { connectRequest = { name: integration.name, url: integration.url, integrationId: integration.id }; }}
+            found={mayChangeFiles ? found.forIntegration(integration.id) : null}
+            {canOpenFiles}
+            isChangingFile={!!found.changing}
+            onOpenFile={openConfigFile}
+            onFileChange={(server, place, change) => found.change(server, place, change)}
+          />
+        {/each}
+      </ul>
     {/if}
-    {#each visibleInstalled as integration (integration.id)}
-      <McpServerRow
-        {serverId}
-        {hostLabel}
-        {integration}
-        isExpanded={expanded.has(integration.id)}
-        onToggle={() => toggle(integration.id)}
-        onRemoved={() => removed(integration)}
-        onConnect={() => { connectRequest = { name: integration.name, url: integration.url, integrationId: integration.id }; }}
-        found={mayChangeFiles ? found.forIntegration(integration.id) : null}
-        {canOpenFiles}
-        isChangingFile={!!found.changing}
-        onOpenFile={openConfigFile}
-        onFileChange={(server, place, change) => found.change(server, place, change)}
-      />
-    {/each}
-  </SettingsSection>
+    <p class="pt-3 text-chrome-dense text-muted-foreground">Their tools reach every agent on {hostLabel}. Servers with sign-in use your own account.</p>
+  </section>
 {/snippet}
 
 {#snippet foundSection()}

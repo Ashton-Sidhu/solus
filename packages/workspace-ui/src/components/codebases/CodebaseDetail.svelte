@@ -163,7 +163,7 @@
         {#snippet control()}
           <Input
             bind:value={() => name, (next) => (nameDraft = next)}
-            class="h-8 w-64 shadow-[inset_0_0_0_1px_var(--input)]"
+            class="h-8 w-64"
             aria-label="Codebase name"
             maxlength={200}
             submitOn="enter"

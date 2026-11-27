@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { providerUsage, signInCommand } from '@solus/workspace-ui/components/project-panel/lib/usage-meters'
+import { providerUsage, signInCommand, usageByProvider } from '@solus/workspace-ui/components/project-panel/lib/usage-meters'
 import type { AgentMetadata, AgentUsageLimits } from '@solus/contracts/types'
 
 const NOW = 1_700_000_000_000
@@ -21,20 +21,49 @@ function limits(id: string, overrides: Partial<AgentUsageLimits> = {}): AgentUsa
 }
 
 describe('providerUsage', () => {
-  test('a signed-out agent keeps its row and says to sign in, not that the read failed', () => {
-    const [row] = providerUsage(
-      [agent('codex')],
-      { codex: limits('codex', { fiveHour: null, weekly: null, usageMode: 'signed_out' }) },
-      NOW,
-    )
-    expect(row).toMatchObject({ provider: 'codex', meters: [], status: 'signed_out', stale: false })
-    expect(signInCommand('codex')).toBe('codex login')
+  test('shows the selected Antigravity quota group and keeps other groups separate', () => {
+    const snapshots = { antigravity: limits('antigravity', {
+      fiveHour: null,
+      weekly: null,
+      modelGroups: [
+        { id: 'gemini', label: 'Gemini', fiveHour: { usedPercent: 25, resetsAt: null, resetsLabel: null }, weekly: null },
+        { id: '3p', label: 'Claude & GPT', fiveHour: null, weekly: { usedPercent: 100, resetsAt: NOW + 3_600_000, resetsLabel: null } },
+        { id: 'gemini-carbon', label: 'Gemini Carbon', fiveHour: null, weekly: null },
+      ],
+    }) }
+    const [row] = providerUsage([agent('antigravity')], snapshots, NOW, 'gemini-4-neon')
+    expect(row.groups?.selected?.meters[0]?.remainingPercent).toBe(75)
+    expect(row.groups?.other[0]?.meters[0]).toMatchObject({ remainingPercent: 0, resetPhrase: 'resets in 1h' })
+
+    const [unmatched] = providerUsage([agent('antigravity')], snapshots, NOW, 'gemini-4-carbon', true)
+    expect(unmatched.groups?.selected).toBeNull()
+    expect(unmatched.groups?.other).toHaveLength(2)
+    expect(unmatched.groups?.checkedAt).toBeTruthy()
+  })
+
+  test('drops Antigravity when its quota groups have no values', () => {
+    const snapshots = { antigravity: limits('antigravity', {
+      fiveHour: null,
+      weekly: null,
+      modelGroups: [{ id: 'gemini', label: 'Gemini', fiveHour: null, weekly: null }],
+    }) }
+    expect(providerUsage([agent('antigravity')], snapshots, NOW, 'gemini-4-neon')).toEqual([])
   })
 
   test('reports what is left, not what was spent', () => {
     const [row] = providerUsage([agent('codex')], { codex: limits('codex') }, NOW)
     expect(row.meters.map((meter) => meter.remainingPercent)).toEqual([60, 20])
     expect(row.meters.map((meter) => meter.resetPhrase)).toEqual(['resets in 2h', 'resets in 3d'])
+  })
+
+  test('adds Claude\'s Fable week after the all-models week', () => {
+    const claude = limits('claude-code', { fableWeekly: { usedPercent: 75, resetsAt: NOW + 86_400_000, resetsLabel: null } })
+    const [row] = providerUsage([agent('claude-code')], { 'claude-code': claude }, NOW)
+    expect(row.meters.map((meter) => [meter.label, meter.remainingPercent])).toEqual([
+      ['Session', 60],
+      ['Weekly', 20],
+      ['Fable weekly', 25],
+    ])
   })
 
   test('tints by how close a window is to exhaustion', () => {
@@ -96,7 +125,6 @@ describe('providerUsage', () => {
     expect(row.meters[0].resetPhrase).toBe('resets in soon-ish')
   })
 
-  // A meterless row would read as "no quota left" rather than "no quota data".
   // An Enterprise seat has only a monthly spend cap; it has no reset time to show.
   test('shows a spend cap as a Monthly meter with no countdown', () => {
     const [row] = providerUsage(
@@ -104,7 +132,6 @@ describe('providerUsage', () => {
       { 'claude-code': limits('claude-code', { fiveHour: null, weekly: null, monthly: { usedPercent: 31.459, resetsAt: null, resetsLabel: null } }) },
       NOW,
     )
-    expect(row.status).toBeNull()
     expect(row.meters).toEqual([
       { key: 'monthly', label: 'Monthly', remainingPercent: 68.541, tone: 'ok', resetPhrase: null },
     ])
@@ -119,29 +146,37 @@ describe('providerUsage', () => {
     expect(rows).toEqual([])
   })
 
-  // Claude's quota comes from an account endpoint that can answer empty or
-  // rate-limited. Dropping the row then would claim the provider has no quota,
-  // when the truth is that nobody could read it.
-  test('keeps a meterless row when the read failed', () => {
+  test('keeps cached quota after a failed read if it has values', () => {
     const rows = providerUsage(
-      [agent('claude-code')],
-      { 'claude-code': limits('claude-code', { fiveHour: null, weekly: null, stale: true }) },
+      [agent('claude-code'), agent('codex'), agent('antigravity')],
+      {
+        'claude-code': limits('claude-code', { fiveHour: null, weekly: null, stale: true }),
+        codex: limits('codex', { stale: true }),
+      },
       NOW,
     )
     expect(rows).toEqual([
-      { provider: 'claude-code', label: 'Claude', stale: true, meters: [], status: 'unavailable' },
+      expect.objectContaining({ provider: 'codex', stale: true }),
     ])
+    expect(rows[0]?.meters.map((meter) => meter.remainingPercent)).toEqual([60, 20])
   })
 
-  test('describes API billing instead of treating missing subscription windows as a failed read', () => {
-    const rows = providerUsage(
-      [agent('codex')],
-      { codex: limits('codex', { fiveHour: null, weekly: null, usageMode: 'api' }) },
-      NOW,
-    )
-
-    expect(rows).toEqual([
-      { provider: 'codex', label: 'Codex', stale: false, meters: [], status: 'api' },
-    ])
+  test('drops API billing and signed-out providers with no quota windows', () => {
+    const rows = providerUsage([agent('claude-code'), agent('codex')], {
+      'claude-code': limits('claude-code', { fiveHour: null, weekly: null, usageMode: 'api' }),
+      codex: limits('codex', { fiveHour: null, weekly: null, usageMode: 'signed_out' }),
+    }, NOW)
+    expect(rows).toEqual([])
   })
+
+  test('usageByProvider prefers the built-in primary instance over extra configured instances', () => {
+    const primary = limits('codex', { instanceId: 'codex', instanceLabel: 'Codex', fiveHour: { usedPercent: 20, resetsAt: null, resetsLabel: null } })
+    const extra = limits('codex', { instanceId: 'work-codex', instanceLabel: 'Work Codex', fiveHour: { usedPercent: 90, resetsAt: null, resetsLabel: null } })
+    const byProvider = usageByProvider([primary, extra])
+    expect(byProvider.codex?.fiveHour?.usedPercent).toBe(20)
+  })
+})
+
+test('gives the Codex sign-in command for usage details', () => {
+  expect(signInCommand('codex')).toBe('codex login')
 })

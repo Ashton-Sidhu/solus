@@ -109,6 +109,9 @@ public class T3ComposerEditorModule: Module {
       Prop("textPasteThresholdBytes") { (view: T3ComposerEditorView, threshold: Int) in
         view.setTextPasteThresholdBytes(threshold)
       }
+      Prop("textPasteThresholdLineBreaks") { (view: T3ComposerEditorView, threshold: Int) in
+        view.setTextPasteThresholdLineBreaks(threshold)
+      }
       Prop("maxInputChars") { (view: T3ComposerEditorView, maxInputChars: Int) in
         view.setMaxInputChars(maxInputChars)
       }

@@ -160,19 +160,13 @@
           {/if}
 
           <span class="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-            <span class="flex shrink-0 items-center gap-1.5" title={stateTitle} data-testid="workspace-app-state" data-state={item.state}>
-              <span
-                class="size-1.5 shrink-0 rounded-full {item.state === 'running' ? 'bg-(--success)' : item.state === 'building' ? 'bg-(--warning)' : 'bg-muted-foreground/50'}"
-                aria-hidden="true"
-              ></span>
-              <!-- Running is the usual state: the dot says it. Any other state is named. -->
-              {#if item.state === "running"}
-                <span class="sr-only">{appRunStateLabel(item.state)}</span>
-              {:else}
-                {appRunStateLabel(item.state)} ·
-              {/if}
-            </span>
-            <span class="min-w-0 truncate" data-testid="workspace-app-host">{item.hostLabel}</span>
+            <!-- Running is the usual state: the card shows no mark for it. Any other state is named. -->
+            {#if item.state === "running"}
+              <span class="sr-only" data-testid="workspace-app-state" data-state={item.state}>{appRunStateLabel(item.state)}</span>
+            {:else}
+              <span class="shrink-0" title={stateTitle} data-testid="workspace-app-state" data-state={item.state}>{appRunStateLabel(item.state)} ·</span>
+            {/if}
+            <span class="min-w-0 truncate" title={item.state === "running" ? stateTitle : undefined} data-testid="workspace-app-host">{item.hostLabel}</span>
             <span class="shrink-0 tabular-nums" title="Last activity {formatGeneratedFull(item.timestamp)}">· {formatLedgerTime(item.timestamp)}</span>
             <span class="flex-1"></span>
             <span class="shrink-0 tabular-nums" title="In the last 24 hours" data-testid="workspace-app-calls">

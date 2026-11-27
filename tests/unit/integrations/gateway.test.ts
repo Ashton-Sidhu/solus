@@ -41,7 +41,7 @@ let httpServer: Server
 let integration: Integration
 
 function makeServer(): McpServer {
-  const server = new McpServer({ name: 'fake', version: '1.0.0' }, { instructions: 'Use the echo tool for text.' })
+  const server = new McpServer({ name: 'fake', version: '1.0.0', icons: [{ src: 'data:image/png;base64,iVBO', mimeType: 'image/png' }] }, { instructions: 'Use the echo tool for text.' })
   server.registerTool('echo', {
     description: 'Echo the text.',
     inputSchema: { text: z.string() },
@@ -179,6 +179,18 @@ describe('integration gateway', () => {
     expect(result).toEqual({ ok: true, text: 'echo: hi' })
     // WHY: a second list and a call reuse the session the first list opened.
     expect(upstream.length - opened).toBe(2)
+    await gateway.close()
+  })
+
+  test('after a tool list, the server\'s own icons go to the icon cache, and a removal drops them', async () => {
+    const refreshed: Array<[string, unknown]> = []
+    const removed: string[] = []
+    const icons = { refresh: async (id: string, served: unknown) => { refreshed.push([id, served]) }, remove: (id: string) => { removed.push(id); return true } }
+    const gateway = new IntegrationGateway({ get: (id) => (id === integration.id ? integration : null), list: () => [integration] }, undefined, { icons })
+    await withActingScope(HOST_SCOPE, () => gateway.tools(integration.id))
+    expect(refreshed).toEqual([[integration.id, [{ src: 'data:image/png;base64,iVBO', mimeType: 'image/png' }]]])
+    gateway.forget(integration.id)
+    expect(removed).toEqual([integration.id])
     await gateway.close()
   })
 

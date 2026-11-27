@@ -5,6 +5,8 @@ export interface Command {
   /** Stable identifier (used as the Svelte keyed-each key). */
   id: string
   label: string
+  /** Context below the label, such as the passage a session matched. */
+  detail?: string
   /** Section heading the command is grouped under. */
   group: string
   /** Optional extra terms that should match the search query. */
@@ -21,6 +23,8 @@ export interface Command {
   children?: Command[]
   /** Include this short list of children in root searches. */
   searchChildren?: boolean
+  /** Hide this command from the root list until the user types a query. */
+  searchOnly?: boolean
   /** Invoked when the command is selected. Optional for pure parent commands. */
   run?: () => void
 }
@@ -38,34 +42,31 @@ export type CommandSelectionMove =
   | 'next-group'
   | 'previous-group'
 
-const searchTextCache = new WeakMap<Command, string>()
-
-function commandSearchText(command: Command): string {
-  const cached = searchTextCache.get(command)
-  if (cached !== undefined) return cached
-
-  const text = [
-    command.label,
-    command.group,
-    ...(command.keywords ?? []),
-  ].join('\n').toLowerCase()
-  searchTextCache.set(command, text)
-  return text
-}
-
-/** Match each command field on its own when the user quotes a phrase. */
-function commandMatcher(query: string): (command: Command) => boolean {
-  const phrase = /^["“”]/.test(query) ? new SearchQuery(query) : null
-  if (phrase?.exactPhrase) {
-    return (command) => phrase.holdsEveryWord(command.label) || phrase.holdsEveryWord(command.group) ||
-      (command.keywords?.some((keyword) => phrase.holdsEveryWord(keyword)) ?? false)
+function commandScore(command: Command, query: SearchQuery): number {
+  const needle = query.text.toLowerCase()
+  const labelText = command.label.toLowerCase()
+  if (labelText === needle) return 250
+  const label = query.matchName(command.label)
+  if (label) return 100 + label.score
+  const fields = [command.label, command.group, ...(command.keywords ?? [])]
+  if (query.exactPhrase) {
+    return fields.some((field) => query.holdsEveryWord(field)) ? 1 : 0
   }
-  return (command) => commandSearchText(command).includes(query)
+  // Keep literal matches for filenames, branches, and symbols as well as word matches.
+  if (labelText.includes(needle)) return 100
+  return query.matchName(fields.join(' '))?.score ??
+    (fields.some((field) => field.toLowerCase().includes(needle)) ? 1 : 0)
 }
 
 export function filterCommands(commands: Command[], query: string): Command[] {
-  const q = query.trim().toLowerCase()
-  return q ? commands.filter(commandMatcher(q)) : commands
+  const trimmed = query.trim()
+  if (!trimmed) return commands
+  const search = new SearchQuery(trimmed)
+  return commands
+    .map((command) => ({ command, score: commandScore(command, search) }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score)
+    .map(({ command }) => command)
 }
 
 /** A sub-page can hold a command per branch, which is thousands in a large
@@ -76,14 +77,12 @@ export const SUB_PAGE_ROWS_SHOWN = 100
 /** The commands a page shows for a search, and how many matches it leaves
  *  out. The root page is a fixed set of commands, so only a sub-page is cut. */
 export function commandsShown(commands: Command[], query: string, isSubPage: boolean) {
-  const q = query.trim().toLowerCase()
-  const matches = commandMatcher(q)
-  const matched = !isSubPage && q
-    ? commands.flatMap((command) => {
-        if (matches(command)) return [command]
-        return command.searchChildren ? command.children?.filter(matches) ?? [] : []
-      })
-    : q ? commands.filter(matches) : commands
+  const q = isSubPage ? query.trim() : query.trim().replace(/^>\s*/, '')
+  const candidates = !isSubPage && q
+    ? commands.flatMap((command) => command.searchChildren ? [command, ...(command.children ?? [])] : [command])
+    : commands
+  const matched = q ? filterCommands(candidates, q)
+    : isSubPage ? candidates : candidates.filter((command) => !command.searchOnly)
   const shown = isSubPage ? matched.slice(0, SUB_PAGE_ROWS_SHOWN) : matched
   return { shown, hiddenCount: matched.length - shown.length }
 }

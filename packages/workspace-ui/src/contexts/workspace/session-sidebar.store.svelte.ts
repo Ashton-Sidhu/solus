@@ -1,7 +1,7 @@
 import { createAppContext } from '../app/create-app-context'
 import { SvelteSet } from 'svelte/reactivity'
 import { untrack } from 'svelte'
-import { worktreeProjectRoot, type AgentId, type PinnedSession, type RunConfig, type Session, type SessionMeta, type Tab } from '@solus/contracts/types'
+import { worktreeProjectRoot, type AgentId, type PinnedSession, type RunConfig, type Session, type SessionMeta, type SessionReference, type Tab } from '@solus/contracts/types'
 import type { Issue, IssueSessionLink } from '@solus/contracts/task-types'
 import type { AgentActivity } from '@solus/contracts/agent-activity'
 import { sessionRunKey } from '@solus/contracts/session-execution'
@@ -48,6 +48,7 @@ import {
   isLiveAttention,
   sessionLimitResetsAt,
   sessionDisplayName,
+  sessionName,
   sessionTitle,
   type AttentionState,
   type LiveMarkFacts,
@@ -75,7 +76,7 @@ import { sessionListStore, type ListedSession, type SessionListTarget } from './
 import { SessionUnavailableError } from './session-errors'
 import { isUnopenedShare } from './shared-sessions'
 import { canDriveSession } from '../sharing/resource-roles'
-import { codebaseOf, projectHome, runHost, workingPlace } from './run-location'
+import { checkoutPlace, codebaseOf, projectHome, runHost, workingPlace } from './run-location'
 import { codebaseOnClient } from '../codebases/codebase-rules'
 import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
 import { hostCatalog } from '@solus/client-core/host-catalog'
@@ -701,6 +702,20 @@ export class SessionSidebarStore {
     else this.session.drafts.openDraft(row.draftId)
   }
 
+  draftReferenceForRow(row: DraftRow): SessionReference | null {
+    const source = row.tabId
+      ? this.session.sessionFor(row.tabId)
+      : this.session.drafts.sessionDrafts.get(row.draftId)
+    if (!source) return null
+    return {
+      sessionId: source.id,
+      provider: source.run.provider ?? this.session.settings.activeAgent,
+      title: row.title,
+      cwd: checkoutPlace(source.run).path,
+      serverId: runHost(source.run),
+    }
+  }
+
   /** Keep the discarded prompt for Undo. An existing conversation stays open;
    * only its unsent prompt is cleared. */
   discardDraftRow(row: DraftRow): (() => void) | null {
@@ -1168,7 +1183,7 @@ export class SessionSidebarStore {
     const environment = this.session.environment.environmentFor(sess?.run)
     return {
       tabId,
-      label: sess ? sessionTitle(sess) : tabId,
+      label: sess ? sessionName(sess, (automationId, serverId) => this.automationName(automationId, serverId)) : tabId,
       attention,
       unread: tab?.hasUnread ?? false,
       serverId: runHost(sess?.run) ?? null,

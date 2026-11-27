@@ -6,28 +6,35 @@
    *
    * `compact` is the connect card's form: one line of direction and the
    * card's own buttons.
+   *
+   * `primaryAction` is the caller's sign-in button. It stands first in the
+   * row with "Use your own OAuth app", so the two choices read as one pair,
+   * and it hides while the person enters their own client: they save first.
    */
-  import { tick } from "svelte";
+  import { tick, untrack, type Snippet } from "svelte";
   import { Check, Copy, LoaderCircle } from "@lucide/svelte";
   import type { Integration } from "@solus/contracts/integration-types";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
+  import MarkdownAlert from "../ui/MarkdownAlert.svelte";
   import { copyText } from "../../lib/toasts";
   import { mcpStore } from "../../contexts/mcp";
+  import { INTEGRATION_OAUTH_LOOPBACK_URL as redirectUrl } from "@solus/contracts/integrations/oauth-callback";
   import { IntegrationLabels } from "./lib/integration-labels";
 
   interface Props {
     serverId: string;
     integration: Integration;
     compact?: boolean;
+    primaryAction?: Snippet;
   }
 
-  let { serverId, integration, compact = false }: Props = $props();
+  let { serverId, integration, compact = false, primaryAction }: Props = $props();
 
   let isEditing = $state(false);
   let isConfirmingRemove = $state(false);
-  let clientIdDraft = $state("");
+  let clientIdDraft = $state(untrack(() => new IntegrationLabels(integration).startingClientId));
   let secretDraft = $state("");
   let error = $state("");
   let isCopied = $state(false);
@@ -38,7 +45,6 @@
   const isBusy = $derived(!!hostState?.saving);
   const isOffline = $derived(!!hostState?.isDisconnected);
   const showForm = $derived(text?.state === "missing" || isEditing);
-  const redirectUrl = $derived(mcpStore.integrations.oauthRedirectUrl(serverId));
   const fieldPrefix = $derived(`integration-oauth-${integration.id}`);
 
   async function focusFirstControl() {
@@ -78,7 +84,7 @@
     if (!text) return;
     isConfirmingRemove = false;
     error = "";
-    clientIdDraft = text.state === "set" ? text.clientId : "";
+    clientIdDraft = new IntegrationLabels(integration).startingClientId;
     secretDraft = "";
     isEditing = true;
     void focusFirstControl();
@@ -105,20 +111,27 @@
   }
 </script>
 
+{#snippet clientWarning()}
+  <p class="m-0 text-pretty">{integration.name} does not register Solus by itself. Create an OAuth app there with this redirect URL, then enter its client ID.</p>
+{/snippet}
+
+{#snippet errorText()}
+  <p class="m-0 break-words text-pretty">{error}</p>
+{/snippet}
+
 {#if text}
   <div bind:this={rootEl} class="flex flex-col gap-2.5" data-testid="integration-oauth-client">
     {#if showForm}
-      {#if compact}
-        <p class="text-pretty text-workspace-chrome text-muted-foreground">Create an OAuth app at {integration.name} with this redirect URL, then enter its client.</p>
-      {:else}
-        <p class="text-pretty text-workspace-chrome text-(--solus-text-secondary)">Create an OAuth app at {integration.name} with this redirect URL, then enter its client ID.</p>
+      <!-- A warning, not a card: the step it sits in is the frame. -->
+      {#if !isEditing}
+        <MarkdownAlert alertType="warning" content={clientWarning} />
       {/if}
       <div class="flex flex-col gap-1.5">
-        <label for="{fieldPrefix}-redirect" class="text-workspace-chrome font-medium text-foreground">Redirect URL</label>
+        <label for="{fieldPrefix}-redirect" class={compact ? "text-transcript-meta text-(--muted-foreground)" : "text-workspace-chrome font-medium text-foreground"}>Redirect URL</label>
         {#if compact}
           <!-- The copy icon sits inside the field, so the row has no button of its own. -->
           <div class="relative">
-            <Input id="{fieldPrefix}-redirect" value={redirectUrl} readonly class="h-8 w-full min-w-0 pr-9 text-workspace-chrome" dictation={false}
+            <Input id="{fieldPrefix}-redirect" value={redirectUrl} readonly class="h-8 w-full min-w-0 pr-9 text-xs" dictation={false}
               onfocus={(event) => event.currentTarget.select()} />
             <TranscriptCardAction kind="icon" class="absolute inset-y-0 right-1 my-auto" label={isCopied ? "Copied" : "Copy the redirect URL"} onclick={copyRedirectUrl}>
               {#if isCopied}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}
@@ -136,19 +149,19 @@
       </div>
       <form class="flex flex-col gap-2.5" onsubmit={save}>
         <div class="flex flex-col gap-1.5">
-          <label for="{fieldPrefix}-id" class="text-workspace-chrome font-medium text-foreground">Client ID</label>
-          <Input id="{fieldPrefix}-id" bind:value={clientIdDraft} class="h-8 min-w-0 text-workspace-chrome" autocomplete="off" spellcheck={false} dictation={false}
+          <label for="{fieldPrefix}-id" class={compact ? "text-transcript-meta text-(--muted-foreground)" : "text-workspace-chrome font-medium text-foreground"}>Client ID</label>
+          <Input id="{fieldPrefix}-id" bind:value={clientIdDraft} class="h-8 min-w-0 {compact ? 'text-xs' : 'text-workspace-chrome'}" autocomplete="off" spellcheck={false} dictation={false}
             disabled={isBusy || isOffline} onkeydown={onFieldKeydown} />
         </div>
         <div class="flex flex-col gap-1.5">
-          <label for="{fieldPrefix}-secret" class="text-workspace-chrome font-medium text-foreground">Client secret <span class="font-normal text-muted-foreground">(optional)</span></label>
-          <Input id="{fieldPrefix}-secret" type="password" bind:value={secretDraft} class="h-8 min-w-0 text-workspace-chrome" autocomplete="off" spellcheck={false} dictation={false}
+          <label for="{fieldPrefix}-secret" class={compact ? "text-transcript-meta text-(--muted-foreground)" : "text-workspace-chrome font-medium text-foreground"}>Client secret <span class="font-normal text-muted-foreground">(optional)</span></label>
+          <Input id="{fieldPrefix}-secret" type="password" bind:value={secretDraft} class="h-8 min-w-0 {compact ? 'text-xs' : 'text-workspace-chrome'}" autocomplete="off" spellcheck={false} dictation={false}
             disabled={isBusy || isOffline} onkeydown={onFieldKeydown} aria-describedby={text.state === "set" && text.changeHint ? `${fieldPrefix}-secret-hint` : undefined} />
           {#if text.state === "set" && text.changeHint}
             <p id="{fieldPrefix}-secret-hint" class="text-chrome-dense text-(--solus-text-secondary)">{text.changeHint}</p>
           {/if}
         </div>
-        <div class="flex flex-wrap items-center gap-2 {compact ? 'justify-end' : ''}">
+        <div class="flex flex-wrap items-center gap-2">
           {#if compact}
             <TranscriptCardAction kind="filled" type="submit" disabled={isBusy || isOffline || !clientIdDraft.trim()}>
               {#if isBusy}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />Saving…{:else}Save{/if}
@@ -164,8 +177,16 @@
         </div>
       </form>
     {:else if text.state === "automatic"}
-      <div><Button variant="link" size="sm" class="h-auto p-0 text-chrome-dense text-muted-foreground hover:text-foreground pointer-coarse:min-h-11" onclick={startChange} disabled={isBusy || isOffline}>{text.message}</Button></div>
+      {#if text.note}
+        <p class="text-pretty text-chrome-dense text-(--solus-text-secondary)">{text.note}</p>
+      {/if}
+      <div class="flex flex-wrap items-center gap-2">
+        {@render primaryAction?.()}
+        <!-- Beside a sign-in button it is the quiet second choice at that button's height; alone it is a settings button. -->
+        <Button variant={primaryAction ? "ghost" : "outline"} size={primaryAction ? "default" : "sm"} class="text-workspace-chrome pointer-coarse:min-h-11" onclick={startChange} disabled={isBusy || isOffline}>{text.action}</Button>
+      </div>
     {:else if text.state === "set"}
+      {#if primaryAction}<div>{@render primaryAction()}</div>{/if}
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="min-w-0 flex-1">
           <p class="text-workspace-chrome text-foreground">{text.message}</p>
@@ -188,7 +209,7 @@
       {/if}
     {/if}
     {#if error}
-      <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{error}</p>
+      <div role="alert"><MarkdownAlert alertType="caution" content={errorText} /></div>
     {/if}
   </div>
 {/if}

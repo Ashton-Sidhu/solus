@@ -4,6 +4,7 @@
 export const REVIEW_GUIDE_CONTEXT = '\n\n[Session review guide instructions]\n'
 
 const INJECTED_CONTEXT_REGEX = /\[Referenced Plan:|\[Referenced Work:|\[Referenced Host:/
+const DRAFT_REFERENCE_BLOCK = /(?:^|\r?\n\r?\n)\[Referenced Draft\] \{[^\r\n]*\}(?=\r?\n\r?\n|$)/g
 const SESSION_REFERENCE_BLOCK = /(?:^|\r?\n\r?\n)\[Referenced Session: "(?:(?!\r?\n\r?\n\[Referenced Session: )[\s\S])*?" \(session_id: ([^,\r\n]+), provider: [\w-]+\)\]\r?\nCall read_session with session_id "\1" to read its transcript before responding\.(?=\r?\n\r?\n|$)/g
 
 /** The `[Attached file: <path>]` block the composer puts before the typed text. */
@@ -34,7 +35,7 @@ export function splitPromptFiles(content: string) {
 
 /** Also used when a client reads a history page saved before the host stripped these blocks. */
 export function stripSessionReferenceContext(text: string): string {
-  return text.replace(SESSION_REFERENCE_BLOCK, '')
+  return text.replace(DRAFT_REFERENCE_BLOCK, '').replace(SESSION_REFERENCE_BLOCK, '')
 }
 
 export function stripInjectedContext(text: string): string {

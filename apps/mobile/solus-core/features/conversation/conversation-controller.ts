@@ -1794,7 +1794,7 @@ export class ConversationController {
   private applyWatch(watched: WatchSessionResult): void {
     if (watched.execution) this.applyExecution(watched.execution)
     for (const question of watched.pendingQuestions ?? []) {
-      this.model.apply({ type: 'question_request', questionId: question.questionId, questions: question.questions, responseMode: question.responseMode, kind: question.kind, ...(question.hostLink && { hostLink: question.hostLink }), ...(question.cloudMachine && { cloudMachine: question.cloudMachine }) })
+      this.model.apply({ type: 'question_request', questionId: question.questionId, questions: question.questions, responseMode: question.responseMode, kind: question.kind, ...(question.hostLink && { hostLink: question.hostLink }), ...(question.hostProviders && { hostProviders: question.hostProviders }), ...(question.cloudMachine && { cloudMachine: question.cloudMachine }) })
     }
     const runtime = watched.runtime
     if (runtime) {

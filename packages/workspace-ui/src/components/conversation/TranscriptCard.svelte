@@ -45,9 +45,9 @@
     secondaryActionLabel?: string;
     /** Tint for the glyph slot: `is-done`, `is-failed`, or `is-artifact`. */
     glyphClass?: string;
-    /** Body layout: indented prose, full-bleed media, a full-bleed player, or
-     *  grouped rows. */
-    bodyLayout?: "prose" | "media" | "player" | "rows";
+    /** Body layout: indented prose, full-bleed media, a full-bleed player,
+     *  grouped rows, or a step timeline under the glyph. */
+    bodyLayout?: "prose" | "media" | "player" | "rows" | "steps";
     skipMotion?: boolean;
     class?: string;
     "data-testid"?: string;
@@ -186,6 +186,7 @@
         class:is-media={bodyLayout === "media"}
         class:is-player={bodyLayout === "player"}
         class:is-rows={bodyLayout === "rows"}
+        class:is-steps={bodyLayout === "steps"}
       >
         {@render body()}
       </div>
@@ -444,6 +445,12 @@
     flex-direction: column;
     gap: 0.0625rem;
     padding: 0.25rem;
+  }
+
+  /* A step timeline opens without a rule, under the card line: its 22px
+     marker column sits under the 22px glyph slot. */
+  .tx-card__body.is-steps {
+    padding: 0.25rem var(--tx-card-pad-l) 0.875rem;
   }
 
   /* The rule above a row list is inset 12px on both sides. */

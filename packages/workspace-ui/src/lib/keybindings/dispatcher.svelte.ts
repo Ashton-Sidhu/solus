@@ -87,6 +87,20 @@ export class KeybindingsContext {
     }
   }
 
+  /** A user chose an action from a menu. Its handler still checks the focused view. */
+  runAction(id: BindingId): void {
+    void this.enabledHandler(id)?.()
+  }
+
+  private enabledHandler(id: BindingId): Handler | undefined {
+    const entries = this.handlers.get(id)
+    if (!entries) return undefined
+    for (const { handler, opts } of entries) {
+      if (opts.enabled?.() !== false) return handler
+    }
+    return undefined
+  }
+
   dispatch(e: KeyboardEvent): void {
     // A key inside an IME composition belongs to the composition: Escape
     // cancels it and Enter commits it. No binding may fire for it.
@@ -160,29 +174,26 @@ export class KeybindingsContext {
       // navigation); everything else ignores repeats so toggles/actions don't
       // double-fire while a key is held.
       if (e.repeat && !def.repeatable) return true
-      const entries = this.handlers.get(id)
-      if (!entries) continue
-      for (const entry of entries) {
-        if (entry.opts.enabled?.() === false) continue
-        e.preventDefault()
-        // macOS dead keys (e.g. ⌥N → ˜) start an IME composition that
-        // preventDefault() above can't stop, so the accent still leaks into
-        // the focused editor (notably in Safari). We don't try to swallow it —
-        // just warn so the offending binding gets moved to a non-dead key.
-        if (isMac && e.altKey && combo !== null && MAC_DEAD_KEY_CODES.has(combo.code)) {
-          console.warn(
-            `[keybindings] "${id}" is bound to ⌥${combo.code} — a macOS dead key. ` +
-              `Its accent character may leak into the input. Rebind to a non-dead key.`,
-          )
-        }
-        track('keybinding_used', {
-          binding_id: id,
-          scope,
-          overridden: this.overrides[id] !== undefined,
-        })
-        void Promise.resolve(entry.handler())
-        return true
+      const handler = this.enabledHandler(id)
+      if (!handler) continue
+      e.preventDefault()
+      // macOS dead keys (e.g. ⌥N → ˜) start an IME composition that
+      // preventDefault() above can't stop, so the accent still leaks into
+      // the focused editor (notably in Safari). We don't try to swallow it —
+      // just warn so the offending binding gets moved to a non-dead key.
+      if (isMac && e.altKey && combo !== null && MAC_DEAD_KEY_CODES.has(combo.code)) {
+        console.warn(
+          `[keybindings] "${id}" is bound to ⌥${combo.code} — a macOS dead key. ` +
+            `Its accent character may leak into the input. Rebind to a non-dead key.`,
+        )
       }
+      track('keybinding_used', {
+        binding_id: id,
+        scope,
+        overridden: this.overrides[id] !== undefined,
+      })
+      void handler()
+      return true
     }
     return false
   }

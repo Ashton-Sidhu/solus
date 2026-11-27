@@ -5,6 +5,8 @@
   import { formatDuration } from "../../../insights/lib/format";
   import { appTime, versionLabel, versionStateLabel } from "../../lib/app-view";
   import { versionDetail } from "../lib/overview";
+  import { versionState } from "../lib/states";
+  import StateIcon from "../StateIcon.svelte";
 
   /**
    * The left column under the last 24 hours, plain on the page: a table of the
@@ -49,7 +51,7 @@
           <span class="min-w-0 flex-1 truncate text-foreground">{operation.operation}</span>
           <span class="w-13 shrink-0 text-right text-foreground">{operation.calls.toLocaleString()}</span>
           <span class="w-15 shrink-0 text-right text-(--solus-text-tertiary)">{formatDuration(operation.p50Ms)}</span>
-          <span class="w-9 shrink-0 text-right {operation.failed > 0 ? 'font-medium text-(--failure)' : 'text-(--solus-text-tertiary)/60'}">{operation.failed > 0 ? operation.failed.toLocaleString() : "–"}</span>
+          <span class="w-9 shrink-0 text-right {operation.failed > 0 ? 'font-medium text-foreground' : 'text-(--solus-text-tertiary)/60'}">{operation.failed > 0 ? operation.failed.toLocaleString() : "–"}</span>
         </button>
       {/each}
     {:else}
@@ -66,9 +68,10 @@
     {:else}
       {#each versions.slice(0, 3) as version (version.number)}
         <div class="flex min-h-10.5 min-w-0 items-center gap-3 border-t border-[var(--hairline)] px-2.5 py-2 text-sm" data-testid="app-overview-deploy">
+          <StateIcon state={versionState(version.state)} label={versionStateLabel(version.state)} />
           <span class="w-10 shrink-0 font-medium tabular-nums text-foreground">{versionLabel(version.number)}</span>
-          <span class="min-w-0 flex-1 truncate {version.state === 'failed' ? 'text-(--failure)' : 'text-(--solus-text-secondary)'}" title={versionDetail(version)}>{versionDetail(version)}</span>
-          <span class="shrink-0 text-[13px] tabular-nums text-(--solus-text-tertiary)">{versionStateLabel(version.state)} · {appTime(version.createdAt)}</span>
+          <span class="min-w-0 flex-1 truncate text-(--solus-text-secondary)" title={versionDetail(version)}>{versionDetail(version)}</span>
+          <span class="shrink-0 text-[13px] tabular-nums text-(--solus-text-tertiary)" title={versionStateLabel(version.state)}>{appTime(version.createdAt)}</span>
         </div>
       {:else}
         <p class="m-0 border-t border-[var(--hairline)] px-2.5 py-3 text-sm text-(--solus-text-tertiary)">No deploys yet. An agent deploys the app when you ask for a change.</p>

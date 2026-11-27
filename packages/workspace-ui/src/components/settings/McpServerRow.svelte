@@ -13,8 +13,10 @@
    * Its menu turns all its tools off or on, and, for a server that came from
    * another tool's config file, opens that file or deletes the entry there
    * (§8.8). A server with every tool off says Off.
+   * Until a server is connected, its details are the add dialog's timeline
+   * (docs/plans/mcp-add-server.md): the server, its sign-in, then its tools.
    */
-  import { ChevronRight, Ellipsis, LoaderCircle, Pencil, SquareTerminal, ToggleLeft, ToggleRight, Trash2 } from "@lucide/svelte";
+  import { ChevronRight, ChevronUp, CircleAlert, CircleCheck, CirclePause, CircleX, Ellipsis, Folder, LoaderCircle, Monitor, Pencil, SquareTerminal, ToggleLeft, ToggleRight, Trash2 } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import type { FoundPlace, FoundServer, Integration, IntegrationFoundChange } from "@solus/contracts/integration-types";
   import { COMMAND_ADMIN_ONLY, commandLineText } from "@solus/contracts/integrations/command-server";
@@ -34,10 +36,13 @@
   import McpCommandFields from "./McpCommandFields.svelte";
   import McpCommandProcess from "./McpCommandProcess.svelte";
   import McpAuthWordsField from "./McpAuthWordsField.svelte";
+  import StepRail from "../steps/StepRail.svelte";
   import { McpCommandForm } from "./lib/mcp-command.svelte";
   import { mcpStore } from "../../contexts/mcp";
   import { hosts } from "../../contexts";
   import { IntegrationLabels, urlHost } from "./lib/integration-labels";
+  import { signInWords } from "./lib/connect-timeline";
+  import { mcpRowIsOpen } from "./lib/mcp-row-open";
 
   interface Props {
     serverId: string;
@@ -77,14 +82,17 @@
   const toolsListable = $derived(labels.canListTools(connection));
   const isBusy = $derived(!!hostState?.saving);
   const isOffline = $derived(!!hostState?.isDisconnected);
-  // A running sign-in shows in the body, so the row stays open while it runs.
-  const isOpen = $derived(isExpanded || (!!flow && flow.kind !== "failed"));
+  /** The person closed the row while a sign-in ran: their close wins over the sign-in that opened it. */
+  let isClosedByPerson = $state(false);
+  // A running sign-in shows in the body, so the row opens by itself while it runs.
+  const isOpen = $derived(mcpRowIsOpen({ isExpanded, isSignInRunning: !!flow && flow.kind !== "failed", isClosedByPerson }));
   const showConnect = $derived(status.canConnect && !isOpen && hostState?.connectionsStatus === "loaded");
   const offersOAuthClientSetup = $derived(integration.auth.kind === "oauth");
   const disabledTools = $derived(new Set(integration.disabledTools));
   const toolList = $derived(hostState?.tools.get(integration.id));
   /** Every tool is off, as far as the listed tools show: agents get nothing from it. */
   const isOff = $derived(!!toolList?.length && toolList.every((tool) => disabledTools.has(tool.name)));
+  const toolsOnCount = $derived(toolList?.filter((tool) => !disabledTools.has(tool.name)).length ?? 0);
   const cliSkips = $derived(hostState?.facts.get(integration.id)?.cliSkips ?? []);
   const isNotRunning = $derived(!!hostState?.processes.isNotRunning(integration));
   // An integration is personal: only its owner changes it (docs/plans/access-model.md §2.7).
@@ -96,14 +104,32 @@
   const mayRunCommands = $derived(hosts.get(serverId)?.me.may("host.admin") ?? true);
   const processStatus = $derived(hostState?.processes.statusOf(integration, connection, mayRunCommands) ?? null);
   /** The row's short state: a command's process, or that a loopback server does not run, else the sign-in. */
-  const rowStatus = $derived(isOff
-    ? { text: "Off", isError: false }
+  const rowStatus = $derived<{ text: string; tone: "ready" | "muted" | "attention" | "error" }>(isOff
+    ? { text: "Off", tone: "muted" }
     : processStatus && (status.tone === "ready" || !status.canConnect)
-    ? { text: processStatus.label, isError: processStatus.tone === "error" }
+    ? { text: processStatus.label, tone: processStatus.tone }
     : isNotRunning && (status.tone === "ready" || !status.canConnect)
-      ? { text: NOT_RUNNING_LABEL, isError: false }
-      : { text: status.text, isError: status.tone === "error" });
+      ? { text: NOT_RUNNING_LABEL, tone: "muted" }
+      : { text: status.text, tone: status.tone });
   const subtitle = $derived(integration.launch ? commandLineText(integration.launch) : urlHost(integration.url));
+  /** Not connected yet: the details are the add dialog's timeline, with the sign-in step open. */
+  const showsSetupSteps = $derived(!isCommand && integration.auth.kind !== "none" && !toolsListable);
+  const setupSteps = $derived([
+    { key: "server", title: "Server", hint: [subtitle, signInWords(integration.auth)].filter(Boolean).join(" · "), state: "done" as const },
+    { key: "sign-in", title: takesValues ? "Values" : "Sign in", hint: takesValues ? "Each value is a secret, saved for you alone on this host." : "Give Solus access to its tools.", state: "current" as const },
+    { key: "tools", title: "Choose tools", hint: takesValues ? "Enter the values to see its tools." : "Connect to see its tools.", state: "next" as const },
+  ]);
+
+  /** The chevron and the tile: close also closes a row that a running sign-in opened. */
+  function toggleOpen() {
+    if (isOpen) {
+      isClosedByPerson = true;
+      if (isExpanded) onToggle();
+      return;
+    }
+    isClosedByPerson = false;
+    onToggle();
+  }
 
   function setTool(toolName: string, isOn: boolean) {
     if (!canEdit) return;
@@ -189,9 +215,10 @@
 </script>
 
 {#snippet field(label: string, content: Snippet)}
-  <div class="grid grid-cols-1 gap-1.5 py-3 @min-[30rem]/pane:grid-cols-[7rem_minmax(0,1fr)] @min-[30rem]/pane:gap-4">
-    <p class="text-workspace-chrome leading-8 text-(--solus-text-secondary)">{label}</p>
-    <div class="flex min-h-8 min-w-0 flex-col justify-center">{@render content()}</div>
+  <!-- A small muted label over its content, as the page's own groups are headed. -->
+  <div class="flex min-w-0 flex-col gap-1.5">
+    <p class="text-chrome-dense font-medium text-muted-foreground">{label}</p>
+    <div class="flex min-w-0 flex-col">{@render content()}</div>
   </div>
 {/snippet}
 
@@ -227,20 +254,22 @@
       </div>
     </form>
   {:else}
-    <div class="flex flex-wrap items-start justify-between gap-2">
-      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p class="break-words font-mono text-chrome-dense leading-6 text-foreground">{subtitle}</p>
-        <p class="text-chrome-dense text-(--solus-text-secondary)">In <span class="font-mono">{integration.launch?.cwd ?? "~"}</span> on {hostLabel}</p>
-      </div>
-      <!-- The process field below says why it is off, once. -->
-      <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={!mayRunCommands || !canEdit || isBusy || isOffline}
-        aria-label={mayRunCommands ? "Edit the command" : `Edit the command. ${COMMAND_ADMIN_ONLY}`} onclick={editCommand}>Edit</Button>
+    <!-- One line: the command, the folder it runs in, and its host. -->
+    <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+      <code class="flex min-w-0 max-w-full items-center gap-1.5 font-mono text-chrome-dense text-foreground" title={subtitle}>
+        <ChevronRight size={12} class="shrink-0 text-muted-foreground" aria-hidden="true" /><span class="truncate">{subtitle}</span>
+      </code>
+      <span class="flex min-w-0 items-center gap-1.5 text-chrome-dense text-muted-foreground" title="Folder">
+        <Folder size={14} class="shrink-0" aria-hidden="true" /><span class="sr-only">In</span><span class="truncate">{integration.launch?.cwd ?? "~"}</span>
+      </span>
+      <span class="flex min-w-0 items-center gap-1.5 text-chrome-dense text-muted-foreground" title="Host">
+        <Monitor size={14} class="shrink-0" aria-hidden="true" /><span class="sr-only">on</span><span class="truncate">{hostLabel}</span>
+      </span>
+      <!-- The process below says why it is off, once. -->
+      <Button variant="ghost" size="sm" class="ml-auto shrink-0 text-workspace-chrome text-(--solus-text-secondary) pointer-coarse:min-h-11" disabled={!mayRunCommands || !canEdit || isBusy || isOffline}
+        aria-label={mayRunCommands ? "Edit the command" : `Edit the command. ${COMMAND_ADMIN_ONLY}`} onclick={editCommand}><Pencil size={14} />Edit</Button>
     </div>
   {/if}
-{/snippet}
-
-{#snippet process()}
-  <McpCommandProcess {serverId} {integration} {mayRunCommands} />
 {/snippet}
 
 {#snippet cliCopies()}
@@ -271,35 +300,44 @@
   {/if}
 {/snippet}
 
-<div class="px-4 py-3" data-testid="integration-row" data-integration-id={integration.id}>
-  <div class="flex min-w-0 items-center gap-3">
+<!-- A tile in the Installed grid, drawn as a catalog entry is. Open, it spans
+     the grid as a card, and the tiles after it flow on below. -->
+<li class="min-w-0 {isOpen ? 'col-span-full my-2 rounded-xl border border-border bg-white px-4 pt-1 pb-2 shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_12px_-6px_rgb(0_0_0/0.08)] dark:bg-card dark:shadow-none' : 'py-3'}"
+  data-testid="integration-row" data-integration-id={integration.id}>
+  <div class="flex min-w-0 items-center gap-3 {isOpen ? 'py-2' : ''}">
     <button
       type="button"
-      class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11"
+      class="flex min-w-0 flex-1 items-center gap-3.5 overflow-hidden rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11"
       aria-expanded={isOpen}
       aria-label="{integration.name}{integration.projectName ? `, ${projectOnlyLabel(integration.projectName)}` : ''}, {status.text}{isNotRunning ? `, ${NOT_RUNNING_LABEL}` : ''}"
-      onclick={onToggle}
+      onclick={toggleOpen}
     >
-      <McpServerIcon name={integration.name} url={integration.url} />
+      <McpServerIcon name={integration.name} url={integration.url} serverIcon={integration.icon} />
       <span class="flex min-w-0 flex-1 flex-col">
         <span class="flex min-w-0 items-center gap-2">
-          <span class="truncate text-workspace-chrome font-medium text-foreground">{integration.name}</span>
+          <span class="truncate text-workspace-chrome leading-5 font-medium text-foreground">{integration.name}</span>
+          <!-- The state sits beside the name, so it reads with the server it names. -->
+          <span class="flex max-w-[50%] shrink-0 items-center gap-1.5 overflow-hidden text-chrome-dense leading-5 {rowStatus.tone === 'error' ? 'text-(--solus-status-error)' : rowStatus.tone === 'attention' ? 'text-(--solus-status-permission)' : 'text-muted-foreground'}">
+            {#if rowStatus.tone === "ready"}<CircleCheck size={14} class="shrink-0 text-(--solus-status-complete)" aria-hidden="true" />
+            {:else if rowStatus.tone === "error"}<CircleX size={14} class="shrink-0" aria-hidden="true" />
+            {:else if rowStatus.tone === "attention"}<CircleAlert size={14} class="shrink-0" aria-hidden="true" />
+            {:else}<CirclePause size={14} class="shrink-0" aria-hidden="true" />{/if}
+            <span class="truncate">{rowStatus.text}</span>
+          </span>
           {#if integration.projectName}
             <!-- A server from a project's file joins only that project's runs (mcp-first-class.md §8.4). -->
             <span class="max-w-[45%] shrink-0 truncate rounded-md bg-muted px-1.5 py-0.5 text-chrome-dense text-(--solus-text-secondary)">{projectOnlyLabel(integration.projectName)}</span>
           {/if}
         </span>
-        <span class="truncate text-chrome-dense text-(--solus-text-tertiary) {isCommand ? 'font-mono' : ''}">{subtitle}</span>
+        <!-- Open, a command's line shows in full below, so the header names its kind. -->
+        <span class="truncate text-chrome-dense leading-5 text-muted-foreground {isCommand && !isOpen ? 'font-mono' : ''}">{isCommand && isOpen ? "Command server" : subtitle}</span>
       </span>
-      {#if !showConnect && !isOpen}
-        <span class="max-w-[40%] shrink-0 truncate text-chrome-dense {rowStatus.isError ? 'text-(--solus-status-error)' : 'text-(--solus-text-secondary)'}">{rowStatus.text}</span>
-      {/if}
     </button>
     {#if showConnect && takesValues}
-      <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline}
+      <Button variant="outline" size="sm" class="shrink-0 border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11" disabled={isOffline}
         onclick={enterValues} aria-label="Enter the values of {integration.name}">Enter values</Button>
     {:else if showConnect}
-      <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline}
+      <Button variant="outline" size="sm" class="shrink-0 border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11" disabled={isOffline}
         onclick={onConnect} aria-label="{connection ? 'Reconnect' : 'Connect'} {integration.name}">{connection ? "Reconnect" : "Connect"}</Button>
     {/if}
     <DropdownMenu.Root>
@@ -355,15 +393,19 @@
         text={fileDelete ? `${foundDeleteQuestion(found.name, fileDelete.place)} It stays in Solus.` : ""} action="Delete" busyAction="Deleting…"
         isBusy={isChangingFile} error={fileError} onConfirm={confirmFileDelete} />
     {/if}
-    <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" onclick={onToggle} aria-label="{isOpen ? 'Hide' : 'Show'} the details of {integration.name}" aria-expanded={isOpen}>
-      <ChevronRight size={16} class="transition-transform motion-reduce:transition-none {isOpen ? 'rotate-90' : ''}" />
-    </Button>
+    {#if isOpen}
+      <!-- Closed, the tile itself opens the details; open, this closes them. -->
+      <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" onclick={toggleOpen} aria-label="Hide the details of {integration.name}" aria-expanded={isOpen}>
+        <ChevronUp size={16} />
+      </Button>
+    {/if}
   </div>
 
   {#if isOpen}
-    <div class="mt-3 flex flex-col divide-y divide-border border-t border-border">
+    <!-- Inset to the name above it once there is room, so the details read as the server's. -->
+    <div class="flex flex-col gap-5 pt-1 pb-2 @min-[30rem]/pane:pl-11.5">
       {#if isRenaming}
-        <form class="flex flex-wrap items-center gap-2 py-3" onsubmit={(event) => { event.preventDefault(); void saveRename(); }}>
+        <form class="flex flex-wrap items-center gap-2" onsubmit={(event) => { event.preventDefault(); void saveRename(); }}>
           <!-- svelte-ignore a11y_autofocus -->
           <Input bind:value={renameDraft} aria-label="Name of {integration.name}" class="h-8 min-w-0 flex-1 text-workspace-chrome" autofocus
             onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); isRenaming = false; } }} />
@@ -372,12 +414,37 @@
         </form>
       {/if}
       {#if isRenaming && hostState?.writeError}
-        <p role="alert" class="break-words py-3 text-workspace-chrome text-(--solus-status-error)">{hostState.writeError}</p>
+        <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{hostState.writeError}</p>
       {/if}
       {#if isCommand}
-        {@render field("Command", command)}
-        {@render field("Process", process)}
+        <div class="flex min-w-0 flex-col gap-3">
+          {@render command()}
+          <McpCommandProcess {serverId} {integration} {mayRunCommands} />
+        </div>
       {/if}
+      {#if showsSetupSteps}
+        <!-- Not connected yet: the add dialog's timeline, with the sign-in step open. -->
+        <div class="text-workspace-chrome">
+          <StepRail steps={setupSteps}>
+            {#snippet detail(step)}
+              {#if step.key === "sign-in"}
+                <div class="mt-3 flex min-w-0 flex-col gap-4">
+                  {#if offersOAuthClientSetup}
+                    {@render oauthClient()}
+                  {/if}
+                  {@render account()}
+                  {#if offersOAuthClientSetup}
+                    {@render field("Scopes", scopes)}
+                  {/if}
+                  {#if integration.auth.kind === "headers"}
+                    {@render field("Headers", headerNames)}
+                  {/if}
+                </div>
+              {/if}
+            {/snippet}
+          </StepRail>
+        </div>
+      {:else}
       {#if offersOAuthClientSetup}
         {@render field("OAuth client", oauthClient)}
         {@render field("Scopes", scopes)}
@@ -388,12 +455,27 @@
       {#if integration.auth.kind !== "none"}
         {@render field(takesValues ? "Values" : "Account", account)}
       {/if}
-      {@render field("Tools", tools)}
+      <div class="flex min-w-0 flex-col gap-1.5">
+        <div class="flex min-h-7 items-center justify-between gap-4">
+          <p class="flex items-baseline gap-2 text-chrome-dense font-medium text-muted-foreground">
+            Tools
+            {#if toolList?.length && toolsListable && !isNotRunning}
+              <span class="font-normal tabular-nums">{toolsOnCount} of {toolList.length} on</span>
+            {/if}
+          </p>
+          {#if toolList?.length && toolsListable && !isNotRunning}
+            <Button variant="ghost" size="sm" class="-mr-2 shrink-0 text-workspace-chrome text-(--solus-text-secondary) pointer-coarse:min-h-11" disabled={!canEdit || isBusy || isOffline}
+              onclick={() => setAllTools(isOff)}>{isOff ? "Turn all on" : "Turn all off"}</Button>
+          {/if}
+        </div>
+        {@render tools()}
+      </div>
+      {/if}
       {#if cliSkips.length}
         {@render field("CLI copy", cliCopies)}
       {/if}
       {#if hostState?.facts.get(integration.id)?.instructions}
-        <details class="group py-3 text-workspace-chrome">
+        <details class="group text-workspace-chrome">
           <summary class="-ml-1 flex min-h-8 w-fit cursor-pointer list-none items-center gap-2 rounded-md px-1 text-(--solus-text-secondary) outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">
             <ChevronRight size={16} class="shrink-0 transition-transform group-open:rotate-90 motion-reduce:transition-none" />Instructions for the agent
           </summary>
@@ -402,4 +484,4 @@
       {/if}
     </div>
   {/if}
-</div>
+</li>

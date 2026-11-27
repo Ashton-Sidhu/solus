@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import {
     getWorkspaceContext,
     getSettingsContext,
@@ -10,6 +10,7 @@
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
     canExpandProjectRail,
+    isProjectRailOpen,
     toggleProjectRail,
   } from "../project-panel/lib/rail-width";
   import SessionBreadcrumb from "../conversation/SessionBreadcrumb.svelte";
@@ -82,6 +83,19 @@
     settings.setLayout("splitProjectPanelOpen", open);
     requestInputFocus(tabId ? { tabId } : undefined);
   }
+
+  // A link that shows a section of this rail (the background row's Running
+  // servers) opens it as the toggle would, also where it is hidden for width.
+  let handledPanelReveal = untrack(() => session.panelSectionReveal?.seq ?? 0);
+  $effect(() => {
+    const reveal = session.panelSectionReveal;
+    if (!reveal || reveal.seq === handledPanelReveal) return;
+    handledPanelReveal = reveal.seq;
+    if (!tabId || reveal.tabId !== tabId || tabId !== session.chatSurfaceTabId) return;
+    untrack(() => {
+      if (!isProjectRailOpen(settings.splitProjectPanelOpen, paneWidth, false, railRevealed)) toggleRail();
+    });
+  });
 
   // The split chat's rail answers the shortcut while a companion pane holds
   // focus; `WorkspaceBody` answers it for the leading rail otherwise.

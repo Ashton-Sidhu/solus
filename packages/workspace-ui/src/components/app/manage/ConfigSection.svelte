@@ -8,6 +8,8 @@
   import { Button } from "../../ui/button";
   import CodeEditor from "../../code-editor/CodeEditor.svelte";
   import ManageSectionState from "./ManageSectionState.svelte";
+  import { CONFIG_EMPTY } from "./lib/section-empty";
+  import StateIcon from "./StateIcon.svelte";
   import { configCodeMarks, configEditSummary, configEntryAtLine, configRangeText, configTypeText, replaceConfigValue } from "./lib/config-document";
   import { ConfigEditor } from "./lib/config-editor.svelte";
 
@@ -74,19 +76,21 @@
 <ManageSectionState
   count={config?.length}
   error={appsStore.stateErrorFor(serverId, app.id)}
-  empty="This app declares no config. A setting is declared in app.ts; change the code and deploy to add one."
+  {serverId}
+  {app}
+  empty={CONFIG_EMPTY}
   onRetry={() => void appsStore.loadState(serverId, app.id)}
 >
   <div class="flex min-w-0 items-start gap-9 pt-1.5 @max-[56rem]/pane:flex-col" data-testid="app-config">
-    <!-- The editor: the one card of the section. -->
+    <!-- The editor: the one floating surface of the section. Space, not rules, sets its bar and its footer apart from the text. -->
     <section
-      class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-[0_1px_2px_rgb(0_0_0/0.03),0_6px_20px_rgb(0_0_0/0.04)] @max-[56rem]/pane:w-full dark:bg-card dark:shadow-none"
+      class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background shadow-[shadow:var(--elev-lift)] @max-[56rem]/pane:w-full dark:bg-card"
       aria-label="Config editor"
     >
-      <div class="flex h-12 min-w-0 shrink-0 items-center gap-3 border-b border-border/60 bg-[var(--wash-1)] pr-3.5 pl-1.5">
-        <span class="flex h-9 min-w-0 shrink-0 items-center gap-2 rounded-[10px] border border-border bg-background px-3 dark:bg-card">
+      <div class="flex h-12 min-w-0 shrink-0 items-center gap-3 pt-1.5 pr-3.5 pl-1.5">
+        <span class="flex h-9 min-w-0 shrink-0 items-center gap-2 rounded-[10px] bg-[var(--wash-2)] px-3">
           <span class="font-mono text-[12.5px] leading-4 text-foreground">config.json</span>
-          {#if editor.isEdited}<span class="text-xs leading-4 text-[color-mix(in_oklch,var(--warning)_70%,var(--foreground))]">Edited</span>{/if}
+          {#if editor.isEdited}<span class="text-xs leading-4 text-(--solus-text-tertiary)">Edited</span>{/if}
         </span>
         <span class="min-w-0 flex-1"></span>
         {#if editor.isEdited}
@@ -119,8 +123,9 @@
         testId="app-config-editor"
       />
 
-      <div class="flex min-h-9.5 min-w-0 shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/60 bg-[var(--wash-1)] px-4.5 py-2 text-xs leading-4">
-        <span class={problemCount > 0 ? "text-destructive" : "text-(--solus-text-tertiary)"} role="status">
+      <div class="flex min-h-9.5 min-w-0 shrink-0 flex-wrap items-center gap-x-4 gap-y-1 px-4.5 pt-2 pb-2.5 text-xs leading-4">
+        <span class="flex items-center gap-1.5 {problemCount > 0 ? 'text-foreground' : 'text-(--solus-text-tertiary)'}" role="status">
+          {#if problemCount > 0}<StateIcon state="failed" size={14} />{/if}
           {problemCount === 0 ? "No problems" : problemCount === 1 ? "1 problem" : `${problemCount} problems`}
         </span>
         <span class="text-(--solus-text-tertiary) tabular-nums">Ln {cursor.line}, Col {cursor.column}</span>
@@ -141,21 +146,21 @@
         </div>
 
         <dl class="m-0 flex flex-col text-[13px] leading-4">
-          <div class="flex justify-between gap-4 border-t border-border/60 py-2.5">
+          <div class="flex justify-between gap-4 border-t border-[var(--hairline)] py-2.5">
             <dt class="text-(--solus-text-tertiary)">Type</dt>
             <dd class="m-0 text-right text-foreground">{configTypeText(inspected)}</dd>
           </div>
           {#if configRangeText(inspected)}
-            <div class="flex justify-between gap-4 border-t border-border/60 py-2.5">
+            <div class="flex justify-between gap-4 border-t border-[var(--hairline)] py-2.5">
               <dt class="text-(--solus-text-tertiary)">Range</dt>
               <dd class="m-0 text-right text-foreground tabular-nums">{configRangeText(inspected)}</dd>
             </div>
           {/if}
-          <div class="flex justify-between gap-4 border-t border-border/60 py-2.5">
+          <div class="flex justify-between gap-4 border-t border-[var(--hairline)] py-2.5">
             <dt class="text-(--solus-text-tertiary)">Default</dt>
             <dd class="m-0 min-w-0 truncate text-right text-foreground">{configValueText(inspected, inspected.default)}</dd>
           </div>
-          <div class="flex justify-between gap-4 border-y border-border/60 py-2.5">
+          <div class="flex justify-between gap-4 border-y border-[var(--hairline)] py-2.5">
             <dt class="text-(--solus-text-tertiary)">Saved value</dt>
             <dd class="m-0 min-w-0 truncate text-right text-foreground">{configValueText(inspected, inspected.value)}</dd>
           </div>

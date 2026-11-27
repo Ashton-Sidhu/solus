@@ -31,6 +31,12 @@ export class IntegrationSignIn {
     return auth.kind === 'env' || auth.kind === 'headers' ? auth.names : []
   }
 
+  /** The server asks for HTTP Basic: the person types a user name and a password, not a key (`basic-credentials.ts`). */
+  get takesUsernameAndPassword(): boolean {
+    const { auth } = this.integration
+    return auth.kind === 'bearer' && auth.scheme === 'basic'
+  }
+
   /**
    * True when the person's sign-in must run on the host, never through their
    * Solus account: a command's or a `headers` server's values stay on the host

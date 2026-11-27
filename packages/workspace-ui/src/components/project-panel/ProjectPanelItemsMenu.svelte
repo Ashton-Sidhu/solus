@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { DEFAULT_PERSONAL_SETTINGS } from "@solus/contracts/settings";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { getSettingsContext } from "../../contexts";
   import { getClientShellContext } from "../../contexts/app/client-shell.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import {
     projectPanelSections,
+    isDefaultPanelHiddenItems,
     isPanelItemShown,
     shownRowCount,
     withPanelItemShown,
@@ -95,8 +97,8 @@
       <DropdownMenu.Item onSelect={onShowOtherServers}>Servers in other checkouts</DropdownMenu.Item>
     {/if}
     <DropdownMenu.Item
-      disabled={hidden.length === 0}
-      onSelect={() => settings.setPersonal("projectPanelHiddenItems", [])}
+      disabled={isDefaultPanelHiddenItems(hidden)}
+      onSelect={() => settings.setPersonal("projectPanelHiddenItems", [...DEFAULT_PERSONAL_SETTINGS.projectPanelHiddenItems])}
     >
       Reset to default
     </DropdownMenu.Item>

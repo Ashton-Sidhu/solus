@@ -21,9 +21,13 @@ import { readServerIdentity, ServerCredentialRefusedError } from './server-ident
 import { solusServerFor } from './solus-servers'
 import { firstPartyFor, firstPartyOAuthClient } from './first-party'
 import { PublishedClientMetadata } from './client-metadata'
+import { DocumentClientCheck } from './document-client-check'
 import { firstPartyClientById } from '@solus/contracts/first-party-clients'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import { boundFetch } from './solus-servers/solus-server'
+import { INTEGRATION_OAUTH_LOOPBACK_PORT, INTEGRATION_OAUTH_LOOPBACK_URL } from '@solus/contracts/integrations/oauth-callback'
+import { isLoopbackHostname } from '@solus/contracts/integration-types'
+import { IntegrationCallbackPortBusyError, LoopbackCallbackListener } from './oauth-loopback'
 
 /**
  * Per-person OAuth sign-in to an integration (docs/plans/mcp-integrations.md
@@ -81,6 +85,11 @@ async function identityLabel(integration: Integration, accessToken: string, fetc
   }
 }
 
+/**
+ * The callback route on the host's own origin: for a browser on another device
+ * that reaches the host there, and for an owner's OAuth app saved before the
+ * loopback callback (docs/plans/mcp-oauth-callback.md). New owner apps take it.
+ */
 export const INTEGRATION_OAUTH_CALLBACK_PATH = '/oauth/integration/callback'
 const FLOW_TTL_MS = 10 * 60_000
 const EXPIRED_MESSAGE = 'This sign-in expired. Start it again.'
@@ -93,6 +102,10 @@ interface PendingFlow {
   integrationId: string
   verifier: string
   redirectUri: string
+  /** The origin the start came from, or '' for none: a start from another origin replaces the flow. */
+  startedFrom: string
+  /** The loopback listener waits for this flow's callback. */
+  listens: boolean
   url: string
   input: 'callback' | 'redirect-url'
   expiresAt: number
@@ -130,8 +143,19 @@ export interface IntegrationOAuthDeps {
   vault: Pick<Vault, 'save'>
   clients: IntegrationClients
   events: IntegrationConnectionEvents
+  /** The loopback callback's port; tests pass 0 for one the system picks. */
+  loopbackPort?: number
+  /** Solus registered itself and the server gave it this client ID: the record keeps it for the owner's client form. */
+  recordRegisteredClient?: (integration: Integration, clientId: string) => void
   fetch?: typeof fetch
   now?: () => number
+}
+
+/** Where one sign-in's browser returns, and how the host hears it. */
+interface CallbackRoute {
+  redirectUri: string
+  listens: boolean
+  input: 'callback' | 'redirect-url'
 }
 
 type Finish = { ok: true } | { ok: false; status: 400 | 500; title: string; message: string }
@@ -152,6 +176,9 @@ export class IntegrationOAuth {
   private readonly refreshing = new Map<string, Promise<OAuthToken | null>>()
   private readonly protocol: McpOAuth
   private readonly clientMetadata: PublishedClientMetadata
+  private readonly documentClients: DocumentClientCheck
+  private readonly loopback: LoopbackCallbackListener
+  private loopbackIdleTimer: ReturnType<typeof setTimeout> | null = null
   private readonly fetch: typeof fetch
   private readonly now: () => number
 
@@ -160,6 +187,8 @@ export class IntegrationOAuth {
     this.now = deps.now ?? Date.now
     this.protocol = new McpOAuth({ fetch: this.fetch, now: this.now })
     this.clientMetadata = new PublishedClientMetadata({ fetch: this.fetch, now: this.now })
+    this.documentClients = new DocumentClientCheck({ fetch: this.fetch, now: this.now })
+    this.loopback = new LoopbackCallbackListener(deps.loopbackPort ?? INTEGRATION_OAUTH_LOOPBACK_PORT, (params) => this.complete(params))
   }
 
   /** Whether the host can sign in with Solus's Client ID Metadata Document now (§13.1). Reads it when its copy is old; never throws. */
@@ -167,28 +196,32 @@ export class IntegrationOAuth {
     return (await this.clientMetadata.current()) !== null
   }
 
-  /** Starts the acting person's sign-in, or returns the one they already have open for this integration and callback. */
+  /** Starts the acting person's sign-in, or returns the one they already have open for this integration and origin. */
   async start(integration: Integration, options: IntegrationOAuthStartOptions, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<IntegrationConnectStartResult> {
     if (integration.auth.kind !== 'oauth') throw new Error('This integration does not sign in with OAuth.')
     const personKey = requirePersonKey()
     this.dropExpired()
     const base = callbackBase(options.callbackBaseUrl)
-    const redirectUri = `${base ?? `http://${hostForUrl(options.fallbackHost)}:${options.fallbackPort}`}${INTEGRATION_OAUTH_CALLBACK_PATH}`
+    const startedFrom = base ?? ''
     for (const [state, flow] of this.flows) {
       if (flow.integrationId !== integration.id || flow.personKey !== personKey || flow.accountId !== accountId) continue
-      if (flow.redirectUri === redirectUri) return waiting(flow)
+      if (flow.startedFrom === startedFrom) return waiting(flow)
       // One flow per person, integration, and account: a start from another origin replaces it.
       this.flows.delete(state)
     }
     let metadata: OAuthMetadata
     let client: OAuthClient
+    let route: CallbackRoute
     try {
       metadata = await this.metadata(integration)
-      client = await this.clientFor(integration, metadata, redirectUri)
+      route = await this.routeFor(integration, metadata.issuer, base, `http://${hostForUrl(options.fallbackHost)}:${options.fallbackPort}`)
+      client = await this.clientFor(integration, metadata, route.redirectUri)
     } catch (error) {
+      this.settleLoopback()
       log.warn('integration_oauth_start_failed', { integrationId: integration.id, error: errorText(error) })
       throw error
     }
+    const { redirectUri } = route
     const { resource, options: signIn } = signInFor(integration)
     const { url, state, verifier } = await this.protocol.authorization({ metadata, client, redirectUri, resource, options: signIn })
     const flow: PendingFlow = {
@@ -199,8 +232,10 @@ export class IntegrationOAuth {
       integrationId: integration.id,
       verifier,
       redirectUri,
+      startedFrom,
+      listens: route.listens,
       url,
-      input: base ? 'callback' : 'redirect-url',
+      input: route.input,
       expiresAt: this.now() + FLOW_TTL_MS,
       tokenEndpoint: metadata.tokenEndpoint,
       resource,
@@ -209,8 +244,75 @@ export class IntegrationOAuth {
       personKey,
     }
     this.flows.set(state, flow)
-    log.info('integration_oauth_started', { integrationId: integration.id, flowId: flow.flowId, input: flow.input })
+    log.info('integration_oauth_started', { integrationId: integration.id, flowId: flow.flowId, input: flow.input, loopback: route.listens })
     return waiting(flow)
+  }
+
+  /**
+   * Where the browser returns (docs/plans/mcp-oauth-callback.md), chosen by
+   * where the browser runs, never by the origin alone:
+   *
+   * - An owner's OAuth app returns to the redirect it was saved with. One saved
+   *   before the loopback callback has none and keeps the host's route.
+   * - A browser on the host (the client reached it on loopback) returns to the
+   *   loopback callback, and the listener waits for it.
+   * - A browser elsewhere that reaches the host on its origin returns to the
+   *   host's route there.
+   * - A browser that cannot reach the host gets the loopback callback, and
+   *   the person pastes the address the browser lands on.
+   */
+  private async routeFor(integration: Integration, issuer: string, base: string | null, fallbackOrigin: string): Promise<CallbackRoute> {
+    const browserOnHost = base !== null && isLoopbackHostname(new URL(base).hostname)
+    const ownerClientId = integration.auth.kind === 'oauth' ? integration.auth.clientId : undefined
+    if (ownerClientId) {
+      const saved = this.deps.clients.client(integration.id, issuer)
+      const ownerRedirect = saved?.clientId === ownerClientId ? saved.redirectUris?.[0] : undefined
+      if (!ownerRedirect) return { redirectUri: `${base ?? fallbackOrigin}${INTEGRATION_OAUTH_CALLBACK_PATH}`, listens: false, input: base ? 'callback' : 'redirect-url' }
+      if (ownerRedirect !== INTEGRATION_OAUTH_LOOPBACK_URL || !browserOnHost) return { redirectUri: ownerRedirect, listens: false, input: browserOnHost ? 'callback' : 'redirect-url' }
+      // The owner's app names the fixed port exactly: another port would be refused at the server.
+      if ((await this.openLoopback()) !== ownerRedirect) throw new IntegrationCallbackPortBusyError()
+      return { redirectUri: ownerRedirect, listens: true, input: 'callback' }
+    }
+    if (browserOnHost) return { redirectUri: await this.openLoopback(), listens: true, input: 'callback' }
+    if (base) return { redirectUri: `${base}${INTEGRATION_OAUTH_CALLBACK_PATH}`, listens: false, input: 'callback' }
+    return { redirectUri: INTEGRATION_OAUTH_LOOPBACK_URL, listens: false, input: 'redirect-url' }
+  }
+
+  /** Opens the loopback listener for a sign-in. It closes once no flow waits on it, and at the latest when the last one would expire. */
+  private async openLoopback(): Promise<string> {
+    const redirectUri = await this.loopback.open()
+    if (this.loopbackIdleTimer) clearTimeout(this.loopbackIdleTimer)
+    this.loopbackIdleTimer = setTimeout(() => {
+      this.dropExpired()
+      this.settleLoopback()
+    }, FLOW_TTL_MS)
+    this.loopbackIdleTimer.unref?.()
+    return redirectUri
+  }
+
+  /** Closes the loopback listener when no pending flow waits on it. */
+  private settleLoopback(): void {
+    if ([...this.flows.values()].some((flow) => flow.listens)) return
+    if (this.loopbackIdleTimer) clearTimeout(this.loopbackIdleTimer)
+    this.loopbackIdleTimer = null
+    this.loopback.close()
+  }
+
+  /**
+   * Registers Solus with a new server that offers registration, for the
+   * loopback callback, before anyone signs in (docs/plans/mcp-oauth-callback.md):
+   * the record then has the client ID the server gives, which some servers
+   * give every client (HiddenLayer's), for the owner's client form. The sign-in
+   * from the host reuses it. Best effort: a refusal shows at the sign-in, as before.
+   */
+  async registerAhead(integration: Integration): Promise<void> {
+    const { auth } = integration
+    if (auth.kind !== 'oauth' || auth.registration !== 'dynamic' || auth.clientId || auth.firstParty) return
+    try {
+      await this.clientFor(integration, await this.metadata(integration), INTEGRATION_OAUTH_LOOPBACK_URL)
+    } catch {
+      // `clientFor` logged the refusal; the sign-in meets it again and says so.
+    }
   }
 
   /** The browser's callback on `/oauth/integration/callback`. It carries no principal: the flow named by `state` decides whose token it is. */
@@ -219,6 +321,7 @@ export class IntegrationOAuth {
     const flow = state ? this.flows.get(state) : undefined
     if (!flow) return callbackPage(400, 'Sign-in expired', 'Return to Solus and start the sign-in again.')
     const result = await this.finish(flow, params)
+    this.settleLoopback()
     return result.ok ? callbackPage(200, "You're connected", 'Return to Solus to continue.') : callbackPage(result.status, result.title, result.message)
   }
 
@@ -230,6 +333,7 @@ export class IntegrationOAuth {
     const params = new URL(pasted).searchParams
     if (params.get('state') !== flow.state) throw new Error('That address belongs to another sign-in. Paste the address this sign-in ended on.')
     const result = await this.finish(flow, params)
+    this.settleLoopback()
     if (!result.ok) throw new Error(result.message)
   }
 
@@ -237,6 +341,7 @@ export class IntegrationOAuth {
     const flow = this.ownFlow(flowId)
     if (!flow) return false
     this.flows.delete(flow.state)
+    this.settleLoopback()
     this.deps.events.authFinished(flow.personKey, { flowId, integrationId: flow.integrationId, outcome: 'cancelled' })
     return true
   }
@@ -322,14 +427,17 @@ export class IntegrationOAuth {
     if (auth.kind !== 'oauth') throw new Error('This integration does not sign in with OAuth.')
     const rest: IntegrationAuth = { kind: 'oauth', discover: auth.discover, registration: auth.registration }
     if (auth.scopes) rest.scopes = auth.scopes
+    if (auth.registeredClientId) rest.registeredClientId = auth.registeredClientId
     if (!input) {
       this.deps.clients.removeClient(integration.id)
       return rest
     }
     const { clientId, clientSecret } = input
+    // The owner registered the redirect Solus showed them: the loopback callback (docs/plans/mcp-oauth-callback.md).
+    const redirectUris = [INTEGRATION_OAUTH_LOOPBACK_URL]
     this.deps.clients.saveClient(integration.id, await this.issuerOf(integration), clientSecret
-      ? { clientId, clientSecret, tokenEndpointAuthMethod: 'client_secret_post', redirectUris: [] }
-      : { clientId, tokenEndpointAuthMethod: 'none', redirectUris: [] })
+      ? { clientId, clientSecret, tokenEndpointAuthMethod: 'client_secret_post', redirectUris }
+      : { clientId, tokenEndpointAuthMethod: 'none', redirectUris })
     return { ...rest, clientId, hasClientSecret: Boolean(clientSecret) }
   }
 
@@ -468,7 +576,7 @@ export class IntegrationOAuth {
     const firstPartyId = new IntegrationSignIn(integration).firstParty
     const firstParty = firstPartyId ? firstPartyOAuthClient(firstPartyId) : null
     if (firstParty) return firstParty
-    const documentClient = await this.metadataDocumentClient(metadata, redirectUri)
+    const documentClient = await this.metadataDocumentClient(integration, metadata, redirectUri)
     if (documentClient) {
       log.info('integration_client_metadata_document', { integrationId: integration.id })
       return documentClient
@@ -478,6 +586,7 @@ export class IntegrationOAuth {
     try {
       const client = await this.protocol.register(metadata, [...(saved?.redirectUris ?? []), redirectUri])
       this.deps.clients.saveClient(integration.id, metadata.issuer, client)
+      if (integration.auth.kind === 'oauth' && integration.auth.registeredClientId !== client.clientId) this.deps.recordRegisteredClient?.(integration, client.clientId)
       log.info('integration_client_registered', { integrationId: integration.id })
       return client
     } catch (error) {
@@ -501,13 +610,24 @@ export class IntegrationOAuth {
    * - A sign-in that starts at Solus Cloud: the cloud's flow, not this one; its
    *   callback is on app.solus.sh, which this document does not name.
    *
+   * A server that advertises documents can still trust only some domains, and
+   * it refuses in the browser. The host asks it first (`DocumentClientCheck`),
+   * and a server that refuses Solus's document registers dynamically.
+   *
    * Nothing is saved: the client ID is the document's URL.
    */
-  private async metadataDocumentClient(metadata: OAuthMetadata, redirectUri: string): Promise<OAuthClient | null> {
+  private async metadataDocumentClient(integration: Integration, metadata: OAuthMetadata, redirectUri: string): Promise<OAuthClient | null> {
     if (!metadata.clientIdMetadataDocumentSupported) return null
     const published = await this.clientMetadata.current()
     if (!published?.redirect_uris.includes(redirectUri)) return null
-    return { clientId: published.client_id, tokenEndpointAuthMethod: 'none', redirectUris: published.redirect_uris }
+    const client: OAuthClient = { clientId: published.client_id, tokenEndpointAuthMethod: 'none', redirectUris: published.redirect_uris }
+    const { resource, options } = signInFor(integration)
+    const { url } = await this.protocol.authorization({ metadata, client, redirectUri, resource, options })
+    if (await this.documentClients.refuses(metadata.issuer, url, redirectUri)) {
+      log.info('integration_client_metadata_document_refused', { integrationId: integration.id, issuer: metadata.issuer })
+      return null
+    }
+    return client
   }
 
   private record(integrationId: string, personKey: string, status: 'needs-sign-in' | 'error', error: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): void {

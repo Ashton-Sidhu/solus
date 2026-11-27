@@ -2,7 +2,9 @@
   import { ChevronRight as OpenIcon, Pause as PauseIcon, Play as PlayIcon } from "@lucide/svelte";
   import type { AppCallView, AppScheduleLane, AppScheduleView } from "@solus/contracts/apps";
   import { Button } from "../../ui/button";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
   import CallDetail from "./CallDetail.svelte";
+  import StateIcon from "./StateIcon.svelte";
   import { scheduleTriggerText } from "../lib/app-view";
   import { scheduleLastRunLine, scheduleNextRunText, scheduleRunSummary, scheduleRunTime } from "./lib/schedules";
   import { triggerClockText, triggerParts, upcomingRow } from "./lib/schedule-calendar";
@@ -10,8 +12,9 @@
   /**
    * The schedule the calendar selected, plain under it: its name and the
    * mutation it runs, Pause or Turn on, and Run now; its trigger as large
-   * parts with the plain words of it; how its last run ended; its next runs;
-   * and its recent runs, each of which opens its call.
+   * parts with the plain words of it; how its last run ended (an error
+   * callout when it failed); its next runs, with no rules between them; and
+   * its recent runs, each of which opens its call.
    */
   interface Props {
     serverId: string;
@@ -60,9 +63,15 @@
       <span class="pb-4.5 pl-2.5 text-[15px] leading-4.5 text-(--solus-text-secondary)">{triggerClockText(scheduleTriggerText(schedule), schedule.trigger)}</span>
     </div>
 
-    <p class="m-0 text-[13px] leading-5 text-pretty {schedule.lastOutcome === 'failed' ? 'text-(--failure)' : 'text-(--solus-text-secondary)'}" role={schedule.lastOutcome === "failed" ? "alert" : undefined}>
-      {scheduleLastRunLine(schedule, now)}
-    </p>
+    {#if schedule.lastOutcome === "failed"}
+      <div class="text-[13px] leading-4.75 [--prose-ink-strong:var(--solus-text-primary)]" role="alert" data-testid="app-schedule-failure">
+        <MarkdownAlert alertType="error">
+          {#snippet content()}<span class="text-pretty">{scheduleLastRunLine(schedule, now)}</span>{/snippet}
+        </MarkdownAlert>
+      </div>
+    {:else}
+      <p class="m-0 text-[13px] leading-5 text-pretty text-(--solus-text-secondary)">{scheduleLastRunLine(schedule, now)}</p>
+    {/if}
 
     <section class="flex min-w-0 flex-col pt-2" aria-label="Recent runs">
       <h4 class="m-0 pb-2 text-[13px] font-semibold text-foreground">Recent runs</h4>
@@ -80,7 +89,8 @@
                 onclick={() => (openCallId = isOpen ? null : run.id)}
               >
                 <OpenIcon size={12} class="shrink-0 text-(--solus-text-tertiary) transition-transform duration-150 motion-reduce:transition-none {isOpen ? 'rotate-90' : ''}" aria-hidden="true" />
-                <span class="min-w-0 flex-1 truncate {run.outcome === 'failed' ? 'text-(--failure)' : 'text-(--solus-text-secondary)'}">{scheduleRunSummary(run)}</span>
+                {#if run.outcome === "failed"}<StateIcon state="failed" size={14} />{/if}
+                <span class="min-w-0 flex-1 truncate text-(--solus-text-secondary)">{scheduleRunSummary(run)}</span>
                 <span class="shrink-0 text-(--solus-text-tertiary) tabular-nums">{scheduleRunTime(run, now)}</span>
               </button>
               {#if isOpen}
@@ -98,11 +108,11 @@
   <section class="flex w-55 shrink-0 flex-col @max-[48rem]/pane:w-full" aria-label="Next runs">
     <h4 class="m-0 pb-2 text-[13px] font-semibold text-foreground">Next runs</h4>
     {#if upcoming.length === 0}
-      <p class="m-0 border-t border-[var(--hairline)] pt-2.5 text-sm text-(--solus-text-tertiary)">{scheduleNextRunText(schedule, appStopped, now)}</p>
+      <p class="m-0 pt-2.5 text-sm text-(--solus-text-tertiary)">{scheduleNextRunText(schedule, appStopped, now)}</p>
     {:else}
       {#each upcoming as at (at)}
         {@const row = upcomingRow(at)}
-        <div class="flex h-9 shrink-0 items-center justify-between border-t border-[var(--hairline)] text-sm">
+        <div class="flex h-9 shrink-0 items-center justify-between text-sm">
           <span class="text-foreground">{row.day}</span>
           <span class="text-(--solus-text-tertiary) tabular-nums">{row.time}</span>
         </div>

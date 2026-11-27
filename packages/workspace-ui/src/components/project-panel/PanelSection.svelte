@@ -10,6 +10,8 @@
 
   interface Props {
     title: string;
+    /** Names the card in the DOM, so a link that reveals it can scroll to it. */
+    sectionId?: string;
     collapsed: boolean;
     onToggle: () => void;
     headerDetail?: string;
@@ -26,6 +28,7 @@
 
   let {
     title,
+    sectionId,
     collapsed,
     onToggle,
     headerDetail,
@@ -51,6 +54,7 @@
      rather than silently shortening. -->
 <Sidebar.Group
   role="group"
+  data-panel-section={sectionId}
   class="group/section relative min-h-0 shrink-0 gap-0 rounded-2xl border border-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] bg-transparent p-1.5 shadow-[0_1px_2px_-1px_rgba(0,0,0,0.05)] dark:border-[color-mix(in_srgb,var(--solus-text-primary)_11%,transparent)] dark:shadow-none {titlebar
     ? 'workspace-titlebar'
     : ''}"

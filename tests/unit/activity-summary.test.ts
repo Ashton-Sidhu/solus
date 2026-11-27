@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   activityDurationMs,
+  backgroundWorkEntries,
   describeBackgroundWait,
   failedToolLabel,
   getToolDescription,
@@ -109,6 +110,44 @@ describe('describeBackgroundWait', () => {
       'Running “bun run dev” in the background',
     )
     expect(settledBackgroundWait([], [{ taskId: 't1', kind: 'monitor' }]).label).toBe('Running a monitor in the background')
+  })
+
+  test('lists each background task by name for the open row', () => {
+    // WHY: "Running 2 commands in the background" was all the row ever said;
+    // nothing showed which two. The open row names each one.
+    expect(
+      backgroundWorkEntries(turn(backgroundBash()), [
+        { taskId: 't1', kind: 'command', description: 'Start the dev server' },
+        { taskId: 't2', kind: 'monitor' },
+      ]),
+    ).toEqual([
+      { key: 't1', kind: 'command', kindName: 'Command', text: 'Start the dev server', isCommand: false },
+      { key: 't2', kind: 'monitor', kindName: 'Monitor', text: 'A monitor with no description', isCommand: false },
+    ])
+  })
+
+  test('lists the turn\'s own background calls when the host names no tasks', () => {
+    const noIntent = backgroundBash({
+      id: 'bash-2',
+      backgroundTaskId: 'b2',
+      toolInput: JSON.stringify({ command: 'bun run dev', run_in_background: true }),
+    })
+    const settled = backgroundBash({ id: 'bash-3', backgroundTaskId: 'b3', backgroundTaskSettledAt: LAUNCHED_AT + 100 })
+    expect(backgroundWorkEntries(turn(backgroundBash(), noIntent, settled))).toEqual([
+      { key: 'b2lrrdn6z', kind: 'command', kindName: 'Command', text: POLL_DESCRIPTION, isCommand: false },
+      { key: 'b2', kind: 'command', kindName: 'Command', text: 'bun run dev', isCommand: true },
+    ])
+  })
+
+  test('sets a host task in the mono face when its description is the command itself', () => {
+    // WHY: the host sends the command as the description when the agent gave
+    // none, and a long shell line read as a sentence is unreadable.
+    const [command, described] = backgroundWorkEntries([], [
+      { taskId: 't1', kind: 'command', description: 'echo "PID $$" > /tmp/proof.pid && CLOUDFLARE_ACCOUNT_ID=abc exec bun proof/run.ts --cloud' },
+      { taskId: 't2', kind: 'command', description: 'cloud s9 run 12 (full): passes, sign-in, errors' },
+    ])
+    expect(command.isCommand).toBe(true)
+    expect(described.isCommand).toBe(false)
   })
 
   test('counts the named tasks by kind when several run', () => {

@@ -18,7 +18,7 @@ import { promptImageAttachments, splitAttachedFiles, type MessageAttachment } fr
 import { AgentPlans } from './agent-plans'
 import { artifactFromCreated, artifactFromHistory, type ArtifactRender } from './artifacts'
 import type { AgentSwitch } from './provider-handoff'
-import type { PendingPermission, PendingQuestion, QueuedPrompt } from './pending-requests'
+import { hasOwnCard, type PendingPermission, type PendingQuestion, type QueuedPrompt } from './pending-requests'
 import { ToolRowIndex, type ToolItem } from './tool-item'
 
 export type { PendingPermission, PendingQuestion, QueuedPrompt } from './pending-requests'
@@ -43,6 +43,7 @@ export type TranscriptItem =
   | { kind: 'browser_snapshot'; id: string; snapshot: BrowserSnapshotRef }
   | { kind: 'image'; id: string; path: string }
   | ToolItem
+  | { kind: 'host_question'; id: string; question: PendingQuestion }
   /** Another Solus session this conversation sent work to (`agent-cards.ts`). */
   | AgentItem
   | { kind: 'notice'; id: string; text: string; tone: 'error' | 'info' }
@@ -582,6 +583,30 @@ export class TranscriptModel {
     }
   }
 
+  /** Keep open host questions at their event positions when the host resends its pending list. */
+  private setQuestions(next: readonly PendingQuestion[]): void {
+    for (const question of this.questions) {
+      if (!hasOwnCard(question) || next.some(q => q.questionId === question.questionId && hasOwnCard(q))) continue
+      const id = `host-question:${question.questionId}`
+      this.items.delete(id)
+      this.order = this.order.filter(key => key !== id)
+      this.orderChanged = true
+    }
+    for (const question of next) {
+      if (!hasOwnCard(question)) continue
+      const id = `host-question:${question.questionId}`
+      const previous = this.items.get(id)
+      if (previous?.kind === 'host_question' && previous.question === question) continue
+      const item = { kind: 'host_question' as const, id, question }
+      if (previous) this.replace(item)
+      else {
+        this.finishStream()
+        this.append(item)
+      }
+    }
+    this.questions = next
+  }
+
   private applyRequest(event: WireNormalizedEvent): boolean {
     switch (event.type) {
       case 'permission_request':
@@ -603,7 +628,7 @@ export class TranscriptModel {
         return true
       case 'question_request':
         if (this.questions.some((question) => question.questionId === event.questionId)) return true
-        this.questions = [...this.questions, { questionId: event.questionId, questions: event.questions, responseMode: event.responseMode, kind: event.kind, ...(event.hostLink && { hostLink: event.hostLink }), ...(event.cloudMachine && { cloudMachine: event.cloudMachine }) }]
+        this.setQuestions([...this.questions, pendingQuestion(event)])
         this.metaChanged = true
         return true
       case 'question_answered':
@@ -618,10 +643,13 @@ export class TranscriptModel {
         // The host's list of open requests replaces this client's. A message-mode
         // question is not in that list: it outlives its turn, so it stays.
         this.permissions = []
-        this.questions = this.questions.filter((question) => question.responseMode === 'message')
+        const questions = this.questions.filter(question => question.responseMode === 'message')
         for (const pending of event.pendingInputEvents) {
-          if (pending.type === 'permission_request' || pending.type === 'question_request' || pending.type === 'plan') this.apply(pending)
+          if (pending.type === 'question_request') {
+            if (!questions.some(question => question.questionId === pending.questionId)) questions.push(pendingQuestion(pending))
+          } else if (pending.type === 'permission_request' || pending.type === 'plan') this.apply(pending)
         }
+        this.setQuestions(questions)
         this.metaChanged = true
         return true
       default:
@@ -835,7 +863,7 @@ export class TranscriptModel {
     // A new turn: cards closed before it have said why; they leave.
     if (status === 'running' || status === 'connecting') {
       this.permissions = this.permissions.filter((request) => !request.expired)
-      this.questions = this.questions.filter((question) => !question.expired)
+      this.setQuestions(this.questions.filter((question) => !question.expired))
     }
     this.metaChanged = true
   }
@@ -1038,7 +1066,7 @@ export class TranscriptModel {
   private resolveRequest(questionId: string, decision?: PermissionDecision): void {
     const before = this.permissions.length + this.questions.length
     this.permissions = this.permissions.filter((request) => request.questionId !== questionId)
-    this.questions = this.questions.filter((question) => question.questionId !== questionId)
+    this.setQuestions(this.questions.filter((question) => question.questionId !== questionId))
     if (this.permissions.length + this.questions.length !== before) this.metaChanged = true
     for (const [id, item] of this.items) {
       if (item.kind !== 'plan' || item.questionId !== questionId || item.decision !== 'pending') continue
@@ -1056,7 +1084,7 @@ export class TranscriptModel {
     if (permissions.some((request, index) => request !== this.permissions[index])
       || questions.some((question, index) => question !== this.questions[index])) this.metaChanged = true
     this.permissions = permissions
-    this.questions = questions
+    this.setQuestions(questions)
   }
 
   /** Stop ends every tool and sub-agent the turn started, and none sends a
@@ -1072,7 +1100,7 @@ export class TranscriptModel {
     if (this.permissions.length === 0 && this.questions.every((question) => question.responseMode === 'message')) return
     this.permissions = []
     // A message-mode question is answered by a later prompt, so it outlives the turn.
-    this.questions = this.questions.filter((question) => question.responseMode === 'message')
+    this.setQuestions(this.questions.filter((question) => question.responseMode === 'message'))
     this.metaChanged = true
   }
 
@@ -1172,6 +1200,11 @@ export class TranscriptModel {
     this.nextId += 1
     return `${prefix}${this.nextId}`
   }
+}
+
+function pendingQuestion(event: Extract<WireNormalizedEvent, { type: 'question_request' }>): PendingQuestion {
+  const { type, turnAuthor, ...question } = event
+  return question
 }
 
 /** Output of a turn the user stopped; the host may still flush some of it. */

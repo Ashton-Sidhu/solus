@@ -125,7 +125,8 @@ describe('where apps reach the host', () => {
   const SERVE: AppAddress = { source: 'tailscale-serve', url: 'https://box.tail1.ts.net/mcp', reach: 'tailnet' }
 
   test('Anywhere is the address a cloud app uses; Your devices is only a tailnet address', () => {
-    expect(appReachOf([SERVE, SOLUS])).toEqual({ anywhere: SOLUS, devices: SERVE })
+    // An internet address serves your devices too: the tailnet row shows only without one.
+    expect(appReachOf([SERVE, SOLUS])).toEqual({ anywhere: SOLUS, devices: null })
     expect(appReachOf([SOLUS])).toEqual({ anywhere: SOLUS, devices: null })
     expect(appReachOf([SERVE])).toEqual({ anywhere: null, devices: SERVE })
   })

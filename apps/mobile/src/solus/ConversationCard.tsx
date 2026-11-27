@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from "react";
-import { useMessages } from "gt-react-native";
 import { View } from "react-native";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import type { TranscriptItem } from "@solus-mobile/features/conversation/lib/transcript-model";
@@ -9,57 +8,37 @@ import { WorkLogBlock, WorkLogIconSlot, WorkLogLabel, WorkLogPressable } from ".
 import { SymbolView } from "../components/ui/AppSymbol";
 import { browserSnapshotLabel } from "@solus/client-core/browser-snapshot-label";
 import { handoffDividerText } from "@solus-mobile/features/conversation/lib/provider-handoff";
-import { EnvironmentId } from "@t3tools/contracts";
 import { useTranscriptItem } from "@solus-mobile/features/threads/use-transcript-items";
-import {
-  toolFullDetail,
-  toolRowLabel,
-} from "@solus-mobile/features/threads/thread-work-log-presentation";
 import { ThreadMcpApp } from "@solus-mobile/features/threads/ThreadMcpApp";
 import { WorktreeOfferCard } from "@solus-mobile/features/threads/WorktreeOfferCard";
 import { ThreadToolAudio } from "@solus-mobile/features/threads/ThreadToolAudio";
 import { AppText } from "../components/ui/AppText";
-import {
-  stateMarkLabel,
-  subagentStateMark,
-  toolStateMark,
-  type StateMark,
-} from "../features/threads/state-marks";
-import { StateMarkView } from "../features/threads/StateMark";
 import { ConversationMedia, conversationImageSource } from "./ConversationMedia";
+import { TranscriptQuestion } from "./RequestCards";
 import { PlanCard } from "./PlanCard";
 
 function Details({
   title,
   subtitle,
   icon = "terminal",
-  mark,
   children,
 }: {
   title: string;
   subtitle?: string;
   icon?: "terminal" | "server.rack" | "arrow.triangle.branch";
-  /** The state mark of the agent or call (docs/plans/session-state-marks.md). */
-  mark?: { state: StateMark; environmentId: EnvironmentId } | null;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const messages = useMessages();
   return (
     <WorkLogBlock>
       <WorkLogPressable
         accessibilityRole="button"
-        accessibilityLabel={
-          mark
-            ? [title, stateMarkLabel(mark.state, messages), subtitle].filter(Boolean).join(", ")
-            : undefined
-        }
+        accessibilityLabel={[title, subtitle].filter(Boolean).join(", ")}
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen(!open)}
       >
         <WorkLogIconSlot>
-          {mark ? <StateMarkView mark={mark.state} environmentId={mark.environmentId} />
-            : <SymbolView name={icon} size={14} tintColorClassName="accent-icon-muted" />}
+          <SymbolView name={icon} size={14} tintColorClassName="accent-icon-muted" />
         </WorkLogIconSlot>
         <WorkLogLabel>{title}</WorkLogLabel>
         <SymbolView name={open ? "chevron.up" : "chevron.down"} size={11} tintColorClassName="accent-icon-muted" />
@@ -72,37 +51,19 @@ function Details({
   );
 }
 
-function ToolCard({
+function InlineToolResult({
   store,
   item,
 }: {
   store: ConversationStore;
   item: Extract<TranscriptItem, { kind: "tool" }>;
 }) {
-  const text = toolFullDetail(item);
-  const mark = item.subagent ? subagentStateMark(item) : toolStateMark(item);
   return (
-    <Details
-      title={toolRowLabel(item)}
-      subtitle={[item.toolName, item.progress?.message].filter(Boolean).join(" · ")}
-      mark={mark && { state: mark, environmentId: EnvironmentId.make(store.controller.hostId) }}
-    >
-      {text && (
-        <AppText selectable className="font-mono text-xs">
-          {text}
-        </AppText>
-      )}
-      {item.report && <AppText selectable>{item.report}</AppText>}
+    <>
+      {item.progress?.message ? <AppText className="text-xs text-foreground-muted">{item.progress.message}</AppText> : null}
       {item.children?.order.map((id) => {
         const child = item.children?.items.get(id);
-        if (child?.kind === "tool") return <ToolCard key={id} item={child} store={store} />;
-        if (child?.kind === "assistant" || child?.kind === "notice" || child?.kind === "user")
-          return (
-            <AppText key={id} selectable>
-              {child.text}
-            </AppText>
-          );
-        return null;
+        return child?.kind === "tool" ? <InlineToolResult key={id} store={store} item={child} /> : null;
       })}
       {item.images?.map((image, i) => (
         <ConversationMedia
@@ -120,22 +81,7 @@ function ToolCard({
           store={store}
         />
       ))}
-      {item.leftOut?.map((line, i) => (
-        <AppText key={i}>{line}</AppText>
-      ))}
-      {!text &&
-        !item.report &&
-        !item.images?.length &&
-        !item.audio?.length &&
-        !item.leftOut?.length &&
-        !item.childCount && (
-          <AppText className="text-xs text-foreground-muted">
-            {item.status === "running"
-              ? "Waiting for the tool."
-              : "The host supplied no further detail."}
-          </AppText>
-        )}
-    </Details>
+    </>
   );
 }
 
@@ -167,7 +113,7 @@ export function ConversationCard({ store, id }: { store: ConversationStore; id: 
     case "mcp_app":
       return <ThreadMcpApp store={store} id={id} />;
     case "tool":
-      return <ToolCard item={item} store={store} />;
+      return <InlineToolResult item={item} store={store} />;
     case "agent":
       return null; // T3 renders the child session in a subagent group.
     case "image":
@@ -189,6 +135,8 @@ export function ConversationCard({ store, id }: { store: ConversationStore; id: 
     case "notice":
     case "compaction":
       return null; // The upstream work log renders the activity.
+    case "host_question":
+      return <TranscriptQuestion store={store} question={item.question} />;
     case "plan":
       return <PlanCard store={store} plan={item} history />;
     case "worktree_offer":

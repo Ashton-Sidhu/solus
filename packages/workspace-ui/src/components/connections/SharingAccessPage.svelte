@@ -8,9 +8,7 @@
   import { connectionsStore } from "../../contexts";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
   import { sharingAccessRights } from "./lib/sharing-access";
-  import { hostLabel } from "./outside-apps/outside-apps.svelte";
   import OutsideAppsDirectory from "./outside-apps/OutsideAppsDirectory.svelte";
-  import OutsideAppsReach from "./outside-apps/OutsideAppsReach.svelte";
   import HostDetailAccess from "./HostDetailAccess.svelte";
   import SharingDevices from "./SharingDevices.svelte";
 
@@ -26,7 +24,6 @@
 
 {#if rights.showsOutsideApps}
   <OutsideAppsDirectory {serverId} readsGrants={rights.showsPairedDevices} />
-  <OutsideAppsReach {serverId} hostName={hostLabel(serverId)} />
 {/if}
 <SharingDevices {serverId} showsPairCode={rights.showsPairCode} showsApprovals={rights.showsApprovals} showsPairedDevices={rights.showsPairedDevices} />
 <HostDetailAccess {serverId} hasPairing={rights.hasPairing} canChangeNetwork={rights.canChangeNetwork} />

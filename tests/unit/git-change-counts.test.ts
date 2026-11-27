@@ -164,3 +164,36 @@ for (const objectFormat of ['sha1', 'sha256']) test(`a repository with no commit
   expect(stagedStatus?.branchChanges).toEqual({ fileCount: 1, insertions: 2, deletions: 0 })
   expect(readFileSync(join(directory, '.git', 'index'))).toEqual(index)
 })
+
+test('the uncommitted totals read the working tree, whatever part of it is staged', async () => {
+  // WHY: the change counts start from a copy of the checkout's own index, to
+  // keep its stat cache. What is staged must not change what the counts show.
+  const directory = repository()
+  git(['checkout', '-b', 'feature'], directory)
+  writeFileSync(join(directory, 'base.ts'), 'one\ntwo\nthree\nfour\n')
+  git(['add', 'base.ts'], directory)
+  writeFileSync(join(directory, 'base.ts'), 'one\ntwo\nthree\nfour\nfive\n')
+  writeFileSync(join(directory, 'staged-new.ts'), 'a\n')
+  git(['add', 'staged-new.ts'], directory)
+
+  const status = await computeGitState(directory, { includeDetails: true })
+
+  // base.ts (+2, staged and not), staged-new.ts (+1).
+  expect(status?.uncommittedTotals).toEqual({ fileCount: 2, insertions: 3, deletions: 0 })
+})
+
+test('a linked worktree counts its own changes, not what the main checkout staged', async () => {
+  // WHY: each worktree has its own index. Counts from the index of a different
+  // checkout would show its staged files as changes here.
+  const directory = repository()
+  const worktree = join(realpathSync(mkdtempSync(join(tmpdir(), 'solus-git-change-counts-wt-'))), 'feature')
+  directories.push(worktree)
+  git(['worktree', 'add', '-b', 'feature', worktree], directory)
+  writeFileSync(join(directory, 'main-only.ts'), 'x\ny\n')
+  git(['add', 'main-only.ts'], directory)
+  writeFileSync(join(worktree, 'base.ts'), 'one\ntwo\n')
+
+  const status = await computeGitState(worktree, { includeDetails: true })
+
+  expect(status?.uncommittedTotals).toEqual({ fileCount: 1, insertions: 0, deletions: 1 })
+})

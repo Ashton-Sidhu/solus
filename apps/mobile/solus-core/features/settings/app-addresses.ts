@@ -34,10 +34,16 @@ export function cloudAppAddress(addresses: readonly AppAddress[]): AppAddress | 
  * the internet reaches also reaches the person's devices, so `devices` is only a
  * tailnet address.
  */
+/**
+ * The two addresses the section shows. An internet address serves your
+ * devices too, so the tailnet one shows only while there is no internet one,
+ * as on desktop and web (docs/outside-apps.md).
+ */
 export function appReachOf(addresses: readonly AppAddress[]) {
+  const anywhere = cloudAppAddress(addresses)
   return {
-    anywhere: cloudAppAddress(addresses),
-    devices: addresses.find((entry) => entry.reach === 'tailnet') ?? null,
+    anywhere,
+    devices: anywhere ? null : addresses.find((entry) => entry.reach === 'tailnet') ?? null,
   }
 }
 

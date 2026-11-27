@@ -55,6 +55,7 @@ export function createReferenceNavigation(
       }
       const sessionParams = parseSessionHref(href)
       if (sessionParams) {
+        if (session.drafts.openDraft(sessionParams.sessionId)) return
         void resolveSessionLinkMeta(sessionParams, serverId).then((meta) => session.opening.resumeSession(meta))
         return
       }

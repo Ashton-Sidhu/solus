@@ -1,7 +1,54 @@
 import { createAppContext } from './create-app-context'
-import { MODEL_PROFILES, providerModelsFor, type AgentMetadata } from '@solus/contracts/types'
+import { agentForProject } from '@solus/contracts/provider-instance-models'
+import { MODEL_PROFILES, providerModelsFor, type AgentMetadata, type ModelProfile } from '@solus/contracts/types'
 import { modelProfilesStore } from '../updates/model-profiles.store.svelte'
 import type { SettingsContext } from './settings.context.svelte'
+
+/**
+ * Refresh a hydrated `AgentMetadata` against the live published `MODEL_PROFILES`:
+ * - When the agent reported its account's offered models (`modelsOffered`), keep
+ *   only those models and refresh each profile from the published list while
+ *   preserving the agent's reported reasoning levels.
+ * - Otherwise, rebuild `models`, `modelProfiles`, and `defaultModel` together so
+ *   stale `modelProfiles` never drop `isLegacy` flags on newly listed models.
+ */
+export function applyLiveModelProfiles(meta: AgentMetadata): AgentMetadata {
+  const listed = MODEL_PROFILES[meta.id]
+  if (!listed) return meta
+  if (meta.modelsOffered) {
+    if (!meta.modelProfiles) return meta
+    const refreshed: Record<string, ModelProfile> = {}
+    for (const [id, existing] of Object.entries(meta.modelProfiles)) {
+      const published = listed[id]
+      if (!published) {
+        refreshed[id] = existing
+        continue
+      }
+      const profile: ModelProfile = { ...published }
+      if (existing.reasoningLevels.length) {
+        profile.reasoningLevels = existing.reasoningLevels
+        if (!profile.reasoningLevels.includes(profile.defaultReasoningEffort)) {
+          profile.defaultReasoningEffort = profile.reasoningLevels.includes('medium') ? 'medium' : profile.reasoningLevels[0]!
+        }
+      }
+      refreshed[id] = profile
+    }
+    const updated: AgentMetadata = {
+      ...meta,
+      models: meta.models.map((model) => ({ id: model.id, label: refreshed[model.id]?.label ?? model.label })),
+      modelProfiles: refreshed,
+      defaultModel: meta.models.find((model) => refreshed[model.id]?.isDefault)?.id ?? meta.models[0]?.id ?? meta.defaultModel,
+    }
+    return meta.instancePreferences ? agentForProject(updated) : updated
+  }
+  if (meta.instancePreferences) return agentForProject(meta)
+  const updated: AgentMetadata = {
+    ...meta,
+    ...providerModelsFor(meta.id),
+  }
+  if (meta.modelProfiles) updated.modelProfiles = { ...meta.modelProfiles, ...listed }
+  return updated
+}
 
 /**
  * Frontend store for the backend-provided agent list. Session startup hydrates
@@ -16,7 +63,7 @@ export class AgentContext {
     const hasHostModelList = modelProfilesStore.revision > 0
     return Object.fromEntries(this.agents.map((meta) => [
       meta.id,
-      hasHostModelList && MODEL_PROFILES[meta.id] ? { ...meta, ...providerModelsFor(meta.id) } : meta,
+      hasHostModelList ? applyLiveModelProfiles(meta) : meta,
     ]))
   })
 

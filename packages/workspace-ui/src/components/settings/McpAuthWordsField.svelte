@@ -67,7 +67,7 @@
     <form class="flex flex-col gap-2" onsubmit={save} onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); isEditing = false; } }}>
       <Input id={fieldId} bind:value={draft} oninput={() => (error = "")} placeholder={kind === "scopes" ? "read write" : "X-API-Key X-Tenant"} autocomplete="off" spellcheck={false} dictation={false}
         aria-label={kind === "scopes" ? `Scopes of ${integration.name}` : `Header names of ${integration.name}`} aria-invalid={error ? true : undefined} aria-describedby="{fieldId}-hint"
-        disabled={isBusy || isOffline} class="h-8 min-w-0 font-mono text-workspace-chrome" />
+        disabled={isBusy || isOffline} class="h-8 min-w-0 text-workspace-chrome" />
       <p id="{fieldId}-hint" role={error ? "alert" : undefined} class="break-words text-chrome-dense {error ? 'text-(--solus-status-error)' : 'text-(--solus-text-secondary)'}">
         {error || (kind === "scopes" ? "Separated by spaces. The next sign-in asks for them." : "Separated by spaces. New names remove the values saved for the old ones.")}
       </p>
@@ -84,7 +84,7 @@
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
         {#each words as word (word)}
-          <span class="max-w-full truncate rounded-md bg-muted px-1.5 py-0.5 font-mono text-chrome-dense text-foreground">{word}</span>
+          <span class="max-w-full truncate rounded-md bg-muted px-1.5 py-0.5 text-chrome-dense text-foreground">{word}</span>
         {:else}
           <span class="text-workspace-chrome text-(--solus-text-secondary)">The ones the server names</span>
         {/each}

@@ -5,7 +5,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { HostApi } from "@solus/client-core/host-api";
 import { mcpAppOffersDisplayMode, type McpAppHost, type McpAppLiveCall } from "@solus/client-core/mcp-app-host";
 import { MCP_APP_DOCKED_HEIGHT, mcpAppAvailableDisplayModes, type McpAppDisplayMode } from "@solus/client-core/mcp-app-context";
-import { mcpAppFrameHeight } from "@solus/client-core/mcp-app-document";
 import { mcpAppLiveFor } from "@solus/client-core/mcp-app-live";
 import { mcpAppLiveToolName, type McpAppCancelReason, type McpAppLiveDocument, type McpAppReference, type McpAppRequest, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
 
@@ -250,8 +249,7 @@ export function McpAppCard(props: {
         </View>
       ) : (
         <View
-          style={{ height: mcpAppFrameHeight(height, document.prefersBorder), marginBottom: 8 }}
-          className={document.prefersBorder ? "overflow-hidden rounded-lg border border-border bg-card" : undefined}
+          style={{ height, marginBottom: 8 }}
         >
           {frame("inline")}
           <View className="absolute right-1.5 top-1.5 flex-row gap-1">
@@ -328,7 +326,7 @@ function DockedMcpApp(props: {
   readonly children: ReactNode;
 }) {
   return (
-    <View className="mx-4 mb-3 overflow-hidden rounded-[20px] border border-border bg-card-alt">
+    <View className="mx-4 mb-3 overflow-hidden">
       <View className="min-h-11 flex-row items-center pl-4">
         <Text numberOfLines={1} className="flex-1 font-t3-medium text-sm text-foreground">{props.title}</Text>
         <Pressable accessibilityRole="button" accessibilityLabel="Return to card" onPress={props.onReturn} className="size-11 items-center justify-center">

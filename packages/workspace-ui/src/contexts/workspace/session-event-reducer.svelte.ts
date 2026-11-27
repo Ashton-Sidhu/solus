@@ -26,6 +26,7 @@ import type { Activity } from '@solus/contracts/activity'
 import { showsActivity } from '../../components/activity/lib/activity-line'
 import { restoredModelConfig } from './model-options'
 import { foldWorktreeOfferDecision } from '../../components/conversation/lib/worktree-offer'
+import { signInReturns } from '../../components/connections/sign-in-return.svelte'
 import { canDriveSession } from '../sharing/resource-roles'
 import { adoptGit, checkoutGit, checkoutPlace, chooseCodebase, landClone, pendingClone, projectHome, projectRoot, runHost, startsWorktree, workingPlace } from './run-location'
 import { mcpAppLiveToolName } from '@solus/contracts/mcp-apps'
@@ -824,6 +825,8 @@ export class SessionEventReducer {
 
       case 'permission_resolved': {
         const resolvedId = event.questionId
+        // A conversation waiting on this card for a sign-in on another host comes back (docs/host-provider-sign-in.md).
+        signInReturns.cardClosed(resolvedId)
         const permIdx = session.permissionQueue.findIndex((p) => p.questionId === resolvedId)
         if (event.expired) {
           // Nobody answered: the card stays, without its controls, to say why.

@@ -62,7 +62,7 @@
               placeholder="Untitled lens"
               aria-label="Lens name"
               autofocus={lens.id === blankLensId}
-              class="h-6 min-w-0 flex-1 rounded-none bg-transparent px-0 font-medium text-workspace-chrome text-(--solus-text-primary) shadow-none focus-visible:ring-0"
+              class="h-6 min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 font-medium text-workspace-chrome text-(--solus-text-primary) shadow-none focus-visible:ring-0"
               oninput={(event) => change(lens.id, { name: event.currentTarget.value })}
             />
             <div

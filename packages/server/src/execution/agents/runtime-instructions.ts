@@ -60,7 +60,7 @@ Use a native subagent for foreground work on your provider when the native tool 
 
 Each start_sessions child gets only its brief. Give it the task, constraints, and expected result. To run work in parallel, put every session in one start_sessions call so they start together.
 
-Set independent=true on a session only for an independent conversation. It does not become your child, does not hold your work open, and is not stopped with you. Reports default off. Start an unrelated conversation only when the user asks for it.
+Set independent=true on a session only for a child that continues without you. It stays under your session, but it does not hold your work open, does not report by default, and is not stopped with you. Use it only when the user asks for work that continues after you stop.
 
 Use isolation=worktree for separate checkouts. For related work, keep independent=false so the sessions appear under yours. Use report=false to let the parent turn finish without waiting for those children.
 

@@ -30,6 +30,17 @@ describe('parseClaudeUsageReport', () => {
     expect(usage?.weekly?.resetsLabel).toBe('Aug 6 at 4:59pm (America/Toronto)')
   })
 
+  // Fable has a week of its own; it is the per-model limit a Fable user hits first.
+  test('reads the Fable week apart from the all-models week', () => {
+    expect(parseClaudeUsageReport(REPORT)?.fableWeekly).toEqual({
+      usedPercent: 2,
+      resetsAt: null,
+      resetsLabel: 'Aug 6 at 4:59pm (America/Toronto)',
+    })
+    const noFable = parseClaudeUsageReport('Current week (all models): 8% used · resets Aug 6 at 4:59pm (America/Toronto)')
+    expect(noFable?.fableWeekly).toBeNull()
+  })
+
   test('keeps the window it can read when the other is absent', () => {
     const weeklyOnly = parseClaudeUsageReport(
       'Current week (all models): 8% used · resets Aug 6 at 4:59pm (America/Toronto)',
@@ -83,6 +94,21 @@ describe('claudeUsageFromApi', () => {
     expect(usage?.weekly?.usedPercent).toBe(8.5)
     expect(usage?.weekly?.resetsAt).toBe(Date.parse('2026-08-06T20:59:00Z'))
     expect(usage?.planType).toBe('max')
+  })
+
+  test('keeps the Fable week from the per-model windows, matched by its label', () => {
+    expect(claudeUsageFromApi(apiResponse({}))?.fableWeekly).toEqual({
+      usedPercent: 2,
+      resetsAt: Date.parse('2026-08-06T20:59:00Z'),
+      resetsLabel: null,
+    })
+    const otherModelOnly = claudeUsageFromApi(apiResponse({
+      rate_limits: {
+        five_hour: { utilization: 43, resets_at: null },
+        model_scoped: [{ display_name: 'Opus', utilization: 50, resets_at: null }],
+      },
+    }))
+    expect(otherModelOnly?.fableWeekly).toBeNull()
   })
 
   test('reports no data when plan limits do not apply, rather than 0%', () => {

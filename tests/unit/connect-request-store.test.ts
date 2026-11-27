@@ -166,9 +166,12 @@ test('a custom server address becomes that server\'s sign-in in the same row', a
   const [request] = store.requests
   expect(request).toEqual({ kind: 'custom-server', serverId: 'studio', sessionId: 'session-a', url: 'http://localhost:8000/mcp' })
 
-  store.customServerAdded(request, { id: 'int-1', name: 'localhost:8000' })
+  store.customServerAdded(request, { id: 'int-1', name: 'localhost:8000', url: 'http://localhost:8000/mcp' })
 
-  expect(store.requests).toEqual([{ kind: 'integration', serverId: 'studio', sessionId: 'session-a', integrationId: 'int-1', integrationName: 'localhost:8000' }])
+  // The row keeps the address, so its timeline shows the add step as done above the sign-in.
+  expect(store.requests).toEqual([
+    { kind: 'integration', serverId: 'studio', sessionId: 'session-a', integrationId: 'int-1', integrationName: 'localhost:8000', addedUrl: 'http://localhost:8000/mcp' },
+  ])
 
   unsubscribe()
 })

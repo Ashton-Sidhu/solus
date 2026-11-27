@@ -184,6 +184,7 @@
     } else if (sessionParams) {
       e.preventDefault();
       if (!session) return;
+      if (session.drafts.openDraft(sessionParams.sessionId)) return;
       const linkedHostId = sessionParams.serverId;
       if (linkedHostId && serverConnections.readinessFor(linkedHostId).readiness !== "ready") {
         const source = serverConnections.pairedSourceFor(linkedHostId, sessionLinkContext?.serverId());

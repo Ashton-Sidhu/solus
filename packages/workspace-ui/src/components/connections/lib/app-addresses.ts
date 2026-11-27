@@ -87,28 +87,27 @@ export function publicAddressProblem(value: string): string | null {
   return url.protocol === 'https:' ? null : 'Use an https address. Apps sign in only over https.'
 }
 
-/** One row of "Where apps reach this host" on Settings › Sharing & access. */
-export interface ReachRow {
-  place: 'anywhere' | 'devices' | 'computer'
-  label: string
-  detail: string
-  /** Null when the host has no such address yet. */
-  url: string | null
-  /** The address the host tests; null for the local one, which needs no test, and for none. */
-  source: AppAddressSource | null
-  /** The reach its "Set up" gives; null for the local address, which is always there. */
-  setupReach: AppAddressReach | null
+/**
+ * The one address "Where apps reach this host" shows (docs/outside-apps.md):
+ * the internet address cloud apps use, which your devices use too; else a
+ * tailnet address, which reaches your devices only; else none.
+ */
+/** The address the section shows, and whether it reaches your devices only. */
+export interface HostAppAddress {
+  address: AppAddress | null
+  isDevicesOnly: boolean
 }
 
-/** Anywhere (an internet address, for cloud apps), your devices (the tailnet), and this computer (the local address). */
-export function reachRows(endpoint: { localUrl: string; addresses: readonly AppAddress[] }, hostName: string): ReachRow[] {
-  const internet = preferredAppAddress(endpoint.addresses, 'internet')
-  const tailnet = endpoint.addresses.find((address) => address.reach === 'tailnet') ?? null
-  return [
-    { place: 'anywhere', label: 'Anywhere', detail: 'Cloud apps', url: internet?.url ?? null, source: internet?.source ?? null, setupReach: 'internet' },
-    { place: 'devices', label: 'Your devices', detail: 'Over Tailscale', url: tailnet?.url ?? null, source: tailnet?.source ?? null, setupReach: 'internet-or-tailnet' },
-    { place: 'computer', label: 'This computer', detail: `Apps on ${hostName}`, url: endpoint.localUrl, source: null, setupReach: null },
-  ]
+export function hostAppAddress(addresses: readonly AppAddress[]): HostAppAddress {
+  const internet = preferredAppAddress(addresses, 'internet')
+  if (internet) return { address: internet, isDevicesOnly: false }
+  const tailnet = addresses.find((address) => address.reach === 'tailnet') ?? null
+  return { address: tailnet, isDevicesOnly: tailnet !== null }
+}
+
+/** An address as the page shows it: without the scheme, which Copy keeps. */
+export function shownAppAddress(url: string): string {
+  return url.replace(/^https?:\/\//, '')
 }
 
 /** The dot of an address: it answered the host's last test, it did not, or it was not tested. */

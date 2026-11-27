@@ -27,6 +27,8 @@ export class ConversationViewState {
   /** The Git card of the project panel shows each repository of the session,
    *  not only the first ones: the person opened "Show N more". */
   gitRepositoriesExpanded = $state(false)
+  /** The Environment panel shows all model groups when the user expands quota. */
+  usageGroupsExpanded = $state(false)
   readonly virtualizer = new TranscriptVirtualizer(
     () => this.position === null,
     () => {

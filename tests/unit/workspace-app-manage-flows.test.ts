@@ -5,9 +5,9 @@ import { focusStep, notRunText, retryPolicyText, runGraph, runTimeline, stepNode
 import { RUN_TRIGGER_NODE_ID, runFlow, runStepNodeId } from '@solus/workspace-ui/components/app/manage/lib/run-flow'
 import { canvasTakesTouch } from '@solus/workspace-ui/components/app/manage/lib/flow'
 import { failedStepName, workflowNames } from '@solus/workspace-ui/components/app/manage/lib/runs'
-import { calendarCell, calendarEdges, triggerParts } from '@solus/workspace-ui/components/app/manage/lib/schedule-calendar'
+import { calendarCell, calendarColumns, calendarEdges, calendarLane, triggerParts } from '@solus/workspace-ui/components/app/manage/lib/schedule-calendar'
 import { scheduleLastRunLine } from '@solus/workspace-ui/components/app/manage/lib/schedules'
-import { historyMark, historyMeta, preflightLines } from '@solus/workspace-ui/components/app/manage/lib/versions'
+import { buildErrorPlace, historyMeta, historyState, missingSecretsTail, preflightBuildError, preflightLines } from '@solus/workspace-ui/components/app/manage/lib/versions'
 
 /**
  * The Workflows, Schedules, and Versions sections of the Manage page
@@ -178,15 +178,42 @@ describe('the calendar of the schedules', () => {
     // WHY: a day with no run is a fact the owner must see; a day to come is not a missed day.
     const column = { start: 0, end: day }
     const lane = { upcoming: [3 * day + 9 * 60 * 60_000] }
+    const on = { enabled: true, lastRunAt: null }
     const now = 2 * day
-    expect(calendarCell(span({ ok: 0, failed: 1, planned: 1, lastRunAt: 9, lastOutcome: 'failed' }), column, lane, true, now)).toEqual({ kind: 'time', at: 9, outcome: 'failed' })
-    expect(calendarCell(span({ ok: 96, planned: 96 }), column, lane, true, now)).toMatchObject({ kind: 'count', runs: 96, fill: 1, missedShare: 0 })
-    expect(calendarCell(span({ ok: 40, planned: 96 }), column, lane, true, now)).toMatchObject({ kind: 'count', runs: 40, missedShare: 1 - 40 / 96 })
-    expect(calendarCell(span({ planned: 96 }), column, lane, true, now)).toEqual({ kind: 'missed', planned: 96 })
+    expect(calendarCell(span({ ok: 0, failed: 1, planned: 1, lastRunAt: 9, lastOutcome: 'failed' }), column, lane, on, now)).toEqual({ kind: 'time', at: 9, outcome: 'failed' })
+    expect(calendarCell(span({ ok: 96, planned: 96 }), column, lane, on, now)).toMatchObject({ kind: 'count', runs: 96, isShort: false })
+    // Fewer runs than planned: the host was off for a part of the day.
+    expect(calendarCell(span({ ok: 40, planned: 96 }), column, lane, on, now)).toMatchObject({ kind: 'count', runs: 40, isShort: true })
+    expect(calendarCell(span({ planned: 96 }), column, lane, on, now)).toEqual({ kind: 'missed', planned: 96 })
     // The day of the next run names its time; a day to come of a paused schedule is paused, not missed.
-    expect(calendarCell(span({ planned: 1 }), { start: 3 * day, end: 4 * day }, lane, true, now)).toEqual({ kind: 'next', at: lane.upcoming[0] })
-    expect(calendarCell(span({ planned: 1 }), { start: 4 * day, end: 5 * day }, { upcoming: [] }, false, now)).toEqual({ kind: 'paused' })
-    expect(calendarCell(span({ planned: 1 }), { start: 4 * day, end: 5 * day }, lane, true, now)).toEqual({ kind: 'empty' })
+    expect(calendarCell(span({ planned: 1 }), { start: 3 * day, end: 4 * day }, lane, on, now)).toEqual({ kind: 'next', at: lane.upcoming[0] })
+    expect(calendarCell(span({ planned: 1 }), { start: 4 * day, end: 5 * day }, { upcoming: [] }, { enabled: false, lastRunAt: null }, now)).toEqual({ kind: 'paused' })
+    expect(calendarCell(span({ planned: 1 }), { start: 4 * day, end: 5 * day }, lane, on, now)).toEqual({ kind: 'empty' })
+    // A paused schedule did not run after its last run: those past days are paused; a day before it is missed.
+    const paused = { enabled: false, lastRunAt: 2 * day + 3 * 60 * 60_000 }
+    expect(calendarCell(span({ planned: 1 }), { start: day, end: 2 * day }, { upcoming: [] }, paused, 5 * day)).toEqual({ kind: 'missed', planned: 1 })
+    expect(calendarCell(span({ planned: 1 }), { start: 3 * day, end: 4 * day }, { upcoming: [] }, paused, 5 * day)).toEqual({ kind: 'paused' })
+  })
+
+  test('a lane joins its paused days into one piece that says since when, names "runs" once, and shows a next run after the week in its last cell', () => {
+    const monday = new Date(2026, 10, 9).getTime()
+    const edges = calendarEdges('week', monday)
+    const now = edges[6] + 12 * 60 * 60_000
+    const columns = calendarColumns('week', edges, now)
+    const ran = span({ ok: 1, planned: 1, lastRunAt: edges[0] + 3 * 60 * 60_000, lastOutcome: 'ok' })
+    const pausedLane = { name: 'prune', spans: [ran, ...Array.from({ length: 6 }, () => span({ planned: 1 }))], upcoming: [] }
+    const pieces = calendarLane(pausedLane, columns, { enabled: false, lastRunAt: ran.lastRunAt }, 'week', now)
+    expect(pieces.map((piece) => [piece.cell.kind, piece.columns])).toEqual([['time', 1], ['paused', 6]])
+    expect(pieces[1].since).toBe(columns[1].label)
+
+    const counts = { name: 'poll', spans: Array.from({ length: 7 }, () => span({ ok: 96, planned: 96 })), upcoming: [] }
+    expect(calendarLane(counts, columns, { enabled: true, lastRunAt: now }, 'week', now).map((piece) => piece.hasUnit)).toEqual([true, false, false, false, false, false, false])
+
+    const nextMonday = edges[7] + 9 * 60 * 60_000
+    const weekly = { name: 'digest', spans: Array.from({ length: 7 }, () => span()), upcoming: [nextMonday] }
+    expect(calendarLane(weekly, columns, { enabled: true, lastRunAt: null }, 'week', now).at(-1)?.cell).toEqual({ kind: 'later', at: nextMonday })
+    // A paused schedule has no next run to name.
+    expect(calendarLane(weekly, columns, { enabled: false, lastRunAt: null }, 'week', now).at(-1)?.cell.kind).toBe('paused')
   })
 
   test('a cron trigger shows its five parts, an every part quiet; an interval shows its period', () => {
@@ -205,7 +232,7 @@ describe('the calendar of the schedules', () => {
 })
 
 describe('the history and the deploy preflight', () => {
-  const version = (number: number, state: 'active' | 'superseded' | 'failed', error: string | null = null) => ({
+  const version = (number: number, state: 'building' | 'active' | 'superseded' | 'failed', error: string | null = null) => ({
     number, state, error, message: '', createdAt: 0, createdBy: { kind: 'system' as const }, permissionsNotice: null, operationCount: 1, hasUi: false, revision: 'c', protocol: 4, buildMs: null, activations: [],
   })
   const entry = (position: AppChangeLogEntry['position'], versions: ReturnType<typeof version>[]): AppChangeLogEntry => ({
@@ -213,25 +240,44 @@ describe('the history and the deploy preflight', () => {
     position, versions, canDeploy: versions.every((built) => built.state === 'failed'), restorable: versions.find((built) => built.state === 'superseded') ?? null,
   })
 
-  test('a save whose builds all failed has the failure mark, whatever its place on the line', () => {
-    expect(historyMark(entry('ahead', []))).toBe('ahead')
-    expect(historyMark(entry('behind', [version(12, 'failed', 'The build failed: app.ts:88')]))).toBe('failed')
-    expect(historyMeta(entry('behind', [version(12, 'failed', 'The build failed: app.ts:88')]), Date.now())).toBe('Build failed · The build failed: app.ts:88')
-    expect(historyMeta(entry('ahead', []), Date.now())).toEndWith('· not deployed')
-    expect(historyMeta(entry('behind', [version(13, 'superseded')]), Date.now())).toStartWith('Version 13 · ')
+  test('a save takes the session mark of its state, never a word: idle, complete when live, working while it builds, error when its builds failed', () => {
+    expect(historyState(entry('ahead', []))).toBe('idle')
+    expect(historyState(entry('live', [version(14, 'active')]))).toBe('ok')
+    expect(historyState(entry('behind', [version(13, 'superseded')]))).toBe('idle')
+    expect(historyState(entry('ahead', [version(15, 'building')]))).toBe('running')
+    expect(historyState(entry('behind', [version(12, 'failed', 'The build failed: app.ts:88')]))).toBe('failed')
   })
 
-  test('this deploy names what the save may newly use and declares, then the secrets with no value', () => {
+  test('the line under a save is quiet facts: when it was saved, or its version and time; a failed build names its place in code type', () => {
+    const now = Date.now()
+    expect(historyMeta(entry('behind', [version(12, 'failed', 'The build failed: src/app.ts:88:4 Unexpected token')]), now)).toEqual({ text: 'src/app.ts:88', isCode: true })
+    // A build error with no place in the source is said in words, not dropped.
+    expect(historyMeta(entry('behind', [version(12, 'failed', 'The build failed: out of memory')]), now)).toEqual({ text: 'out of memory', isCode: false })
+    expect(historyMeta(entry('ahead', []), now).text).toStartWith('Saved ')
+    expect(historyMeta(entry('behind', [version(13, 'superseded')]), now).text).toStartWith('v13 · ')
+    // The live save names who made it live; no state word is in the line.
+    const live = historyMeta(entry('live', [version(14, 'active')]), now).text
+    expect(live).toStartWith('v14 · ')
+    expect(live).not.toMatch(/live|deployed/i)
+    expect(buildErrorPlace('no place here')).toBeNull()
+  })
+
+  test('this deploy names what the save may newly use and declares as plain facts; a failed build and a missing secret go to callouts', () => {
     const none = { added: [], removed: [] }
     const preflight: AppDeployPreflight = {
       commit: 'c', against: 14, buildError: null, network: { added: ['hooks.slack.com'], removed: [] }, readPaths: none, writePaths: none, models: none, integrations: none,
       operations: none, workflows: none, schedules: none, webhooks: { added: [], removed: ['pushed'] }, signals: none, secretsMissing: [{ name: 'SLACK_WEBHOOK_URL', label: 'Slack' }],
     }
     expect(preflightLines(preflight)).toEqual([
-      { sign: '+', text: 'May reach hooks.slack.com' },
-      { sign: '−', text: 'Removes the webhook pushed' },
-      { sign: '!', text: 'Needs SLACK_WEBHOOK_URL, which is not set', secret: 'SLACK_WEBHOOK_URL' },
+      { words: 'May reach', name: 'hooks.slack.com', isCode: false },
+      { words: 'Removes the webhook', name: 'pushed', isCode: true },
     ])
-    expect(preflightLines({ ...preflight, buildError: 'The build failed: x is not defined' })).toEqual([{ sign: '!', text: 'The build fails: x is not defined' }])
+    expect(missingSecretsTail(1)).toStartWith(', which is not set.')
+    expect(missingSecretsTail(2)).toStartWith(', which are not set.')
+    // A failed build has no facts: the error callout says why a deploy fails.
+    const failed = { ...preflight, buildError: 'The build failed: x is not defined' }
+    expect(preflightLines(failed)).toEqual([])
+    expect(preflightBuildError(failed)).toBe('The build fails: x is not defined')
+    expect(preflightBuildError(preflight)).toBeNull()
   })
 })

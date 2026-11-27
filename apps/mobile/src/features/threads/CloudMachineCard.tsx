@@ -62,7 +62,7 @@ export function CloudMachineCard(props: {
   const [fields, setFields] = useState(() => initialFields(ask));
   const canRespond = props.question.expired === undefined;
   return (
-    <View className="gap-3 rounded-[20px] border border-border bg-card-alt p-4">
+    <View className="mb-3 gap-3 px-1">
       <View className="gap-1">
         <View className="flex-row items-center gap-2">
           <SymbolView
@@ -128,7 +128,7 @@ export function CloudMachineCard(props: {
 /** What the agent chose, and what is still missing, as label and value rows. */
 function FactRows(props: { readonly facts: readonly CloudMachineFact[] }) {
   return (
-    <View className="overflow-hidden rounded-xl border border-border">
+    <View className="overflow-hidden">
       {props.facts.map((fact, index) => (
         <View
           key={fact.label}

@@ -2,12 +2,15 @@ import { describe, expect, test } from 'bun:test'
 import type { AppFileView } from '@solus/contracts/apps'
 import { uploadsHeading } from '@solus/workspace-ui/components/app/manage/lib/app-file-transfer'
 import {
+  activeFileFilterCount,
+  ALL_FILES,
   fileAddedText,
   fileFigures,
   fileOriginText,
   fileSourceOptions,
   fileSourceText,
   fileTypeName,
+  fileTypeOptions,
   fileTypeTile,
   shortFileId,
   visibleFiles,
@@ -25,23 +28,31 @@ describe('the table of the Files section', () => {
 
   test('a search matches the name, the media type, or the type a person reads, in any case', () => {
     // WHY: an owner finds "the images" or "the PNGs" by type as often as a file by its name.
-    expect(visibleFiles(files, 'REPORT', 'all', 'newest').map((f) => f.id)).toEqual(['a', 'b'])
-    expect(visibleFiles(files, 'image/', 'all', 'newest').map((f) => f.id)).toEqual(['c'])
-    expect(visibleFiles(files, 'png', 'all', 'newest').map((f) => f.id)).toEqual(['c'])
+    expect(visibleFiles(files, 'REPORT', ALL_FILES, 'newest').map((f) => f.id)).toEqual(['a', 'b'])
+    expect(visibleFiles(files, 'image/', ALL_FILES, 'newest').map((f) => f.id)).toEqual(['c'])
+    expect(visibleFiles(files, 'png', ALL_FILES, 'newest').map((f) => f.id)).toEqual(['c'])
   })
 
   test('the source splits what people uploaded from what the app wrote', () => {
-    expect(visibleFiles(files, '', 'uploaded', 'newest').map((f) => f.id)).toEqual(['a'])
-    expect(visibleFiles(files, '', 'written', 'newest').map((f) => f.id)).toEqual(['c', 'b'])
-    expect(fileSourceOptions(files).map((option) => [option.label, option.count])).toEqual([['All', 3], ['Uploaded', 1], ['Written by the app', 2]])
+    expect(visibleFiles(files, '', { ...ALL_FILES, source: 'uploaded' }, 'newest').map((f) => f.id)).toEqual(['a'])
+    expect(visibleFiles(files, '', { ...ALL_FILES, source: 'written' }, 'newest').map((f) => f.id)).toEqual(['c', 'b'])
+    expect(fileSourceOptions(files).map((option) => [option.label, option.count])).toEqual([['Any source', 3], ['Uploaded', 1], ['Written by the app', 2]])
     expect([fileSourceText('ui'), fileSourceText('workflow')]).toEqual(['Uploaded', 'Written by the app'])
   })
 
+  test('the type filter keeps the files of one type, and offers the types the files have, the most common first', () => {
+    // WHY: the Filters menu offers only a type that narrows to at least one file, and the count on its button says the list is narrowed.
+    expect(fileTypeOptions(files).map((option) => [option.value, option.label, option.count])).toEqual([['all', 'Any type', 3], ['CSV', 'CSV', 2], ['PNG', 'PNG', 1]])
+    expect(visibleFiles(files, '', { ...ALL_FILES, type: 'CSV' }, 'newest').map((f) => f.id)).toEqual(['a', 'b'])
+    expect(visibleFiles(files, '', { source: 'uploaded', type: 'PNG' }, 'newest')).toEqual([])
+    expect([activeFileFilterCount(ALL_FILES), activeFileFilterCount({ source: 'written', type: 'all' }), activeFileFilterCount({ source: 'written', type: 'PNG' })]).toEqual([0, 1, 2])
+  })
+
   test('the orders: newest first, names as a person counts, largest first', () => {
-    expect(visibleFiles(files, '', 'all', 'newest').map((f) => f.id)).toEqual(['a', 'c', 'b'])
+    expect(visibleFiles(files, '', ALL_FILES, 'newest').map((f) => f.id)).toEqual(['a', 'c', 'b'])
     // report-9 comes before report-10, as Finder sorts them.
-    expect(visibleFiles(files, '', 'all', 'name').map((f) => f.id)).toEqual(['c', 'b', 'a'])
-    expect(visibleFiles(files, '', 'all', 'largest').map((f) => f.id)).toEqual(['c', 'a', 'b'])
+    expect(visibleFiles(files, '', ALL_FILES, 'name').map((f) => f.id)).toEqual(['c', 'b', 'a'])
+    expect(visibleFiles(files, '', ALL_FILES, 'largest').map((f) => f.id)).toEqual(['c', 'a', 'b'])
   })
 
   test('the figures count the files, add their sizes, and name the newest', () => {

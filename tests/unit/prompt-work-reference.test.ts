@@ -3,6 +3,9 @@ import type { Prompt, Session } from '@solus/contracts/types'
 import type { PlanStore } from '@solus/workspace-ui/contexts/plans/plan.store.svelte'
 import type { WorksStore } from '@solus/workspace-ui/contexts/works/works.store.svelte'
 import { PromptComposer } from '@solus/workspace-ui/contexts/workspace/prompt-composer'
+import { stripSessionReferenceContext } from '@solus/contracts/injected-context'
+import { sessionReferenceMarkdown } from '@solus/contracts/session-link'
+import { makePrompt } from '@solus/workspace-ui/contexts/workspace/session.factories'
 
 describe('a referenced work in the prompt', () => {
   test('names the work id the read_work tool takes, never a file path', () => {
@@ -52,4 +55,27 @@ describe('a host chip in the prompt', () => {
     expect(composed).toContain('It is not the host you run on.')
     expect(composer.compose('Review this', prompt, session)).toBe('Review this')
   })
+})
+
+test('a draft chip supplies its text until the conversation starts', () => {
+  const reference = { sessionId: 'draft-1', provider: 'codex', title: 'Plan updates', cwd: '/repo' } as const
+  const draftText = 'Plan updates\n\nKeep the current settings.'
+  let draft: Prompt | undefined = makePrompt({ text: draftText })
+  const composer = new PromptComposer(
+    {} as PlanStore,
+    {} as WorksStore,
+    (sessionId) => sessionId === reference.sessionId ? draft : undefined,
+  )
+  const input = makePrompt({ sessionRefs: [reference] })
+  const session = { id: 'active', boundWorkId: null } as Session
+  const typed = `Review ${sessionReferenceMarkdown(reference)}`
+
+  const unsent = composer.compose(typed, input, session)
+  expect(unsent).toContain(JSON.stringify(draftText))
+  expect(stripSessionReferenceContext(unsent)).toBe(typed)
+
+  draft = undefined
+  const started = composer.compose(typed, input, session)
+  expect(started).toContain('Call read_session with session_id "draft-1"')
+  expect(stripSessionReferenceContext(started)).toBe(typed)
 })

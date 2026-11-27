@@ -5,8 +5,9 @@
   import { appsStore } from "../../../contexts/apps/apps.store.svelte";
   import type { AppManageSection } from "../../../contexts/workspace/routing/route-registry";
   import { messageTimestampClock } from "../../../lib/shared-clock";
-  import { Button } from "../../ui/button";
   import DeployHistory from "./DeployHistory.svelte";
+  import ManageSectionState from "./ManageSectionState.svelte";
+  import { VERSIONS_EMPTY } from "./lib/section-empty";
   import RevisionChangeLog from "./RevisionChangeLog.svelte";
   import VersionChangeCard from "./VersionChangeCard.svelte";
   import VersionStatus from "./VersionStatus.svelte";
@@ -15,9 +16,9 @@
   /**
    * The Versions section (docs/plans/apps.md §9.2). A save makes a revision; a
    * deploy builds a revision into a version and makes it active; a rollback
-   * makes an earlier version active again. The history line is on the left;
-   * the save it selects is the one card on the right, with what a deploy of
-   * it changes and its diff. The deploys are under them.
+   * makes an earlier version active again. The history is on the left; the
+   * save it selects is plain on the right, with what a deploy of it changes
+   * and its diff. The deploys are under them.
    */
   interface Props {
     serverId: string;
@@ -63,24 +64,17 @@
   }
 </script>
 
-{#if live === undefined}
-  {#if error}
-    <div class="flex flex-wrap items-center gap-2" role="alert">
-      <span class="text-sm text-destructive">{error}</span>
-      <Button size="xs" variant="outline" onclick={reload}>Try again</Button>
-    </div>
-  {:else}
-    <p class="m-0 text-sm text-muted-foreground" role="status" aria-busy="true">Loading…</p>
-  {/if}
-{:else if entries.length === 0}
-  <p class="m-0 text-sm text-muted-foreground">This app has no revision yet.</p>
+{#if live === undefined || entries.length === 0}
+  <ManageSectionState {serverId} {app} count={live === undefined ? undefined : 0} {error} empty={VERSIONS_EMPTY} onRetry={reload}>
+    {#snippet children()}{/snippet}
+  </ManageSectionState>
 {:else}
   <div class="flex min-w-0 flex-col gap-5" data-testid="app-timeline">
     <VersionStatus {serverId} appId={app.id} {live} {actions} {isDeploying} />
 
     <div class="flex min-w-0 items-start gap-5.5 @max-[48rem]/pane:flex-col @max-[48rem]/pane:items-stretch">
-      <section class="flex w-82.5 shrink-0 flex-col pt-0.5 @max-[48rem]/pane:w-full" aria-label="History">
-        <h3 class="m-0 pb-3 pl-1 text-[15px] leading-4.5 font-semibold text-foreground">History</h3>
+      <section class="flex w-82.5 shrink-0 flex-col @max-[48rem]/pane:w-full" aria-label="History">
+        <h3 class="m-0 px-3 pb-2 text-[15px] leading-5 font-semibold text-foreground">History</h3>
         <RevisionChangeLog
           {entries}
           selectedCommit={selected?.revision.commit ?? null}

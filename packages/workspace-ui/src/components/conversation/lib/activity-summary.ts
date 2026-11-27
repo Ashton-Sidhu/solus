@@ -326,6 +326,74 @@ export function backgroundTasksWait(tasks: readonly BackgroundTask[]): Backgroun
   return { label: `Running ${listed} in the background`, command: '' }
 }
 
+/** One line of the background row's open detail: one task of the session. */
+export interface BackgroundWorkEntry {
+  key: string
+  kind: BackgroundTaskKind
+  /** "Command", "Subagent": the kind, for a screen reader and the tooltip. */
+  kindName: string
+  /** The agent's words for it, or the command when it stated none. */
+  text: string
+  /** `text` is the command itself, set in the mono face. */
+  isCommand: boolean
+}
+
+const TASK_KIND_NAMES = {
+  command: 'Command',
+  monitor: 'Monitor',
+  subagent: 'Subagent',
+  workflow: 'Workflow',
+  schedule: 'Scheduled prompt',
+} as const satisfies Record<BackgroundTaskKind, string>
+
+/** The host's description of a shell task is its description or, when the
+ *  agent gave none, the command itself. Shell syntax says which one it is. */
+export function looksLikeShellCommand(text: string): boolean {
+  return /&&|\|\||[|;<>`$]|(^|\s)--?[a-z]|(^|\s)\w+=\S|(^|\s)\.{0,2}\/\S/i.test(text)
+}
+
+function entryOf(key: string, kind: BackgroundTaskKind, text: string | undefined, isCommand: boolean): BackgroundWorkEntry {
+  const trimmed = text?.trim().replace(/\s*\n\s*/g, isCommand ? '\n' : ' ')
+  return {
+    key,
+    kind,
+    kindName: TASK_KIND_NAMES[kind],
+    text: trimmed || `A ${TASK_NOUNS[kind][0]} with no description`,
+    isCommand: !!trimmed && isCommand,
+  }
+}
+
+/**
+ * Each piece of the session's background work, for the row's open detail. The
+ * host's task list names work an earlier turn launched too; without it, the
+ * turn's own running background calls are the best the row knows.
+ */
+export function backgroundWorkEntries(items: GroupedItem[], tasks?: readonly BackgroundTask[]): BackgroundWorkEntry[] {
+  if (tasks?.length) {
+    return tasks.map((task) =>
+      entryOf(task.taskId, task.kind, task.description, task.kind === 'command' && looksLikeShellCommand(task.description ?? '')),
+    )
+  }
+  const entries: BackgroundWorkEntry[] = []
+  for (const item of items) {
+    if (item.kind === 'subagent-group') {
+      for (const message of item.messages) {
+        if (message.toolStatus !== 'running') continue
+        entries.push(entryOf(message.id, 'subagent', parseSubagentInput(message.toolInput).description, false))
+      }
+      continue
+    }
+    if (item.kind !== 'tool-group') continue
+    for (const message of item.messages) {
+      if (!message.backgroundTaskId || message.backgroundTaskSettledAt !== undefined) continue
+      const parsed = message.toolInput ? parseToolInput(message.toolInput) : null
+      const description = parsed?.description?.trim()
+      entries.push(entryOf(message.backgroundTaskId, 'command', description || parsed?.command, !description))
+    }
+  }
+  return entries
+}
+
 function backgroundTaskLabel(task: BackgroundTask): string {
   const description = task.description?.trim().replace(/\.$/, '')
   if (!description) return `Running a ${TASK_NOUNS[task.kind][0]} in the background`

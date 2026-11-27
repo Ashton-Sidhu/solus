@@ -86,6 +86,25 @@ describe('a run that names no model', () => {
   })
 })
 
+describe('a session that another session started without delegation', () => {
+  test('is that session\'s child, with no delegation, and a session another host started stays a root', async () => {
+    // WHY: an independent session nests under the row of the session that
+    // started it, as a delegated one does, so the record names its parent.
+    // It reports to no one, so it must not read as a delegation.
+    lineage.registerSessionLineage({ sessionId: 'starter', provider: 'codex', providerSessionId: 'thread-starter', cwd: '/repo' })
+    indexer.persistIndexedSessionStart('thread-starter', 'codex', '/repo', '-repo', 'gpt-test', 'medium', 'start work')
+    lineage.registerSessionLineage({ sessionId: 'independent', provider: 'codex', providerSessionId: 'thread-independent', cwd: '/repo' })
+    indexer.persistIndexedSessionStart('thread-independent', 'codex', '/repo', '-repo', 'gpt-test', 'medium', 'do one part', null, undefined, { kind: 'session', sessionId: 'starter' })
+    lineage.registerSessionLineage({ sessionId: 'from-other-host', provider: 'codex', providerSessionId: 'thread-remote', cwd: '/repo' })
+    indexer.persistIndexedSessionStart('thread-remote', 'codex', '/repo', '-repo', 'gpt-test', 'medium', 'remote part', null, undefined, { kind: 'session', sessionId: 'remote-starter', hostLabel: 'Studio' })
+
+    await until(async () => !!await records.getSessionRecord('local', 'independent') && !!await records.getSessionRecord('local', 'from-other-host'))
+    expect(await records.getSessionRecord('local', 'independent')).toMatchObject({ parentSessionId: 'starter', rootSessionId: 'starter' })
+    expect(indexer.getIndexedSession('independent')?.delegation).toBeUndefined()
+    expect((await records.getSessionRecord('local', 'from-other-host'))?.parentSessionId).toBeNull()
+  })
+})
+
 describe('one session row (plans/029 §4.2)', () => {
   const ALICE = 'user:alice'
   const MALLORY = 'user:mallory'

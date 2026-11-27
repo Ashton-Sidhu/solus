@@ -15,6 +15,7 @@ import { holdLaunchSplashForHomeRows } from "../features/home/home-launch-splash
 import { keepStartTrace, markStart, START_TRACE_KEY } from "@solus-mobile/lib/start-trace";
 import { expoPlatform, watchAppLifecycle } from "@solus-mobile/platform/expo";
 import type { WorkspaceEnvironment } from "../state/workspaceModel";
+import type { SessionStarter } from "@solus/contracts/types";
 import { solusWorkspaceState } from "./workspace-state";
 import { solusListHosts } from "./list-hosts";
 import { createSessionListProjection } from "./session-list";
@@ -525,6 +526,14 @@ export function getSolusDirectory() {
     snapshotRevision = revision;
   }
   return snapshot;
+}
+/** The current name of the automation that started a session, as its list row
+ *  shows it: a run goes by its automation's name on every surface. */
+export function useAutomationName(hostId: string, startedBy: SessionStarter | null | undefined): string | undefined {
+  const automationId = startedBy?.kind === "automation" ? startedBy.automationId : undefined;
+  return useSyncExternalStore(subscribe, () => automationId === undefined
+    ? undefined
+    : (automationNames.has(hostId) ? automationNames.get(hostId)?.get(automationId) : solus.threads.openingAutomation(hostId, automationId)));
 }
 export function useSolusDirectory() {
   return useSyncExternalStore(subscribe, getSolusDirectory);

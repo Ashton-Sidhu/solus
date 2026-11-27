@@ -23,7 +23,7 @@ import {
 } from '../plans/plan-index'
 import { createLogger } from '../logger'
 import { ANY_ORGANIZATION } from '../admission/principal'
-import { delegationColumnsFor, type SessionDelegationStart } from '../data/sessions/session-delegations'
+import { childColumnsFor, delegationColumnsFor, type SessionDelegationStart } from '../data/sessions/session-delegations'
 import { activeThreadOf, isActiveThread, sessionIdOfThread } from '../data/sessions/session-lineage'
 import {
   deleteSessionRecord,
@@ -697,10 +697,21 @@ export function getSessionMessages(sessionId: string): Array<{ role: string; ts:
 
 /** The six delegation columns of a `transcript_index` row, in insert order; all null
  *  for a session nobody delegated. */
-function delegationRowValues(delegation: SessionDelegationStart | undefined): [string | null, string | null, string | null, number | null, string | null, number | null] {
-  if (!delegation) return [null, null, null, null, null, null]
-  const columns = delegationColumnsFor(delegation)
-  return [columns.parentSessionId, columns.rootSessionId, columns.messageId, columns.depth, columns.intent, columns.createdAt]
+function delegationRowValues(
+  delegation: SessionDelegationStart | undefined,
+  startedBy: SessionStarter | undefined,
+): [string | null, string | null, string | null, number | null, string | null, number | null] {
+  if (delegation) {
+    const columns = delegationColumnsFor(delegation)
+    return [columns.parentSessionId, columns.rootSessionId, columns.messageId, columns.depth, columns.intent, columns.createdAt]
+  }
+  // An independent session that a session on this host started is still its
+  // child: it nests under that session's row. It has no delegation, because it
+  // reports to no one, so `rowToSession` gives it none. A session that another
+  // host started has its parent there, so it stays a root here.
+  if (startedBy?.kind !== 'session' || startedBy.hostLabel) return [null, null, null, null, null, null]
+  const columns = childColumnsFor(startedBy.sessionId)
+  return [columns.parentSessionId, columns.rootSessionId, null, columns.depth, null, null]
 }
 
 /** Index a thread a run just started, and write its session's record. The
@@ -720,7 +731,7 @@ export function persistIndexedSessionStart(
   /** The codebase and the attached folders the session has before its record exists (docs/plans/codebases.md §6). */
   folders: Pick<SessionRecordUpsert, 'codebaseId' | 'attachedFolders'> = {},
 ): void {
-  const parent = delegationRowValues(delegation)
+  const parent = delegationRowValues(delegation, startedBy)
   // The host made this folder for the session, so the folder decides the place (session-starter.md §3.1).
   const place = placeOfFolder(cwd)
   // A run with no model leaves the provider to choose one, so the model is

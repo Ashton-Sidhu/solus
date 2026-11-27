@@ -267,7 +267,12 @@ it("sends an opaque permission option unchanged, and private answers only to the
     ],
     questions: [question],
   };
-  await act(async () => root.render(<RequestPanels store={store} meta={meta} />));
+  store.controller.model.apply({ type: "question_request", ...question });
+  await act(async () => root.render(<>
+    <RequestPanels store={store} meta={meta} />
+    <ConversationCard store={store} id={`host-question:${question.questionId}`} />
+  </>));
+  expect(container.querySelectorAll("button")).toHaveLength(2);
   const [approve, submit] = container.querySelectorAll("button");
   await act(async () => approve!.click());
   expect(permission).toHaveBeenCalledWith("approval", "acceptWithExecpolicyAmendment");
@@ -381,7 +386,11 @@ it("answers the Add machine card with its outcome through the question answer", 
     hostLink: { reason: "To run the tests there." },
   };
   const meta = { ...store.metaSnapshotOf(), questions: [question] };
-  await act(async () => root.render(<RequestPanels store={store} meta={meta} />));
+  store.controller.model.apply({ type: "question_request", ...question });
+  await act(async () => root.render(<>
+    <RequestPanels store={store} meta={meta} />
+    <ConversationCard store={store} id={`host-question:${question.questionId}`} />
+  </>));
   const [add] = container.querySelectorAll("button");
   expect(add!.textContent).toBe("Add machine on host");
   await act(async () => add!.click());
@@ -389,7 +398,7 @@ it("answers the Add machine card with its outcome through the question answer", 
   expect(secret).not.toHaveBeenCalled();
   expect(send).not.toHaveBeenCalled();
 });
-// The machine card only collects choices: they go back as the question's answers, and the composer stays hidden.
+// The machine card only collects choices: they go back as the question's answers, using its transcript row.
 it("answers the cloud machine card through the question answer", async () => {
   const { store, root, container } = await fixture();
   const publicAnswer = vi.spyOn(store.controller, "answerQuestion").mockResolvedValue(true);
@@ -402,20 +411,24 @@ it("answers the cloud machine card through the question answer", async () => {
   };
   expect(hasOwnCard(question)).toBe(true);
   const meta = { ...store.metaSnapshotOf(), questions: [question] };
-  await act(async () => root.render(<RequestPanels store={store} meta={meta} />));
+  store.controller.model.apply({ type: "question_request", ...question });
+  await act(async () => root.render(<>
+    <RequestPanels store={store} meta={meta} />
+    <ConversationCard store={store} id={`host-question:${question.questionId}`} />
+  </>));
   const [card] = container.querySelectorAll("button");
   expect(card!.textContent).toBe("Cloud machine join");
   await act(async () => card!.click());
   expect(publicAnswer).toHaveBeenCalledWith("machine", { status: "chosen", organizationId: "acme" });
   expect(send).not.toHaveBeenCalled();
 });
-it("expands the actual tool row to show host input, the error and returned images", async () => {
+it("keeps MCP input, errors and returned images in the same work-log disclosure", async () => {
   const { store, root, container } = await fixture();
   store.controller.model.items.set("t", {
     kind: "tool",
     id: "t",
     toolId: "tool",
-    toolName: "Read",
+    toolName: "mcp__solus__files__read",
     status: "error",
     input: '{"file_path":"/repo/file.ts"}',
     errorHead: "Permission denied",
@@ -424,14 +437,18 @@ it("expands the actual tool row to show host input, the error and returned image
     subagent: null,
     report: null,
   });
-  await act(async () => root.render(<ConversationCard store={store} id="t" />));
-  expect(container.textContent).not.toContain("Permission denied");
-  await act(async () => container.querySelector("button")!.click());
-  expect(container.textContent).toContain("Permission denied");
-  expect(container.textContent).toContain("/repo/file.ts");
-  expect(container.textContent).toContain("Tool image 1");
-  await act(async () => container.querySelector("button")!.click());
-  expect(container.textContent).not.toContain("Tool image 1");
+  const feed = conversationFeed(store, "session", key => <ConversationCard store={store} id={key} />,
+    async path => path, async key => key, { provider: "claude-code", child: () => undefined })(["t"]).get();
+  expect(feed).toHaveLength(1);
+  const group = feed[0];
+  if (group?.type !== "activity-group") throw new Error("Expected an MCP work-log row");
+  const row = group.activities[0]!;
+  expect(row.canExpand).toBe(true);
+  expect(row.projectedItem.item).toMatchObject({
+    type: "dynamic_tool", input: { file_path: "/repo/file.ts" }, output: "Permission denied", status: "failed",
+  });
+  await act(async () => root.render(row.renderHostResult?.()));
+  expect(container.textContent).toBe("Tool image 1");
 });
 
 it("shows the exit code immediately and keeps terminal output behind the disclosure", async () => {

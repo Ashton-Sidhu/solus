@@ -60,23 +60,32 @@ describe('Git environment registration', () => {
     expect(store.statusFor('host-a', '/repo')?.branch).toBe('after-mutation')
   })
 
-  test('startup summary readers join a pending details read for the same checkout', async () => {
+  test('startup summary readers share the one summary read beside a pending details read', async () => {
+    // WHY: a details read waits for the change counts and a pull request
+    // lookup. Summary readers of a checkout with no status must not wait for
+    // it, and they must not each start a read either.
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value })
-    let finish!: (state: GitState) => void
+    let finishDetails!: (state: GitState) => void
+    let finishSummary!: (state: GitState) => void
     let calls = 0
-    servedBy(asHostApi({ gitRefreshState: async () => {
+    servedBy(asHostApi({ gitRefreshState: async (_cwd: string, options?: GitStateOptions) => {
       calls++
-      return new Promise<GitState>((resolve) => { finish = resolve })
+      return new Promise<GitState>((resolve) => {
+        if (options?.includeDetails) finishDetails = resolve
+        else finishSummary = resolve
+      })
     } }))
     const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     const details = store.refresh('host-a', '/repo', { details: true })
     const summary = store.refresh('host-a', '/repo')
     const anotherSummary = store.refresh('host-a', '/repo')
-    expect(calls).toBe(1)
-    finish(gitState('main'))
-    expect(await Promise.all([details, summary, anotherSummary])).toEqual([true, true, true])
+    expect(calls).toBe(2)
+    finishSummary(gitState('main'))
+    expect(await Promise.all([summary, anotherSummary])).toEqual([true, true])
     expect(store.statusFor('host-a', '/repo')?.branch).toBe('main')
+    finishDetails(gitState('main'))
+    expect(await details).toBe(true)
   })
 
   test('a forced details read waits for an older summary and applies its full current state', async () => {

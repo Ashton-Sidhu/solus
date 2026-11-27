@@ -1,8 +1,19 @@
-import { SvelteMap } from 'svelte/reactivity'
 import type { Integration, IntegrationEnvValue, IntegrationLaunch, IntegrationUpdateRequest } from '@solus/contracts/integration-types'
 import { splitCommandLine } from '@solus/contracts/integrations/command-line'
 import { checkCommandDraft, commandDraftOf, COMMAND_ADMIN_ONLY, parseEnvNames, type CommandDraftField } from '@solus/contracts/integrations/command-server'
 import { mcpStore } from '../../../contexts/mcp'
+
+/**
+ * One environment variable of the form: its name, and the value typed for it.
+ * The value is a secret: it stays here only until `takeValues`.
+ */
+export interface EnvVariableRow {
+  readonly id: number
+  name: string
+  value: string
+}
+
+let nextRowId = 0
 
 export interface CommandFormProblem {
   field: CommandDraftField | 'form'
@@ -12,6 +23,11 @@ export interface CommandFormProblem {
 /** The environment variable names of a saved integration: none for a command without them. */
 export function envNamesOf(integration: Pick<Integration, 'auth'>): string[] {
   return integration.auth.kind === 'env' ? integration.auth.names : []
+}
+
+function newRow(name: string, value: string): EnvVariableRow {
+  nextRowId += 1
+  return { id: nextRowId, name, value }
 }
 
 function sameLaunch(a: IntegrationLaunch | undefined, b: IntegrationLaunch): boolean {
@@ -25,16 +41,15 @@ function sameLaunch(a: IntegrationLaunch | undefined, b: IntegrationLaunch): boo
  * row editor. A person without `host.admin` gets the host's refusal in place of
  * the form, and nothing is sent (§7.2).
  *
- * The values are secrets. They stay in `values` only until `takeValues` hands
- * them to the host, which clears them.
+ * The variables are rows of a name and a value. The values are secrets: they
+ * stay in the rows only until `takeValues` hands them to the host, which clears
+ * them.
  */
 export class McpCommandForm {
   name = $state('')
   line = $state('')
   cwd = $state('')
-  envNames = $state('')
-  /** The typed value of each name, until `takeValues`. */
-  readonly values = new SvelteMap<string, string>()
+  envRows = $state<EnvVariableRow[]>([])
   problem = $state<CommandFormProblem | null>(null)
   isSaving = $state(false)
 
@@ -70,6 +85,66 @@ export class McpCommandForm {
     return split.ok ? null : split.reason
   }
 
+  /** The names as the host takes them: the rows' names, in order, separated by commas. */
+  get envNames(): string {
+    return this.envRows.map((row) => row.name.trim()).filter(Boolean).join(', ')
+  }
+
+  /** Names typed as one line: a row for each, and a row already named keeps its value. */
+  set envNames(text: string) {
+    const kept = new Map(this.envRows.map((row) => [row.name.trim(), row.value]))
+    this.envRows = text.split(/[\s,]+/).filter(Boolean).map((name) => newRow(name, kept.get(name) ?? ''))
+  }
+
+  /** The variables of a pasted config: a row for each, with its value when it has one. */
+  setVariables(variables: readonly { name: string; value?: string }[]): void {
+    this.envRows = variables.map((variable) => newRow(variable.name, variable.value ?? ''))
+  }
+
+  /** Adds an empty row, or one for a name and its value. Answers the new row. */
+  addVariable(name = '', value = ''): EnvVariableRow {
+    this.envRows.push(newRow(name, value))
+    return this.envRows[this.envRows.length - 1]
+  }
+
+  removeVariable(id: number): void {
+    const index = this.envRows.findIndex((row) => row.id === id)
+    if (index >= 0) this.envRows.splice(index, 1)
+  }
+
+  /**
+   * Pasted variables, such as the lines of a .env file, from the row `intoId`:
+   * the first goes into that row, a name already in the form takes its new
+   * value, and every other name gets a row of its own.
+   */
+  pasteVariables(intoId: number, variables: readonly IntegrationEnvValue[]): void {
+    const [first, ...rest] = variables
+    const into = this.envRows.find((row) => row.id === intoId)
+    if (!first || !into) return
+    into.name = first.name
+    into.value = first.value
+    for (const variable of rest) {
+      const named = this.envRows.find((row) => row.name.trim() === variable.name)
+      if (named) named.value = variable.value
+      else this.addVariable(variable.name, variable.value)
+    }
+  }
+
+  /** Why a row's name cannot be saved, while the person types; nothing for an empty name. */
+  rowProblem(row: EnvVariableRow): string | null {
+    const name = row.name.trim()
+    if (!name) return row.value ? 'Give this value a name.' : null
+    const parsed = parseEnvNames(name)
+    if (!parsed.ok) return parsed.reason
+    const first = this.envRows.find((other) => other.name.trim() === name)
+    return first && first.id !== row.id ? `${name} is named twice.` : null
+  }
+
+  /** A value was typed: the add sends it with the command. */
+  get hasValues(): boolean {
+    return this.envRows.some((row) => row.value.length > 0)
+  }
+
   /** The names that read, for the values fields. */
   get names(): string[] {
     const parsed = parseEnvNames(this.envNames)
@@ -86,8 +161,8 @@ export class McpCommandForm {
    * none was typed. The form keeps no value after this call.
    */
   takeValues(): IntegrationEnvValue[] | null {
-    const values = this.names.map((name) => ({ name, value: this.values.get(name) ?? '' }))
-    this.values.clear()
+    const values = this.names.map((name) => ({ name, value: this.envRows.find((row) => row.name.trim() === name)?.value ?? '' }))
+    for (const row of this.envRows) row.value = ''
     return values.some((value) => value.value.length > 0) ? values : null
   }
 

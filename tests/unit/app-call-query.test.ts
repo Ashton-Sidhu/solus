@@ -64,4 +64,17 @@ describe('the query of the Activity section', () => {
     }
     expect(callTermLabel({ field: 'version', value: '14' })).toBe('version is 14')
   })
+
+  test('a minus before a field term turns it over, and the term written back keeps it', () => {
+    // WHY: "filter out" in the Activity section adds a term with `not`. It must read back as the
+    // same term, or the query field and the host would disagree about what the log shows.
+    expect(parseCallQuery('-outcome:failed caller:agent').groups).toEqual([[{ field: 'outcome', value: 'failed', not: true }], [{ field: 'caller', value: 'agent' }]])
+    for (const term of [{ field: 'run', value: 'run_8f2c', not: true } as const, { field: 'text', value: 'rate limit', not: true } as const]) {
+      expect(parseCallQuery(callTermText(term)).groups).toEqual([[term]])
+    }
+    expect(callTermLabel({ field: 'outcome', value: 'failed', not: true })).toBe('outcome is not failed')
+    // A minus before a word that names no field is text to find, as before.
+    expect(parseCallQuery('-x').groups).toEqual([[{ field: 'text', value: '-x' }]])
+    expect(parseCallQuery('-outcome:failed').tokens.map((token) => token.text).join('')).toBe('-outcome:failed')
+  })
 })

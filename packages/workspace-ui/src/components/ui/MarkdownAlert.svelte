@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
-  type AlertType = "note" | "tip" | "important" | "warning" | "caution";
+  /** The GitHub kinds, and two that Solus surfaces use: `info` is a note, `error` is in the colour of caution. */
+  type AlertType = "note" | "info" | "tip" | "important" | "warning" | "caution" | "error";
 
   interface Props {
     content: Snippet;
@@ -12,10 +13,12 @@
 
   const titles = {
     note: "Note",
+    info: "Info",
     tip: "Tip",
     important: "Important",
     warning: "Warning",
     caution: "Caution",
+    error: "Error",
   } satisfies Record<AlertType, string>;
 </script>
 

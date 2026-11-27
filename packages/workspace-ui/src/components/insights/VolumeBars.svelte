@@ -127,7 +127,9 @@
         // shows no range at all.
         classes: {
           range:
-            "cursor-crosshair border-x border-[color-mix(in_oklch,var(--solus-art-1)_55%,transparent)] bg-[color-mix(in_oklch,var(--solus-art-1)_12%,transparent)]",
+            // Neutral, not a hue: the range marks a time, and a colour here
+            // reads as one more series beside the bars.
+            "cursor-crosshair border-x border-[color-mix(in_oklch,var(--foreground)_28%,transparent)] bg-[var(--wash-3)]",
           handle: "opacity-0",
         },
       }}

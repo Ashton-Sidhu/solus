@@ -35,8 +35,8 @@ const log = createLogger('sessions', 'start-sessions-tool.ts')
 
 /**
  * `start_sessions`: one call starts every session in its list at once. Each is
- * the caller's child by default — its report wakes the caller and the caller's
- * turn stays open for it — or, with `independent`, a separate conversation.
+ * the caller's child. By default its report wakes the caller and the caller's
+ * turn stays open for it; with `independent` it runs on its own, still under the caller.
  * Every session is checked before any starts, so a bad entry starts nothing
  * (docs/plans/agent-delegation.md).
  */
@@ -55,7 +55,7 @@ const sessionFields = {
   independent: z
     .boolean()
     .default(false)
-    .describe('false (default): a child under your session, even in its own worktree. true: a top-level conversation.'),
+    .describe('false (default): a child that reports to you. true: a child that runs on its own: it stays under your session, but does not report or stop with you.'),
   agent_provider: z
     .string()
     .optional()
@@ -395,7 +395,7 @@ function formatReceipt(launches: readonly Launch[], outcomes: readonly Checked<S
 
 export const startSessionsAgentTool: AgentTool = {
   name: 'start_sessions',
-  description: `Start 1 to ${MAX_SESSIONS} Solus sessions at once, on this or another provider or host. Each session is a full conversation with its own card. It gets only its prompt, not your history. Each session has its own settings: provider, model, host, workspace, permission mode, and reports. By default each is your child: its report wakes you, and your turn stays open until it reports. Use report=false for a child that runs without holding your turn open. Use isolation=worktree for separate checkouts. Reserve independent=true for top-level conversations. Keep the session and exchange IDs. Reports wake you; do not poll. Follow up with send_session, read with read_session_exchange, stop with stop_session. User questions and permissions stay on each session’s card.`,
+  description: `Start 1 to ${MAX_SESSIONS} Solus sessions at once, on this or another provider or host. Each session is a full conversation with its own card. It gets only its prompt, not your history. Each session has its own settings: provider, model, host, workspace, permission mode, and reports. By default each is your child: its report wakes you, and your turn stays open until it reports. Use report=false for a child that runs without holding your turn open. Use isolation=worktree for separate checkouts. Use independent=true only for a child that continues without you: it stays under your session, but does not report or stop with you. Keep the session and exchange IDs. Reports wake you; do not poll. Follow up with send_session, read with read_session_exchange, stop with stop_session. User questions and permissions stay on each session’s card.`,
   inputFields: startSessionsFields,
   strictInput: true,
   requiresApproval: false,

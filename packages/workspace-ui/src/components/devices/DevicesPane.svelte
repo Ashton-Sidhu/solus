@@ -326,6 +326,11 @@
     </div>
   {:else if view === "picker" && deviceState && sessionId}
     <DevicePicker {serverId} {deviceState} {sessionId} {opening} onOpen={openDevice}
+      onSelect={(devicePreviewId) => {
+        const target = previews.find((candidate) => candidate.devicePreviewId === devicePreviewId);
+        if (target) { selectPreview(target); refocusComposer(); }
+      }}
+      onSetup={openDeviceSettings}
       onCancel={preview ? () => { adding = false; refocusComposer(); } : undefined} />
   {:else if preview}
     <!-- The stage: the device sits on the app background, with its

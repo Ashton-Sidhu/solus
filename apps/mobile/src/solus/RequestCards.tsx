@@ -1,4 +1,5 @@
 import { useNavigation } from "@react-navigation/native";
+import { useListened } from "@solus-mobile/app/app-context";
 import { attachmentRoute } from "./upload-attachment-id";
 import { useRef, useState } from "react";
 import { useKeyboardState } from "react-native-keyboard-controller";
@@ -6,6 +7,7 @@ import { AppText } from "../components/ui/AppText";
 import { Alert, Pressable, View } from "react-native";
 import { ApprovalCardView } from "../features/threads/PendingApprovalCard";
 import { LinkRequestCard } from "../features/threads/LinkRequestCard";
+import { HostProvidersCard } from "../features/threads/HostProvidersCard";
 import { CloudMachineCard } from "../features/threads/CloudMachineCard";
 import { requestExpiryText } from "@solus/contracts/types";
 import { PendingSecretCard } from "@solus-mobile/features/threads/PendingSecretCard";
@@ -87,25 +89,10 @@ export function RequestPanels({
   respondToPermission?: (requestId: string, optionId: string) => Promise<boolean>;
   respondingPermissionId?: string | null;
 }) {
-  const lock = useRef(false);
-  const [responding, setResponding] = useState<string | null>(null);
+  const { responding, submit } = useRequestResponse(store);
   const permission = showPermission
     ? meta.permissions.find((p) => !p.expired) ?? meta.permissions[0]
     : undefined;
-  const question = meta.questions.find((q) => !q.expired) ?? meta.questions[0];
-  const submit = async (id: string, answer: () => Promise<boolean>) => {
-    if (lock.current || !store.controller.mayApprove) return;
-    lock.current = true;
-    setResponding(id);
-    try {
-      await answer();
-    } catch {
-      Alert.alert("Could not send response", "Check the host connection and try again.");
-    } finally {
-      lock.current = false;
-      setResponding(null);
-    }
-  };
   const firstAllow =
     permission?.options.find((option) => option.kind?.startsWith("allow"))?.id ??
     permission?.options[0]?.id;
@@ -138,15 +125,6 @@ export function RequestPanels({
           }))}
         />
       ) : null}
-      {question ? (
-        <OwnQuestionCard
-          key={question.questionId}
-          store={store}
-          question={question}
-          responding={responding !== null}
-          submit={submit}
-        />
-      ) : null}
       {meta.pendingPlan && (
         <PlanCard key={meta.pendingPlan.id} store={store} plan={meta.pendingPlan} />
       )}
@@ -161,25 +139,35 @@ export function RequestPanels({
   );
 }
 
-/** The question cards that have their own card above the composer (`hasOwnCard`). */
-function OwnQuestionCard({
-  store,
-  question,
-  responding,
-  submit,
-}: {
-  store: ConversationStore;
-  question: PendingQuestion;
-  responding: boolean;
-  submit: (id: string, answer: () => Promise<boolean>) => Promise<void>;
-}) {
+function useRequestResponse(store: ConversationStore) {
+  const lock = useRef(false);
+  const [responding, setResponding] = useState<string | null>(null);
+  const submit = async (id: string, answer: () => Promise<boolean>) => {
+    if (lock.current || !store.controller.mayApprove) return;
+    lock.current = true;
+    setResponding(id);
+    try {
+      await answer();
+    } catch {
+      Alert.alert("Could not send response", "Check the host connection and try again.");
+    } finally {
+      lock.current = false;
+      setResponding(null);
+    }
+  };
+  return { responding, submit };
+}
+
+export function TranscriptQuestion({ store, question }: { store: ConversationStore; question: PendingQuestion }) {
+  const { responding, submit } = useRequestResponse(store);
+  const mayDrive = useListened(store.meta, () => store.controller.mayApprove);
   return (
     <>
       {question.kind === "secret" && (
         <PendingSecretCard
           request={question}
-          responding={responding}
-          mayDrive={store.controller.mayApprove}
+          responding={responding !== null}
+          mayDrive={mayDrive}
           onSubmit={(values) =>
             submit(question.questionId, () =>
               store.controller.answerSecretRequest(question.questionId, values),
@@ -191,8 +179,21 @@ function OwnQuestionCard({
         <LinkRequestCard
           question={question}
           sessionHostId={store.controller.hostId}
-          responding={responding}
-          mayDrive={store.controller.mayApprove}
+          responding={responding !== null}
+          mayDrive={mayDrive}
+          onAnswer={(answers) =>
+            submit(question.questionId, () =>
+              store.controller.answerQuestion(question.questionId, answers),
+            )
+          }
+        />
+      )}
+      {question.kind === "host-providers" && question.hostProviders && (
+        <HostProvidersCard
+          question={question}
+          ask={question.hostProviders}
+          responding={responding !== null}
+          mayDrive={mayDrive}
           onAnswer={(answers) =>
             submit(question.questionId, () =>
               store.controller.answerQuestion(question.questionId, answers),
@@ -204,8 +205,8 @@ function OwnQuestionCard({
         <CloudMachineCard
           question={question}
           ask={question.cloudMachine}
-          responding={responding}
-          mayDrive={store.controller.mayApprove}
+          responding={responding !== null}
+          mayDrive={mayDrive}
           onAnswer={(answers) =>
             submit(question.questionId, () =>
               store.controller.answerQuestion(question.questionId, answers),

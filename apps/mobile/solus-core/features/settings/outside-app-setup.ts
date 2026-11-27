@@ -14,11 +14,16 @@ import { OUTSIDE_APP_GUIDES, type OutsideAppGuide } from '@solus/contracts/outsi
 export const PHONE_APP_GUIDES: readonly OutsideAppGuide[] = OUTSIDE_APP_GUIDES.filter((guide) => guide.needsPublicUrl)
 
 /** What a pairing code lets the app do, as `docs/outside-apps.md` (Access) says. Read and write is the default. */
-export const APP_ACCESS_OPTIONS: readonly { access: AppAccess; label: string }[] = [
-  { access: 'read', label: 'Read' },
-  { access: 'write', label: 'Read and write' },
-  { access: 'full', label: 'Full' },
+export const APP_ACCESS_OPTIONS: readonly { access: AppAccess; label: string; phrase: string }[] = [
+  { access: 'read', label: 'Read', phrase: 'read' },
+  { access: 'write', label: 'Read and write', phrase: 'read and write' },
+  { access: 'full', label: 'Full', phrase: 'do everything you can' },
 ]
+
+/** The level as the access sentence says it: "Claude can <phrase> on Build Mac". */
+export function appAccessPhrase(access: AppAccess): string {
+  return APP_ACCESS_OPTIONS.find((option) => option.access === access)?.phrase ?? access
+}
 export const DEFAULT_APP_ACCESS: AppAccess = 'write'
 
 export function appAccessLabel(access: AppAccess): string {

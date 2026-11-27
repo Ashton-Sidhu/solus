@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   LARGE_PASTE_MIN_BYTES,
+  LARGE_PASTE_MIN_LINE_BREAKS,
   isLargePaste,
   pastedTextFile,
 } from '@solus/workspace-ui/components/input/lib/attachment-upload'
@@ -26,6 +27,24 @@ describe('large paste folding', () => {
     const justUnderInChars = '中'.repeat(Math.ceil(LARGE_PASTE_MIN_BYTES / 3))
     expect(justUnderInChars.length).toBeLessThan(LARGE_PASTE_MIN_BYTES)
     expect(isLargePaste(justUnderInChars)).toBe(true)
+  })
+
+  test('folds a paste with many short lines although it is under the byte threshold', () => {
+    // WHY: a few hundred lines of prose (a pasted docs page) stays far under
+    // the byte threshold but is too long to read or edit in the composer.
+    const lines = 'short line\n'.repeat(LARGE_PASTE_MIN_LINE_BREAKS)
+    expect(new TextEncoder().encode(lines).length).toBeLessThan(LARGE_PASTE_MIN_BYTES)
+    expect(isLargePaste(lines)).toBe(true)
+  })
+
+  test('leaves a paste one line break under the line threshold inline', () => {
+    const lines = 'short line\n'.repeat(LARGE_PASTE_MIN_LINE_BREAKS - 1)
+    expect(isLargePaste(lines)).toBe(false)
+  })
+
+  test('counts Windows line endings once', () => {
+    expect(isLargePaste('line\r\n'.repeat(LARGE_PASTE_MIN_LINE_BREAKS - 1))).toBe(false)
+    expect(isLargePaste('line\r\n'.repeat(LARGE_PASTE_MIN_LINE_BREAKS))).toBe(true)
   })
 
   test('files the text as a readable .txt carrying the whole paste', () => {

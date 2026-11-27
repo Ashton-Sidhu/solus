@@ -18,6 +18,7 @@ export const settingsSectionLoaders = {
   'telemetry': () => import('../SettingsTabTelemetry.svelte'),
   'experimental': () => import('../SettingsTabExperimental.svelte'),
   'providers': () => import('../SettingsTabProviders.svelte'),
+  'usage': () => import('../usage/SettingsTabUsage.svelte'),
   'api-access': () => import('../../connections/ConnectionsPanel.svelte'),
   'sharing': () => import('../../connections/SharingAccessPage.svelte'),
   'cloud': () => import('../../connections/SolusCloudPage.svelte'),

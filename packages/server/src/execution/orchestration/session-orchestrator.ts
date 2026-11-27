@@ -70,9 +70,9 @@ function sentMessage(exchangeId: string, result: PromptDisposition, rateLimitRel
 const REQUEST_RANK: Record<DelegatedRequest, number> = { permission: 0, question: 1, plan: 2 }
 
 /** What the exchange's target turn waits on the person for, while it waits.
- *  An independent session has its own row, so its request is never its sender's. */
+ *  An independent session nests under its sender's row too, so its request counts. */
 function waitingRequestOf(exchange: Exchange): DelegatedRequest | undefined {
-  return exchange.kind !== 'independent' && exchange.state === 'awaiting_input' ? exchange.request?.kind : undefined
+  return exchange.state === 'awaiting_input' ? exchange.request?.kind : undefined
 }
 
 export class SessionOrchestrator {
@@ -212,8 +212,9 @@ export class SessionOrchestrator {
     const follow = exchange
       ? followRemoteRun(host, { runId: `remote:${exchangeId}`, sessionId: targetSessionId, exchangeIds: [exchangeId] }, order.provider, this)
       : null
-    // A delegate is in its sender's tree, so this host keeps a copy of it.
-    const stopCopy = follow && senderSessionId && !order.independent ? copyRemoteSessionTree(host, targetSessionId, senderSessionId) : null
+    // Every session a session started is in its sender's tree, an independent one
+    // too, so this host keeps a copy of it under the sender.
+    const stopCopy = follow && senderSessionId ? copyRemoteSessionTree(host, targetSessionId, senderSessionId) : null
     if (follow) this.remoteFollows.set(exchangeId, { host, stop: () => { follow.stop(); stopCopy?.() } })
     const request: HeadlessSessionRequest = {
       sessionId: targetSessionId,
@@ -784,11 +785,11 @@ export class SessionOrchestrator {
   /** What a session that `sessionId` started, at any depth, waits on the
    *  person for: the request its card in this conversation shows. A permission
    *  outranks a question, and a question a plan, as the sidebar ranks them.
-   *  An independent session has its own row, so it is left out. */
+   *  An independent session nests under its sender's row, so it counts too. */
   delegatedRequestOf(sessionId: string, seen = new Set([sessionId])): DelegatedRequest | undefined {
     let found: DelegatedRequest | undefined
     for (const exchange of this.exchanges.values()) {
-      if (exchange.kind === 'independent' || exchange.senderSessionId !== sessionId || !isOpenExchange(exchange)) continue
+      if (exchange.senderSessionId !== sessionId || !isOpenExchange(exchange)) continue
       const target = exchange.targetSessionId
       let request = waitingRequestOf(exchange)
       if (!request && target && !seen.has(target)) {
@@ -893,7 +894,7 @@ export class SessionOrchestrator {
     seen.add(sessionId)
     this.runtime.delegatedRequestChanged(sessionId)
     for (const exchange of this.exchanges.values()) {
-      if (exchange.kind !== 'independent' && exchange.targetSessionId === sessionId && isOpenExchange(exchange)) {
+      if (exchange.targetSessionId === sessionId && isOpenExchange(exchange)) {
         this.delegatedRequestChanged(exchange.senderSessionId, seen)
       }
     }
@@ -965,8 +966,7 @@ export class SessionOrchestrator {
     const stoppedBySender = this.stoppedBySender.has(exchange.exchangeId)
     const settledAt = Date.now()
     // A settle ends the wait of the target, and of every session below it.
-    const waitedFor = exchange.kind !== 'independent'
-      && (waitingRequestOf(exchange) ?? (exchange.targetSessionId ? this.delegatedRequestOf(exchange.targetSessionId) : undefined))
+    const waitedFor = waitingRequestOf(exchange) ?? (exchange.targetSessionId ? this.delegatedRequestOf(exchange.targetSessionId) : undefined)
     // The result, its full reply, and its delivery state are one write.
     const changed = this.ledger.update(exchange, (draft) => {
       if (silenced) { draft.notify = false; draft.revising = false }

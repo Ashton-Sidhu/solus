@@ -2,6 +2,7 @@
   import { BellRing as SignalIcon, Plus as AddIcon } from "@lucide/svelte";
   import { Handle, Position, type NodeProps } from "@xyflow/svelte";
   import { Switch } from "../../ui/switch";
+  import StateIcon from "./StateIcon.svelte";
   import { appTime } from "../lib/app-view";
   import { getSignalFlowView } from "./lib/flow-views";
   import { actionCountText, type SignalFlowNode } from "./lib/signal-flow";
@@ -20,7 +21,7 @@
 </script>
 
 {#if data.kind === "emitter"}
-  <div class="flex size-full flex-col justify-center gap-0.5 overflow-hidden rounded-lg border border-(--hairline) bg-background px-3.5 shadow-[0_1px_3px_rgb(0_0_0/0.06)] dark:bg-card">
+  <div class="flex size-full flex-col justify-center gap-0.5 overflow-hidden rounded-lg bg-background px-3.5 shadow-[shadow:var(--elev-lift)] dark:bg-card">
     {#if data.emitter}
       <span class="truncate text-xs text-muted-foreground">{data.emitter.label}</span>
       <span class="truncate text-sm font-medium text-foreground" title={data.emitter.name}>{data.emitter.name}</span>
@@ -31,7 +32,7 @@
   <Handle type="source" position={sourcePosition} isConnectable={false} />
 {:else if data.kind === "signal"}
   <Handle type="target" position={targetPosition} isConnectable={false} />
-  <div class="flex w-full flex-col gap-2 rounded-[14px] border-[1.5px] border-primary bg-background px-4 py-3.5 shadow-[0_0_0_5px_color-mix(in_oklch,var(--primary)_12%,transparent),0_2px_6px_rgb(0_0_0/0.08)] dark:bg-card">
+  <div class="flex w-full flex-col gap-2 rounded-[14px] bg-background px-4 py-3.5 shadow-[shadow:var(--elev-lift)] ring-[1.5px] ring-primary dark:bg-card">
     <div class="flex min-w-0 items-center gap-1.75">
       <SignalIcon size={15} class="shrink-0 text-primary" aria-hidden="true" />
       <h3 class="m-0 min-w-0 truncate text-[15px] leading-4.5 font-semibold text-foreground">{data.signal.name}</h3>
@@ -54,7 +55,7 @@
   {@const count = actionCountText(action)}
   <Handle type="target" position={targetPosition} isConnectable={false} />
   <div
-    class="flex size-full min-w-0 items-center gap-2.5 rounded-lg border bg-background px-3.5 shadow-[0_1px_3px_rgb(0_0_0/0.06)] dark:bg-card {view.editingActionId === action.id ? 'border-primary' : 'border-(--hairline)'}"
+    class="flex size-full min-w-0 items-center gap-2.5 rounded-lg bg-background px-3.5 shadow-[shadow:var(--elev-lift)] dark:bg-card {view.editingActionId === action.id ? 'ring-[1.5px] ring-primary' : ''}"
     data-testid="app-signal-action"
   >
     <button
@@ -65,7 +66,10 @@
       onclick={() => view.edit(action)}
     >
       <span class="truncate text-sm font-medium {action.enabled ? 'text-foreground' : 'text-muted-foreground'}" title={summary}>{summary}</span>
-      <span class="truncate text-xs {count.hasFailures ? 'text-(--failure)' : 'text-muted-foreground'}">{count.text}</span>
+      <span class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+        {#if count.hasFailures}<StateIcon state="failed" label="Some deliveries failed" size={12} />{/if}
+        <span class="truncate">{count.text}</span>
+      </span>
     </button>
     <!-- The switch shows what the host holds: a change that the host refused does not stay on screen. -->
     <Switch class="nodrag nopan" bind:checked={() => action.enabled, (enabled) => view.setEnabled(action, enabled)} disabled={view.isBusy} aria-label="{summary}, on" />

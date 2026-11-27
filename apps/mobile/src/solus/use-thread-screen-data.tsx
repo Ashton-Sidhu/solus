@@ -84,7 +84,7 @@ import {
 } from "../state/question-attachments";
 import { useListened } from "@solus-mobile/app/app-context";
 import { threadKey } from "@solus-mobile/features/threads/thread-directory";
-import { solus, useSolusWorkspace } from "./runtime";
+import { solus, useAutomationName, useSolusWorkspace } from "./runtime";
 import { toThreadShell } from "./session";
 const wip = () => Alert.alert("WIP");
 export function useThreadScreenData({
@@ -136,6 +136,7 @@ export function useThreadScreenData({
     solus.threads.changes.subscribe,
     () => solus.threads.thread(hostId, id)?.record,
   );
+  const automationName = useAutomationName(hostId, listed?.startedBy);
   const listKey = threadKey(hostId, id);
   const view = useListened(solus.threadList.changes, () =>
     solus.threadList.facts().views.get(listKey) ?? listed?.view,
@@ -263,8 +264,7 @@ export function useThreadScreenData({
         if (edit && currentEdit.current === edit.runId) setPickingEdit(false);
       });
   };
-  const firstQuestion = meta.questions.find((q) => !q.expired);
-  const question = hasOwnCard(firstQuestion) ? null : firstQuestion;
+  const question = meta.questions.find(q => !q.expired && !hasOwnCard(q));
   const isAsyncQuestion = question?.responseMode === "message";
   const takesAttachments = question ? questionTakesAttachments(question) : false;
   const pending = question
@@ -443,7 +443,6 @@ export function useThreadScreenData({
     onOpenConnectionEditor: () => navigation.navigate("SettingsEnvironments"),
     requestPanels:
       Boolean(displayedPermission && !approval) ||
-      hasOwnCard(firstQuestion ?? meta.questions[0]) ||
       meta.pendingPlan ||
       meta.agentPlans.length > 0 ? (
         <RequestPanels
@@ -455,7 +454,7 @@ export function useThreadScreenData({
         />
       ) : null,
     composerCards: <RequestCards store={store} meta={meta} draft={showingDraft} />,
-    privateInputActive: hasOwnCard(firstQuestion),
+    privateInputActive: meta.questions.some(q => !q.expired && q.kind === "secret"),
     mayAnswerRequests: controller.mayApprove,
     activePendingApproval: approval,
     activePendingApprovals: approval ? [approval] : [],
@@ -667,7 +666,7 @@ export function useThreadScreenData({
       draftKey: showingDraft ? draftKey : undefined,
       cwd: meta.run.workingDirectory,
       projectName: draftTitle,
-      title: shell.title,
+      title: automationName ?? shell.title,
       subtitle: showingDraft
         ? ""
         : syncStatus ?? [placeName, env?.environmentLabel].filter(Boolean).join(" · "),

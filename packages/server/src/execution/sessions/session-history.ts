@@ -12,6 +12,7 @@ import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import type { AgentId, AgentUsageLimits, IpcContext, PlanDescriptor, PluginCommandsResult, SessionLineageResolution, SessionMeta, SessionDescription, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
 import { startsHistoryTurn, type SessionHistoryPageRequest, type SessionSubagentRequest, type ProviderHistoryPage, type SessionLoadMessage, type SessionPreviewResult } from '@solus/contracts/session-history'
 import { type TurnSeat } from '../seats/seat-manager'
+import type { ProviderRuntime } from '../seats/provider-runtime'
 import type { SessionRuntime } from '../session-runtime'
 
 const log = createLogger('SessionRuntime', 'session-history.ts')
@@ -429,9 +430,9 @@ export class SessionHistory {
       .map(([agentId]) => agentId)
   }
 
-  /** Null when the provider exposes no quota, or its report didn't parse. With a seat, that member's quota. */
-  readUsageLimits(agentId: AgentId, seat?: TurnSeat): Promise<AgentUsageLimits | null> {
+  /** Null when the provider exposes no quota, or its report didn't parse. With a seat or runtime, that login's quota. */
+  readUsageLimits(agentId: AgentId, seat?: TurnSeat, runtime?: ProviderRuntime): Promise<AgentUsageLimits | null> {
     const backend = this.rt.backendFor(agentId)
-    return backend.readUsageLimits?.(seat) ?? Promise.resolve(null)
+    return backend.readUsageLimits?.(seat, runtime) ?? Promise.resolve(null)
   }
 }

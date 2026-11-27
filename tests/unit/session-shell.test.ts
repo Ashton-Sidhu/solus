@@ -8,13 +8,15 @@ import { actorFor, ownerKeyOf } from '@solus/server/admission/actor'
 import type { Principal } from '@solus/server/admission/principal'
 import { SolusApiError } from '@solus/server/admission/workspace-error'
 import { SessionApiOperations } from '@solus/server/data/sessions/api-operations'
+import { WorkspaceRequestBudgets } from '@solus/server/transport/solus-api/limits'
+import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { togglePinnedSession } from '@solus/server/data/sessions/pinned-sessions'
 import { upsertSessionRecord } from '@solus/server/data/sessions/session-records'
 import { getDatabase } from '@solus/server/db/database'
 import { hostUserKey } from '@solus/server/host/host-user'
 import { eventResource, eventVisibleTo } from '@solus/server/sharing/event-audience'
 import { ShareManager } from '@solus/server/sharing/share-manager'
-import { SESSION_SHELL_COALESCE_MS, SESSION_SHELL_LOG_AGE_MS, SESSION_SHELL_LOG_LIMIT, SessionShell, sessionShellScopeKey, type SessionShellReads } from '@solus/server/transport/events/session-shell'
+import { SESSION_SHELL_COALESCE_MS, SESSION_SHELL_LOG_AGE_MS, SESSION_SHELL_RETRY_MS, SESSION_SHELL_LOG_LIMIT, SessionShell, sessionShellScopeKey, type SessionShellReads } from '@solus/server/transport/events/session-shell'
 import { registerPinnedSessionsHandlers } from '@solus/server/transport/handlers/pinned-sessions-handlers'
 import { registerSessionDirectoryHandler } from '@solus/server/transport/handlers/session-directory-handler'
 import { registerSessionShellHandler, sessionShellReads } from '@solus/server/transport/handlers/session-shell-handler'
@@ -32,23 +34,32 @@ const member = (userId: string): Principal => ({
   displayName: userId, deviceId: `d-${userId}`, expiresAt: Date.now() + 3_600_000, deviceLabel: 'Phone',
 })
 const callerOf = (clientId: string, principal: Principal): CallerCtx => ({ clientId, principal })
-const settle = () => new Promise(resolve => setTimeout(resolve, SESSION_SHELL_COALESCE_MS * 3))
+const settle = () => new Promise(resolve => setTimeout(resolve, SESSION_SHELL_COALESCE_MS + 100))
 
-/** A host with the handlers `sessionDirectoryOpen` reads, and the Solus API answered from this host's records for the calling principal. */
-function hostServer(shares: ShareManager): SolusServer {
+/**
+ * A host with the handlers `sessionDirectoryOpen` reads, and the Solus API answered from this host's
+ * records for the calling principal, inside each person's request budget as the router keeps it.
+ */
+function hostServer(shares: ShareManager, requests: string[] = []): SolusServer {
   const server = new SolusServer()
   const sessions = new SessionApiOperations(shares)
+  const budgets = new WorkspaceRequestBudgets()
   server.register('solusApiRequest', async ([request], caller) => {
+    requests.push(request.path)
     const url = new URL(request.path, 'http://test')
     const context = { principal: caller.principal, home: { kind: 'local' as const, hostId: 'test' }, scopes: ['sessions:read' as const] }
+    let release: (() => void) | undefined
     try {
+      release = budgets.enter(ownerKeyOf(actorFor(caller.principal)) ?? 'unowned')
       const body = url.pathname === '/sessions'
         ? await sessions.list(context, workspaceSessionQuerySchema.parse(Object.fromEntries(url.searchParams)))
         : await sessions.get(context, decodeURIComponent(url.pathname.slice('/sessions/'.length)))
       return { status: 200, body: JSON.stringify(body), etag: null, retryAfter: null }
     } catch (error) {
       if (!(error instanceof SolusApiError)) throw error
-      return { status: error.status, body: JSON.stringify({ error: { code: error.code, message: error.message } }), etag: null, retryAfter: null }
+      return { status: error.status, body: JSON.stringify({ error: { code: error.code, message: error.message } }), etag: null, retryAfter: error.retryAfter ? String(error.retryAfter) : null }
+    } finally {
+      release?.()
     }
   })
   server.register('listProjects', () => [])
@@ -118,6 +129,31 @@ describe('session shell rows', () => {
     expect(snapshot.cursor).toEqual({ epoch: shell.epoch, scopeKey: sessionShellScopeKey(OWNER), sequence: expect.any(Number) })
   })
 
+  test('more sessions than the per-person concurrent budget change in one window, and the client gets every row from one request', async () => {
+    const now = Date.now()
+    const personKey = hostUserKey()
+    const sessionIds = Array.from({ length: 12 }, (_, index) => 'shell-burst-' + index)
+    for (const sessionId of sessionIds) {
+      await upsertSessionRecord('local', {
+        sessionId, provider: 'codex', projectPath: '/app', lastActivityAt: now,
+        startedBy: { kind: 'person', personKey },
+      }, { organizationId: 'local', ownerKey: personKey })
+    }
+    const requests: string[] = []
+    const published: { clientId: string; changes: SessionShellChanges }[] = []
+    const shell = shellFor(hostServer(new ShareManager({ db: getDatabase() }), requests), published)
+    await shell.open(callerOf('phone', OWNER), undefined)
+    requests.length = 0
+
+    for (const sessionId of sessionIds) shell.sessionChanged(sessionId)
+    await settle()
+
+    // A burst of changes costs one API request, so it never meets the budget of 8 requests at a time.
+    expect(requests).toHaveLength(1)
+    const updated = published.flatMap(entry => entry.changes.changes).flatMap(change => change.kind === 'row.updated' ? [change.row.record.sessionId] : [])
+    expect(updated.sort()).toEqual([...sessionIds].sort())
+  })
+
   test('a revoked share becomes row.removed for the person who lost it, and for no one else', async () => {
     const shares = new ShareManager({ db: getDatabase() })
     const alice = member('alice')
@@ -141,6 +177,12 @@ describe('session shell rows', () => {
     const changesOf = (clientId: string) => published.filter(entry => entry.clientId === clientId).flatMap(entry => entry.changes.changes)
     expect(changesOf('bob-phone')).toEqual([{ kind: 'row.removed', sessionId: 'shell-shared' }])
     expect(changesOf('alice-phone')).toEqual([{ kind: 'row.updated', row: expect.objectContaining({ record: expect.objectContaining({ sessionId: 'shell-shared' }) }) }])
+
+    // After the row is removed, its agent's activity reaches only the person who still holds it.
+    shell.observe({ type: 'session.activityChanged', payload: { sessionId: 'shell-shared', activity: 'edit', at: 3 }, occurredAt: 3 } as HostEvent)
+    await settle()
+    expect(changesOf('bob-phone')).toEqual([{ kind: 'row.removed', sessionId: 'shell-shared' }])
+    expect(changesOf('alice-phone').at(-1)).toEqual({ kind: 'row.activity', sessionId: 'shell-shared', agentActivity: 'edit' })
   })
 })
 
@@ -262,15 +304,84 @@ describe('session shell live changes', () => {
     shell.sessionChanged('a')
     await settle()
     expect(published).toHaveLength(1)
-    expect(calls).toEqual([['b', 'a']])
+    expect(calls).toEqual([['a']])
     const [{ changes }] = published
     expect(changes.fromSequence).toBe(snapshot.cursor.sequence)
     expect(changes.cursor.sequence).toBe(snapshot.cursor.sequence + 3)
-    expect(changes.changes.map(change => change.kind === 'row.updated' && [change.row.record.sessionId, change.row.agentActivity])).toEqual([['b', 'edit'], ['a', null]])
+    expect(changes.changes).toEqual([
+      { kind: 'row.activity', sessionId: 'b', agentActivity: 'edit' },
+      { kind: 'row.updated', row: expect.objectContaining({ record: expect.objectContaining({ sessionId: 'a' }), agentActivity: null }) },
+    ])
 
     shell.sessionChanged('b')
     await settle()
     expect(published[1]?.changes.fromSequence).toBe(changes.cursor.sequence)
+  })
+
+  test("two clients of one scope share one read of a change, and a client at another point gets its own", async () => {
+    const published: { clientId: string; changes: SessionShellChanges }[] = []
+    const calls: string[][] = []
+    const shell = fakeShell(fakeReads(() => true, calls), published)
+    await shell.open(callerOf('phone', OWNER), undefined)
+    await shell.open(callerOf('tablet', OWNER), undefined)
+    shell.sessionChanged('a')
+    await settle()
+    // One scope sees one list: the second read would be a copy of the first.
+    expect(calls).toEqual([['a']])
+    expect(published.map(entry => entry.clientId).sort()).toEqual(['phone', 'tablet'])
+    expect(published[0]?.changes).toEqual(published[1]?.changes)
+
+    // A client that opened after a change holds it already: the two clients are at different points, so each gets its own read.
+    shell.disconnected('tablet')
+    shell.sessionChanged('a')
+    const late = snapshotOf(await shell.open(callerOf('tablet', OWNER), undefined))
+    shell.sessionChanged('b')
+    await settle()
+    expect(calls.slice(1).sort()).toEqual([['a', 'b'], ['b']])
+    expect(published.filter(entry => entry.clientId === 'tablet').at(-1)?.changes.fromSequence).toBe(late.cursor.sequence)
+  })
+
+  test("an agent's activity reaches the rows the caller holds with no read, and no one learns of a session they do not hold", async () => {
+    const published: { clientId: string; changes: SessionShellChanges }[] = []
+    const calls: string[][] = []
+    const visible = (principal: Principal, sessionId: string) => principal.kind === 'owner' || sessionId === 'a'
+    const shell = fakeShell(fakeReads(visible, calls), published)
+    await shell.open(callerOf('owner-phone', OWNER), undefined)
+    await shell.open(callerOf('bob-phone', member('bob')), undefined)
+    for (const activity of ['read', 'edit', 'run'] as const) {
+      shell.observe({ type: 'session.activityChanged', payload: { sessionId: 'b', activity, at: 1 }, occurredAt: 1 } as HostEvent)
+    }
+    await settle()
+    // A tool step changes only the activity, which the shell holds: it reads nothing.
+    expect(calls).toEqual([])
+    expect(published.filter(entry => entry.clientId === 'owner-phone').flatMap(entry => entry.changes.changes))
+      .toEqual([{ kind: 'row.activity', sessionId: 'b', agentActivity: 'run' }])
+    expect(published.filter(entry => entry.clientId === 'bob-phone')).toEqual([])
+
+    // A row change in the same window carries the activity itself.
+    shell.observe({ type: 'session.activityChanged', payload: { sessionId: 'a', activity: null, at: 2 }, occurredAt: 2 } as HostEvent)
+    shell.sessionChanged('a')
+    await settle()
+    expect(published.slice(1).flatMap(entry => entry.changes.changes).map(change => change.kind)).toEqual(['row.updated', 'row.updated'])
+  })
+
+  test('a read the budget refused is read again after its Retry-After, with no new change', async () => {
+    const published: { clientId: string; changes: SessionShellChanges }[] = []
+    const reads = fakeReads(() => true)
+    let refusals = 1
+    const sessions = reads.sessions
+    reads.sessions = async (caller, sessionIds) => {
+      if (refusals-- > 0) throw new WorkspaceRequestError(429, 'RATE_LIMITED', 'The request budget is exhausted. Try again shortly.')
+      return sessions(caller, sessionIds)
+    }
+    const shell = fakeShell(reads, published)
+    await shell.open(callerOf('phone', OWNER), undefined)
+    shell.sessionChanged('a')
+    await settle()
+    expect(published).toEqual([])
+    await new Promise(resolve => setTimeout(resolve, SESSION_SHELL_RETRY_MS))
+    await settle()
+    expect(published.flatMap(entry => entry.changes.changes).map(change => change.kind === 'row.updated' && change.row.record.sessionId)).toEqual(['a'])
   })
 
   test('a client whose connection closed gets nothing, also when it closed while its open read', async () => {

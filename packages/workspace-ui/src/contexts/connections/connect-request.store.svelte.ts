@@ -27,6 +27,8 @@ export interface IntegrationConnectRequest {
   sessionId: string
   integrationId: string
   integrationName: string
+  /** The address the person added in this card: its row goes on as the second step of that timeline. */
+  addedUrl?: string
 }
 
 /** A server that is not in the catalog: the person enters its address, then it is an integration request. */
@@ -72,10 +74,10 @@ export class ConnectRequestStore {
   }
 
   /** The address was added: the row goes on as that server's sign-in. */
-  customServerAdded(request: CustomServerConnectRequest, integration: Pick<Integration, 'id' | 'name'>): void {
+  customServerAdded(request: CustomServerConnectRequest, integration: Pick<Integration, 'id' | 'name' | 'url'>): void {
     const index = this.requests.findIndex((open) => open.kind === 'custom-server' && sameSession(open, request.serverId, request.sessionId))
     if (index === -1) return
-    this.requests[index] = { kind: 'integration', serverId: request.serverId, sessionId: request.sessionId, integrationId: integration.id, integrationName: integration.name }
+    this.requests[index] = { kind: 'integration', serverId: request.serverId, sessionId: request.sessionId, integrationId: integration.id, integrationName: integration.name, addedUrl: integration.url }
   }
 
   /** The person chose a server's sign-in in the composer (mcp-first-class.md §10): the same card a turn shows. */

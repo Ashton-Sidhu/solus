@@ -1,5 +1,6 @@
 import { managedWorktreeState, type ManagedWorktree, type ManagedWorktreeGroup, type ManagedWorktreeState } from '@solus/contracts/git-types'
 import { formatResourceBytes } from '@solus/client-core/host-resource-watch'
+import { idleSessions } from '@solus/client-core/managed-worktrees'
 import { relativeTime } from '../../../lib/relative-time'
 
 /** A status filter: every worktree, or one state. */
@@ -81,20 +82,6 @@ export function statusFilterOptions(worktrees: readonly ManagedWorktree[], group
   return WORKTREE_STATUS_FILTERS.map((filter) => ({ ...filter, count: statusCount(worktrees, groupKey, filter.value) }))
 }
 
-/** What the row says about the worktree: the state in words, then when it changed last. */
-export function worktreeStatusText(worktree: ManagedWorktree): string {
-  switch (managedWorktreeState(worktree)) {
-    case 'in_use': return 'A turn is running'
-    case 'unsaved': return worktree.hasUncommittedWork ? 'Has uncommitted work' : 'Has unmerged commits'
-    case 'safe': return 'No unsaved work'
-  }
-}
-
-/** The idle sessions bound to it: Delete takes their working folder. */
-export function idleSessions(worktree: ManagedWorktree): ManagedWorktree['sessions'] {
-  return worktree.sessions.filter((session) => !session.isBusy)
-}
-
 export function lastUsedText(worktree: ManagedWorktree, now = Date.now()): string {
   return worktree.lastModified ? `last used ${relativeTime(worktree.lastModified, now)}` : ''
 }
@@ -109,23 +96,16 @@ export function totalSize(worktrees: readonly ManagedWorktree[], sizes: Readonly
   return total
 }
 
-/** What the confirmation says: what is lost, what is deleted, and the space it frees. */
-export function deleteConfirmText(worktree: ManagedWorktree, bytes: number | null | undefined): string {
-  const lost = [
-    worktree.hasUncommittedWork ? 'its uncommitted work' : null,
-    worktree.hasUnmergedCommits ? 'the commits that are only on its branch' : null,
-  ].filter(Boolean)
+/** The one paragraph over the list in the Delete dialog: what is lost, what stays, and the space it frees. */
+export function deleteSummaryText(worktrees: readonly ManagedWorktree[], sizes: ReadonlyMap<string, number | null>): string {
+  const one = worktrees.length === 1
+  const unsaved = worktrees.filter((worktree) => managedWorktreeState(worktree) === 'unsaved').length
+  const bytes = totalSize(worktrees, sizes)
   const sentences = [
-    lost.length ? `You lose ${lost.join(' and ')}.` : 'No work is lost.',
-    ...idleSessions(worktree).map((session) => `“${session.title}” is open. It loses its working folder; its conversation stays.`),
-    worktree.branch
-      ? `The branch ${worktree.branch} is deleted${worktree.kind === 'task_folder' ? ' in each repository' : ''}.`
-      : null,
-    bytes !== undefined && bytes !== null ? `Frees ${formatResourceBytes(bytes)}.` : null,
+    unsaved === 0 ? 'No work is lost.' : one ? 'Its unsaved work is lost.' : `The unsaved work in ${unsaved} of them is lost.`,
+    worktrees.some((worktree) => worktree.branch) ? (one ? 'Its branch is deleted.' : 'Their branches are deleted.') : null,
+    worktrees.some((worktree) => idleSessions(worktree).length > 0) ? 'Open sessions keep their conversations.' : null,
+    bytes !== null ? `Frees ${formatResourceBytes(bytes)}.` : null,
   ]
   return sentences.filter(Boolean).join(' ')
-}
-
-export function keptBranchNotice(worktree: ManagedWorktree, error: string): string {
-  return `Deleted ${worktree.title}. The branch ${worktree.branch ?? ''} stays: ${error}`
 }

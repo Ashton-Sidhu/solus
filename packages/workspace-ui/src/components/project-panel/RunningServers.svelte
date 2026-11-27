@@ -105,7 +105,7 @@
   </Tooltip.Root>
 {/snippet}
 
-<PanelSection title="Running servers" {collapsed} {onToggle} {onResizePointerDown}>
+<PanelSection title="Running servers" sectionId="servers" {collapsed} {onToggle} {onResizePointerDown}>
 <section class="flex flex-col gap-0.5 px-1.5" aria-label="Running servers">
     {#each visibleRows as row (`${row.server.serverId}:${row.endpoint.endpointId}`)}
       {@const { server, endpoint } = row}

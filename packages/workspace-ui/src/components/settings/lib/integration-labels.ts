@@ -36,7 +36,7 @@ export function readyToolsText(count: number): string {
  * own form (`command`), then goes to its tools (mcp-first-class.md §7.7). A
  * server the person adds by its address starts on the address form (`address`).
  */
-export type ConnectStep = 'address' | 'adding' | 'command' | 'oauth-client' | 'sign-in' | 'tools'
+export type ConnectStep = 'source' | 'address' | 'adding' | 'command' | 'oauth-client' | 'sign-in' | 'tools'
 
 export interface IntegrationStatusText {
   text: string
@@ -101,16 +101,9 @@ export function customUrlProblem(url: string): string | null {
   return integrationUrlSchema.safeParse(url).success ? null : 'Use an HTTPS address, or HTTP on localhost, with no credentials or fragment.'
 }
 
-/** The host path a service's OAuth app must list as its redirect URL. */
-const INTEGRATION_OAUTH_CALLBACK_PATH = '/oauth/integration/callback'
-
-/** The redirect URL to enter at the service, on the origin this client reaches the host on. */
-export function oauthRedirectUrl(hostOrigin: string): string {
-  return `${hostOrigin}${INTEGRATION_OAUTH_CALLBACK_PATH}`
-}
-
 export type OAuthClientText =
-  | { state: 'automatic'; message: string }
+  /** `note` says who signs in now, when that is not plain; `action` opens the owner's client form. */
+  | { state: 'automatic'; note: string | null; action: string }
   | { state: 'missing'; connectHint: string }
   | { state: 'set'; message: string; clientId: string; secret: string; changeHint: string | null }
 
@@ -120,7 +113,7 @@ export type OAuthClientText =
  */
 export class IntegrationLabels extends IntegrationSignIn {
   /** Where the connect dialog stands once the host has the record. */
-  connectStep(connection: IntegrationConnection | null): Exclude<ConnectStep, 'adding' | 'command'> {
+  connectStep(connection: IntegrationConnection | null): Exclude<ConnectStep, 'source' | 'adding' | 'command'> {
     if (this.canListTools(connection)) return 'tools'
     return this.needsOwnerClient ? 'oauth-client' : 'sign-in'
   }
@@ -144,13 +137,22 @@ export class IntegrationLabels extends IntegrationSignIn {
    * server; it blocks sign-in only when the server cannot register a client
    * automatically.
    */
+  /**
+   * The client ID the owner's client form starts from: their own, else the
+   * one the server gave Solus when it registered (docs/plans/mcp-oauth-callback.md).
+   */
+  get startingClientId(): string {
+    const { auth } = this.integration
+    return auth.kind === 'oauth' ? auth.clientId ?? auth.registeredClientId ?? '' : ''
+  }
+
   get clientText(): OAuthClientText | null {
     const { auth } = this.integration
     if (auth.kind !== 'oauth') return null
     const firstParty = this.firstParty
     // A Solus app signs in; the owner may still use their own (§13.1).
-    if (firstParty) return { state: 'automatic', message: `Signs in with ${firstPartyClientById(firstParty).label}. Use your own OAuth app instead` }
-    if (!auth.clientId && auth.registration !== 'client-required') return { state: 'automatic', message: 'Use your own OAuth app' }
+    if (firstParty) return { state: 'automatic', note: `Signs in with ${firstPartyClientById(firstParty).label}.`, action: 'Use your own OAuth app instead' }
+    if (!auth.clientId && auth.registration !== 'client-required') return { state: 'automatic', note: null, action: 'Use your own OAuth app' }
     if (!auth.clientId) {
       return {
         state: 'missing',
@@ -175,4 +177,14 @@ export class IntegrationLabels extends IntegrationSignIn {
  */
 export function serverIconUrl(url: string): string {
   return `https://integrations.sh/logo/${encodeURIComponent(URL.canParse(url) ? new URL(url).hostname : url)}`
+}
+
+/**
+ * The hue of a server's letter tile, when it has no logo: the same name gets
+ * the same hue on every client and after every reload, so a person learns it.
+ */
+export function monogramHue(name: string): number {
+  let hash = 0
+  for (const char of name.toLowerCase()) hash = (hash * 31 + char.codePointAt(0)!) >>> 0
+  return hash % 360
 }

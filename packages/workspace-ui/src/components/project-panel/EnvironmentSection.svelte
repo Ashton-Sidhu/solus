@@ -325,7 +325,12 @@
   <!-- Subscription quota closes the section: what's left to spend in this
        environment, per provider. -->
   {#if usageShown}
-    <UsageMeters serverId={detailServerId} {active} />
+    <UsageMeters
+      serverId={detailServerId}
+      {active}
+      {sourceId}
+      antigravityModelId={sectionRun?.provider === "antigravity" ? sectionRun.modelConfig.modelId : null}
+    />
   {/if}
 </div>
 

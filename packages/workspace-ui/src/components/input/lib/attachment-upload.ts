@@ -100,10 +100,27 @@ export const LARGE_PASTE_MIN_BYTES = 32 * 1024
  */
 const LARGE_PASTE_MIN_CHARS = Math.ceil(LARGE_PASTE_MIN_BYTES / 3)
 
+/**
+ * Text with at least this many line breaks is filed too, whatever its size.
+ * A few hundred lines of short prose stay under the byte threshold but are
+ * already too long to read or edit in the composer.
+ */
+export const LARGE_PASTE_MIN_LINE_BREAKS = 100
+
 /** Whether a pasted string is big enough to file instead of type. */
 export function isLargePaste(text: string): boolean {
+  if (hasLineBreaks(text, LARGE_PASTE_MIN_LINE_BREAKS)) return true
   if (text.length < LARGE_PASTE_MIN_CHARS) return false
   return new TextEncoder().encode(text).length >= LARGE_PASTE_MIN_BYTES
+}
+
+/** Whether `text` has at least `count` line breaks; stops at the count. */
+function hasLineBreaks(text: string, count: number): boolean {
+  let found = 0
+  for (let at = text.indexOf('\n'); at !== -1; at = text.indexOf('\n', at + 1)) {
+    if (++found >= count) return true
+  }
+  return false
 }
 
 /**

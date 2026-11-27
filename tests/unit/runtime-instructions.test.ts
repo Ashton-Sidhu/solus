@@ -209,7 +209,7 @@ describe('runtime instructions', () => {
       expect(prompt).toContain('Use start_sessions for a separate worktree')
       // WHY: one call starts its sessions together; separate calls can run one after another.
       expect(prompt).toContain('put every session in one start_sessions call')
-      expect(prompt).toContain('Set independent=true on a session only for an independent conversation')
+      expect(prompt).toContain('Set independent=true on a session only for a child that continues without you')
       // WHY: a separate checkout or silent background run still belongs in its parent's session tree.
       expect(prompt).toContain('Use isolation=worktree for separate checkouts. For related work, keep independent=false so the sessions appear under yours.')
       expect(prompt).toContain('Use report=false to let the parent turn finish without waiting for those children.')
@@ -316,7 +316,7 @@ describe('runtime instructions', () => {
     expect(prompt).toContain("isolation='worktree'")
     expect(prompt).toContain('Get their direction before substituting a different one')
     expect(prompt).toContain('copy the link returned by its tool')
-    expect(prompt).toContain('Set independent=true on a session only for an independent conversation')
+    expect(prompt).toContain('Set independent=true on a session only for a child that continues without you')
   })
 
   test('an agent is told to link the plan files it writes', () => {

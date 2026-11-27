@@ -8,13 +8,13 @@ const FEED = {
   version: 1,
   generatedAt: '2026-10-08T00:00:00Z',
   data: [
-    { id: 'deepwiki', kind: 'mcp', slug: 'deepwiki', name: 'DeepWiki', description: 'Docs for any repository', domain: 'deepwiki.com', categories: ['docs'], popularity: 50, connectUrl: 'https://mcp.deepwiki.com/mcp', extra: { ignored: true } },
-    { id: 'linear', kind: 'mcp', slug: 'linear', name: 'Linear', description: 'Issues', domain: 'linear.app', popularity: 90, connectUrl: 'https://mcp.linear.app/mcp', icon: 'https://linear.app/icon.png' },
-    { id: 'posthog', kind: 'mcp', slug: 'posthog', name: 'PostHog', description: 'Product analytics', domain: 'posthog.com', categories: ['analytics'], connectUrl: 'https://mcp.posthog.com/mcp' },
-    { id: 'cloudflare', kind: 'mcp', slug: 'cloudflare', name: 'Cloudflare', description: '', domain: 'cloudflare.com', connectUrl: 'https://mcp.cloudflare.com/mcp?codemode=true' },
-    { id: 'no-url', kind: 'mcp', slug: 'no-url', name: 'No URL', description: '', domain: 'example.com' },
-    { id: 'petstore', kind: 'openapi', slug: 'petstore', name: 'Petstore', description: '', domain: 'petstore.io', connectUrl: 'https://petstore.io/openapi.json' },
-    { id: 'broken', kind: 'mcp', slug: 'broken', name: 42, connectUrl: 'https://broken.example/mcp' },
+    { id: 'deepwiki', kind: 'mcp', slug: 'deepwiki', name: 'DeepWiki', description: 'Docs for any repository', domain: 'deepwiki.com', categories: ['docs'], popularity: 50, connectUrl: 'https://mcp.deepwiki.com/mcp', feeds: ['curated'], extra: { ignored: true } },
+    { id: 'linear', kind: 'mcp', slug: 'linear', name: 'Linear', description: 'Issues', domain: 'linear.app', popularity: 90, connectUrl: 'https://mcp.linear.app/mcp', feeds: ['curated'], icon: 'https://linear.app/icon.png' },
+    { id: 'posthog', kind: 'mcp', slug: 'posthog', name: 'PostHog', description: 'Product analytics', domain: 'posthog.com', categories: ['analytics'], connectUrl: 'https://mcp.posthog.com/mcp', feeds: ['curated'] },
+    { id: 'cloudflare', kind: 'mcp', slug: 'cloudflare', name: 'Cloudflare', description: '', domain: 'cloudflare.com', connectUrl: 'https://mcp.cloudflare.com/mcp?codemode=true', feeds: ['claude'] },
+    { id: 'no-url', kind: 'mcp', slug: 'no-url', name: 'No URL', description: '', domain: 'example.com', feeds: ['openai'] },
+    { id: 'petstore', kind: 'openapi', slug: 'petstore', name: 'Petstore', description: '', domain: 'petstore.io', connectUrl: 'https://petstore.io/openapi.json', feeds: ['curated'] },
+    { id: 'broken', kind: 'mcp', slug: 'broken', name: 42, connectUrl: 'https://broken.example/mcp', feeds: ['openai'] },
   ],
 }
 

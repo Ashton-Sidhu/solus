@@ -550,7 +550,7 @@ describe('approving as the person signed in to this host', () => {
     const otherPaths = signedIn.document.getElementById('other')!
     expect(Array.from(otherPaths.querySelectorAll('button'), (entry) => entry.id)).toEqual(['inSolus', 'usePairing'])
     expect(otherPaths.contains(signedIn.document.getElementById('pairing'))).toBe(true)
-    signedIn.document.querySelector<HTMLInputElement>('input[name=access][value=read]')!.checked = true
+    signedIn.document.querySelector<HTMLSelectElement>('select[name=access]')!.value = 'read'
     button(signedIn.window).click()
     await Bun.sleep(50)
     expect(signedIn.document.querySelector('#status')!.textContent).toBe('Approved. Returning to the app…')

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AppState, Linking, Pressable, ScrollView, View } from "react-native";
+import { Alert, AppState, Linking, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import { useListened } from "@solus-mobile/app/app-context";
@@ -14,6 +14,7 @@ import { publicAddressInput, shortAppAddress } from "@solus-mobile/features/sett
 import {
   APP_ACCESS_OPTIONS,
   appAccessLine,
+  appAccessPhrase,
   appSetup,
   DEFAULT_APP_ACCESS,
   openFirstLink,
@@ -29,7 +30,7 @@ import type { OutsideAppGuide } from "@solus/contracts/outside-apps";
 import { AppActivityIndicator } from "../components/ui/AppActivityIndicator";
 import { AppText, AppTextInput } from "../components/ui/AppText";
 import { Button } from "../components/ui/Button";
-import { SegmentedControl } from "../components/ui/SegmentedControl";
+import { Menu } from "../components/ui/Menu";
 import { Sheet } from "../components/ui/Sheet";
 import { Toast } from "../components/ui/Toast";
 import { cn } from "../lib/cn";
@@ -240,12 +241,32 @@ function ConnectBody(props: {
           Tailscale Funnel address check passed.
         </AppText>
       ) : null}
-      <View className="gap-2">
-        <SegmentedControl
-          options={APP_ACCESS_OPTIONS.map((option) => ({ value: option.access, label: option.label }))}
-          selected={access}
-          onSelect={setAccess}
-        />
+      <View className="gap-1.5">
+        <View className="flex-row flex-wrap items-center gap-x-1.5 gap-y-1">
+          <AppText className="text-base text-foreground-secondary">{guide.name} can</AppText>
+          <Menu
+            actions={APP_ACCESS_OPTIONS.map((option) => ({
+              id: option.access,
+              title: option.label,
+              subtitle: appAccessLine(option.access, guide.name),
+              state: option.access === access ? "on" : "off",
+            }))}
+            onPressAction={({ nativeEvent: { event } }) => {
+              const chosen = APP_ACCESS_OPTIONS.find((option) => option.access === event);
+              if (chosen) setAccess(chosen.access);
+            }}
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`What ${guide.name} can do: ${appAccessPhrase(access)}`}
+              className="min-h-9 flex-row items-center gap-1 rounded-lg bg-subtle px-2.5 active:opacity-70"
+            >
+              <AppText className="text-base font-t3-medium text-foreground">{appAccessPhrase(access)}</AppText>
+              <AppText className="text-xs text-foreground-muted">▾</AppText>
+            </Pressable>
+          </Menu>
+          <AppText className="text-base text-foreground-secondary">on {props.hostName}.</AppText>
+        </View>
         <AppText className="text-sm text-foreground-muted">{appAccessLine(access, guide.name)}</AppText>
       </View>
       <HandOff guide={guide} publicUrl={props.address.url} notify={props.notify} />
@@ -271,12 +292,11 @@ function ConnectBody(props: {
 function StatusLine(props: { readonly tone: "waiting" | "done"; readonly text: string }) {
   return (
     <View accessibilityLiveRegion="polite" className="flex-row items-center justify-center gap-2">
-      <View
-        className={cn(
-          "size-2 rounded-full",
-          props.tone === "done" ? "bg-adaptive-emerald-600-400" : "bg-warning-foreground",
-        )}
-      />
+      {props.tone === "done" ? (
+        <View className="size-2 rounded-full bg-adaptive-emerald-600-400" />
+      ) : (
+        <AppActivityIndicator colorClassName="accent-icon-muted" />
+      )}
       <AppText
         className={cn(
           "text-sm",
@@ -345,10 +365,10 @@ function CodeCard(props: {
 }) {
   const { code } = props;
   return (
-    <View className="flex-row items-center justify-between gap-3 rounded-2xl border border-border-subtle bg-subtle px-4 py-3.5">
+    <View className="flex-row items-center justify-between gap-3 rounded-2xl bg-card px-4 py-3.5">
       <View className="min-w-0 flex-1 gap-1">
-        <AppText className="text-sm text-foreground-muted">
-          When {props.appName} asks for a code
+        <AppText className="text-xs font-t3-medium uppercase tracking-[1px] text-foreground-muted">
+          Code for {props.appName}
         </AppText>
         {code.kind === "live" ? (
           <AppText
@@ -380,13 +400,17 @@ function CodeCard(props: {
                 .catch(() => props.notify({ message: "Could not copy", tone: "danger" }))
             }
           >
-            <AppText className="text-base font-t3-medium text-primary-text">Copy</AppText>
+            <View className="rounded-lg bg-subtle px-3 py-1.5">
+              <AppText className="text-sm font-t3-medium text-foreground">Copy</AppText>
+            </View>
           </Pressable>
           <AppText className="text-xs text-foreground-muted">{code.timeLeft}</AppText>
         </View>
       ) : code.kind === "expired" || props.error ? (
         <Pressable accessibilityRole="button" hitSlop={8} onPress={props.onNewCode}>
-          <AppText className="text-base font-t3-medium text-primary-text">New code</AppText>
+          <View className="rounded-lg bg-subtle px-3 py-1.5">
+            <AppText className="text-sm font-t3-medium text-foreground">New code</AppText>
+          </View>
         </Pressable>
       ) : null}
     </View>
@@ -435,12 +459,9 @@ function GateBody(props: {
         ))}
       </View>
       {message.ways.length > 0 ? (
-        <View className="overflow-hidden rounded-xl border border-border-subtle bg-card">
+        <View className="gap-3">
           {message.ways.map((way, index) => (
-            <View
-              key={way.label}
-              className={cn("gap-2.5 px-4 py-3", index > 0 && "border-t border-border-subtle")}
-            >
+            <View key={way.label} className="gap-2.5 rounded-2xl bg-card px-4 py-3.5">
               <View className="gap-0.5">
                 <AppText className="text-base text-foreground">{way.label}</AppText>
                 <AppText className="text-sm text-foreground-muted">{way.detail}</AppText>
@@ -462,7 +483,10 @@ function GateBody(props: {
   );
 }
 
-/** The person's own https address for the host (host setting `publicAddress`). Empty removes it. */
+/**
+ * The person's own https address for the host (host setting `publicAddress`):
+ * Save and Cancel while it is edited, and Remove, asked once, for a saved one.
+ */
 function PublicAddressField(props: { readonly hostId: string; readonly onSaved: () => void }) {
   const settings = useListened(solus.hostSettings.changes, () =>
     solus.hostSettings.stateOf(props.hostId),
@@ -479,15 +503,11 @@ function PublicAddressField(props: { readonly hostId: string; readonly onSaved: 
     );
   }
   const shown = draft ?? saved;
-  const save = () => {
-    const input = publicAddressInput(shown);
-    if (!input.ok) {
-      setError(input.message);
-      return;
-    }
+  const isEditing = draft !== null && draft.trim() !== saved;
+  const write = (publicAddress: string) => {
     setIsSaving(true);
     void solus.hostSettings
-      .update(props.hostId, { publicAddress: input.value })
+      .update(props.hostId, { publicAddress })
       .then(() => {
         setDraft(null);
         setError(null);
@@ -496,6 +516,25 @@ function PublicAddressField(props: { readonly hostId: string; readonly onSaved: 
       .catch((e) => setError(`Could not save the address. ${HostOperationError.from(e).message}`))
       .finally(() => setIsSaving(false));
   };
+  const save = () => {
+    const input = publicAddressInput(shown);
+    if (!input.ok) {
+      setError(input.message);
+      return;
+    }
+    // An empty field is not a save: Remove takes the address away.
+    if (input.value === "") return;
+    write(input.value);
+  };
+  const cancel = () => {
+    setDraft(null);
+    setError(null);
+  };
+  const remove = () =>
+    Alert.alert(`Remove ${saved}?`, "Cloud apps that use it stop reaching this host.", [
+      { text: "Keep", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: () => write("") },
+    ]);
   return (
     <View className="gap-2">
       <View className="flex-row items-center gap-2">
@@ -515,11 +554,19 @@ function PublicAddressField(props: { readonly hostId: string; readonly onSaved: 
           onSubmitEditing={save}
           className="min-h-10 flex-1 rounded-lg bg-subtle-strong px-3 text-sm text-foreground"
         />
+      </View>
+      <View className="flex-row items-center justify-end gap-2">
+        {!isEditing && saved !== "" ? (
+          <Button label="Remove" tone="danger" size="compact" disabled={isSaving} onPress={remove} />
+        ) : null}
+        {isEditing ? (
+          <Button label="Cancel" tone="secondary" size="compact" disabled={isSaving} onPress={cancel} />
+        ) : null}
         <Button
           label={isSaving ? "Saving…" : "Save"}
           tone="primary"
           size="compact"
-          disabled={isSaving || draft === null || draft.trim() === saved}
+          disabled={isSaving || !isEditing || shown.trim() === ""}
           onPress={save}
         />
       </View>

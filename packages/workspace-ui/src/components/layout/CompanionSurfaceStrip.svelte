@@ -20,7 +20,8 @@
     X as XIcon,
   } from "@lucide/svelte";
   import { GitPullRequestIcon as PullRequestIcon, IssueOpenedIcon as TaskIcon } from "../ui/octicons";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSessionSidebarStore, getWorkspaceContext } from "../../contexts";
+  import { sessionName } from "../../lib/sessionUtils";
   import { appsStore } from "../../contexts/apps/apps.store.svelte";
   import type { PaneEntry } from "../../contexts/workspace/routing/location";
   import { ROUTES, surfaceKey, type RouteRef } from "../../contexts/workspace/routing/route-registry";
@@ -45,6 +46,7 @@
   let { pane }: Props = $props();
 
   const session = getWorkspaceContext();
+  const sidebarStore = getSessionSidebarStore();
   const router = session.router;
 
   // Every route has a glyph, so a lookup never falls through.
@@ -77,7 +79,10 @@
   } satisfies { [Name in RouteRef["name"]]: typeof ChatIcon };
 
   const titles: SurfaceTitleSources = {
-    sessionTitle: (sessionId) => session.sessions.byId[sessionId]?.title,
+    sessionTitle: (sessionId) => {
+      const shown = session.sessions.byId[sessionId];
+      return shown && sessionName(shown, (automationId, serverId) => sidebarStore.automationName(automationId, serverId));
+    },
     taskTitle: (taskId) => session.issuesStore.peek(taskId)?.title,
     workTitle: (workId) => session.worksStore.get(workId)?.title,
     planTitle: (planId) => session.planStore.get(planId)?.title,

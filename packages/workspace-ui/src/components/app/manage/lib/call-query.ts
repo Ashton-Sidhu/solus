@@ -4,7 +4,8 @@ import { APP_CALLER_KINDS, type AppCallQueryField, type AppCallTerm } from '@sol
  * The query of the Activity section (docs/plans/apps.md §9.2), as the person
  * types it: `operation:summarizeRelease or caller:workflow`, `outcome:failed`,
  * `version is 14`, or free text. Terms side by side must all match; `or`
- * joins two terms so that one of them must match. Words that name no field
+ * joins two terms so that one of them must match. A `-` before a field term
+ * turns it over: `-outcome:failed` matches every call that did not fail. Words that name no field
  * are one phrase the host finds anywhere in the call, as the old search did.
  * The host applies the query (`match` of `appCalls`); this module only reads
  * the text. Pure, so the syntax is tested.
@@ -131,15 +132,18 @@ class CallQueryReader implements ParsedCallQuery {
     return 0
   }
 
-  /** `field:value`, where the value can be quoted. */
+  /** `field:value`, where the value can be quoted, or `-field:value` for every call it does not match. */
   private readColonTerm(piece: Piece): boolean {
-    const colon = piece.text.indexOf(':')
-    const field = colon > 0 && !piece.text.slice(0, colon).includes('"') ? callQueryField(piece.text.slice(0, colon)) : null
+    const not = piece.text.startsWith('-')
+    const text = not ? piece.text.slice(1) : piece.text
+    const colon = text.indexOf(':')
+    const field = colon > 0 && !text.slice(0, colon).includes('"') ? callQueryField(text.slice(0, colon)) : null
     if (!field) return false
-    const valueText = piece.text.slice(colon + 1)
+    const valueText = text.slice(colon + 1)
     const value = valueText.replaceAll('"', '').trim()
-    this.tokens.push({ kind: 'field', text: piece.text.slice(0, colon + 1) })
-    if (valueText) this.tokens.push({ kind: value ? this.addFieldTerm(field, value) : 'value', text: valueText })
+    if (not) this.tokens.push({ kind: 'operator', text: '-' })
+    this.tokens.push({ kind: 'field', text: text.slice(0, colon + 1) })
+    if (valueText) this.tokens.push({ kind: value ? this.addFieldTerm(field, value, not) : 'value', text: valueText })
     return true
   }
 
@@ -167,10 +171,10 @@ class CallQueryReader implements ParsedCallQuery {
     else this.addTerm({ field: 'text', value })
   }
 
-  private addFieldTerm(field: AppCallQueryField, value: string): CallQueryTokenKind {
+  private addFieldTerm(field: AppCallQueryField, value: string, not = false): CallQueryTokenKind {
     const reason = valueProblem(field, value)
     this.problem ??= reason
-    this.addTerm({ field, value })
+    this.addTerm(not ? { field, value, not } : { field, value })
     return reason ? 'invalid' : 'value'
   }
 }
@@ -180,13 +184,15 @@ export function parseCallQuery(text: string): ParsedCallQuery {
   return { groups: reader.groups, tokens: reader.tokens, problem: reader.problem }
 }
 
-/** One term as the query field writes it: `outcome:failed`, `error:"took longer"`. */
+/** One term as the query field writes it: `outcome:failed`, `error:"took longer"`, `-run:run_8f2c`. */
 export function callTermText(term: AppCallTerm): string {
   const value = /[\s"]/.test(term.value) ? `"${term.value.replaceAll('"', '')}"` : term.value
+  if (term.not) return `-${term.field}:${value}`
   return term.field === 'text' ? value : `${term.field}:${value}`
 }
 
-/** One term as a filter chip says it: `version is 14`. */
+/** One term as a filter chip says it: `version is 14`, `outcome is not failed`. */
 export function callTermLabel(term: AppCallTerm): string {
-  return term.field === 'text' ? `“${term.value}”` : `${term.field} is ${term.value}`
+  if (term.field === 'text') return term.not ? `not “${term.value}”` : `“${term.value}”`
+  return `${term.field} is ${term.not ? 'not ' : ''}${term.value}`
 }

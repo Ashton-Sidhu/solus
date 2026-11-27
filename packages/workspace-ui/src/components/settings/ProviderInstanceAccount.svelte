@@ -7,6 +7,7 @@
   import CopyButton from "../ui/CopyButton.svelte";
   import { Dialog } from "bits-ui";
   import { Input } from "../ui/input";
+  import { runtime } from "../../contexts";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   let { instanceId, client, view }: { instanceId: string; client: ProviderInstancesClient; view: ProviderInstancesView } = $props();
@@ -18,6 +19,11 @@
   let code = $state("");
   let revealAccount = $state(false);
   let confirmSignOut = $state(false);
+
+  /** The sign-in asks for a code: its field takes focus, ready for the paste. A phone keeps its keyboard down. */
+  function focusCodeField(element: HTMLInputElement): void {
+    if (!runtime.shouldSuppressFocus) element.focus({ preventScroll: true });
+  }
 
   // A modal: shortcuts behind it stay quiet while it is open.
   useScope("modal-dialog", { exclusive: true, pre: true, active: () => confirmSignOut });
@@ -46,7 +52,7 @@
           <a class="w-fit underline underline-offset-4" href={verification.verificationUrl} target="_blank" rel="noreferrer">Open sign-in page</a>
           <div><CopyButton text={verification.verificationUrl} title="Copy sign-in link" /></div>
           {#if verification.userCode}<p>Device code: <code>{verification.userCode}</code></p>{/if}
-          {#if verification.requiresCodeInput}<form class="flex gap-2" onsubmit={(event) => { event.preventDefault(); void client.submitCode(instanceId, code); }}><Input aria-label="Provider sign-in code" bind:value={code} autocomplete="off" /><Button type="submit" size="sm" disabled={!code.trim()}>Submit code</Button></form>{/if}
+          {#if verification.requiresCodeInput}<form class="flex gap-2" onsubmit={(event) => { event.preventDefault(); void client.submitCode(instanceId, code); }}><Input aria-label="Provider sign-in code" bind:value={code} autocomplete="off" {@attach focusCodeField} /><Button type="submit" size="sm" disabled={!code.trim()}>Submit code</Button></form>{/if}
           <Button variant="ghost" size="sm" class="w-fit" onclick={() => void client.cancelSignIn(instanceId)}>Cancel sign-in</Button>
         </div>
       {/if}

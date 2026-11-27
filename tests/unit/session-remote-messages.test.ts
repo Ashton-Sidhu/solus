@@ -47,6 +47,7 @@ function hostB() {
   const events = new HostEventSubscriber()
   const started: HeadlessSessionRequest[] = []
   const prompted: HeadlessPromptRequest[] = []
+  const treeReads: string[] = []
   let answer: { disposition: 'started' | 'steered' | 'queued'; queueId?: string } = { disposition: 'started' }
   const api = {
     watchSession: async () => ({}),
@@ -54,6 +55,7 @@ function hostB() {
     attachUpload: (ctx: IpcContext, request: AttachmentUploadRequest) => writeAttachmentUpload(ctx, request, { attachmentsDir: store }),
     createHeadlessSession: async (request: HeadlessSessionRequest) => { started.push(request); return { sessionId: request.sessionId!, agentSessionId: 'thread' } },
     promptHeadlessSession: async (request: HeadlessPromptRequest) => { prompted.push(request); return answer },
+    sessionTree: async (sessionId: string) => { treeReads.push(sessionId); return { nodes: [] } },
   }
   const host: RemoteHost = {
     hostId: 'host-b', installationId: 'install-b', label: 'Host B',
@@ -65,7 +67,7 @@ function hostB() {
   }
   const emit = (sessionId: string, event: WireNormalizedEvent) =>
     events.receive({ type: 'session.eventReceived', payload: { sessionId, event }, occurredAt: Date.now() })
-  return { host, store, started, prompted, emit, answer: (next: typeof answer) => { answer = next } }
+  return { host, store, started, prompted, treeReads, emit, answer: (next: typeof answer) => { answer = next } }
 }
 
 /** The orchestrator, and a wait for the work it runs in the background: a
@@ -217,6 +219,21 @@ describe('messages to a session on another host', () => {
     await expect(orchestrator().send('parent', 'someone-elses', { prompt: 'Hi.', delivery: 'queue', notify: true }, target))
       .rejects.toThrow('was not started on Host B by this session')
     expect(b.prompted).toEqual([])
+  })
+})
+
+describe('the tree of a session started on another host', () => {
+  test('keeps a copy of an independent session under its sender, as it does a delegated one', async () => {
+    // WHY: an independent session is still its sender's child. The sender's
+    // host lists it under the sender only from the copy it keeps.
+    const b = hostB()
+    const target: RemoteTarget = { host: b.host, origin: { kind: 'session', hostLabel: 'Host A', sessionId: 'parent' } }
+    const orchestration = orchestrator()
+    const delegated = await orchestration.spawn('parent', { ...ORDER, prompt: 'Delegated part.' }, true, 0, undefined, target)
+    const independent = await orchestration.spawn('parent', { ...ORDER, prompt: 'Independent part.', independent: true }, false, 0, undefined, target)
+    await orchestration.settled()
+    expect(b.treeReads).toContain(delegated.sessionId)
+    expect(b.treeReads).toContain(independent.sessionId)
   })
 })
 

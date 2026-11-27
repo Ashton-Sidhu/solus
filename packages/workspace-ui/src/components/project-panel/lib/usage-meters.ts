@@ -1,9 +1,9 @@
-import type { AgentMetadata, AgentUsageLimits, UsageWindow } from '@solus/contracts/types'
+import type { AgentMetadata, AgentUsageLimits, AgentUsageModelGroup, UsageWindow } from '@solus/contracts/types'
 import { DAY, HOUR, MINUTE } from '../../../lib/duration'
 
 /** How much of one quota window is still available, ready to render. */
 export interface UsageMeter {
-  key: 'fiveHour' | 'weekly' | 'monthly'
+  key: 'fiveHour' | 'weekly' | 'fableWeekly' | 'monthly'
   label: string
   remainingPercent: number
   /** Drives the bar tint — a nearly-spent window has to read as one at a glance. */
@@ -13,14 +13,19 @@ export interface UsageMeter {
   resetPhrase: string | null
 }
 
-/** One provider's usage state, with the quota windows it actually reports.
- * An empty `meters` accompanies either API billing or a failed read. */
+/** One provider's quota windows, either at provider level or by model group. */
 export interface ProviderUsage {
   provider: string
   label: string
   stale: boolean
   meters: UsageMeter[]
-  status: 'api' | 'signed_out' | 'unavailable' | null
+  groups?: { selected: UsageMeterGroup | null; other: UsageMeterGroup[]; checkedAt: string | null }
+}
+
+interface UsageMeterGroup {
+  id: string
+  label: string
+  meters: UsageMeter[]
 }
 
 /** The terminal command that signs a signed-out agent in on its host, when
@@ -125,48 +130,74 @@ function meter(key: UsageMeter['key'], label: string, window: UsageWindow | null
   return { key, label, remainingPercent, tone: toneFor(remainingPercent), resetPhrase: resetPhrase(window, now) }
 }
 
-/**
- * Quota rows for every agent the backend currently offers. A provider that
- * reports no quota (unavailable, or not subscription-metered) is dropped
- * entirely — an empty meter would read as "no quota left". A provider whose
- * read failed keeps its row with no meters, because "we could not read this"
- * and "this has no quota" are different answers to the same glance.
- */
-/** A host's snapshots by provider. Each snapshot is the host's whole answer. */
-export function usageByProvider(snapshots: readonly AgentUsageLimits[]): Record<string, AgentUsageLimits> {
-  return Object.fromEntries(snapshots.map((snapshot) => [snapshot.provider, snapshot]))
+function modelQuotaGroup(modelId: string | null): string | undefined {
+  if (!modelId) return undefined
+  if (/^(claude|gpt)-/.test(modelId)) return '3p'
+  if (!modelId.startsWith('gemini-')) return undefined
+  if (modelId.includes('-argon')) return 'gemini-argon'
+  if (modelId.includes('-carbon')) return 'gemini-carbon'
+  return 'gemini'
 }
 
+function groupedMeters(groups: AgentUsageModelGroup[], modelId: string | null, now: number, checkedAt: string | null): NonNullable<ProviderUsage['groups']> | null {
+  const groupId = modelQuotaGroup(modelId)
+  const rows = groups.map((group) => ({
+    id: group.id,
+    label: group.label,
+    meters: [
+      meter('fiveHour', 'Session', group.fiveHour, now),
+      meter('weekly', 'Weekly', group.weekly, now),
+    ].filter((entry): entry is UsageMeter => entry !== null),
+  })).filter((row) => row.meters.length > 0)
+  if (rows.length === 0) return null
+  const selected = rows.length === 1 ? rows[0]! : rows.find((row) => row.id === groupId) ?? null
+  return { selected, other: rows.filter((row) => row !== selected), checkedAt }
+}
+
+/** A host's primary snapshot by provider (prefers the built-in instance over extra custom instances). */
+export function usageByProvider(snapshots: readonly AgentUsageLimits[]) {
+  const ordered = [...snapshots].sort((left, right) => {
+    const leftPrimary = !left.instanceId || left.instanceId === left.provider ? 1 : 0
+    const rightPrimary = !right.instanceId || right.instanceId === right.provider ? 1 : 0
+    return leftPrimary - rightPrimary
+  })
+  return Object.fromEntries(ordered.map((snapshot) => [snapshot.provider, snapshot]))
+}
+
+/** Build project panel rows for providers with at least one quota window. */
 export function providerUsage(
   agents: AgentMetadata[],
   usage: Record<string, AgentUsageLimits>,
   now: number,
+  antigravityModelId: string | null = null,
+  disconnected = false,
 ): ProviderUsage[] {
   const rows: ProviderUsage[] = []
   for (const agent of agents) {
     if (agent.available === false) continue
     const limits = usage[agent.id]
-    if (!limits) continue
+    if (!limits || limits.usageMode === 'api' || limits.usageMode === 'signed_out') continue
+    const label = agent.id === 'antigravity' ? 'Antigravity' : agent.label
+    if (limits.modelGroups?.length) {
+      const stale = limits.stale || disconnected
+      const checkedAt = stale && limits.fetchedAt > 0 ? new Date(limits.fetchedAt).toLocaleString() : null
+      const groups = groupedMeters(limits.modelGroups, antigravityModelId, now, checkedAt)
+      if (groups) {
+        rows.push({ provider: agent.id, label, stale, meters: [], groups })
+        continue
+      }
+    }
     const meters = [
       // "Session", not "5h": beside a countdown, a window named for its own
       // length reads as a second duration ("5h · 50m").
       meter('fiveHour', 'Session', limits.fiveHour, now),
       meter('weekly', 'Weekly', limits.weekly, now),
+      // Claude counts the Fable models in a week of their own.
+      meter('fableWeekly', 'Fable weekly', limits.fableWeekly ?? null, now),
       // An Enterprise seat's spend cap; it has no reset time to count down to.
       meter('monthly', 'Monthly', limits.monthly ?? null, now),
     ].filter((entry): entry is UsageMeter => entry !== null)
-    if (limits.usageMode === 'api' || limits.usageMode === 'signed_out') {
-      rows.push({ provider: agent.id, label: agent.label, stale: false, meters: [], status: limits.usageMode })
-      continue
-    }
-    if (meters.length === 0 && !limits.stale) continue
-    rows.push({
-      provider: agent.id,
-      label: agent.label,
-      stale: limits.stale,
-      meters,
-      status: limits.stale && meters.length === 0 ? 'unavailable' : null,
-    })
+    if (meters.length > 0) rows.push({ provider: agent.id, label, stale: limits.stale, meters })
   }
   return rows
 }

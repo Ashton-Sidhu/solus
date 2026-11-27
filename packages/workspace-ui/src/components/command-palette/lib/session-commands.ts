@@ -1,7 +1,8 @@
-import { Archive, ArchiveRestore, Check, Moon, Pin, PinOff, Sun, Undo2 } from '@lucide/svelte'
+import { Archive, ArchiveRestore, Check, Moon, Pin, PinOff, Plus, Search, Sun, Undo2 } from '@lucide/svelte'
 import type { SessionSidebarStore } from '../../../contexts/workspace/session-sidebar.store.svelte'
 import type { WorkspaceContext } from '../../../contexts/workspace/workspace.context.svelte'
 import { requestInputFocus } from '../../../lib/inputFocus'
+import { comboHint } from '../../../lib/keybindings/manifest'
 import { applySessionSnooze, sessionPinAction, tabSessionLifecycleActions } from '../../session/lib/session-actions'
 import type { SidebarSession } from '../../session/lib/sidebar-rows'
 import { SNOOZE_CHOICES, snoozeUntilFor } from '../../session/lib/snooze'
@@ -14,23 +15,45 @@ export interface CustomSessionSnooze {
 
 const group = 'Current session'
 
+export function sessionStartCommands(workspace: WorkspaceContext): Command[] {
+  const sourceId = workspace.focusedSourceId ?? workspace.activeTabId
+  return [
+    ...(workspace.rootTaskIdFor(sourceId) ? [{
+      id: 'new-session-in-task', label: 'New session in current issue', group: 'General', icon: Plus,
+      hint: comboHint('global.new-session-in-task'), keywords: ['new session in issue', 'new session in task'],
+      run: () => workspace.drafts.openSessionDraft({ sourceId, via: 'palette' }),
+    }] : []),
+    {
+      id: 'new-session-without-task', label: 'New session without issue', group: 'General', icon: Plus,
+      hint: comboHint('global.new-session-without-task'), keywords: ['no issue', 'no task'],
+      searchOnly: true,
+      run: () => workspace.drafts.openSessionDraft({ withoutTask: true, via: 'palette' }),
+    },
+  ]
+}
+
 export function currentSessionCommands(
   workspace: WorkspaceContext,
   sidebar: SessionSidebarStore,
   openCustomSnooze: (snooze: CustomSessionSnooze) => void,
+  findInConversation: () => void,
 ): Command[] {
   const tabId = workspace.focusedChatTabId
   if (!tabId) return []
   const session = workspace.sessionFor(tabId)
   if (!session) return []
 
+  const commands: Command[] = [{
+    id: 'find-in-conversation', label: 'Find in conversation', group, icon: Search,
+    hint: comboHint('conversation.find'), keywords: ['search current session', 'find messages'],
+    run: findInConversation,
+  }]
   const lifecycle = tabSessionLifecycleActions(workspace, sidebar, tabId)
-  if (lifecycle?.onUnarchive) return [{
+  if (lifecycle?.onUnarchive) return [...commands, {
     id: 'restore-current-session', label: 'Restore session', group, icon: ArchiveRestore,
     keywords: ['unarchive', 'return to list'], run: lifecycle.onUnarchive,
   }]
 
-  const commands: Command[] = []
   const pinAction = sessionPinAction(sidebar, {
     sessionId: session.id,
     serverId: workspace.serverIdFor(tabId),

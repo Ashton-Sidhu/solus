@@ -52,6 +52,19 @@
   let dialogEl = $state<HTMLElement | null>(null);
   const menuPortal = $derived(dialogEl ? { to: dialogEl } : undefined);
 
+  // The dialog opens on "Add people", or on itself when that field is absent,
+  // so Escape reaches its handler at once. The field takes focus when it is
+  // ready (people loaded), not while it is disabled. A phone gets the sheet
+  // without its keyboard.
+  function focusAddPeople(element: HTMLInputElement): void {
+    if (peopleLoading || runtime.shouldSuppressFocus) return;
+    element.focus({ preventScroll: true });
+  }
+
+  function focusDialog(element: HTMLElement): void {
+    if (!element.contains(document.activeElement)) element.focus({ preventScroll: true });
+  }
+
   $effect(() => {
     // Runs after the dialog's markup is in the DOM for this target.
     if (target) logShareDialog("share_dialog_shown", target);
@@ -229,6 +242,7 @@
               data-testid="share-add-people"
               class="h-10 rounded-xl bg-muted/40 px-3.5 text-workspace-chrome pointer-coarse:h-11"
               disabled={sharesStore.busy || peopleLoading}
+              {@attach focusAddPeople}
             />
             {#if query.trim() && candidates.length}
               <ul class="absolute inset-x-0 top-full z-10 mt-2 max-h-72 overflow-y-auto rounded-xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-1.5 shadow-[shadow:var(--solus-popover-shadow)]" role="listbox" aria-label="People to add">
@@ -433,13 +447,15 @@
       <!-- No title bar and no footer: the dialog opens on its two verbs, and
            Escape or a click outside closes it. -->
       <div
-        class="share-dialog-enter flex max-h-[min(46rem,85svh)] w-[clamp(28rem,50vw,40rem)] max-w-[calc(100vw-3rem)] origin-top flex-col overflow-hidden rounded-3xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) text-workspace-chrome shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] [.dark_&]:shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.45),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.55)]"
+        class="share-dialog-enter flex outline-none max-h-[min(46rem,85svh)] w-[clamp(28rem,50vw,40rem)] max-w-[calc(100vw-3rem)] origin-top flex-col overflow-hidden rounded-3xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) text-workspace-chrome shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] [.dark_&]:shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.45),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.55)]"
         role="dialog"
         aria-label={`Share ${target.title}`}
         aria-modal="true"
+        tabindex="-1"
         data-testid="share-dialog"
         data-kind={target.resource.kind}
         bind:this={dialogEl}
+        {@attach focusDialog}
       >
         <div class="flex flex-col gap-6 overflow-y-auto p-7 [scrollbar-gutter:stable]">{@render dialogBody()}</div>
       </div>

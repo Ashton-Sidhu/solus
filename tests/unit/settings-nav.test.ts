@@ -48,4 +48,11 @@ describe('the settings sidebar', () => {
     expect(shown(true)).toContain('cloud')
     expect(shown(false)).not.toContain('cloud')
   })
+
+  test('places Usage under Agents directly below Providers', () => {
+    const agents = settingsNavGroups(tabs, true).find((section) => section.group === 'Agents')
+    expect(agents).toBeDefined()
+    const ids = agents!.items.map((tab) => tab.id)
+    expect(ids.indexOf('usage')).toBe(ids.indexOf('providers') + 1)
+  })
 })

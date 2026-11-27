@@ -10,8 +10,9 @@
     inFolder?: boolean;
     onSelect: () => void;
     onDiscard: () => void;
+    onDragStart?: (event: DragEvent) => void;
   }
-  let { row, inFolder = false, onSelect, onDiscard }: Props = $props();
+  let { row, inFolder = false, onSelect, onDiscard, onDragStart }: Props = $props();
 </script>
 
 {#snippet pencil()}
@@ -73,6 +74,8 @@
   data-slot="session-row"
   aria-selected="false"
   aria-label="{row.title} — unsent draft"
+  draggable={!!onDragStart}
+  ondragstart={onDragStart}
   onclick={onSelect}
   onkeydown={(event) => {
     if (event.key !== "Enter" && event.key !== " ") return;

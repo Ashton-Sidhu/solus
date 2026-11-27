@@ -33,6 +33,8 @@ const connectModule = runes.source('mcp-connect', 'packages/workspace-ui/src/com
   './integration-labels': file('packages/workspace-ui/src/components/settings/lib/integration-labels.ts'),
   './mcp-command.svelte': commandModule,
   './mcp-address-form.svelte': addressModule,
+  '@solus/contracts/integrations/oauth-callback': file('packages/contracts/src/integrations/oauth-callback.ts'),
+  '@solus/contracts/integrations/server-source': file('packages/contracts/src/integrations/server-source.ts'),
 })
 const { McpCommandForm } = await import(commandModule) as typeof import('@solus/workspace-ui/components/settings/lib/mcp-command.svelte')
 const { McpConnect } = await import(connectModule) as typeof import('@solus/workspace-ui/components/settings/lib/mcp-connect.svelte')
@@ -125,9 +127,9 @@ describe('environment values of a command', () => {
   test('the form hands the typed values over once and keeps none', () => {
     const form = new McpCommandForm('values', () => true)
     form.envNames = 'A, B'
-    form.values.set('A', SECRET)
+    form.envRows[0].value = SECRET
     expect(form.takeValues()).toEqual([{ name: 'A', value: SECRET }, { name: 'B', value: '' }])
-    expect(form.values.size).toBe(0)
+    expect(form.hasValues).toBe(false)
     expect(form.takeValues()).toBeNull()
   })
 })
@@ -179,7 +181,7 @@ describe('who may add or change a command', () => {
     })
     await store.load('admin-dialog')
     const run = new McpConnect('admin-dialog', { name: '', url: '', addsServer: true }, noCatalog, () => false)
-    run.command!.line = 'npx -y files-mcp'
+    run.setSource('npx -y files-mcp')
     await run.startCommand()
     expect(calls).toEqual([])
     expect(run.step).toBe('command')
@@ -204,13 +206,13 @@ describe('the process of a command', () => {
     await store.load('dialog')
     const run = new McpConnect('dialog', { name: '', url: '', addsServer: true }, noCatalog, () => true)
     const form = run.command!
-    form.line = 'npx -y files-mcp'
+    run.setSource('npx -y files-mcp')
     form.envNames = 'TOKEN'
-    form.values.set('TOKEN', SECRET)
+    form.envRows[0].value = SECRET
     await run.startCommand()
     expect(calls).toEqual(['create', 'values', 'start'])
     expect(run.step).toBe('tools')
-    expect(form.values.size).toBe(0)
+    expect(form.hasValues).toBe(false)
     await run.dismiss()
     expect(calls.at(-1)).toBe('remove')
   })
@@ -293,14 +295,13 @@ describe('a server added by its address', () => {
     await store.load('headers')
     const { catalog, installs } = recordingCatalog({ ...remote('acme', 'https://mcp.acme.dev/mcp'), auth: { kind: 'headers', names: ['X-API-Key', 'X-Tenant'] } })
     const run = new McpConnect('headers', { name: '', url: '', addsServer: true }, catalog)
-    run.chooseKind('url')
+    run.setSource('https://mcp.acme.dev/mcp')
     const form = run.addressForm
-    form.address = 'https://mcp.acme.dev/mcp'
     form.authKind = 'headers'
     form.headers[0] = { name: 'X-API-Key', value: SECRET }
     form.addHeader()
     form.headers[1] = { name: 'X-Tenant', value: '' }
-    await run.continueWithAddress()
+    await run.continueFromSource()
     expect(installs).toEqual([{ name: 'mcp.acme.dev', url: 'https://mcp.acme.dev/mcp', auth: { kind: 'headers', names: ['X-API-Key', 'X-Tenant'] } }])
     // Only the value typed goes; the empty one is given later. The form keeps no value.
     expect(submitted).toEqual([{ id: 'acme', values: [{ name: 'X-API-Key', value: SECRET }] }])
@@ -312,12 +313,13 @@ describe('a server added by its address', () => {
     await store.load('oauth-choice')
     const { catalog, installs } = recordingCatalog(remote('docs', 'https://mcp.example.com/mcp'))
     const run = new McpConnect('oauth-choice', { name: '', url: '', addsServer: true }, catalog)
-    run.chooseKind('url')
+    run.setSource('https://mcp.example.com/mcp')
     const form = run.addressForm
-    form.address = 'https://mcp.example.com/mcp'
     form.authKind = 'oauth'
     form.clientSecret = SECRET
-    await run.continueWithAddress()
+    await run.continueFromSource()
+    // A refused choice opens the whole address form, with the problem beside its field.
+    expect(run.step).toBe('address')
     expect(form.problemOf('clientId')).not.toBeNull()
     form.clientId = 'client-1'
     form.scopes = 'read "write"'
@@ -336,11 +338,10 @@ describe('a server added by its address', () => {
     const { catalog, installs } = recordingCatalog(remote('docs', 'https://mcp.example.com/mcp'))
     const run = new McpConnect('address', { name: '', url: '', addsServer: true }, catalog, () => false)
     // A person who may not run commands can still add a remote server.
-    run.chooseKind('url')
-    expect(run.step).toBe('address')
+    expect(run.step).toBe('source')
 
-    run.addressForm.address = 'ftp://mcp.example.com'
-    await run.continueWithAddress()
+    run.setSource('ftp://mcp.example.com')
+    await run.continueFromSource()
     expect(run.addressForm.problemOf('address')).not.toBeNull()
     expect(installs).toEqual([])
     expect(run.step).toBe('address')
@@ -350,8 +351,8 @@ describe('a server added by its address', () => {
     await run.continueWithAddress()
     expect(installs).toEqual([{ name: 'Docs', url: 'https://mcp.example.com/mcp', auth: { kind: 'automatic' } }])
     expect(run.integrationId).toBe('docs')
-    expect(run.addKind).toBeNull()
-    expect(run.canChangeKind).toBe(false)
+    expect(run.addForm).toBeNull()
+    expect(run.canChangeServer).toBe(true)
   })
 
   test('an address the host refuses can be changed: the dialog goes back to the address form and checks the new one', async () => {
@@ -359,9 +360,8 @@ describe('a server added by its address', () => {
     await store.load('refused')
     const { catalog, installs } = recordingCatalog(null)
     const run = new McpConnect('refused', { name: '', url: '', addsServer: true }, catalog)
-    run.chooseKind('url')
-    run.addressForm.address = 'https://wrong.example.com/mcp'
-    await run.continueWithAddress()
+    run.setSource('https://wrong.example.com/mcp')
+    await run.continueFromSource()
     expect(run.step).toBe('adding')
     run.editAddress()
     expect(run.step).toBe('address')
@@ -375,9 +375,8 @@ describe('a server added by its address', () => {
     await store.load('known')
     const { catalog, installs } = recordingCatalog(null)
     const run = new McpConnect('known', { name: '', url: '', addsServer: true }, catalog)
-    run.chooseKind('url')
-    run.addressForm.address = 'https://mcp.example.com/mcp'
-    await run.continueWithAddress()
+    run.setSource('https://mcp.example.com/mcp')
+    await run.continueFromSource()
     expect(installs).toEqual([])
     expect(run.integrationId).toBe('docs')
   })
@@ -392,11 +391,141 @@ describe('a server added by its address', () => {
     })
     await store.load('locked')
     const run = new McpConnect('locked', { name: '', url: '', addsServer: true }, noCatalog, () => true)
-    run.command!.line = 'npx -y files-mcp'
+    run.setSource('npx -y files-mcp')
     await run.startCommand()
     expect(run.integrationId).toBe('files')
-    run.chooseKind('url')
-    expect(run.addKind).toBe('command')
+    // An address typed now is still read as the command's line: it would be a second server.
+    run.setSource('https://mcp.example.com/mcp')
     expect(run.step).toBe('command')
+    expect(run.command?.line).toBe('https://mcp.example.com/mcp')
+  })
+})
+
+describe('the one field of Add server', () => {
+  const remote = (id: string, url: string): Integration => ({
+    id, organizationId: 'local', ownerKey: 'local:test', kind: 'mcp', slug: id, name: id, url,
+    auth: { kind: 'none' }, disabledTools: [], createdAt: '2026-11-20T00:00:00Z', updatedAt: '2026-11-20T00:00:00Z',
+  })
+
+  test('a pasted config of a URL server goes to the check with its static OAuth client, so the sign-in does not ask for it', async () => {
+    // WHY: a server that does not register Solus by itself (HiddenLayer, a
+    // `claude mcp add --client-id` server) needs the client its setup page gave.
+    connections.registerHost('paste-url', { integrationList: async () => [], integrationConnectionList: async () => [] })
+    await store.load('paste-url')
+    const installs: { name: string; url: string; auth?: IntegrationAuthChoice }[] = []
+    const catalog = { installs: new Map(), dismiss: () => {}, install: async (name: string, url: string, auth?: IntegrationAuthChoice) => { installs.push({ name, url, auth }); return remote('acme', url) } } as Catalog
+    const run = new McpConnect('paste-url', { name: '', url: '', addsServer: true }, catalog)
+    run.setSource(JSON.stringify({ mcpServers: { Acme: { type: 'http', url: 'https://mcp.acme.dev/mcp', oauth: { clientId: 'acme-static' } } } }))
+    // The field shows the address the JSON named, and says it was filled in.
+    expect(run.source).toBe('https://mcp.acme.dev/mcp')
+    expect(run.isFilledFromConfig).toBe(true)
+    await run.continueFromSource()
+    expect(installs).toEqual([{ name: 'Acme', url: 'https://mcp.acme.dev/mcp', auth: { kind: 'automatic', client: { clientId: 'acme-static' } } }])
+    expect(run.step).not.toBe('source')
+  })
+
+  test('a pasted config of a command fills its line, name, folder, and values, and Start and test takes them', async () => {
+    const calls: string[] = []
+    const submitted: IntegrationConnectSubmitRequest[] = []
+    connections.registerHost('paste-command', {
+      integrationList: async () => [],
+      integrationConnectionList: async () => [],
+      integrationCreate: async () => { calls.push('create'); return command('memory', ['API_KEY']) },
+      integrationConnectSubmit: async (request: IntegrationConnectSubmitRequest) => { submitted.push(request); return { connected: true } },
+      integrationProcessStart: async () => { calls.push('start'); return facts({ state: 'running' }) },
+    })
+    await store.load('paste-command')
+    const run = new McpConnect('paste-command', { name: '', url: '', addsServer: true }, noCatalog, () => true)
+    run.setSource(`"memory": { "command": "npx", "args": ["-y", "@acme/memory"], "env": { "API_KEY": "${SECRET}", "REGION": "\${REGION}" }, "cwd": "~/work" }`)
+    const form = run.command!
+    expect(run.step).toBe('command')
+    expect(run.source).toBe('npx -y @acme/memory')
+    expect({ name: form.name, line: form.line, cwd: form.cwd, envNames: form.envNames }).toEqual({ name: 'memory', line: 'npx -y @acme/memory', cwd: '~/work', envNames: 'API_KEY, REGION' })
+    // A `${…}` value is a reference Solus does not expand: the name stays, the value is the person's to give.
+    expect(form.envRows.filter((row) => row.value).map((row) => row.name)).toEqual(['API_KEY'])
+    await run.continueFromSource()
+    expect(calls).toEqual(['create', 'start'])
+    expect(submitted).toEqual([{ id: 'memory', values: [{ name: 'API_KEY', value: SECRET }, { name: 'REGION', value: '' }] }])
+    expect(form.hasValues).toBe(false)
+  })
+
+  test('JSON that names two servers says why and adds nothing', async () => {
+    connections.registerHost('paste-two', { integrationList: async () => [], integrationConnectionList: async () => [] })
+    await store.load('paste-two')
+    const installs: string[] = []
+    const catalog = { installs: new Map(), dismiss: () => {}, install: async (_name: string, url: string) => { installs.push(url); return null } } as Catalog
+    const run = new McpConnect('paste-two', { name: '', url: '', addsServer: true }, catalog)
+    run.setSource(JSON.stringify({ mcpServers: { a: { url: 'https://a.example/mcp' }, b: { url: 'https://b.example/mcp' } } }))
+    await run.continueFromSource()
+    expect(run.sourceProblem).toContain('2 servers')
+    expect(installs).toEqual([])
+    expect(run.step).toBe('source')
+  })
+
+  test('Change on the done server step takes back the server this dialog added and opens the field again', async () => {
+    const calls: string[] = []
+    connections.registerHost('change', {
+      integrationList: async () => [],
+      integrationConnectionList: async () => [],
+      integrationRemove: async () => { calls.push('remove'); return { removed: true } },
+    })
+    await store.load('change')
+    const catalog = { installs: new Map(), dismiss: () => {}, install: async (_name: string, url: string) => remote('docs', url) } as Catalog
+    const run = new McpConnect('change', { name: '', url: '', addsServer: true }, catalog)
+    run.setSource('https://mcp.example.com/mcp')
+    await run.continueFromSource()
+    expect(run.canChangeServer).toBe(true)
+    await run.changeServer()
+    expect(calls).toEqual(['remove'])
+    expect(run.integrationId).toBeNull()
+    expect(run.step).toBe('source')
+    // A catalog entry has no field to go back to.
+    expect(new McpConnect('change', { name: 'Docs', url: 'https://mcp.example.com/mcp' }, catalog).canChangeServer).toBe(false)
+  })
+})
+
+// The environment variables editor: a row for each variable, its name and its value.
+describe('the environment variables of a command form', () => {
+  test('pasting a .env file into a row fills that row and adds the rest; a name already there takes its new value', () => {
+    const form = new McpCommandForm('env-paste', () => true)
+    form.envNames = 'OPENSEARCH_URL'
+    const into = form.addVariable()
+    form.pasteVariables(into.id, [
+      { name: 'OPENSEARCH_USERNAME', value: 'admin' },
+      { name: 'OPENSEARCH_URL', value: 'https://search.example.com' },
+      { name: 'OPENSEARCH_PASSWORD', value: SECRET },
+    ])
+    // WHY: a person pastes their .env once instead of typing each name twice, and no name gets two rows.
+    expect(form.envRows.map((row) => [row.name, row.value])).toEqual([
+      ['OPENSEARCH_URL', 'https://search.example.com'],
+      ['OPENSEARCH_USERNAME', 'admin'],
+      ['OPENSEARCH_PASSWORD', SECRET],
+    ])
+    expect(form.envNames).toBe('OPENSEARCH_URL, OPENSEARCH_USERNAME, OPENSEARCH_PASSWORD')
+  })
+
+  test('renaming a row keeps its value, and an empty row is not a variable', () => {
+    const form = new McpCommandForm('env-rename', () => true)
+    const row = form.addVariable('TOKEN', SECRET)
+    form.addVariable()
+    row.name = 'API_TOKEN'
+    // WHY: the value belongs to the row the person typed it in, not to the old name.
+    expect(form.takeValues()).toEqual([{ name: 'API_TOKEN', value: SECRET }])
+    expect(form.envNames).toBe('API_TOKEN')
+  })
+
+  test('a row says why its name cannot be saved before the save is tried', () => {
+    const form = new McpCommandForm('env-problems', () => true)
+    const first = form.addVariable('TOKEN')
+    const twice = form.addVariable('TOKEN')
+    const bad = form.addVariable('1TOKEN')
+    const unnamed = form.addVariable('', 'value')
+    expect(form.rowProblem(first)).toBeNull()
+    expect(form.rowProblem(twice)).toBe('TOKEN is named twice.')
+    expect(form.rowProblem(bad)).toContain('1TOKEN is not a variable name')
+    // WHY: a value with no name would be dropped without a word.
+    expect(form.rowProblem(unnamed)).toBe('Give this value a name.')
+    form.removeVariable(twice.id)
+    expect(form.rowProblem(first)).toBeNull()
   })
 })

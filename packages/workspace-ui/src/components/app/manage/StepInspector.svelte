@@ -2,6 +2,8 @@
   import { untrack } from "svelte";
   import type { AppStepView } from "@solus/contracts/apps";
   import { appsStore, type AppStepSourceQuery } from "../../../contexts/apps/apps.store.svelte";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
+  import StateIcon from "./StateIcon.svelte";
   import StepCodeSheet from "./StepCodeSheet.svelte";
   import { prettyJson } from "./lib/activity";
   import { notRunText, stepCodeRefusal, stepPolicyLine, tryRows, type GraphStep } from "./lib/run-graph";
@@ -59,7 +61,8 @@
   }
 </script>
 
-<aside class="flex w-65 shrink-0 flex-col gap-3.5 pt-1.5 pb-4.5 @max-[48rem]/pane:w-full" aria-label="Step {entry.name}" data-testid="app-step-inspector">
+<!-- A container of its own, so the error callout lays out for this column, not for the pane. -->
+<aside class="@container flex w-65 shrink-0 flex-col gap-3.5 pt-1.5 pb-4.5 @max-[48rem]/pane:w-full" aria-label="Step {entry.name}" data-testid="app-step-inspector">
   <div class="flex min-w-0 flex-col gap-0.75">
     <span class="text-xs text-(--solus-text-tertiary)">Step {position} of {count}</span>
     <h3 class="m-0 truncate text-[17px] leading-5.5 font-semibold text-foreground" title={entry.name}>{entry.name}</h3>
@@ -72,14 +75,21 @@
     <ul class="m-0 flex list-none flex-col p-0" aria-label="Tries">
       {#each tryRows(step, now) as row, index (index)}
         <li class="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-[var(--hairline)] last:border-b">
-          <span class="text-sm {row.isFinal ? 'font-medium text-(--failure)' : 'text-foreground'}">{row.label}</span>
-          <span class="min-w-0 truncate text-[13px] tabular-nums {row.isFinal ? 'text-(--failure)' : 'text-(--solus-text-tertiary)'}">{row.detail}</span>
+          <span class="flex min-w-0 items-center gap-2 text-sm {row.isFinal ? 'font-medium' : ''} text-foreground">
+            {#if row.isFinal}<StateIcon state="failed" label="The try that failed the step" size={14} />{/if}
+            {row.label}
+          </span>
+          <span class="min-w-0 truncate text-[13px] tabular-nums text-(--solus-text-tertiary)">{row.detail}</span>
         </li>
       {/each}
     </ul>
 
     {#if step.error}
-      <pre class="m-0 max-h-40 overflow-auto rounded-[10px] bg-[var(--wash-2)] px-3 py-2.5 font-mono text-xs leading-4.5 whitespace-pre-wrap text-(--solus-text-secondary)">{step.error}</pre>
+      <MarkdownAlert alertType="error">
+        {#snippet content()}
+          <pre class="m-0 max-h-40 overflow-auto font-mono text-xs leading-4.5 whitespace-pre-wrap text-(--solus-text-tertiary) select-text">{step.error}</pre>
+        {/snippet}
+      </MarkdownAlert>
     {/if}
 
     <div class="flex gap-2" role="group" aria-label="Read more">

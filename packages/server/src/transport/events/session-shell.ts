@@ -6,6 +6,7 @@ import type { HostEvent } from '@solus/contracts/host-events'
 import type { SessionShellChange, SessionShellChanges, SessionShellCursor, SessionShellOpenResult, SessionShellRow, SessionShellSnapshot } from '@solus/contracts/session-shell'
 import { SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
 import type { ProjectEntry } from '@solus/contracts/types'
+import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { actorFor, ownerKeyOf } from '../../admission/actor'
 import { isAnyOrganization, recordScopeOf, type Principal } from '../../admission/principal'
 import { createLogger } from '../../logger'
@@ -16,8 +17,11 @@ const log = createLogger('server', 'session-shell.ts')
 /** The change log keeps the newest keys only: this many, and none older than `LOG_AGE_MS`. */
 export const SESSION_SHELL_LOG_LIMIT = 2_000
 export const SESSION_SHELL_LOG_AGE_MS = 10 * 60 * 1000
-/** Keys that change inside this window go to a client in one event. */
-export const SESSION_SHELL_COALESCE_MS = 50
+/** Keys that change inside this window go to a client in one event. A list need not be fresher,
+ *  and the window joins the record, index, and activity events of one agent step into one read. */
+export const SESSION_SHELL_COALESCE_MS = 500
+/** The wait before a read the Solus API refused for its budget is tried again, when the answer names none. */
+export const SESSION_SHELL_RETRY_MS = 1_000
 
 /** What the shell reads for one caller, with that caller's scope. `agentActivity` is the shell's to add. */
 export interface SessionShellReads {
@@ -42,7 +46,8 @@ export interface SessionShellDeps {
   now?: () => number
 }
 
-type ShellKey = `session:${string}` | `project:${string}` | 'codebases' | 'indexing'
+/** `activity:` is a change of the agent's activity alone: the shell holds it, so it needs no read. */
+type ShellKey = `session:${string}` | `activity:${string}` | `project:${string}` | 'codebases' | 'indexing'
 
 interface Subscriber {
   caller: CallerCtx
@@ -73,9 +78,9 @@ export function sessionShellScopeKey(principal: Principal): string {
 /**
  * The session list of each person on this host as a sequence of changed keys
  * (docs/plans/mobile-session-shell.md §5). The log keeps keys, not rows: each
- * client reads the current state of a key with its own scope, so one caller
- * never gets another caller's row. A key is in the log once, at its newest
- * sequence.
+ * scope reads the current state of a key with its own caller, so one caller
+ * never gets another caller's row. Clients of one scope at the same point share
+ * that read. A key is in the log once, at its newest sequence.
  *
  * A `row.removed` or `project.removed` goes to a caller only for a key that
  * this process sent to their scope before: a caller never learns the id of a
@@ -93,6 +98,8 @@ export class SessionShell {
   private readonly opening = new Map<string, Subscriber>()
   /** The keys sent to each scope in this process: what a cursor of that scope can hold. */
   private readonly sentTo = new Map<string, Set<ShellKey>>()
+  /** The sessions whose row each scope holds now: a row that was removed is not one. Only these get `row.activity`. */
+  private readonly rowsHeldBy = new Map<string, Set<string>>()
   private readonly activity = new Map<string, AgentActivity>()
   private attention = new Map<string, string>()
   private projects: Promise<Map<string, string> | null>
@@ -129,8 +136,10 @@ export class SessionShell {
     }
     const read = await this.deps.reads.snapshot(caller)
     const sent = this.sentKeys(scopeKey)
+    const held = this.rowsHeld(scopeKey)
     for (const row of read.rows) {
       sent.add(`session:${row.record.sessionId}`)
+      held.add(row.record.sessionId)
       row.agentActivity = this.activity.get(row.record.sessionId) ?? null
     }
     for (const project of read.projects) sent.add(`project:${project.path}`)
@@ -161,7 +170,7 @@ export class SessionShell {
       case 'session.activityChanged':
         if (event.payload.activity) this.activity.set(event.payload.sessionId, event.payload.activity)
         else this.activity.delete(event.payload.sessionId)
-        this.sessionChanged(event.payload.sessionId)
+        this.record(`activity:${event.payload.sessionId}`)
         break
       case 'session.indexChanged':
         for (const sessionId of event.payload.sessionIds) this.sessionChanged(sessionId)
@@ -289,6 +298,12 @@ export class SessionShell {
     return keys
   }
 
+  private rowsHeld(scopeKey: string): Set<string> {
+    let held = this.rowsHeldBy.get(scopeKey)
+    if (!held) this.rowsHeldBy.set(scopeKey, held = new Set())
+    return held
+  }
+
   private sentKeys(scopeKey: string): Set<ShellKey> {
     let sent = this.sentTo.get(scopeKey)
     if (!sent) this.sentTo.set(scopeKey, sent = new Set())
@@ -299,6 +314,7 @@ export class SessionShell {
   private async changesFor(subscriber: Subscriber, keys: readonly ShellKey[]): Promise<SessionShellChange[]> {
     const { caller, scopeKey } = subscriber
     const sessionIds = keys.flatMap(key => key.startsWith('session:') ? [key.slice('session:'.length)] : [])
+    const readsRow = new Set(sessionIds)
     const hasProjects = keys.some(key => key.startsWith('project:'))
     const [rows, projects, codebases] = await Promise.all([
       sessionIds.length ? this.deps.reads.sessions(caller, sessionIds) : null,
@@ -307,20 +323,29 @@ export class SessionShell {
     ])
     const projectByPath = new Map(projects?.map(project => [project.path, project]))
     const sent = this.sentKeys(scopeKey)
+    const held = this.rowsHeld(scopeKey)
     const changes: SessionShellChange[] = []
     for (const key of keys) {
       if (key === 'codebases') {
         if (codebases) changes.push({ kind: 'codebases.updated', codebases })
       } else if (key === 'indexing') {
         changes.push({ kind: 'indexing.changed', indexing: this.deps.reads.indexing() })
+      } else if (key.startsWith('activity:')) {
+        const sessionId = key.slice('activity:'.length)
+        // Only a row the client holds; a row read in this change has the activity already.
+        if (held.has(sessionId) && !readsRow.has(sessionId)) {
+          changes.push({ kind: 'row.activity', sessionId, agentActivity: this.activity.get(sessionId) ?? null })
+        }
       } else if (key.startsWith('session:')) {
         const sessionId = key.slice('session:'.length)
         const row = rows?.get(sessionId)
         if (row) {
           sent.add(key)
+          held.add(sessionId)
           changes.push({ kind: 'row.updated', row: { ...row, agentActivity: this.activity.get(sessionId) ?? null } })
-        } else if (sent.has(key)) {
-          changes.push({ kind: 'row.removed', sessionId })
+        } else {
+          held.delete(sessionId)
+          if (sent.has(key)) changes.push({ kind: 'row.removed', sessionId })
         }
       } else {
         const path = key.slice('project:'.length)
@@ -344,16 +369,18 @@ export class SessionShell {
     if (this.sequence > subscriber.readThrough) this.scheduleFlush()
   }
 
-  private scheduleFlush(): void {
+  private scheduleFlush(delayMs = SESSION_SHELL_COALESCE_MS): void {
     if (this.timer) return
     this.timer = setTimeout(() => {
       this.timer = null
       this.flushing = this.flushing.then(() => this.flush())
-    }, SESSION_SHELL_COALESCE_MS)
+    }, delayMs)
   }
 
   private async flush(): Promise<void> {
     const through = this.sequence
+    // Clients of one scope see one list: those at the same point share one read of the same keys.
+    const reads = new Map<string, Promise<SessionShellChange[]>>()
     await Promise.all([...this.subscribers].map(async ([clientId, subscriber]) => {
       if (subscriber.readThrough >= through) return
       if (subscriber.readThrough < this.droppedThrough) {
@@ -364,10 +391,17 @@ export class SessionShell {
       }
       let changes: SessionShellChange[]
       try {
-        changes = await this.changesFor(subscriber, this.keysAfter(subscriber.readThrough, through))
+        const readKey = `${subscriber.scopeKey}\0${subscriber.readThrough}`
+        let read = reads.get(readKey)
+        if (!read) reads.set(readKey, read = this.changesFor(subscriber, this.keysAfter(subscriber.readThrough, through)))
+        changes = await read
       } catch (error) {
-        // The keys stay unread for this client; its next change reads them again.
+        // The keys stay unread for this client; its next change reads them again. A refusal of the
+        // request budget is read again after its wait, also when no change comes.
         log.warn('session_shell_changes_failed', { clientId, error: error instanceof Error ? error.message : String(error) })
+        if (error instanceof WorkspaceRequestError && (error.status === 429 || error.status === 503)) {
+          this.scheduleFlush(error.retryAfter ? error.retryAfter * 1000 : SESSION_SHELL_RETRY_MS)
+        }
         return
       }
       // The client opened again or left while its rows were read.

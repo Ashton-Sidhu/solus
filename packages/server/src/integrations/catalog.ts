@@ -42,7 +42,21 @@ const feedEntrySchema = z.object({
   categories: z.array(z.string()).nullish(),
   popularity: z.number().nullish(),
   connectUrl: z.string().min(1).nullish(),
+  feeds: z.array(z.string()).optional(),
 })
+
+const TRUSTED_FEEDS = new Set(['claude', 'openai', 'curated'])
+
+// Allow only the exact crawler endpoints listed in the vendors' setup guides.
+const VERIFIED_DISCOVERED_URLS = new Set([
+  'https://mcp.mux.com/', // https://www.mux.com/docs/integrations/mcp-server
+  'https://mcp.newrelic.com/mcp/', // https://docs.newrelic.com/docs/agentic-ai/mcp/setup/
+  'https://mcp.render.com/mcp', // https://render.com/docs/mcp-server
+])
+
+const EXCLUDED_FEED_URLS = new Set([
+  'https://aris.kongmy.dev/', // The OpenAI entry describes Aris as an early preview.
+])
 
 /**
  * Servers that hide their tools behind one wrapper tool unless asked. Solus
@@ -79,8 +93,18 @@ function entriesOf(envelope: z.infer<typeof envelopeSchema>): CatalogEntry[] {
   for (const item of envelope.data) {
     const parsed = feedEntrySchema.safeParse(item)
     if (!parsed.success) continue
-    const { connectUrl, ...entry } = parsed.data
-    if (entry.kind !== 'mcp' || !connectUrl) continue
+    const { connectUrl, feeds, ...entry } = parsed.data
+    if (entry.kind !== 'mcp' || !connectUrl || !URL.canParse(connectUrl)) continue
+    const url = new URL(connectUrl)
+    if (url.protocol !== 'https:' || url.username || url.password) continue
+
+    // An explicit staging label identifies a non-production endpoint, even in a directory.
+    const firstLabel = url.hostname.split('.', 1)[0]
+    if (firstLabel.split('-').includes('staging') || EXCLUDED_FEED_URLS.has(url.href)) continue
+
+    const hasTrustedFeed = feeds?.some((feed) => TRUSTED_FEEDS.has(feed))
+    const isVerifiedDiscovery = feeds?.includes('discovered') && VERIFIED_DISCOVERED_URLS.has(url.href)
+    if (!hasTrustedFeed && !isVerifiedDiscovery) continue
     const mapped: CatalogEntry = {
       id: entry.id,
       kind: 'mcp',

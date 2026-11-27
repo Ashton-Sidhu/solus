@@ -70,16 +70,16 @@
     {#each grants as grant (grant.deviceId)}
       {@const facts = grantFacts(grant)}
       <div class="flex flex-col gap-2">
-        <dl class="flex flex-col rounded-[0.625rem] bg-(--solus-code-bg) text-[0.8125rem] leading-4 ring-1 ring-border">
-          <div class="flex justify-between gap-3 border-b border-border px-3.5 py-2.5">
+        <dl class="flex flex-col gap-0.5 rounded-xl bg-(--solus-tx-card-bg) py-1.5 text-[0.8125rem] leading-4 shadow-[shadow:var(--solus-card-shadow-collapsed)]">
+          <div class="flex justify-between gap-3 px-4 py-1.5">
             <dt class="text-(--solus-text-tertiary)">Connected</dt>
             <dd class="truncate text-(--solus-text-primary)">{facts.connected}</dd>
           </div>
-          <div class="flex justify-between gap-3 border-b border-border px-3.5 py-2.5">
+          <div class="flex justify-between gap-3 px-4 py-1.5">
             <dt class="text-(--solus-text-tertiary)">Last used</dt>
             <dd class="truncate text-(--solus-text-primary)">{facts.lastUsed}</dd>
           </div>
-          <div class="flex justify-between gap-3 px-3.5 py-2.5">
+          <div class="flex justify-between gap-3 px-4 py-1.5">
             <dt class="text-(--solus-text-tertiary)">Can</dt>
             <dd class="truncate text-(--solus-text-primary)">{facts.access}</dd>
           </div>
@@ -95,7 +95,7 @@
       </div>
     {/each}
     <div class="flex flex-wrap items-center gap-2">
-      <Button variant="outline" size="sm" onclick={() => (isConnectingAgain = true)}>Connect again</Button>
+      <Button variant="ghost" size="sm" class="bg-muted" onclick={() => (isConnectingAgain = true)}>Connect again</Button>
       {#if grants.length === 1}
         {@const [only] = grants}
         <Button variant="ghost" size="sm" class="text-(--solus-status-error) hover:text-(--solus-status-error)" disabled={revokingId !== null} onclick={() => void disconnect(only)}>
@@ -122,7 +122,7 @@
     {/if}
     {#if isConnectingAgain}
       <div>
-        <Button variant="ghost" size="sm" class="-ml-2" onclick={() => (isConnectingAgain = false)}>Back to the connection</Button>
+        <Button variant="ghost" size="sm" class="self-start bg-muted" onclick={() => (isConnectingAgain = false)}>Back to the connection</Button>
       </div>
     {/if}
   {/if}

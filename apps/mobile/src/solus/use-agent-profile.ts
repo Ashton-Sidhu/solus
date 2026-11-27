@@ -7,6 +7,7 @@ import { useListened } from '@solus-mobile/app/app-context'
 import { solus as app } from './runtime'
 import type { AgentProfileSetOutcome } from '@solus-mobile/features/settings/agent-profile-local'
 import type { AgentProfileHostState } from '@solus-mobile/features/account/account-sync'
+import { readServerSource } from '@solus/contracts/integrations/server-source'
 import { errorMessage, isIntegrationUrl, probeRefusal } from '@solus-mobile/features/settings/integrations'
 import {
   agentProfileParts,
@@ -100,7 +101,12 @@ export function useAgentProfile() {
   const addSkill = (skill: RemoteSkill): AgentProfileSetOutcome => app.agentProfile.setEntry(skillEntryFromRemote(skill))
 
   /** Checks the address on the tool host and adds the server it finds. Answers why when it could not. */
-  const addServer = async (url: string): Promise<string | null> => {
+  /** The field takes an address or the JSON of a setup page, as the desktop and web field does; a command is added on a host's MCP page. */
+  const addServer = async (text: string): Promise<string | null> => {
+    const source = readServerSource(text)
+    if (source.kind === 'invalid') return source.reason
+    if (source.kind === 'command') return 'A command runs as code on a host. Add it on the MCP page of the desktop or web app.'
+    const url = source.kind === 'url' ? source.url : ''
     if (!isIntegrationUrl(url)) return 'Use an HTTPS address, or HTTP on localhost, with no credentials or fragment.'
     // The React Compiler cannot compile branches inside try/catch. The async
     // wrapper turns a synchronous throw into a rejection that catch answers.

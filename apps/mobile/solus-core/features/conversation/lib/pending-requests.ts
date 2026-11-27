@@ -1,4 +1,4 @@
-import type { AddMachineAsk } from '@solus/contracts/add-machine'
+import type { AddMachineAsk, HostProvidersAsk } from '@solus/contracts/add-machine'
 import type { CloudMachineAsk } from '@solus/contracts/cloud-machine-card'
 import type { PermissionOption, QuestionItem, QuestionRequest, RequestExpiry } from '@solus/contracts/types'
 
@@ -23,23 +23,22 @@ export interface PendingQuestion {
   responseMode?: 'message'
   /** `secret`: a `request_secret` card, answered with `secretRequestAnswer`, never `respondQuestion`.
    *  `host-link`: the Add machine card of `add_host` (docs/plans/add-machine-card.md).
-   *  `cloud-machine`: the machine card of a cloud machine tool (plans/035-cloud-machine-tools.md §6). */
+   *  `cloud-machine`: the machine card of a cloud machine tool (plans/035-cloud-machine-tools.md §6).
+   *  `host-providers`: the Sign in card of `add_host` (docs/host-provider-sign-in.md). */
   kind?: QuestionRequest['kind']
   /** `host-link` only: what the agent asks to add. */
   hostLink?: AddMachineAsk
+  /** `host-providers` only: the new host and the provider that the work needs there. */
+  hostProviders?: HostProvidersAsk
   /** `cloud-machine` only: the choices the card collects. */
   cloudMachine?: CloudMachineAsk
   /** Set when the question can no longer be answered. */
   expired?: RequestExpiry
 }
 
-/**
- * A question with its own card above the composer, not T3's pending input card:
- * the secret card, the Add machine card, and the machine card. Their values never go to the composer,
- * so the composer is hidden while one is open.
- */
+/** Host requests with their own controls in the transcript. */
 export function hasOwnCard(question: Pick<PendingQuestion, 'kind'> | undefined): boolean {
-  return question?.kind === 'secret' || question?.kind === 'host-link' || question?.kind === 'cloud-machine'
+  return question?.kind === 'secret' || question?.kind === 'host-link' || question?.kind === 'cloud-machine' || question?.kind === 'host-providers'
 }
 
 export interface QueuedPrompt {

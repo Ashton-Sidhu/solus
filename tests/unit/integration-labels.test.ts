@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { toolAccess, type IntegrationAuth, type IntegrationConnection, type IntegrationProbeResult } from '@solus/contracts/integration-types'
-import { catalogCountText, connectionStatusText, readyToolsText, customUrlProblem, firstLine, IntegrationLabels, oauthRedirectUrl, probeRefusal, urlHost } from '../../packages/workspace-ui/src/components/settings/lib/integration-labels'
+import { catalogCountText, connectionStatusText, readyToolsText, customUrlProblem, firstLine, IntegrationLabels, monogramHue, probeRefusal, urlHost } from '../../packages/workspace-ui/src/components/settings/lib/integration-labels'
 
 const labels = (auth: IntegrationAuth) => new IntegrationLabels({ auth, url: 'https://x.example/mcp' })
 
@@ -100,7 +100,8 @@ describe('OAuth client wording', () => {
   const discover = 'https://x.example/.well-known/oauth-protected-resource'
 
   test('every OAuth server offers manual setup without blocking automatic sign-in', () => {
-    expect(labels({ kind: 'oauth', discover, registration: 'dynamic' }).clientText).toMatchObject({ state: 'automatic' })
+    // WHY: the way to the owner's client is an action of its own, so the form can draw it as a link the person sees.
+    expect(labels({ kind: 'oauth', discover, registration: 'dynamic' }).clientText).toEqual({ state: 'automatic', note: null, action: 'Use your own OAuth app' })
     expect(labels({ kind: 'oauth', discover, registration: 'metadata-document' }).clientText).toMatchObject({ state: 'automatic' })
     expect(labels({ kind: 'none' }).clientText).toBeNull()
     expect(labels({ kind: 'bearer', scheme: 'bearer' }).clientText).toBeNull()
@@ -121,12 +122,15 @@ describe('OAuth client wording', () => {
     expect(labels({ kind: 'oauth', discover, registration: 'client-required', clientId: 'abc123' }).clientText).toMatchObject({ secret: 'No secret', changeHint: null })
   })
 
-  test('a custom client remains visible for a server with automatic registration', () => {
-    expect(labels({ kind: 'oauth', discover, registration: 'dynamic', clientId: 'custom' }).clientText).toMatchObject({ state: 'set', clientId: 'custom' })
+  test('the owner client form starts from their own client, else the ID the server gave Solus', () => {
+    // WHY: a server like HiddenLayer gives every client one static ID; the person should not have to find and type it.
+    expect(labels({ kind: 'oauth', discover, registration: 'dynamic', registeredClientId: 'static-id' }).startingClientId).toBe('static-id')
+    expect(labels({ kind: 'oauth', discover, registration: 'dynamic', registeredClientId: 'static-id', clientId: 'own-app' }).startingClientId).toBe('own-app')
+    expect(labels({ kind: 'oauth', discover, registration: 'client-required' }).startingClientId).toBe('')
   })
 
-  test('the redirect URL is the host callback at the origin this client reaches it on', () => {
-    expect(oauthRedirectUrl('https://solus.example:8443')).toBe('https://solus.example:8443/oauth/integration/callback')
+  test('a custom client remains visible for a server with automatic registration', () => {
+    expect(labels({ kind: 'oauth', discover, registration: 'dynamic', clientId: 'custom' }).clientText).toMatchObject({ state: 'set', clientId: 'custom' })
   })
 })
 
@@ -155,5 +159,14 @@ describe('connect dialog', () => {
     expect(readyToolsText(2)).toBe('2 tools are ready for the next run')
     expect(readyToolsText(1)).toBe('1 tool is ready for the next run')
     expect(readyToolsText(0)).toBe('No tools are on. Agents get none from this server.')
+  })
+})
+
+describe('monogramHue', () => {
+  test('a server keeps its tile color across clients and letter case, and two names differ', () => {
+    expect(monogramHue('paper')).toBe(monogramHue('Paper'))
+    expect(monogramHue('paper')).not.toBe(monogramHue('sentry'))
+    expect(monogramHue('paper')).toBeGreaterThanOrEqual(0)
+    expect(monogramHue('paper')).toBeLessThan(360)
   })
 })

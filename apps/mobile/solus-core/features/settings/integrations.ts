@@ -206,9 +206,6 @@ export function catalogCandidate(entry: CatalogEntry): IntegrationCandidate {
 
 // ─── The administrator's OAuth client (§4.3) ───
 
-/** The path on the host's HTTP server that the service's OAuth app lists as its redirect URL. */
-export const OAUTH_CALLBACK_PATH = '/oauth/integration/callback'
-
 export const oauthClientText = {
   title: 'OAuth client',
   explanation: 'This server needs an OAuth client. Enter the client ID supplied by the service, or create an OAuth app there. Each person signs in with their own account.',

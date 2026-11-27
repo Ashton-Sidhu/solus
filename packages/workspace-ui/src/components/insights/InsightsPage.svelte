@@ -3,7 +3,7 @@
   import { onDestroy, tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { getWorkspaceContext, serversStore } from "../../contexts";
+  import { getWorkspaceContext, runtime, serversStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
     useKeybinding,
@@ -158,6 +158,8 @@
   $effect(() => {
     if (!open || loaded) return;
     loaded = true;
+    // The page opens on its question. A turn opened by a link hides the console.
+    if (!panelOpen && !runtime.shouldSuppressFocus) void tick().then(() => queryConsole?.focusQuery());
     void store.load().then(() => (schemaRevision += 1));
     // The marks a person put on turns, for the chips on the rows. Small, and
     // read once per host.

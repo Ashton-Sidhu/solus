@@ -1,24 +1,29 @@
 import { z } from 'zod'
-import type { AppCallDetail, AppCallKind, AppCallOutcome, AppCallQueryField, AppCallStats, AppCallTerm, AppCallView, AppSummary, AppWebhookView } from '@solus/contracts/apps'
+import type { AppCallDetail, AppCallKind, AppCallOutcome, AppCallQueryField, AppCallStats, AppCallTerm, AppCallView, AppCaller, AppSummary, AppWebhookView } from '@solus/contracts/apps'
 import { appKey } from '../../../../contexts/apps/app-resource.svelte'
 import type { AppCallQuery, AppCallStatsQuery } from '../../../../contexts/apps/apps.store.svelte'
-import { formatFileSize } from '../../../files/lib/non-text-file'
 import { formatDuration } from '../../../insights/lib/format'
 import type { TrendPoint } from '../../../insights/lib/chart-shape'
 import { axisInstantFormat, formatClock, formatDayClock } from '../../../insights/lib/format'
 import type { TimeSelection } from '../../../insights/lib/volume'
-import type { TurnAttribute, TurnAttributeGroup } from '../../../insights/lib/turn-attributes'
-import { callOutcomeLabel, callerText } from '../../lib/app-view'
+import { callerText } from '../../lib/app-view'
 import { callTermText, parseCallQuery } from './call-query'
 
 /**
  * The Activity section (docs/plans/apps.md §9.2): the query of the call log,
- * its fields, its chart, and the columns of its rows. The host applies the
- * query, so the query is what the read asks for.
+ * its fields, its chart, and its event rows. One log holds the calls of
+ * operations and the model calls. The host applies the query, so the query is
+ * what the read asks for.
  */
 
-/** Which rows the log shows: the calls of operations, or the model calls. */
-export type CallKind = AppCallKind
+/** Which rows the log shows: every call (''), only the calls of operations, or only the model calls. */
+export type CallKind = AppCallKind | ''
+
+export const CALL_KIND_CHOICES: { value: CallKind; label: string }[] = [
+  { value: '', label: 'All calls' },
+  { value: 'operation', label: 'Operation calls' },
+  { value: 'model', label: 'Model calls' },
+]
 
 /** How far back the log looks. */
 export type CallRange = 'hour' | 'day' | 'week' | 'all'
@@ -69,7 +74,7 @@ export interface ActivityView {
   zoom: TimeSelection | null
 }
 
-export const NEW_ACTIVITY_VIEW: ActivityView = { kind: 'operation', text: '', chips: [], outcome: '', range: 'day', zoom: null }
+export const NEW_ACTIVITY_VIEW: ActivityView = { kind: '', text: '', chips: [], outcome: '', range: 'day', zoom: null }
 
 /** The calls a view reads first, and with "Show more": the most the host gives in one read. */
 export const CALL_FIRST_PAGE = 100
@@ -79,7 +84,8 @@ export const CALL_FULL_PAGE = 500
 export function callStatsQuery(view: ActivityView, now: number): AppCallStatsQuery {
   const match = [...parseCallQuery(view.text).groups, ...view.chips.map((chip) => [chip])]
   if (view.outcome) match.push([{ field: 'outcome', value: view.outcome }])
-  const query: AppCallStatsQuery = { kind: view.kind }
+  const query: AppCallStatsQuery = {}
+  if (view.kind) query.kind = view.kind
   if (view.zoom) {
     query.since = view.zoom.from
     query.until = view.zoom.to
@@ -96,28 +102,30 @@ export function callQuery(view: ActivityView, now: number, limit: number = CALL_
   return { ...callStatsQuery(view, now), limit }
 }
 
-/** Whether the view narrows the log at all, beyond its kind and its range. */
+/** Whether the view narrows the log at all, beyond its range. */
 export function isActivityFiltered(view: ActivityView): boolean {
-  return view.text.trim() !== '' || view.chips.length > 0 || view.outcome !== ''
+  return view.text.trim() !== '' || view.chips.length > 0 || view.outcome !== '' || view.kind !== ''
 }
 
-/** A view adds a chip once: the same term twice narrows nothing. */
+/** How many filters of the Filters menu narrow the log: its count. */
+export function activityFilterCount(view: Pick<ActivityView, 'kind' | 'outcome'>): number {
+  return (view.kind ? 1 : 0) + (view.outcome ? 1 : 0)
+}
+
+/** A view adds a chip once: the same term twice narrows nothing. The term turned over takes the place of the term. */
 export function withChip(chips: readonly AppCallTerm[], term: AppCallTerm): AppCallTerm[] {
-  return chips.some((chip) => chip.field === term.field && chip.value === term.value) ? [...chips] : [...chips, term]
+  const others = chips.filter((chip) => chip.field !== term.field || chip.value !== term.value)
+  return [...others, term]
 }
 
-/** The queries the bar offers with one press. */
-export interface QuickQuery {
-  label: string
-  text: string
-  /** The order the rows take; the order stays as it is when absent. */
-  order?: CallOrder
-}
+/** The saved views the bar offers with one press: a query, an order, or a kind of call. */
+export type QuickQuery = { label: string } & ({ text: string } | { order: CallOrder } | { kind: AppCallKind })
 
 export const QUICK_QUERIES: QuickQuery[] = [
   { label: 'Failed calls', text: 'outcome:failed' },
-  { label: 'Slowest calls', text: '', order: 'slowest' },
+  { label: 'Slowest operations', order: 'slowest' },
   { label: 'Agent calls', text: 'caller:agent' },
+  { label: 'Model calls', kind: 'model' },
 ]
 
 // A view that opens again starts from the query it left.
@@ -126,10 +134,11 @@ const rememberedViews = new Map<string, ActivityView>()
 /**
  * The view the section opens on. Another section opens it on a filter by
  * reading the log with that filter first (the Overview's failed calls, the
- * calls of one operation): a read without a kind is not this section's own.
+ * calls of one operation). Those reads name their filters as fields; this
+ * section's own read names them as a query (`match`).
  */
 export function activityViewOf(serverId: string, appId: string, lastQuery: AppCallQuery): ActivityView {
-  if (lastQuery.kind === undefined && (lastQuery.operation || lastQuery.outcome || lastQuery.callerKind || lastQuery.search)) {
+  if (lastQuery.operation || lastQuery.outcome || lastQuery.callerKind || lastQuery.search) {
     const chips: AppCallTerm[] = []
     if (lastQuery.operation) chips.push({ field: 'operation', value: lastQuery.operation })
     if (lastQuery.callerKind) chips.push({ field: 'caller', value: lastQuery.callerKind })
@@ -232,46 +241,6 @@ export function callMillisText(at: number): string {
 
 // ─── One call ───
 
-export const CALL_DETAIL_TABS = ['logs', 'input', 'trace'] as const
-export type CallDetailTab = (typeof CALL_DETAIL_TABS)[number]
-
-/** The tabs of a call's detail, with the count a tab of a list shows. */
-export function callDetailTabs(detail: Pick<AppCallDetail, 'logs' | 'spans'>): { value: CallDetailTab; label: string; count: number | null }[] {
-  return [
-    { value: 'logs', label: 'Log lines', count: detail.logs.length },
-    { value: 'input', label: 'Input', count: null },
-    { value: 'trace', label: 'Trace', count: detail.spans.length },
-  ]
-}
-
-/** The tab a call opens on: its log lines when it wrote any, else its input, else its trace. Its fields always show. */
-export function callDetailTab(detail: Pick<AppCallDetail, 'logs' | 'input' | 'spans'>): CallDetailTab {
-  if (detail.logs.length > 0) return 'logs'
-  if (detail.input !== null) return 'input'
-  return detail.spans.length > 0 ? 'trace' : 'logs'
-}
-
-/** A call's facts as the Insights attribute list reads them: how it ended, then which call it was. */
-export function callAttributes(detail: AppCallDetail, webhooks: readonly AppWebhookView[]): TurnAttributeGroup[] {
-  const fact = (key: string, label: string, value: string, extra: Partial<TurnAttribute> = {}): TurnAttribute => ({ key, label, value, copyValue: value, ...extra })
-  const outcome: TurnAttribute[] = [
-    fact('outcome', 'Outcome', callOutcomeLabel(detail.outcome), { tone: detail.outcome === 'failed' ? 'failure' : 'default' }),
-    fact('duration_ms', 'Time', detail.durationMs === null ? 'Runs now' : formatDuration(detail.durationMs), { copyValue: detail.durationMs === null ? '' : String(detail.durationMs) }),
-  ]
-  if (detail.resultBytes !== null) outcome.push(fact('result_bytes', 'Result', formatFileSize(detail.resultBytes), { copyValue: String(detail.resultBytes) }))
-  const identity: TurnAttribute[] = [
-    fact('operation', 'Operation', detail.operation),
-    fact('caller', 'Caller', callerText(detail.caller, webhooks)),
-    fact('started_at', 'Started', new Date(detail.startedAt).toLocaleString(), { copyValue: new Date(detail.startedAt).toISOString() }),
-    fact('version', 'Version', `v${detail.version}`, { copyValue: String(detail.version) }),
-    fact('call_id', 'Call', detail.id, { mono: true }),
-  ]
-  // The OpenTelemetry trace id: the key of this call in Insights and at a collector.
-  if (detail.traceId) identity.push(fact('trace_id', 'Trace', detail.traceId, { mono: true }))
-  if (detail.runId) identity.push(fact('run_id', 'Run', detail.runId, { mono: true }))
-  return [{ label: 'Outcome', attributes: outcome }, { label: 'Identity', attributes: identity }]
-}
-
 const inputObjectSchema = z.record(z.string(), z.json())
 const scalarSchema = z.union([z.string(), z.number(), z.boolean()])
 
@@ -291,8 +260,11 @@ export function inputFacts(input: string | null, inputTruncated: boolean): { key
   })
 }
 
+/** What "Ask an agent to fix" names of a call: a row of the log has all of it but the stack. */
+export type CallFixFacts = Pick<AppCallDetail, 'id' | 'operation' | 'version' | 'error'> & { errorStack?: string | null }
+
 /** The prompt of "Ask an agent to fix": a new chat that names the call, so the agent reads it with inspect_app. */
-export function callFixPrompt(app: Pick<AppSummary, 'name' | 'slug'>, call: Pick<AppCallDetail, 'id' | 'operation' | 'version' | 'error' | 'errorStack'>): string {
+export function callFixPrompt(app: Pick<AppSummary, 'name' | 'slug'>, call: CallFixFacts): string {
   const lines = [
     `The call ${call.id} of the operation ${call.operation} in the app ${app.name} (${app.slug}) failed on version ${call.version}.`,
     '',
@@ -374,51 +346,47 @@ export function shareText(share: number): string {
   return `${Math.round(share * 100)}%`
 }
 
-// ─── The columns and the groups ───
+// ─── The documents ───
 
-export type CallColumn = 'operation' | 'caller' | 'run' | 'outcome' | 'version' | 'duration'
+/** The fields a row shows as chips under its document, in this order. The Fields list adds and removes them. */
+export const DEFAULT_CALL_COLUMNS: CallFieldName[] = ['caller', 'duration', 'run', 'version']
 
-export const CALL_COLUMN_CHOICES: { value: CallColumn; label: string }[] = [
-  { value: 'operation', label: 'Operation' },
-  { value: 'caller', label: 'Caller' },
-  { value: 'run', label: 'Run' },
-  { value: 'outcome', label: 'Outcome' },
-  { value: 'version', label: 'Version' },
-  { value: 'duration', label: 'Duration' },
-]
+const CALLER_KIND_LABELS = {
+  ui: 'UI',
+  agent: 'Agent',
+  schedule: 'Schedule',
+  webhook: 'Webhook',
+  workflow: 'Workflow',
+  model: 'Model call',
+} satisfies { [Kind in AppCaller['kind']]: string }
 
-export const DEFAULT_CALL_COLUMNS: CallColumn[] = ['operation', 'caller', 'run', 'duration']
-
-/** A sort of the table, as the Insights data table holds it: the column, and whether the largest goes first. */
-export interface CallSort {
-  id: string
-  desc: boolean
+/** The kind of a caller as one word: "Workflow", "Schedule". */
+export function callerKindLabel(caller: Pick<AppCaller, 'kind'>): string {
+  return CALLER_KIND_LABELS[caller.kind]
 }
 
-/** The sort the table's heads show for an order: Time sets the newest or the oldest first, Duration the slowest first. */
-export function callSortOf(order: CallOrder): CallSort {
-  return order === 'slowest' ? { id: 'duration', desc: true } : { id: 'time', desc: order === 'newest' }
+/** What a row shows for a field in its chips; null when the call holds nothing there. */
+export function callChipText(call: AppCallView, field: CallFieldName): string | null {
+  switch (field) {
+    case 'caller': return callerKindLabel(call.caller)
+    case 'duration': return call.durationMs === null ? null : formatDuration(call.durationMs)
+    case 'run': return call.caller.kind === 'workflow' ? call.caller.runId : null
+    default: return callFieldValue(call, field)
+  }
 }
 
-/** The order a click on a head asks for. A second click on Duration goes back to the newest first: the host keeps no fastest-first order worth a state. */
-export function callOrderOf(sort: CallSort | undefined): CallOrder {
-  if (sort?.id === 'time' && !sort.desc) return 'oldest'
-  if (sort?.id === 'duration' && sort.desc) return 'slowest'
-  return 'newest'
-}
-
-// A narrow log drops the columns it can spare. Time, Operation, and Duration always stay.
-const CALL_COLUMN_MIN_PX = new Map<string, number>([
-  ['caller', 30 * 16],
-  ['outcome', 36 * 16],
-  ['version', 36 * 16],
-  ['run', 40 * 16],
-])
-
-/** Whether a log this wide shows the column. A width of 0 is the frame before the log is measured: every column shows. */
-export function callColumnFits(columnId: string, widthPx: number): boolean {
-  const minPx = CALL_COLUMN_MIN_PX.get(columnId)
-  return minPx === undefined || widthPx === 0 || widthPx >= minPx
+/**
+ * The message of a row, after its operation: the error of a failed call, the
+ * operation a model call worked for, or what the call left to read. Null when
+ * there is nothing to say.
+ */
+export function callMessage(call: Pick<AppCallView, 'kind' | 'error' | 'caller' | 'logCount' | 'spanCount'>): string | null {
+  if (call.error) return call.error
+  if (call.kind === 'model') return call.caller.kind === 'workflow' ? `model call in ${call.caller.workflow}` : 'model call'
+  const parts: string[] = []
+  if (call.logCount > 0) parts.push(call.logCount === 1 ? '1 log line' : `${call.logCount.toLocaleString()} log lines`)
+  if (call.spanCount > 0) parts.push(call.spanCount === 1 ? '1 span' : `${call.spanCount.toLocaleString()} spans`)
+  return parts.length > 0 ? parts.join(' · ') : null
 }
 
 /** The run a step's call belongs to and its step, "run_8f2c · ask-model"; null for a call outside a run. */

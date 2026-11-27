@@ -1,14 +1,14 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import type { ManagedWorktree, ManagedWorktreeRemoveResult, ManagedWorktreeSize } from '@solus/contracts/types'
 import type { HostResources } from '@solus/contracts/host-resources'
+import { deleteConfirmText, worktreeStatusText } from '@solus/client-core/managed-worktrees'
 import { SvelteRunes } from './helpers/svelte-runes'
 import {
-  deleteConfirmText,
+  deleteSummaryText,
   projectFilterOptions,
   statusFilterOptions,
   statusCount,
   worktreeGroups,
-  worktreeStatusText,
 } from '@solus/workspace-ui/components/settings/lib/managed-worktrees'
 
 // The store runs on Svelte's real client runtime, as in the app.
@@ -16,7 +16,7 @@ const runes = new SvelteRunes()
 afterAll(() => runes.dispose())
 const { ManagedWorktreesStore }: typeof import('@solus/workspace-ui/components/settings/managed-worktrees.store.svelte') = await import(
   runes.source('managed-worktrees', 'packages/workspace-ui/src/components/settings/managed-worktrees.store.svelte.ts', {
-    './lib/managed-worktrees': SvelteRunes.file('packages/workspace-ui/src/components/settings/lib/managed-worktrees.ts'),
+    '@solus/client-core/managed-worktrees': SvelteRunes.file('packages/client-core/src/managed-worktrees.ts'),
     'svelte/reactivity': SvelteRunes.file('node_modules/svelte/src/reactivity/index-client.js'),
     '@solus/contracts/git-types': SvelteRunes.file('packages/contracts/src/git-types.ts'),
   })
@@ -104,6 +104,55 @@ describe('Solus worktrees in Settings', () => {
     expect(worktreeStatusText(store.worktrees[0])).toBe('A turn is running')
   })
 
+  test('a batch continues past a refusal and only forces the work the user confirmed', async () => {
+    const store = new ManagedWorktreesStore()
+    const clean = worktree({ path: '/clean' })
+    const changed = worktree({ path: '/changed', title: 'Changed after confirmation' })
+    const unsaved = worktree({ path: '/unsaved', hasUnmergedCommits: true })
+    const host = hostWith([clean, changed, unsaved], [
+      { status: 'removed', branchError: 'branch is checked out elsewhere' },
+      { status: 'unsaved', hasUncommittedWork: true, hasUnmergedCommits: false },
+      { status: 'removed', branchError: 'branch could not be locked' },
+    ])
+    await store.load(host.api)
+
+    const deleting = store.removeMany(host.api, [clean, changed, unsaved])
+    expect(await store.remove(host.api, unsaved)).toContain('being deleted')
+    expect(await deleting).toEqual([{ path: changed.path, title: changed.title, error: expect.stringContaining('Confirm again') }])
+    expect(host.removals).toEqual([
+      { path: clean.path, force: false },
+      { path: changed.path, force: false },
+      { path: unsaved.path, force: true },
+    ])
+    expect(store.worktrees.map((row) => row.path)).toEqual([changed.path])
+    expect(worktreeStatusText(store.worktrees[0])).toBe('Has uncommitted work')
+    expect(store.notice).toContain('branch is checked out elsewhere')
+    expect(store.notice).toContain('branch could not be locked')
+  })
+
+  test('each row of a batch says whether it is being deleted or waits', async () => {
+    // WHY: a batch deletes one worktree at a time and each can take seconds.
+    // Without a word on the row, the user sees nothing happen after Delete.
+    const store = new ManagedWorktreesStore()
+    const first = worktree({ path: '/first' })
+    const second = worktree({ path: '/second' })
+    const answers: Array<(result: ManagedWorktreeRemoveResult) => void> = []
+    const host = hostWith([first, second], [])
+    const api = { ...host.api, managedWorktreeRemove: () => new Promise<ManagedWorktreeRemoveResult>((resolve) => answers.push(resolve)) }
+    await store.load(api)
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+    const deleting = store.removeMany(api, [first, second])
+    expect([store.removalOf(first.path), store.removalOf(second.path)]).toEqual(['deleting', 'waiting'])
+    await tick()
+    answers.shift()?.({ status: 'removed' })
+    await tick()
+    expect([store.removalOf(first.path), store.removalOf(second.path)]).toEqual([null, 'deleting'])
+    answers.shift()?.({ status: 'failed', error: 'locked' })
+    await deleting
+    expect(store.removalOf(second.path)).toBeNull()
+  })
+
   test('sizes arrive after the list, and a removal does not stop them', async () => {
     // WHY: a size walks a whole checkout. The list must not wait for it, and
     // deleting a row while sizes load must not leave the other rows empty.
@@ -160,6 +209,16 @@ describe('the project and status filters', () => {
     expect(worktreeStatusText(open)).toBe('No unsaved work')
     expect(deleteConfirmText(open, null)).toBe(
       'No work is lost. “Add Antigravity Provider” is open. It loses its working folder; its conversation stays. The branch solus/fix-login is deleted.',
+    )
+  })
+
+  test('the Delete dialog says in one place what is lost, what stays, and what it frees', () => {
+    const sizes = new Map([['/2', 2 * 1024 ** 3], ['/3', 1024 ** 3]])
+    const safe = rows[2]
+    const open = worktree({ path: '/5', sessions: [{ sessionId: 's', title: 'S', isBusy: false }] })
+    expect(deleteSummaryText([safe], sizes)).toBe('No work is lost. Its branch is deleted. Frees 1.0 GB.')
+    expect(deleteSummaryText([rows[1], safe, open], sizes)).toBe(
+      'The unsaved work in 1 of them is lost. Their branches are deleted. Open sessions keep their conversations. Frees 3.0 GB.',
     )
   })
 })

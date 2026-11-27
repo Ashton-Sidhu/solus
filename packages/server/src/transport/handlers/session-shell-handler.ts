@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
+import { WORKSPACE_SESSION_IDS_MAX } from '@solus/contracts/solus-api/queries'
 import { sessionRecord } from '@solus/contracts/solus-api/records'
 import type { SessionShellRow } from '@solus/contracts/session-shell'
 import type { SessionRecord } from '@solus/contracts/types'
@@ -67,18 +67,17 @@ export function sessionShellReads(server: SolusServer): SessionShellReads {
       const facts = await readSessionRowFacts(server, caller)
       const pinned = new Set(facts.pins.map(pin => pin.sessionId))
       const rows = new Map<string, SessionShellRow>()
-      await Promise.all(sessionIds.map(async (sessionId) => {
-        let record: SessionRecord
-        try {
-          record = sessionRecord(await client.request('getSession', { id: sessionId }))
-        } catch (error) {
-          // The caller cannot read it, or it is gone.
-          if (error instanceof WorkspaceRequestError && (error.status === 403 || error.status === 404)) return
-          throw error
+      // One request for each block of ids, one after the other: a burst of changes stays inside the
+      // caller's request budget. A session the caller cannot read, or that is gone, is not in the answer.
+      for (let start = 0; start < sessionIds.length; start += WORKSPACE_SESSION_IDS_MAX) {
+        const ids = sessionIds.slice(start, start + WORKSPACE_SESSION_IDS_MAX)
+        const page = await client.request('listSessions', { query: { scope: 'all', sessionIds: ids.join(','), limit: ids.length } })
+        for (const item of page.items) {
+          const record = sessionRecord(item)
+          // The snapshot's rule: a top-level session in the caller's list, or one they pinned.
+          if (record.parentSessionId === null && (record.listed !== false || pinned.has(record.sessionId))) rows.set(record.sessionId, shellRow(record, facts))
         }
-        // The snapshot's rule: a top-level session in the caller's list, or one they pinned.
-        if (record.parentSessionId === null && (record.listed !== false || pinned.has(sessionId))) rows.set(sessionId, shellRow(record, facts))
-      }))
+      }
       return rows
     },
 

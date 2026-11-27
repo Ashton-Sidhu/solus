@@ -2,9 +2,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { ProtocolError, SdkError, SdkErrorCode, type GetPromptResult, type SdkHttpError, type ReadResourceResult, type PriorDiscovery } from '@modelcontextprotocol/client'
 import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationEnvValue, type IntegrationFacts, type IntegrationProcessFacts, type IntegrationStopReason, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ANY_ORGANIZATION } from '../admission/principal'
-import { loopbackServerPort } from '@solus/contracts/integrations/local-servers'
 import { createLogger } from '../logger'
-import { hostDisplayName } from '../platform/host-display-name'
 import { currentPersonKey } from '../vault/acting-scope'
 import type { AgentToolContext, AgentToolResult } from '../execution/agents/tools/agent-tool'
 import type { IntegrationCredentials } from './connections'
@@ -12,6 +10,7 @@ import type { IntegrationStore } from './integration-store'
 import { toolSummary } from './integration-tools'
 import { agentResultOf, mergedAccountResults, outputSchemaRefusal } from './result-content'
 import type { SavedServerFacts, ServerFactsKey, ServerFactsStore } from './server-facts-store'
+import type { IntegrationIcons } from './integration-icons'
 import { commandStartRefusal, type CommandStarter } from './command-admission'
 import { listUpstreamResources, NO_RESOURCES, type UpstreamResourceLists } from './resource-lists'
 import { listUpstreamPrompts, listUpstreamTools, serverCapabilitiesOf } from './upstream-lists'
@@ -24,6 +23,7 @@ import { accountLabel, callRequest, callSpanStatus, elicitFromCall, splitAccount
 import { MCP_TASKS_EXTENSION, ServerStoppedError, ServerTask, taskHandleOf, TaskAwareClient, type HeldMcpTask, type McpTaskCalls } from './mcp-task-requests'
 import type { ResourceWatchCalls } from './resource-subscriptions'
 import {
+  callFailureText,
   ConnectionRequiredError,
   errorText,
   firstAccount,
@@ -115,7 +115,7 @@ export class IntegrationGateway {
   constructor(
     readonly store: Pick<IntegrationStore, 'get' | 'list'>,
     private readonly callClock: CallClock = SYSTEM_CALL_CLOCK,
-    private readonly options: { clock?: GatewayClock; savedFacts?: ServerFactsStore } = {},
+    private readonly options: { clock?: GatewayClock; savedFacts?: ServerFactsStore; icons?: Pick<IntegrationIcons, 'refresh' | 'remove'> } = {},
   ) {}
 
   private get clock(): GatewayClock {
@@ -462,10 +462,11 @@ export class IntegrationGateway {
 
   /**
    * A new command or new names, or a removal (§7.5): the sessions, the lists,
-   * and the saved verdict and facts of every person go.
+   * the saved verdict and facts of every person, and the server's icon go.
    */
   forget(integrationId: string): void {
     this.options.savedFacts?.removeAllFor(integrationId)
+    this.options.icons?.remove(integrationId)
     this.invalidate(integrationId)
   }
 
@@ -598,6 +599,7 @@ export class IntegrationGateway {
       era: session.client.getProtocolEra() ?? null, instructions, capabilities: serverCapabilitiesOf(session.client),
     }
     this.saveListed(session, known.facts)
+    void this.options.icons?.refresh(integrationId, session.client.getServerVersion()?.icons)
     if (previous?.instructions !== instructions) {
       log.info('integration_instructions_changed', { integrationId, length: instructions?.length ?? 0 })
       this.factsChanged(integrationId)
@@ -979,22 +981,4 @@ export class IntegrationGateway {
   private notify(integrationId: string): void {
     for (const listener of this.listeners) listener(integrationId)
   }
-}
-
-/**
- * Why a call failed, for the agent. Nothing listens on the port of a server on
- * this host's loopback: it is not running, which the socket error does not say
- * (mcp-first-class.md §9.3). The connection is not marked as an error.
- */
-function callFailureText(integration: Pick<Integration, 'name' | 'url'>, tool: string, cause: unknown): string {
-  if (loopbackServerPort(integration.url) !== null && cause instanceof Error && isConnectionRefused(cause)) return `${integration.name} is not running on ${hostDisplayName()}. Start it, then try again.`
-  return `${integration.name} could not run ${tool}: ${errorText(cause)}`
-}
-
-/** A connection that nothing listened for, in the error or in an error it wraps. */
-function isConnectionRefused(error: Error): boolean {
-  for (let cause: Error | null = error, depth = 0; cause && depth < 6; cause = cause.cause instanceof Error ? cause.cause : null, depth++) {
-    if (('code' in cause && (cause.code === 'ECONNREFUSED' || cause.code === 'ConnectionRefused')) || /ECONNREFUSED/.test(cause.message)) return true
-  }
-  return false
 }

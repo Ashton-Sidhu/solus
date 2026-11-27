@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import type { DeviceControlState, DevicePreview, DeviceState } from '@solus/contracts/device-types'
-import { addableDevices, controlLabel, deviceLiveState, previewGroups, selectedPreview, unavailablePlatformReasons } from '@solus/workspace-ui/components/devices/lib/device-pane'
+import { controlLabel, deviceLiveState, pickerDevices, previewGroups, selectedPreview, unavailablePlatforms } from '@solus/workspace-ui/components/devices/lib/device-pane'
 // These tests verify stored choices, without a mounted Svelte renderer.
 const stateDescriptor = Object.getOwnPropertyDescriptor(globalThis, '$state')
 Object.defineProperty(globalThis, '$state', { configurable: true, value: <T>(value: T) => value })
@@ -46,11 +46,12 @@ describe('device pane', () => {
     expect(selectedPreview([], 'p1')).toBeNull()
   })
 
-  test('the picker offers only devices not already open in the session', () => {
+  test('the picker lists every simulator, and one already open in the session links to its tab', () => {
+    // An open device stays in the list, so the picker never looks empty while a simulator exists.
     // A connected phone is never offered: nothing can stream its screen. It takes builds instead.
-    const groups = addableDevices(state, 's1')
-    expect(groups.map((group) => group.devices.map((device) => device.deviceId))).toEqual([['B']])
-    expect(addableDevices(state, 'other')[0]!.devices.map((device) => device.deviceId)).toEqual(['A', 'B'])
+    const rows = (sessionId: string) => pickerDevices(state, sessionId).map((group) => group.devices.map((entry) => [entry.device.deviceId, entry.devicePreviewId]))
+    expect(rows('s1')).toEqual([[['A', 'p1'], ['B', null]]])
+    expect(rows('other')).toEqual([[['A', null], ['B', null]]])
   })
 
   test('device tabs group under their host in opening order, like browser pages under their branch', () => {
@@ -64,7 +65,7 @@ describe('device pane', () => {
   })
 
   test('a platform no host can run is explained', () => {
-    expect(unavailablePlatformReasons(state)).toEqual(['Android: No SDK'])
+    expect(unavailablePlatforms(state)).toEqual([{ platform: 'Android', reason: 'No SDK' }])
   })
 
   test('live state and control are stated honestly', () => {

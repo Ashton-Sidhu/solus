@@ -1064,7 +1064,8 @@ export type AppConfigSetRequest = z.infer<typeof appConfigSetRequestSchema>
  */
 export const APP_CALL_QUERY_FIELDS = ['operation', 'caller', 'outcome', 'version', 'run', 'error', 'text'] as const
 export type AppCallQueryField = (typeof APP_CALL_QUERY_FIELDS)[number]
-export const appCallTermSchema = z.object({ field: z.enum(APP_CALL_QUERY_FIELDS), value: z.string().trim().min(1).max(200) })
+/** `not` turns the term over: the call matches when the term does not (the Activity section's "filter out"). */
+export const appCallTermSchema = z.object({ field: z.enum(APP_CALL_QUERY_FIELDS), value: z.string().trim().min(1).max(200), not: z.boolean().optional() })
 export type AppCallTerm = z.infer<typeof appCallTermSchema>
 
 /** The filters of the call log. Its rows and its numbers take the same ones. */

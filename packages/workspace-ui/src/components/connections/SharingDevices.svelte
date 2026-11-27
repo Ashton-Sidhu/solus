@@ -30,11 +30,16 @@
 
   const connections = connectionsStore;
   let isPairing = $state(false);
+  /** Rows before "Show more": a host with many devices keeps the page short. */
+  const DEVICE_ROWS_SHOWN = 5;
+  let isShowingAllDevices = $state(false);
 
   const pairingLocked = $derived(pairingLock(serverId));
   const showsPanel = $derived(showsPairCode && !pairingLocked && (isPairing || !!connections.activePair || pairCodeRequest.serverId === serverId));
   const connectedDeviceIds = $derived(new Set(connections.sessions.map((session) => session.deviceId)));
   const devices = $derived(devicesWithAccess(connections.pairedDevices));
+  const deviceCount = $derived(showsPairedDevices ? devices.length : connections.sessions.length);
+  const shownCount = $derived(isShowingAllDevices ? deviceCount : Math.min(deviceCount, DEVICE_ROWS_SHOWN));
   const approvals = $derived(showsApprovals ? pairApprovalsStore.forHost(serverId)?.approvals ?? [] : []);
 
   $effect(() => {
@@ -58,7 +63,7 @@
       <span class="truncate text-[0.8125rem] leading-4 text-(--solus-text-tertiary)">{detail}</span>
     </span>
     {#if deviceId}
-      <Button variant="ghost" size="sm" class="shrink-0 text-(--solus-text-secondary) hover:text-(--solus-status-error)" aria-label={`Revoke ${label}`} onclick={() => void connections.revokeDevice(serverId, deviceId)}>
+      <Button variant="ghost" size="sm" class="shrink-0 text-(--solus-status-error) hover:text-(--solus-status-error)" aria-label={`Revoke ${label}`} onclick={() => void connections.revokeDevice(serverId, deviceId)}>
         Revoke
       </Button>
     {/if}
@@ -72,7 +77,7 @@
       <p class="text-[0.8125rem] leading-[1.45] text-(--solus-text-tertiary)">Phones and computers that use Solus on this host.</p>
     </div>
     {#if showsPairCode && !pairingLocked}
-      <Button variant="outline" size="sm" class="shrink-0" onclick={pair}>Pair a device</Button>
+      <Button variant="ghost" size="sm" class="shrink-0 bg-muted" onclick={pair}>Pair a device</Button>
     {/if}
   </div>
 
@@ -94,15 +99,22 @@
     {:else if devices.length === 0}
       <p class="py-3 text-[0.8125rem] text-(--solus-text-tertiary)">No device is paired with this host.</p>
     {:else}
-      {#each devices as device (device.deviceId)}
+      {#each devices.slice(0, shownCount) as device (device.deviceId)}
         {@render deviceRow(device.deviceLabel, pairedDeviceDetail(device, connectedDeviceIds.has(device.deviceId)), device.deviceId)}
       {/each}
     {/if}
   {:else if connections.sessions.length === 0}
     <p class="py-3 text-[0.8125rem] text-(--solus-text-tertiary)">No device is connected to this host.</p>
   {:else}
-    {#each connections.sessions as session (session.id)}
+    {#each connections.sessions.slice(0, shownCount) as session (session.id)}
       {@render deviceRow(session.deviceLabel, `Connected ${relativeTime(session.connectedAt)}${session.connectionCount > 1 ? ` · ${session.connectionCount} connections` : ""}`, session.deviceId ?? null)}
     {/each}
+  {/if}
+  {#if deviceCount > DEVICE_ROWS_SHOWN}
+    <div class="pt-2">
+      <Button variant="ghost" size="sm" class="bg-muted" aria-expanded={isShowingAllDevices} onclick={() => (isShowingAllDevices = !isShowingAllDevices)}>
+        {isShowingAllDevices ? "Show fewer" : `Show ${deviceCount - DEVICE_ROWS_SHOWN} more`}
+      </Button>
+    </div>
   {/if}
 </section>

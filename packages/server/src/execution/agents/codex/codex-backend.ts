@@ -1529,15 +1529,17 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     await Promise.all(watchedCwds.map((cwd) => this.listCodexSkills(cwd, true)))
   }
 
-  async readUsageLimits(seat?: TurnSeat): Promise<AgentUsageLimits> {
-    const client = this.clientFor(seat)
+  async readUsageLimits(seat?: TurnSeat, runtime?: ProviderRuntime): Promise<AgentUsageLimits> {
+    const client = this.clientFor(seat, runtime)
     const account = await client.request('account/read', { refreshToken: false })
+    const accountEmail = account.account?.type === 'chatgpt' ? account.account.email ?? null : null
     // Signed out: there is no quota to read, and the meter must say how to sign
     // in rather than report a failed read.
     const isSignedOut = account.account === null && account.requiresOpenaiAuth
     if (account.account?.type === 'apiKey' || isSignedOut) {
       return {
         provider: this.id,
+        accountEmail,
         fiveHour: null,
         weekly: null,
         planType: null,
@@ -1563,6 +1565,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
     return {
       provider: this.id,
+      accountEmail,
       fiveHour: windowOf(300),
       weekly: windowOf(10080),
       planType: snapshot?.planType ?? null,

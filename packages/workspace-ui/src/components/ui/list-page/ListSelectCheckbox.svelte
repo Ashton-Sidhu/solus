@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Check as CheckIcon } from "@lucide/svelte";
   import type { ListSelection } from "./list-selection.svelte";
 
   /**
@@ -11,21 +12,23 @@
     id: string;
     /** What a row is, for the screen reader: "task", "notification". */
     noun: string;
+    disabled?: boolean;
     class?: string;
   }
-  let { selection, id, noun, class: className = "" }: Props = $props();
+  let { selection, id, noun, disabled = false, class: className = "" }: Props = $props();
 
   const isSelected = $derived(selection.has(id));
 </script>
 
 <button
   type="button"
-  class="grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-xs transition-opacity {isSelected
+  class="grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 transition-opacity {isSelected
     ? 'bg-primary text-primary-foreground opacity-100'
     : `bg-[var(--wash-3)] text-transparent group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 ${selection.active ? 'opacity-100' : 'opacity-0'}`} {className}"
   onclick={(e) => selection.toggle(id, e)}
+  {disabled}
   aria-pressed={isSelected}
   aria-label={isSelected ? `Deselect ${noun}` : `Select ${noun}`}
 >
-  ✓
+  <CheckIcon size={12} strokeWidth={3} aria-hidden="true" />
 </button>

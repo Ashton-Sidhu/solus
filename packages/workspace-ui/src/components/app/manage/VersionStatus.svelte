@@ -1,15 +1,17 @@
 <script lang="ts">
-  import { Hammer as BuildIcon, Undo2 as RollbackIcon } from "@lucide/svelte";
   import { activationLabel, shortCommit, type AppLiveState } from "@solus/client-core/app-versions";
   import { Button } from "../../ui/button";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
   import ActivationConfirm from "./ActivationConfirm.svelte";
   import BuildLog from "./BuildLog.svelte";
+  import StateIcon from "./StateIcon.svelte";
   import type { VersionActions } from "./lib/version-actions.svelte";
 
   /**
    * What stands between the live version and the history, plain above it: a
-   * build in progress, with its log, and a rollback, with the roll forward
-   * back to the newer build. With neither, it draws nothing.
+   * build in progress, with the working mark and its log, and a rollback, as a
+   * note callout with the roll forward back to the newer build. With
+   * neither, it draws nothing.
    */
   interface Props {
     serverId: string;
@@ -25,7 +27,7 @@
   {@const building = state.building}
   <div class="flex min-w-0 flex-col gap-2 px-1" role="status" data-testid="app-version-building">
     <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-      <BuildIcon size={16} class="shrink-0 text-(--solus-status-running)" aria-hidden="true" />
+      <StateIcon state="running" />
       <span class="min-w-48 flex-1 text-sm text-pretty">
         The host builds <span class="font-medium tabular-nums">v{building.number}</span> from revision
         <span class="font-mono text-xs">{shortCommit(building.revision)}</span>. You can leave this page: the build continues.
@@ -40,7 +42,7 @@
   </div>
 {:else if actions.deployingCommit}
   <div class="flex min-w-0 items-center gap-3 px-1 text-sm" role="status" data-testid="app-version-building">
-    <BuildIcon size={16} class="shrink-0 text-(--solus-status-running)" aria-hidden="true" />
+    <StateIcon state="running" />
     The host starts a build of revision <span class="font-mono text-xs">{shortCommit(actions.deployingCommit)}</span>.
   </div>
 {/if}
@@ -48,16 +50,19 @@
 {#if state.live && state.rolledBackFrom}
   {@const later = state.rolledBackFrom}
   {@const liveNumber = state.live.number}
-  <div class="flex min-w-0 flex-col gap-2 px-1" data-testid="app-version-rolled-back">
-    <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-      <RollbackIcon size={16} class="shrink-0 text-(--warning)" aria-hidden="true" />
-      <span class="min-w-48 flex-1 text-sm text-pretty">
-        Rolled back from <span class="font-medium tabular-nums">v{later.number}</span> to v{liveNumber}. The newer build is kept and can run again.
-      </span>
-      <Button size="sm" variant="outline" class="shrink-0" disabled={actions.isActivating || isDeploying} onclick={() => actions.askToActivate("live:forward")}>
-        {activationLabel(later.number, liveNumber)}
-      </Button>
-    </div>
+  <div class="flex min-w-0 flex-col gap-2 text-[13px] [--prose-ink-strong:var(--solus-text-primary)]" data-testid="app-version-rolled-back">
+    <MarkdownAlert alertType="note">
+      {#snippet content()}
+        <div class="flex flex-wrap items-baseline gap-x-4 gap-y-2">
+          <span class="min-w-48 flex-1 text-pretty">
+            Rolled back from <span class="tabular-nums">v{later.number}</span> to v{liveNumber}. The newer build is kept and can run again.
+          </span>
+          <Button size="xs" variant="outline" class="shrink-0" disabled={actions.isActivating || isDeploying} onclick={() => actions.askToActivate("live:forward")}>
+            {activationLabel(later.number, liveNumber)}
+          </Button>
+        </div>
+      {/snippet}
+    </MarkdownAlert>
     <ActivationConfirm {actions} rowKey="live:forward" target={later.number} live={liveNumber} />
   </div>
 {/if}

@@ -3,6 +3,7 @@
   import type { AppRunDetail, AppWebhookView } from "@solus/contracts/apps";
   import { appsStore } from "../../../contexts/apps/apps.store.svelte";
   import { Button } from "../../ui/button";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
   import CallRows from "./CallRows.svelte";
   import RunFlowCanvas from "./RunFlowCanvas.svelte";
   import RunTimeline from "./RunTimeline.svelte";
@@ -120,7 +121,11 @@
   </dl>
 
   {#if run.error}
-    <p class="m-0 px-1 text-sm text-pretty text-(--failure)" role="alert">{run.error}</p>
+    <MarkdownAlert alertType="error">
+      {#snippet content()}
+        <p class="m-0 text-sm text-pretty text-foreground select-text" role="alert">{run.error}</p>
+      {/snippet}
+    </MarkdownAlert>
   {/if}
 
   {#if run.result !== null}
@@ -135,10 +140,14 @@
     {#if calls === undefined}
       {@const callsError = appsStore.runCalls.errorFor(serverId, appId)}
       {#if callsError}
-        <div class="flex flex-wrap items-center gap-2" role="alert">
-          <span class="text-[13px] text-destructive">{callsError}</span>
-          <Button size="xs" variant="outline" onclick={() => void appsStore.runCalls.load(serverId, appId, run.id)}>Try again</Button>
-        </div>
+        <MarkdownAlert alertType="error">
+          {#snippet content()}
+            <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13px]">
+              <p class="m-0 min-w-0 flex-1 text-pretty text-foreground" role="alert">{callsError}</p>
+              <Button size="xs" variant="link" class="h-auto px-0 text-[13px]" onclick={() => void appsStore.runCalls.load(serverId, appId, run.id)}>Try again</Button>
+            </div>
+          {/snippet}
+        </MarkdownAlert>
       {:else}
         <p class="m-0 text-[13px] text-muted-foreground" role="status" aria-busy="true">Loading the log…</p>
       {/if}

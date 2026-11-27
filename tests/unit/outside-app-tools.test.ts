@@ -44,7 +44,7 @@ const { linkAgentTool, listLinksAgentTool } = await import('@solus/server/execut
 const { pullRequestTools, installPullRequestToolHost } = await import('@solus/server/execution/agents/tools/pull-request-tools')
 const { setProjectToolHost } = await import('@solus/server/execution/agents/tools/project-tools')
 const { withWorkspaceToolAuthority } = await import('@solus/server/admission/workspace-tool-authority')
-const { APP_TOOLS, appToolRefusal } = await import('@solus/server/execution/agents/tools/tool-access')
+const { APP_TOOLS, appToolHints, appToolRefusal } = await import('@solus/server/execution/agents/tools/tool-access')
 const { closeDb } = await import('@solus/server/db')
 
 afterAll(() => {
@@ -193,5 +193,18 @@ describe('tools that act on a session or a checkout', () => {
     expect((await read({ project: projectDir, repository: 'acme/other', number: 7 })).text).toBe(`acme/other is not the repository of the project ${projectDir}.`)
     // A folder the person cannot list is no project of theirs.
     expect((await read({ project: tmpdir(), number: 7 })).text).toBe(`No project of this host holds ${tmpdir()}. Use list_projects.`)
+  })
+})
+
+// WHY: an outside app such as Claude sorts its permission settings by the MCP
+// hint `readOnlyHint`. With no hint, it shows a tool that only reads (for
+// example read_codebase) as one that can change records.
+describe('the hints an outside app reads', () => {
+  test('a read tool says it only reads, and a write tool does not', () => {
+    expect(appToolHints('read_codebase')).toEqual({ readOnlyHint: true })
+    expect(appToolHints('create_work')).toEqual({ readOnlyHint: false })
+    for (const [name, effect] of Object.entries(APP_TOOLS)) {
+      expect(appToolHints(name).readOnlyHint).toBe(effect === 'read')
+    }
   })
 })

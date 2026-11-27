@@ -102,6 +102,7 @@ export interface ThreadFeedActivity {
   readonly detail: string | null;
   readonly canExpand: boolean;
   readonly fetchesDetail: boolean;
+  readonly renderHostResult?: () => import("react").ReactNode;
   readonly loadHostDetail?: () => Promise<OrchestrationV2TurnItem>;
   readonly getFullDetail: () => string | null;
   readonly getCopyText: () => string;
@@ -179,8 +180,6 @@ export type RawThreadFeedEntry =
       readonly id: string;
       readonly createdAt: string;
       readonly runId: RunId | null;
-      readonly toolStatus?: "running" | "completed" | "error";
-      readonly viewedImagePath?: string;
       readonly render: () => import("react").ReactNode;
     }
   | {
@@ -940,7 +939,7 @@ function toFeedActivity(
           .join("\n"),
   );
   const getCanExpand = memoizeValue(() => {
-    if (row.hostTool?.load) return true;
+    if (row.hostTool?.load || row.hostTool?.renderResult) return true;
     if (row.hostTool?.hasDetail === false || (item.type === "error" && item.status === "failed")) return false;
     const paths = getReadPaths();
     return paths
@@ -960,6 +959,7 @@ function toFeedActivity(
       return getCanExpand();
     },
     fetchesDetail: !row.hostTool && turnItemNeedsDetailFetch(item),
+    ...(row.hostTool?.renderResult && { renderHostResult: row.hostTool.renderResult }),
     ...(row.hostTool?.load && { loadHostDetail: row.hostTool.load }),
     getFullDetail,
     getCopyText,
@@ -1387,8 +1387,7 @@ function deriveThreadFeedRunFolds(
     const interrupted =
       latestRunMatches && (latestRun.status === "interrupted" || latestRun.status === "cancelled");
     const hasRunningTool = group.entries.some(
-      (entry) => (entry.type === "conversation-card" && entry.toolStatus === "running") ||
-        (entry.type === "activity-group" && entry.activities.some(activity => activity.lifecycleStatus === "inProgress")),
+      (entry) => entry.type === "activity-group" && entry.activities.some(activity => activity.lifecycleStatus === "inProgress"),
     );
     const label = hasRunningTool
       ? resolve(msg("Working"))
@@ -1538,7 +1537,7 @@ function latestRunsEqual(left: ThreadFeedLatestRun | null, right: ThreadFeedLate
 /** Rows a fold leaves in view; the live fold skips them too, so settling keeps its place. */
 function staysOutOfFold(entry: ThreadFeedEntry): boolean {
   return (
-    (entry.type === "conversation-card" && entry.toolStatus === undefined) ||
+    entry.type === "conversation-card" ||
     entry.type === "html-render" ||
     entry.type === "sent-message" ||
     entry.type === "mcp-app" ||
@@ -1814,14 +1813,6 @@ export function deriveThreadFeedPresentation(
       if (!firstEntryByRun.has(runId)) firstEntryByRun.set(runId, index);
       lastEntryByRun.set(runId, index);
     }
-    if (
-      entry.type === "conversation-card" &&
-      entry.toolStatus !== undefined &&
-      (zen ||
-        toolCallVisibility === "hideAll" ||
-        (toolCallVisibility === "hideSuccessful" && entry.toolStatus === "completed"))
-    )
-      continue;
     if (entry.type === "activity-group" && toolCallVisibility !== "showAll") {
       const shown = activityGroupForVisibility(entry, toolCallVisibility);
       if (shown === null) continue;
@@ -2194,15 +2185,6 @@ function appendPresentedFeedEntry(
 ): void {
   if (entry.type !== "activity-group") {
     result.push(entry);
-    if (entry.type === "conversation-card" && entry.viewedImagePath) {
-      result.push({
-        type: "viewed-images",
-        id: `${entry.id}:viewed-images`,
-        createdAt: entry.createdAt,
-        runId: entry.runId,
-        paths: [entry.viewedImagePath],
-      });
-    }
     return;
   }
   if (
@@ -2502,7 +2484,7 @@ export type ThreadFeedSourceRow =
       readonly hostForkPointId?: string;
       readonly replyHtmlLayout?: import("@solus/contracts/session-history").ReplyHtmlLayout[];
       readonly hostBackgroundCommand?: BackgroundCommandWake;
-      readonly hostTool?: { readonly hasDetail: boolean; readonly load?: () => Promise<OrchestrationV2TurnItem> };
+      readonly hostTool?: { readonly renderResult?: () => import("react").ReactNode; readonly hasDetail: boolean; readonly load?: () => Promise<OrchestrationV2TurnItem> };
     })
   | { readonly hostEntries: ReadonlyArray<RawThreadFeedEntry>; readonly item?: never };
 

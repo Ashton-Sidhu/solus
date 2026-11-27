@@ -3,6 +3,7 @@ import {
   connectCardCopy,
   connectCardHeading,
   connectContinuePrompt,
+  customServerSteps,
   integrationConnectCardCopy,
 } from '@solus/workspace-ui/components/connections/lib/connect-card-copy'
 
@@ -27,6 +28,18 @@ describe('connect card copy', () => {
     const copy = integrationConnectCardCopy('Linear')
     expect(copy.name).toBe('Linear')
     expect(copy.purpose).toBe('Needed to use its tools.')
+  })
+
+  test('adding a server by its address is one timeline: the address, then the sign-in', () => {
+    // Before the add, the address is the step to do and the sign-in waits.
+    expect(customServerSteps(undefined).map((step) => [step.title, step.state])).toEqual([
+      ['Add the server', 'current'],
+      ['Sign in', 'next'],
+    ])
+    // After it, the add step is done and shows what was added.
+    const [added, signIn] = customServerSteps('https://api.example.com/mcp')
+    expect(added).toMatchObject({ state: 'done', hint: 'https://api.example.com/mcp' })
+    expect(signIn.state).toBe('current')
   })
 
   test('the eyebrow counts the sign-ins until every row is settled', () => {

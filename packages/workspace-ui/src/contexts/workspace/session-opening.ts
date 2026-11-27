@@ -609,15 +609,15 @@ export class SessionOpening {
     // The watch also attaches to the live runtime, which is what a separate
     // bind used to do after it.
     //
-    // It is deliberately not awaited with the transcript below. It supplies only
-    // chrome around the conversation — status, rate limits, queued prompts — so
-    // joining it to that Promise.all made the spinner outlive the transcript. It
-    // is awaited at the end of the resume instead, once the conversation is on
-    // screen. Settled rather than left to reject on its own: the join point is
-    // several awaits away, so a failure before then would otherwise surface as an
-    // unhandled rejection. It is carried and re-thrown at the join instead.
-    //
-    // The watch replays a running turn at once; its events wait for the page.
+    // The watch replays a running turn at once, and its events wait for the
+    // page. A page that leaves out a running turn waits for the watch, so the
+    // two paint together (docs/plans/running-turn-open.md). For any other page
+    // the watch supplies only chrome around the conversation — status, rate
+    // limits, queued prompts — and is awaited at the end of the resume, once the
+    // conversation is on screen. Settled rather than left to reject on its own:
+    // the join point is several awaits away, so a failure before then would
+    // otherwise surface as an unhandled rejection. It is carried and re-thrown
+    // at the join instead.
     this.workspace.eventReducer.holdEvents(resumedSessionId)
     let watchedTurn: number | undefined
     const runtimeAttach = this.workspace.apiFor(tabId).watchSession({
@@ -689,6 +689,12 @@ export class SessionOpening {
       const transcriptArgs = { sessionId: resumedSessionId, loadPath: firstPage.projectPath, displayCwd: workingDirectory,
         provider: threadProvider, ctx: this.workspace.ctxFor(tabId), turnLimit: INITIAL_HISTORY_TURNS }
       const transcript = await loadSessionTranscript(this.workspace, { ...transcriptArgs, history })
+      // A page that leaves out a running turn waits for the watch that replays
+      // it, and the two paint together: the conversation opens once, at its
+      // end, with that turn. A page with no running turn paints at once
+      // (docs/plans/running-turn-open.md).
+      const pageTurn = (await history).runningTurnStartedAt
+      const earlyAttachFailure = pageTurn === undefined ? undefined : await runtimeAttach
 
       const session = currentResumeTarget()
       if (session) {
@@ -698,6 +704,7 @@ export class SessionOpening {
         // cannot see off the front of the first frame.
         session.messages.splice(0, session.messages.length, ...transcript.messages)
         this.workspace.eventReducer.rebuildAgentConversations(session)
+        if (earlyAttachFailure !== undefined && watchedTurn === pageTurn) this.workspace.eventReducer.releaseEvents(resumedSessionId)
         session.progress = transcript.progress
         session.historyTruncated = transcript.truncated
         session.historyCursor = transcript.before
@@ -745,8 +752,7 @@ export class SessionOpening {
       // already on screen, so this only settles the chrome around it. A failed
       // bind still surfaces to the caller, but it can no longer discard a
       // transcript that loaded successfully.
-      const attachFailure = await runtimeAttach
-      const pageTurn = (await history).runningTurnStartedAt
+      const attachFailure = earlyAttachFailure !== undefined ? earlyAttachFailure : await runtimeAttach
       await fitTranscriptToWatch(this.workspace, tabId, currentResumeTarget(), { pageTurn, watchedTurn }, { ...firstPage, provider: threadProvider }, transcriptArgs)
       if (attachFailure) throw attachFailure
     } finally {

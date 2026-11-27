@@ -80,12 +80,16 @@
 <dialog
   bind:this={dialog}
   aria-label={label}
-  class="m-auto h-[min(85dvh,60rem)] w-[min(90vw,80rem)] max-w-none overflow-hidden rounded-xl border border-border bg-background p-0 text-foreground shadow-xl backdrop:media-backdrop"
+  class="m-0 size-full max-h-none max-w-none items-center overflow-hidden justify-center gap-3 border-0 bg-transparent p-3 text-foreground backdrop:media-backdrop open:flex"
   {onclose}
   onkeydown={navigate}
   onclick={(event) => { if (event.target === dialog) dialog.close(); }}
 >
-  <div class="flex h-full min-h-0 flex-col">
+  <!-- The arrows sit outside the card, so they never cover the picture. -->
+  {#if gallery.paths.length > 1}
+    <button type="button" aria-label="Previous image" title="Previous image (Left arrow)" disabled={!gallery.hasPrevious} class="flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-default disabled:opacity-30 pointer-coarse:size-11" onclick={() => gallery.previous()}><ChevronLeft size={20} /></button>
+  {/if}
+  <div class="flex h-[min(85dvh,60rem)] w-[min(90vw,80rem)] min-w-0 shrink flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl">
     <header class="@container flex shrink-0 items-center gap-3 border-b border-border px-4 py-2">
       <div class="flex min-w-0 flex-1 items-baseline gap-2">
         <span class="min-w-0 shrink truncate text-workspace-chrome">{label}</span>
@@ -122,10 +126,6 @@
       <button type="button" aria-label="Close media preview" autofocus class="rounded-md p-2 text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring" onclick={() => dialog.close()}><CloseIcon size={18} /></button>
     </header>
     <div class="relative flex min-h-0 flex-1">
-      {#if gallery.paths.length > 1}
-        <button type="button" aria-label="Previous image" title="Previous image (Left arrow)" disabled={!gallery.hasPrevious} class="absolute top-1/2 left-2 z-10 flex size-9 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-default disabled:opacity-30 pointer-coarse:size-11" onclick={() => gallery.previous()}><ChevronLeft size={20} /></button>
-        <button type="button" aria-label="Next image" title="Next image (Right arrow)" disabled={!gallery.hasNext} class="absolute top-1/2 right-2 z-10 flex size-9 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-default disabled:opacity-30 pointer-coarse:size-11" onclick={() => gallery.next()}><ChevronRight size={20} /></button>
-      {/if}
     {#if request.mediaKind === "video"}
       <div class="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
         {#if hostRequest}
@@ -146,4 +146,7 @@
     {/if}
     </div>
   </div>
+  {#if gallery.paths.length > 1}
+    <button type="button" aria-label="Next image" title="Next image (Right arrow)" disabled={!gallery.hasNext} class="flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-default disabled:opacity-30 pointer-coarse:size-11" onclick={() => gallery.next()}><ChevronRight size={20} /></button>
+  {/if}
 </dialog>

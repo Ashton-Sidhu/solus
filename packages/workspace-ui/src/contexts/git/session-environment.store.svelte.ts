@@ -678,7 +678,32 @@ export class SessionEnvironmentStore {
         if (includeRefs) this.refsLoading.delete(key)
       })
     this.inflight.set(inflightKey, promise)
+    if (includeDetails && this.byCwd[key] === undefined) this.readFirstSummary(api, key, cwd, version)
     return promise
+  }
+
+  /** A details read waits for the change counts and a pull request lookup. A
+   *  checkout with no status yet reads the summary beside it, so its branch
+   *  shows without that wait. The host answers both from one status scan. The
+   *  summary fills only an empty slot: the details answer, or a watcher push,
+   *  is the same scan or newer. A later summary read joins this one, not the
+   *  details read. */
+  private readFirstSummary(api: HostApi, key: string, cwd: string, version: number): void {
+    const summaryKey = `${key}\0summary`
+    if (this.inflight.has(summaryKey)) return
+    const promise = api.gitRefreshState(cwd)
+      .then((answer): GitStatusOutcome => {
+        if (this.byCwd[key] === undefined && (this.versions.get(key) ?? 0) === version) {
+          this.byCwd[key] = answer ? withoutRefs(answer) : null
+          this.lastRefresh.set(key, Date.now())
+        }
+        return { ok: true }
+      })
+      .catch((error): GitStatusOutcome => ({ ok: false, error: gitErrorText(error) }))
+      .finally(() => {
+        if (this.inflight.get(summaryKey) === promise) this.inflight.delete(summaryKey)
+      })
+    this.inflight.set(summaryKey, promise)
   }
 
   /** Land a status pushed from the main-process Git watcher. */

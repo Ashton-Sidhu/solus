@@ -26,6 +26,7 @@ import { SettingsScreen } from "./components/SettingsScreen";
 import { useSettingsEnvironmentMenu } from "./components/SettingsEnvironmentFilterHeader";
 import { BranchNamingSettings } from "./components/BranchNamingSettings";
 import { DatabaseStorageNotice } from "./components/DatabaseStorageNotice";
+import { ManagedWorktreesSection } from "./components/ManagedWorktreesSection";
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
@@ -519,6 +520,9 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                   }}
                   onChange={write}
                 />
+                {selectedTargets.map(({ environmentId, label }) => (
+                  <ManagedWorktreesSection key={environmentId} environmentId={environmentId} label={label} />
+                ))}
               </>
             ) : null}
 

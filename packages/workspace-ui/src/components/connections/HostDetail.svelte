@@ -4,7 +4,7 @@
   /** One host, in full. The onboarding rail is for arrival and asks one thing
    *  at a time; this is where a host set up last week can be looked at, and
    *  every part of it changed, in whatever order the user wants. */
-  import { Plus, Power, RotateCw } from "@lucide/svelte";
+  import { ArrowLeft, Plus, Power, RotateCw } from "@lucide/svelte";
   import { isSessionBusyStatus } from "@solus/contracts/types";
   import { getWorkspaceContext, managedHostsStore, serversStore, uplinkStore, type ServerItem } from "../../contexts";
   import { runHost } from "../../contexts/workspace/run-location";
@@ -23,6 +23,7 @@
   import HostDetailEnvironment from "./HostDetailEnvironment.svelte";
   import HostRoutesSection from "./HostRoutesSection.svelte";
   import { openHostSettings } from "./lib/sharing-access";
+  import { signInReturns } from "./sign-in-return.svelte";
 
   interface Props {
     host: ServerItem;
@@ -72,6 +73,18 @@
 </script>
 
 <div class="flex flex-col gap-6">
+  <!-- A conversation waits on a sign-in here; it comes back by itself when the sign-in ends (docs/host-provider-sign-in.md). -->
+  {#if signInReturns.pending?.serverId === host.id}
+    <div role="status" class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-(--solus-accent-soft) py-2 pr-2 pl-3.5">
+      <p class="m-0 min-w-0 flex-1 text-workspace-chrome text-pretty text-(--solus-text-secondary)">
+        <span class="font-medium text-foreground">{signInReturns.pending.conversationTitle}</span>
+        waits for {signInReturns.pending.providerLabel}. It continues when you finish signing in.
+      </p>
+      <Button size="sm" variant="ghost" class="shrink-0 text-(--solus-accent)" onclick={() => signInReturns.goBack()}>
+        <ArrowLeft size={14} />Back to the conversation
+      </Button>
+    </div>
+  {/if}
   <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
     <div class="flex min-w-0 items-center gap-3.5">
       <FleetLoadRing cpu={machine.cpu} tone={toneOf(machine.state)} size={48}>

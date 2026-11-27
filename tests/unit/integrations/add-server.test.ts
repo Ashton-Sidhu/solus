@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, spyOn, test } from 'bun:test'
+import { INTEGRATION_OAUTH_LOOPBACK_URL } from '@solus/contracts/integrations/oauth-callback'
 import { readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from '../helpers/bun-sqlite'
@@ -49,19 +50,23 @@ function setup() {
   const vault = new Vault({ secrets: memorySecretStore() })
   const connectionChanges: IntegrationConnectionChangedEvent[] = []
   const connectionEvents = { connectionChanged: (_person: string, event: IntegrationConnectionChangedEvent) => { connectionChanges.push(event) }, authFinished: () => undefined }
-  const oauth = new IntegrationOAuth({ connections: connectionStore, integrations: store, vault, clients, events: connectionEvents })
+  const oauth = new IntegrationOAuth({
+    connections: connectionStore, integrations: store, vault, clients, events: connectionEvents, loopbackPort: 0,
+    recordRegisteredClient: (integration, clientId) => writes.recordRegisteredClient(integration, clientId),
+  })
   const connections = new IntegrationConnections({ store: connectionStore, integrations: store, vault, clients, oauth, events: connectionEvents })
   const gateway = new IntegrationGateway(store)
   gateway.useCredentials(connections)
   const changed: IntegrationChangedEvent[] = []
   const events = { broadcast: (_topic: string, event: IntegrationChangedEvent) => { changed.push(event); return 1 } } as never
+  const writes = new IntegrationWrites({ store, events, gateway, connections, oauth })
   const server = new SolusServer()
   registerIntegrationHandlers(server, {
     store,
     catalog: {} as never,
     gateway,
     events,
-    writes: new IntegrationWrites({ store, events, gateway, connections, oauth }),
+    writes,
     connectionStore,
     connections,
     oauth,
@@ -98,6 +103,17 @@ afterAll(async () => {
 })
 
 describe('the authentication a person chooses', () => {
+  test('a server that registers Solus gives its client ID at the add, before anyone signs in', async () => {
+    const { add, clients } = setup()
+    const before = fake.registrations.length
+    const added = await add(fake.mcpUrl)
+    // WHY: the owner's client form shows next to Sign in; a server like HiddenLayer gives every client one static ID the person should not have to type.
+    expect(added.auth).toMatchObject({ kind: 'oauth', registration: 'dynamic', registeredClientId: `client-${before + 1}` })
+    // Registered for the loopback callback, so a sign-in from the host reuses it.
+    expect(fake.registrations.at(-1)?.redirect_uris).toEqual([INTEGRATION_OAUTH_LOOPBACK_URL])
+    expect([...clients.clients.values()]).toContainEqual(expect.objectContaining({ clientId: `client-${before + 1}`, redirectUris: [INTEGRATION_OAUTH_LOOPBACK_URL] }))
+  })
+
   test('an explicit choice adds a server the automatic probe refuses', async () => {
     // WHY: a server that takes its key in its own header names no sign-in the probe can read; the person knows how it signs in.
     const { add } = setup()
@@ -124,7 +140,7 @@ describe('the authentication a person chooses', () => {
     fake.options.anonymous = true
     const { add } = setup()
     expect((await add(fake.mcpUrl)).auth).toEqual({ kind: 'none', oauth: { discover: fake.resourceMetadataUrl } })
-    expect((await add(fake.mcpUrl, { kind: 'oauth' })).auth).toEqual({ kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'dynamic' })
+    expect((await add(fake.mcpUrl, { kind: 'oauth' })).auth).toEqual({ kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'dynamic', registeredClientId: expect.any(String) })
   })
 
   test('an API key on an OAuth server takes a Bearer key', async () => {
@@ -151,7 +167,8 @@ describe('the authentication a person chooses', () => {
     const added = await add(fake.mcpUrl, { kind: 'oauth', client: { clientId: 'mine', clientSecret: 'mine-secret' } })
     expect(added.auth).toEqual({ kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'client-required', clientId: 'mine', hasClientSecret: true })
     expect(JSON.stringify(added)).not.toContain('mine-secret')
-    expect([...clients.clients.values()]).toContainEqual({ clientId: 'mine', clientSecret: 'mine-secret', tokenEndpointAuthMethod: 'client_secret_post', redirectUris: [] })
+    // WHY: the owner registered the redirect Solus showed them; every sign-in with this client must send it.
+    expect([...clients.clients.values()]).toContainEqual({ clientId: 'mine', clientSecret: 'mine-secret', tokenEndpointAuthMethod: 'client_secret_post', redirectUris: [INTEGRATION_OAUTH_LOOPBACK_URL] })
     const flow = await handle<{ url: string }>('integrationConnectStart', { id: added.id, callbackBaseUrl: 'https://host.example' })
     expect(new URL(flow.url).searchParams.get('client_id')).toBe('mine')
   })
@@ -172,7 +189,7 @@ describe('changing the scopes and the header names', () => {
     expect((await update({ id: added.id, scopes: ['write'] })).auth).toMatchObject({ scopes: ['write'] })
     // WHY: a session opened with a token for the old scopes must not stay in use.
     expect(invalidate).toHaveBeenCalledWith(added.id)
-    expect((await update({ id: added.id, scopes: null })).auth).toEqual({ kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'dynamic' })
+    expect((await update({ id: added.id, scopes: null })).auth).toEqual({ kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'dynamic', registeredClientId: expect.any(String) })
   })
 
   test('scopes and header names are refused on the wrong kind', async () => {

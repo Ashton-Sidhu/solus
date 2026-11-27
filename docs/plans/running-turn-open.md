@@ -18,10 +18,13 @@ prompt until the turn ended.
 - **running turn** — the turn of a session that a run holds now (its provider
   turn, its request, or its setup), from its prompt on.
 - **turn log** — `SessionRuntime.turnLog`: every event of the running turn that
-  went to the session's watchers, from its prompt on, in order. Cleared when the
-  turn settles.
+  went to the session's watchers, from its prompt on, in order. A new turn
+  starts a new log (host rule 1); the log is cleared when the provider query
+  exits.
 - **prompt** — the `user_message` that starts a turn. A steer
-  (`delivery: 'steer'`) joins the running turn.
+  (`delivery: 'steer'`) joins the running turn. A prompt into a query that
+  background work keeps open, after its turn settled, joins no turn: it is a
+  prompt, not a steer.
 - **`runningTurnStartedAt`** — the time the host recorded the running turn's
   prompt. It names the turn: a watch result names the turn it replayed, and a
   history page names the turn it left out.
@@ -30,7 +33,15 @@ prompt until the turn ended.
 
 ## The host
 
-1. **The turn log holds the whole turn.** A publish is recorded unless it goes
+1. **The turn log holds the whole turn, and no turn before it.** It starts
+   again where a turn starts: when a run's turn begins, before its setup
+   (`startRunLifecycleInScope`), and when a prompt goes into a query that
+   background work keeps open after its turn settled (`steerActiveTurn`). Such
+   a prompt's echo has no `delivery: 'steer'`. A turn that the agent starts on
+   its own in that open query (a background task woke it) has no prompt; it
+   stays in the log of the prompt before it, as the history cut below expects.
+   Without this, every later prompt joined the first one's turn: the page left
+   out all of them and the replay was only the newest 2000 events. A publish is recorded unless it goes
    to one client only (`only`: a replay or a private echo). The prompt echo that
    skips its sender (`except`) is recorded too. Because the sender already shows
    its own copy, such a publish still starts a new cursor epoch, so a resume
@@ -58,6 +69,13 @@ prompt until the turn ended.
 - **Mobile** opens with the opening read, on the first open and on every reload
   after a reset. Events that arrive before the page are held and applied after
   it. There is no overlap to reconcile, so `reconcileWatchReplay` is gone.
+- **Desktop and web paint once.** A page that leaves out a running turn
+  (`runningTurnStartedAt` on the page) waits for the watch, and the replay is
+  applied in the same step that puts the page on screen, before the loading
+  state clears. The conversation then opens at its end with the running turn,
+  and does not slide down while the replay lands under the reader. A page with
+  no running turn paints at once. A restored tab (`hydrateTab`, also a window
+  reload) starts its watch beside the page, once the description answers.
 - **Desktop and web** keep their page read beside a separate watch, because the
   page can come from a prefetch made on hover or press. The reducer holds the
   session's events from the watch until the page is on screen
@@ -82,3 +100,8 @@ prompt until the turn ended.
   few milliseconds) can still be lost or shown twice.
 - Two turns that start in the same wall-clock second: the earlier one is left
   out of the page while the later one runs.
+- A turn log of more than `TURN_LOG_MAX_EVENTS` (2000) events keeps its prompt
+  and its newest events. The page still leaves the whole turn out, so the
+  reader sees the prompt, a gap, and the turn's tail until the turn ends. A
+  prompt whose query wakes many times on its own (background tasks) reaches
+  this limit soonest.

@@ -3,6 +3,7 @@ import { withBinding, withBindingRemoved, type BindingOverrides } from '@solus/w
 import { formatComboText } from '@solus/workspace-ui/lib/keybindings/match'
 import {
   commandsShown,
+  filterCommands,
   moveCommandSelection,
   SUB_PAGE_ROWS_SHOWN,
   retainCommandSelection,
@@ -96,4 +97,51 @@ describe('commandsShown', () => {
   test('the root page is never cut', () => {
     expect(commandsShown(branches, '', false)).toEqual({ shown: branches, hiddenCount: 0 })
   })
+
+  test('matches out-of-order words and ranks an exact label before broader matches', () => {
+    const settings = { id: 'settings', label: 'Browser settings', group: 'View', keywords: ['open'] }
+    const browser = { id: 'browser', label: 'Open Browser', group: 'General' }
+    expect(filterCommands([settings, browser], 'browser open')).toEqual([browser, settings])
+    expect(commandsShown([settings, browser], 'open browser', false).shown).toEqual([browser, settings])
+  })
+
+  test('keeps search-only commands out of the empty list', () => {
+    const command = { id: 'new-session-without-task', label: 'New session without issue', group: 'General', searchOnly: true }
+    expect(commandsShown([command], '', false).shown).toEqual([])
+    expect(commandsShown([command], '> without issue', false).shown).toEqual([command])
+  })
+})
+
+describe('Usage command palette entry', () => {
+  test('matches usage queries and opens Settings → Usage', async () => {
+    mock.module('@solus/workspace-ui/components/settings/lib/mcp-page-request.svelte', () => ({ mcpPageRequest: { askAddServer: () => {}, view: '' } }))
+    mock.module('@solus/workspace-ui/components/codebases/lib/codebases-page-request.svelte', () => ({ codebasesPageRequest: { askNew: () => {} } }))
+    const { settingsOwnerCommands } = await import('@solus/workspace-ui/components/settings/lib/settings-commands')
+    const opened: Array<{ tab: string; via: string }> = []
+    const commands = settingsOwnerCommands({
+      showSettings: (tab, via) => { opened.push({ tab, via }) },
+    })
+
+    for (const query of ['usage', 'open usage', 'usage limits', 'quota', 'rate limit']) {
+      const matched = filterCommands(commands, query)
+      expect(matched.some((cmd) => cmd.id === 'open-usage-settings')).toBe(true)
+    }
+
+    const usageCmd = commands.find((cmd) => cmd.id === 'open-usage-settings')
+    expect(usageCmd?.label).toBe('Open usage')
+    usageCmd?.run?.()
+    expect(opened).toEqual([{ tab: 'usage', via: 'palette' }])
+  })
+})
+
+test('a setting can be found by a keyword and opens its Settings page', async () => {
+  const { settingsSearchCommands } = await import('@solus/workspace-ui/components/command-palette/lib/settings-lookup')
+  const opened: string[] = []
+  const workspace = { showSettings: (tab?: string) => { if (tab) opened.push(tab) } }
+
+  expect(settingsSearchCommands(workspace, '')).toEqual([])
+  const font = settingsSearchCommands(workspace, 'font size').find((command) => command.id === 'setting:appearance:font-size')
+  expect(font).toBeDefined()
+  font?.run?.()
+  expect(opened).toEqual(['appearance'])
 })

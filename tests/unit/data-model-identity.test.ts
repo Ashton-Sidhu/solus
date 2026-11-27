@@ -71,6 +71,7 @@ const NO_CREATOR: Record<string, string> = {
   notification_pr_observations: "cache of a person's pending pull requests (`user_id`)",
   integration_connection: "a person's connection state on an integration (`user_id`); the integration carries the creator",
   integration_server_facts: "what a stdio integration's server answered one person (`user_id`); the integration carries the creator",
+  integration_icon: "a cache of the icon an integration's server names; the integration carries the creator",
   mcp_task: "one person's tool call that a server runs as an MCP task (`user_id`); no other person makes a row",
   integration_resource_watch: "one person's subscription to an MCP resource for a session (`user_id`); no other person makes a row",
   member_folder: "a person's folder name on this host (`user_id`)",

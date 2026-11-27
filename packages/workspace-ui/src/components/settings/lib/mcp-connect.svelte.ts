@@ -1,8 +1,10 @@
 import type { Integration, IntegrationAuthChoice, IntegrationEnvValue } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import { SetupHandoff, type IntegrationSetupNeed } from '@solus/contracts/integrations/setup-handoff'
+import { readServerSource, type ServerSource } from '@solus/contracts/integrations/server-source'
 import { SvelteSet } from 'svelte/reactivity'
 import { mcpStore } from '../../../contexts/mcp'
+import { INTEGRATION_OAUTH_LOOPBACK_URL } from '@solus/contracts/integrations/oauth-callback'
 import { IntegrationLabels, type ConnectStep } from './integration-labels'
 import { McpAddressForm } from './mcp-address-form.svelte'
 import type { McpCatalog } from './mcp-catalog.svelte'
@@ -17,15 +19,21 @@ export interface ConnectRequest {
   /** The vendor's setup page, from a Solus catalog entry (§13.5). */
   authHelp?: string
   /**
-   * Add a server the person describes: a command (docs/plans/mcp-first-class.md
-   * §7.7) or an address. The first step is its form, in place of the sign-in.
-   * `name` and `url` are empty.
+   * Add a server the person describes in one field: an address, a command
+   * (docs/plans/mcp-first-class.md §7.7), or the JSON of a setup page. The
+   * first step is that field, in place of the sign-in. `name` and `url` are empty.
    */
   addsServer?: boolean
+  /** What the one field starts with, as `setSource` reads it. */
+  source?: string
 }
 
-/** What a new server is: a command the host starts, or an address it reaches. */
-export type AddKind = 'command' | 'url'
+/**
+ * The form before the add: `source` is the one field, which reads as an
+ * address or a command; `url` is the whole address form, with the sign-in
+ * method, which opens after the host refused an address.
+ */
+export type AddForm = 'source' | 'url'
 
 /**
  * One run of the connect dialog (docs/integrations.md): add the server when it
@@ -44,7 +52,13 @@ export class McpConnect {
   /** The form of a command; null when the dialog opened for a server it knows. */
   readonly command: McpCommandForm | null
   /** The form the person fills before the add: null once an address went on to its sign-in, and for a known server. */
-  addKind = $state<AddKind | null>(null)
+  addForm = $state<AddForm | null>(null)
+  /** The one field, as the person typed it; pasted JSON becomes the address or the command line it names. */
+  source = $state('')
+  /** The field's problem after Continue, such as JSON that names two servers. */
+  sourceProblem = $state<string | null>(null)
+  /** The fields came from pasted JSON, so the dialog says so. */
+  isFilledFromConfig = $state(false)
   /** The server at an address this run adds or connects: the request's, or the one the person typed. */
   target = $state({ name: '', url: '' })
   /** The URL form: the address, its name, and its Authentication. */
@@ -66,7 +80,8 @@ export class McpConnect {
     this.integrationId = request.integrationId ?? null
     this.target = { name: request.name, url: request.url }
     this.command = request.addsServer ? new McpCommandForm(serverId, mayRunCommands) : null
-    if (request.addsServer) this.addKind = 'command'
+    if (request.addsServer) this.addForm = 'source'
+    if (request.addsServer && request.source) this.setSource(request.source)
     if (this.integration) this.seedDraft(this.integration)
   }
 
@@ -75,9 +90,18 @@ export class McpConnect {
     return id ? mcpStore.integrations.states.get(this.serverId)?.integrations?.find((item) => item.id === id) ?? null : null
   }
 
+  /**
+   * What the field reads as. Once the host has the command this dialog added,
+   * the field stays that command: an address would be a second server.
+   */
+  get sourceKind(): 'empty' | 'url' | 'command' | 'invalid' {
+    if (this.integrationId && this.command) return 'command'
+    return readServerSource(this.source).kind
+  }
+
   get step(): ConnectStep {
-    if (this.addKind === 'command' && !this.isCommandStarted) return 'command'
-    if (this.addKind === 'url') return 'address'
+    if (this.addForm === 'source' && !this.isCommandStarted) return this.sourceKind === 'command' ? 'command' : 'source'
+    if (this.addForm === 'url') return 'address'
     const integration = this.integration
     return integration ? new IntegrationLabels(integration).connectStep(mcpStore.integrations.connection(this.serverId, integration.id)) : 'adding'
   }
@@ -100,7 +124,7 @@ export class McpConnect {
     return new SetupHandoff(need, {
       name: this.integration?.name ?? this.target.name,
       url: this.integration?.url ?? this.target.url,
-      callbackUrl: need === 'oauth-client' ? mcpStore.integrations.oauthRedirectUrl(this.serverId) : undefined,
+      callbackUrl: need === 'oauth-client' ? INTEGRATION_OAUTH_LOOPBACK_URL : undefined,
       guideUrl: this.request.authHelp,
     })
   }
@@ -181,13 +205,77 @@ export class McpConnect {
     if (this.integrationId) await this.processes?.stop(this.integrationId)
   }
 
-  /** The person can change between a command and an address until the host has a record of either. */
-  get canChangeKind(): boolean {
-    return this.addKind !== null && !this.integrationId
+  /**
+   * The person typed or pasted in the one field. Pasted JSON becomes the
+   * address or the command line it names, and fills the rest of the form: the
+   * name, the folder, the variables and their values, the headers, and a
+   * static OAuth client ID. Typing changes only the address or the line.
+   */
+  setSource(text: string): void {
+    if (this.addForm !== 'source') return
+    this.sourceProblem = null
+    const read: ServerSource = this.integrationId ? { kind: 'command', line: text, env: [] } : readServerSource(text)
+    const isConfig = /^\s*[{"]/.test(text) && (read.kind === 'url' || read.kind === 'command')
+    this.source = isConfig && read.kind === 'url' ? read.url : isConfig && read.kind === 'command' ? read.line : text
+    if (read.kind === 'command' && this.command) this.fillCommand(read, isConfig)
+    if (read.kind === 'url') this.fillAddress(read, isConfig)
+    if (isConfig) this.isFilledFromConfig = true
+    else if (read.kind === 'empty') this.isFilledFromConfig = false
   }
 
-  chooseKind(kind: AddKind): void {
-    if (this.canChangeKind) this.addKind = kind
+  private fillCommand(read: Extract<ServerSource, { kind: 'command' }>, isConfig: boolean): void {
+    const form = this.command
+    if (!form) return
+    form.line = read.line
+    if (!isConfig) return
+    form.name = read.name ?? ''
+    form.cwd = read.cwd ?? ''
+    form.setVariables(read.env)
+  }
+
+  private fillAddress(read: Extract<ServerSource, { kind: 'url' }>, isConfig: boolean): void {
+    const form = this.addressForm
+    form.address = read.url
+    if (!isConfig) return
+    form.name = read.name ?? ''
+    form.clientId = read.clientId ?? ''
+    form.authKind = read.headers.length > 0 ? 'headers' : 'automatic'
+    form.headers = read.headers.length > 0 ? read.headers.map((header) => ({ name: header.name, value: header.value ?? '' })) : [{ name: '', value: '' }]
+  }
+
+  /**
+   * Continue on the one field: an address goes to the check and the sign-in,
+   * as a catalog entry does; a command starts and lists its tools. The
+   * sign-in method is chosen after the check, and only when the host refused.
+   */
+  async continueFromSource(): Promise<void> {
+    if (this.addForm !== 'source') return
+    const read = readServerSource(this.source)
+    if (this.sourceKind === 'command') return this.startCommand()
+    if (read.kind === 'invalid') {
+      this.sourceProblem = read.reason
+      return
+    }
+    if (read.kind !== 'url') return
+    this.addForm = 'url'
+    await this.continueWithAddress()
+  }
+
+  /** "Change" on the done server step, before the end: back to the one field, and what this run added is taken back. */
+  get canChangeServer(): boolean {
+    return !!this.request.addsServer && !this.isDone && (this.addForm === null || this.isCommandStarted)
+  }
+
+  async changeServer(): Promise<void> {
+    if (!this.canChangeServer) return
+    await this.dismiss()
+    if (this.target.url) this.catalog.dismiss(this.target.url)
+    this.addedHere = false
+    this.integrationId = null
+    this.isCommandStarted = false
+    this.disabledDraft.clear()
+    this.target = { name: '', url: '' }
+    this.addForm = 'source'
   }
 
   /**
@@ -196,12 +284,12 @@ export class McpConnect {
    * already goes to that server's sign-in, as the page's search does.
    */
   async continueWithAddress(): Promise<void> {
-    if (this.addKind !== 'url') return
+    if (this.addForm !== 'url') return
     const check = this.addressForm.check()
     if (!check) return
     const known = mcpStore.integrations.states.get(this.serverId)?.integrations?.find((integration) => integration.url === check.url) ?? null
     this.target = { name: known?.name ?? check.name, url: check.url }
-    this.addKind = null
+    this.addForm = null
     this.addressForm.takeSecrets()
     if (known) {
       this.integrationId = known.id
@@ -213,19 +301,19 @@ export class McpConnect {
     await this.start()
   }
 
-  /** Back to the address form after the host refused the address, to change it. */
+  /** Back to the whole address form after the host refused the address: change it, or choose how it signs in. */
   editAddress(): void {
     if (this.integrationId || !this.request.addsServer) return
     this.catalog.dismiss(this.target.url)
     this.target = { name: '', url: '' }
     this.pendingAuth = undefined
     this.pendingValues = []
-    this.addKind = 'url'
+    this.addForm = 'url'
   }
 
   /** Adds the server when the dialog opened for a catalog entry, or the person gave its address. */
   async start(): Promise<void> {
-    if (this.integrationId || this.addKind) return
+    if (this.integrationId || this.addForm) return
     const integration = await this.catalog.install(this.target.name, this.target.url, this.pendingAuth)
     if (!integration) return
     this.addedHere = true
@@ -269,7 +357,7 @@ export class McpConnect {
       return
     }
     // Remove stops the process too; a command kept stops only a start that runs.
-    if (this.addKind === 'command' && !this.addedHere && this.processes?.isStarting(id)) await this.processes.stop(id)
+    if (this.command && !this.addedHere && this.processes?.isStarting(id)) await this.processes.stop(id)
     const flow = mcpStore.integrations.connectFlow(this.serverId, id)
     if (flow && flow.kind !== 'failed') await mcpStore.integrations.cancel(this.serverId, id)
     if (this.addedHere) await mcpStore.integrations.remove(this.serverId, id)

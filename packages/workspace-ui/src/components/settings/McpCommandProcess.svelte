@@ -6,7 +6,7 @@
    * `host.admin`; the actions that start the command say why they are off.
    */
   import { tick } from "svelte";
-  import { ChevronRight, LoaderCircle } from "@lucide/svelte";
+  import { ChevronRight, CircleCheck, LoaderCircle } from "@lucide/svelte";
   import type { CommandProcessActionKind } from "@solus/contracts/integrations/command-server";
   import type { Integration } from "@solus/contracts/integration-types";
   import { Button } from "../ui/button";
@@ -43,7 +43,7 @@
       <div class="min-w-0 flex-1">
         <p role="status" class="flex items-center gap-2 text-workspace-chrome {status.tone === 'error' ? 'text-(--solus-status-error)' : status.tone === 'ready' ? 'text-foreground' : 'text-(--solus-text-secondary)'}">
           {#if status.state === "starting"}<LoaderCircle size={14} class="shrink-0 animate-spin motion-reduce:animate-none" />{/if}
-          {#if status.tone === "ready"}<span class="size-2 shrink-0 rounded-full bg-(--solus-status-complete)" aria-hidden="true"></span>{/if}
+          {#if status.tone === "ready"}<CircleCheck size={14} class="shrink-0 text-(--solus-status-complete)" aria-hidden="true" />{/if}
           {status.label}
         </p>
         {#if status.detail}

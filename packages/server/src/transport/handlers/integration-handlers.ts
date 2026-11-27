@@ -45,6 +45,7 @@ import type { ReachRequest, RemoteHost, RemoteHosts } from '../../execution/orch
 import type { LocalMcpServers } from '../../integrations/local-servers'
 import { assertPathInScope } from '../../data/sessions/guest-path-scope'
 import { cliSkipLog } from '../../integrations/cli-skips'
+import { integrationIcons } from '../../integrations/integration-icons'
 import { attachResource } from '../../integrations/resource-attach'
 import { resourceListsOf } from '../../integrations/resource-lists'
 import { RUN_LIST_TIMEOUT_MS, integrationsForRun } from '../../integrations/integration-tools'
@@ -59,9 +60,12 @@ const log = createLogger('integrations', 'integration-handlers.ts')
 /**
  * An integration as the actor reads it, with their role on it (docs/plans/access-model.md
  * §2.7). An integration is personal, so only its owner holds a role on it (§2.3, D3).
+ * It carries its server's icon when the host has one.
  */
 function forReader(actor: Actor, integration: Integration): Integration {
-  return { ...integration, role: roleOf(actor, { kind: 'integration', id: integration.id, organizationId: integration.organizationId, ownerKey: integration.ownerKey, acl: [] }) }
+  const role = roleOf(actor, { kind: 'integration', id: integration.id, organizationId: integration.organizationId, ownerKey: integration.ownerKey, acl: [] })
+  const icon = integrationIcons.get(integration.id)
+  return icon ? { ...integration, role, icon } : { ...integration, role }
 }
 
 /**

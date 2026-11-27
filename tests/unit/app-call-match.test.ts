@@ -60,6 +60,9 @@ describe('the query of the call log on the host', () => {
     expect(await ids({ match: [[{ field: 'run', value: 'run_8f2c' }]] })).toEqual(['c4', 'c2'])
     expect(await ids({ match: [[{ field: 'error', value: 'took longer' }]] })).toEqual(['c2'])
     expect(await ids({ match: [[{ field: 'text', value: 'hourly' }]] })).toEqual(['c1'])
+    // WHY: "filter out" in the Activity section. A call with no run is not in the run, so it stays.
+    expect(await ids({ match: [[{ field: 'run', value: 'run_8f2c', not: true }]] })).toEqual(['m1', 'c3', 'c1'])
+    expect(await ids({ match: [[{ field: 'outcome', value: 'failed', not: true }], [{ field: 'caller', value: 'workflow' }]] })).toEqual(['c4'])
     // A wildcard of SQL in a value is text to find.
     expect(await ids({ match: [[{ field: 'error', value: '%' }]] })).toEqual([])
     // The Calls and Model calls switch.

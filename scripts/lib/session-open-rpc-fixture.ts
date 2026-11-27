@@ -26,6 +26,8 @@ export function sessionOpenRpcFixture(tabCount = 1, options: { lineage?: Session
   const historyRequests: SessionHistoryPageRequest[] = []
   const environmentReads: Array<{ sourceId: string; level?: string; force: boolean }> = []
   const transcriptIdentities: string[] = []
+  /** The reducer's hold and release of the session's events, with the rows on screen at each. */
+  const eventHolds: string[] = []
   const tabs = Array.from({ length: tabCount }, (_, index) => ({
     sessionId: options.lineage?.sessionId ?? `session-${index}`,
     tabId: `tab-${index}`, agentSessionId: `provider-${index}`, provider: 'codex' as const,
@@ -61,7 +63,13 @@ export function sessionOpenRpcFixture(tabCount = 1, options: { lineage?: Session
     environment: { refreshEnvironment: async (_workspace: SessionOpenFixtureOwner, options: { sourceId: string; level?: string; force: boolean }) => { environmentReads.push(options); return null } },
     tasksStore: { ensureSessionBinding: async () => null },
     ctxFor: (tabId: string) => ({ session: { sessionId: tabId } }),
-    eventReducer: { rebuildAgentConversations: () => {} },
+    eventReducer: {
+      rebuildAgentConversations: () => {}, dropHeldEvents: () => {},
+      holdEvents: () => { eventHolds.push(`hold with ${sessions[0]?.messages.length ?? 0} rows`) },
+      releaseEvents: () => { eventHolds.push(`release with ${sessions[0]?.messages.length ?? 0} rows`) },
+    },
+    cloudTranscripts: { release: () => {} },
+    issuesStore: { ensureSessionBinding: async () => null },
     planStore: { hydrateAnnotations: async () => {} },
     lifecycle: { recomputeChangedFiles: () => {}, reconcileQueuedPrompts: () => {} },
     applyPendingQuestions: () => {},
@@ -90,9 +98,11 @@ export function sessionOpenRpcFixture(tabCount = 1, options: { lineage?: Session
       session.messages.splice(0, session.messages.length, ...messages)
     },
     requestSessionHistoryPage,
+    fitTranscriptToWatch: async () => {},
     afterPaint: async () => {},
     markStartupTranscriptApplied: () => {},
     applyRuntimeConfig: () => {},
+    followThreadProvider: (session: { threadProvider?: string }, provider: string) => { session.threadProvider = provider },
     nextMsgId: () => 'message',
     INITIAL_HISTORY_TURNS,
   }
@@ -104,10 +114,10 @@ export function sessionOpenRpcFixture(tabCount = 1, options: { lineage?: Session
     hydrateTab(ctx: typeof workspace, tab: typeof tabs[number]): Promise<boolean>
   }
   return {
-    reads, historyRequests, transcriptIdentities, environmentReads, session: sessions[0],
+    reads, historyRequests, transcriptIdentities, environmentReads, eventHolds, session: sessions[0],
     prefetch: () => prefetchSessionHistoryPage(apis.get(runHost(tabs[0]))!, {
       sessionId: tabs[0].sessionId, projectPath: checkoutPlace(tabs[0]).path,
-      provider: tabs[0].provider, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true,
+      provider: tabs[0].provider, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true, replyLayout: true,
     }),
     close: () => { delete workspace.tabs[tabs[0].tabId]; sessions.splice(0, 1) },
     startMetadata: () => commands.startRestoredMetadataReads(workspace, tabs, { hasStartedMetadataReads: false }),

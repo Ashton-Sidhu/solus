@@ -20,7 +20,7 @@
 </script>
 
 <div
-  class="pointer-events-none absolute inset-x-0 bottom-14 z-10 flex justify-center px-4 @max-[30rem]/pane:bottom-0 @max-[30rem]/pane:px-2 @max-[30rem]/pane:pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]"
+  class="pointer-events-none absolute inset-x-0 bottom-6 z-10 flex justify-center px-4 @max-[30rem]/pane:bottom-0 @max-[30rem]/pane:px-2 @max-[30rem]/pane:pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]"
 >
   <div
     class="pointer-events-auto flex items-center gap-1.5 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) px-2 py-1.5 shadow-[var(--solus-popover-shadow)] @max-[30rem]/pane:w-full @max-[30rem]/pane:flex-col @max-[30rem]/pane:items-stretch @max-[30rem]/pane:gap-2 @max-[30rem]/pane:rounded-2xl @max-[30rem]/pane:p-2.5"

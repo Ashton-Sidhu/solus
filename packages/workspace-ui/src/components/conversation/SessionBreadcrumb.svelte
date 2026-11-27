@@ -30,7 +30,7 @@
     getAttentionMark,
     hasSessionStarted,
     liveDotMark,
-    sessionTitle,
+    sessionName,
   } from "../../lib/sessionUtils";
   import { homeGitDetails } from "../../lib/git-context";
   import { projectDirLabel } from "../../lib/paths";
@@ -102,6 +102,9 @@
   const session = getWorkspaceContext();
   /** The band draws the leaf session; its share badge names it. */
   const bandSession = $derived(session.sessionFor(tabId));
+  const bandSessionName = $derived(
+    bandSession ? sessionName(bandSession, (automationId, serverId) => sidebarStore.automationName(automationId, serverId)) : "",
+  );
   // A member who may only read a shared session cannot rename it.
   const canDrive = $derived(
     canDriveSession(session.serverIdFor(tabId), bandSession?.id),
@@ -864,13 +867,13 @@
       <SessionPresence
         serverId={session.serverIdFor(tabId)}
         sessionId={bandSession.id}
-        title={sessionTitle(bandSession)}
+        title={bandSessionName}
         class="mx-1"
       />
       <ShareButton
         serverId={session.serverIdFor(tabId)}
         resource={{ kind: "session", id: bandSession.id }}
-        title={sessionTitle(bandSession)}
+        title={bandSessionName}
         labelled
         class="{BAND_SHARE} mr-2 @max-[36rem]:hidden"
       />

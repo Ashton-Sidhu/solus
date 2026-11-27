@@ -1,15 +1,18 @@
 <script lang="ts">
-  import { ArrowUpRight as OpenIcon, Pin as PinIcon } from "@lucide/svelte";
+  import { Activity as InFlightIcon, ArrowUpRight as OpenIcon, Cpu as MemoryIcon, GitBranch as VersionIcon, Monitor as HostIcon, Pin as PinIcon } from "@lucide/svelte";
   import type { AppRuntimeView, AppSummary } from "@solus/contracts/apps";
   import { PAGE_SOFT_ICON_BTN } from "../../../../lib/page-chrome";
   import * as TooltipUI from "../../../ui/tooltip";
   import { Button } from "../../../ui/button";
-  import { appRunState, appRunStateLabel, appStateText, appVersionHostLine } from "../lib/overview";
+  import { appMemoryText, appStateTitle, appVersionText } from "../lib/overview";
+  import { appState } from "../lib/states";
+  import StateIcon from "../StateIcon.svelte";
 
   /**
-   * The first line of the Overview: whether the app runs, its version, and its
-   * host, then the commands a reader takes from here: pin it, stop or start it,
-   * and open it. The line under it says what the runner does now.
+   * The first line of the Overview: the app's state mark, its version, its
+   * host, its memory, and the calls in progress, then the commands a reader
+   * takes from here: pin it, stop or start it, and open it. The state is a
+   * session mark, never a word: the words are its tooltip and its name.
    */
   interface Props {
     app: AppSummary;
@@ -18,6 +21,8 @@
     building: { number: number } | null;
     /** Null until the host answers with the app's state. */
     runtime: AppRuntimeView | null;
+    /** The host does not answer now, so nothing it last said is current. */
+    isHostUnreachable: boolean;
     busy: boolean;
     pinned: boolean;
     onToggleStopped: () => void;
@@ -25,18 +30,23 @@
     /** Absent for an app with no UI: there is nothing to open. */
     onOpenApp?: () => void;
   }
-  let { app, hostLabel, building, runtime, busy, pinned, onToggleStopped, onTogglePinned, onOpenApp }: Props = $props();
+  let { app, hostLabel, building, runtime, isHostUnreachable, busy, pinned, onToggleStopped, onTogglePinned, onOpenApp }: Props = $props();
 
-  const runState = $derived(appRunState(app));
+  const memory = $derived(appMemoryText(runtime));
+  const inFlight = $derived(runtime?.running ? runtime.inFlight : 0);
 </script>
 
 <header class="flex flex-wrap items-center gap-x-4 gap-y-3" data-testid="app-overview-header">
-  <div class="flex min-w-48 flex-1 flex-col gap-1">
-    <p class="m-0 text-sm tabular-nums text-(--solus-text-secondary)" data-testid="app-overview-state">
-      <span class="font-medium {runState === 'running' ? 'text-(--success)' : 'text-foreground'}">{appRunStateLabel(runState)}</span>
-      · {appVersionHostLine(app, hostLabel)}
-    </p>
-    <p class="m-0 text-[13px] text-(--solus-text-tertiary)">{appStateText(app, building, runtime)}</p>
+  <div class="flex min-w-48 flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] leading-[18px] tabular-nums text-(--solus-text-tertiary)" data-testid="app-overview-state">
+    <StateIcon state={appState(app, runtime, isHostUnreachable)} label={appStateTitle(app, building, runtime, isHostUnreachable)} />
+    <span class="flex shrink-0 items-center gap-1.25"><VersionIcon size={14} strokeWidth={1.75} aria-hidden="true" />{appVersionText(app, building)}</span>
+    <span class="flex min-w-0 items-center gap-1.25"><HostIcon size={14} strokeWidth={1.75} class="shrink-0" aria-hidden="true" /><span class="truncate">{hostLabel}</span></span>
+    {#if memory}
+      <span class="flex shrink-0 items-center gap-1.25" title="Memory"><MemoryIcon size={14} strokeWidth={1.75} aria-hidden="true" />{memory}</span>
+    {/if}
+    {#if inFlight > 0}
+      <span class="flex shrink-0 items-center gap-1.25"><InFlightIcon size={14} strokeWidth={1.75} aria-hidden="true" />{inFlight} in progress</span>
+    {/if}
   </div>
   <div class="flex shrink-0 items-center gap-1.5">
     <TooltipUI.Root>

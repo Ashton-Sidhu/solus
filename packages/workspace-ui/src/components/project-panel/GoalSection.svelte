@@ -195,7 +195,7 @@
   </span>
 {/snippet}
 
-<PanelSection title="Goal" {collapsed} {onToggle} {onResizePointerDown} headerExtra={controls}>
+<PanelSection title="Goal" sectionId="goal" {collapsed} {onToggle} {onResizePointerDown} headerExtra={controls}>
   {#if goal}
     <div class="flex flex-col gap-1.5 px-2 pb-1">
       {#if isEditing}

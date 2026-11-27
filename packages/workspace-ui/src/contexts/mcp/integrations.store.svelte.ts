@@ -6,7 +6,7 @@ import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { upsertById } from '@solus/client-core/keep-equal'
 import { hostCatalog } from '@solus/client-core/host-catalog'
-import { oauthRedirectUrl } from '../../components/settings/lib/integration-labels'
+import { INTEGRATION_OAUTH_LOOPBACK_URL } from '@solus/contracts/integrations/oauth-callback'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import type { SetupHandoff } from '@solus/contracts/integrations/setup-handoff'
 import { errorText, IntegrationSignIns, isUnsupportedHostError, type IntegrationsState } from './integration-sign-ins.svelte'
@@ -190,11 +190,6 @@ export class IntegrationsStore extends IntegrationSignIns {
     })
   }
 
-  /** The redirect URL the service's OAuth app must list: the host at the origin this client reaches it on. */
-  oauthRedirectUrl(serverId: string): string {
-    return oauthRedirectUrl(serverConnections.httpOriginFor(serverId))
-  }
-
   async remove(serverId: string, integrationId: string): Promise<boolean> {
     const removed = await this.write(serverId, 'Could not remove the integration.', async () => {
       await serverConnections.apiFor(serverId).integrationRemove({ id: integrationId })
@@ -230,7 +225,7 @@ export class IntegrationsStore extends IntegrationSignIns {
   setupHandoff(serverId: string, integrationId: string): SetupHandoff | null {
     const integration = this.states.get(serverId)?.integrations?.find((item) => item.id === integrationId)
     if (!integration) return null
-    return new IntegrationSignIn(integration).setupHandoffFor(this.connection(serverId, integrationId), { name: integration.name, callbackUrl: this.oauthRedirectUrl(serverId) })
+    return new IntegrationSignIn(integration).setupHandoffFor(this.connection(serverId, integrationId), { name: integration.name, callbackUrl: INTEGRATION_OAUTH_LOOPBACK_URL })
   }
 
   integrationNeedingClient(serverId: string, integrationId: string): Integration | null {

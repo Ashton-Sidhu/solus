@@ -21,8 +21,18 @@ describe('session task shortcuts', () => {
     expect(KEYBINDINGS['global.new-task']).not.toHaveProperty('web')
     expect(KEYBINDINGS['global.new-session-in-task']).toMatchObject({
       combo: null,
-      label: 'New session in issue',
+      label: 'New session in current issue',
     })
+  })
+
+  test('a menu can invoke Find in the focused conversation even when the shortcut is unassigned', () => {
+    const keybindings = new KeybindingsContext()
+    const calls: string[] = []
+    keybindings.setOverrides({ 'conversation.find': null })
+    keybindings.register('conversation.find', () => { calls.push('hidden') }, { enabled: () => false })
+    keybindings.register('conversation.find', () => { calls.push('focused') }, { enabled: () => true })
+    keybindings.runAction('conversation.find')
+    expect(calls).toEqual(['focused'])
   })
 
   test('desktop Shift+N with the primary modifier opens a chat without a project', () => {

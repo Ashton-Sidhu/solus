@@ -514,7 +514,7 @@ describe('the suggestion', () => {
   function found(local: InstanceType<typeof LocalMcpServers>) {
     return new FoundServers({
       store,
-      writes: new IntegrationWrites({ store, events: { broadcast: () => 1 } as never, gateway: { forget: () => undefined, invalidate: () => undefined }, connections: { removeAllFor: () => undefined } }),
+      writes: new IntegrationWrites({ store, events: { broadcast: () => 1 } as never, gateway: { forget: () => undefined, invalidate: () => undefined }, connections: { removeAllFor: () => undefined }, oauth: { registerAhead: async () => undefined } as never }),
       connections: { submitEnvironment: () => ({}) as never, environmentFor: () => null, submitKey: async () => ({}) as never },
       home: '/nonexistent-home-for-test',
       env: { NODE_ENV: 'test' },

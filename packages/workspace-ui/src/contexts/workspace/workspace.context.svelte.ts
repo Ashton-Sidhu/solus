@@ -220,6 +220,12 @@ export class WorkspaceContext implements SurfaceContext {
    *  location: it survives navigation inside the pane and clears when the pane
    *  closes. Pane widths are PaneForge's own business — see WorkspaceBody. */
   maximizedPaneId = $state<PaneId | null>(null)
+  /** The latest ask to show a section of a tab's project rail. The stored open
+   *  flag is not enough: a rail hidden for width opens only when its owner
+   *  reveals it, and an open one has to bring the section into view. The rail's
+   *  owner (`WorkspaceBody`, or `AsidePaneShell` for the split chat) and the
+   *  panel act on each new `seq`. */
+  panelSectionReveal = $state<{ tabId: string; section: 'goal' | 'servers'; seq: number } | null>(null)
   ui: WorkspaceUiStore
   readonly queue = new SessionQueueController(this)
   config: SessionConfigController
@@ -409,7 +415,12 @@ export class WorkspaceContext implements SurfaceContext {
       currentUserId: (serverId) => presenceStore.currentUserId(serverId),
       log: (eventType, session) => logDevSessionState(eventType, session),
     })
-    this.promptComposer = new PromptComposer(this.planStore, this.worksStore)
+    this.promptComposer = new PromptComposer(this.planStore, this.worksStore, (sessionId) => {
+      const draft = this.drafts.sessionDrafts.get(sessionId)
+      if (draft) return draft.prompt
+      const session = this.sessions.byId[sessionId]
+      if (session && !session.agentSessionId && session.messages.length === 0) return session.prompt
+    })
     this.ipcContextBuilder = new IpcContextBuilder({
       checkoutForRun: (run) => this.environment.environmentFor(run).checkout,
       sessionFor: (tabId) => this.sessionFor(tabId),
@@ -1090,6 +1101,7 @@ export class WorkspaceContext implements SurfaceContext {
     collapsed[section] = false
     this.settings.setLayout(isSplit ? 'splitProjectPanelOpen' : 'projectPanelOpen', true)
     this.settings.setLayout(isSplit ? 'splitProjectPanelCollapsed' : 'projectPanelCollapsed', collapsed)
+    this.panelSectionReveal = { tabId, section, seq: (this.panelSectionReveal?.seq ?? 0) + 1 }
   }
 
 
@@ -1161,8 +1173,9 @@ export class WorkspaceContext implements SurfaceContext {
    * point resolves a spec and arrives here, so there is one answer to what a new
    * session inherits and one place that answers it.
    */
-  createSession(spec: SessionSpec, options: CreateTabOptions = {}): string {
+  createSession(spec: SessionSpec, options: CreateTabOptions = {}, sessionId?: string): string {
     const session = makeSession(this.settings, {
+      id: sessionId,
       // The composer's resolved target becomes the session's live one. Copied
       // rather than aliased: the composer may be reused, and a session's run
       // config is thereafter its own to change.
@@ -1346,6 +1359,13 @@ export class WorkspaceContext implements SurfaceContext {
   async openSessionsAsSurfaces(references: readonly SessionReference[]): Promise<number> {
     let opened = 0
     for (const [index, reference] of references.entries()) {
+      if (this.drafts.sessionDrafts.has(reference.sessionId)) {
+        this.router.navigate({ name: 'draft', params: { draftId: reference.sessionId } }, {
+          target: 'companion', background: index < references.length - 1,
+        })
+        opened++
+        continue
+      }
       if (!reference.serverId) continue
       const tabId = await this.revealSession(reference.sessionId, reference.serverId, { background: true })
       if (!tabId) continue

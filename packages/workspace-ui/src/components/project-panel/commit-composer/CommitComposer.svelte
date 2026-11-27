@@ -183,7 +183,7 @@
         aria-label="Commit message"
         rows={3}
         disabled={actions.running}
-        class="max-h-40 min-h-[4.5rem] rounded-lg border-(--solus-container-border) px-3 py-2.5 text-(--solus-text-primary) shadow-none focus-visible:border-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)] focus-visible:ring-0 max-md:text-base"
+        class="max-h-40 min-h-[4.5rem] rounded-lg border border-input bg-background px-3 py-2.5 text-(--solus-text-primary) shadow-xs transition-[border-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24 dark:bg-input/32 max-md:text-base"
         onSubmit={() => void submit()}
         submitOn="mod-enter"
         mic

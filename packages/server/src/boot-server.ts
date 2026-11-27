@@ -139,6 +139,7 @@ import { LocalMcpServers } from './integrations/local-servers'
 import type { Integration } from '@solus/contracts/integration-types'
 import { IntegrationGateway } from './integrations/gateway'
 import { ServerFactsStore } from './integrations/server-facts-store'
+import { integrationIcons } from './integrations/integration-icons'
 import { hostIntegrationClients, IntegrationConnectionStore } from './integrations/connection-store'
 import { IntegrationConnections } from './integrations/connections'
 import { IntegrationOAuth, type IntegrationConnectionEvents } from './integrations/oauth'
@@ -287,6 +288,7 @@ import { PersonalRequests } from './transport/events/agent-personal-requests'
 import { registerBrowserHandlers } from './transport/handlers/browser-handlers'
 import { registerChecksHandlers } from './transport/handlers/checks-handlers'
 import { registerUsageHandlers } from './transport/handlers/usage-handlers'
+import { privateProviderInstances } from './execution/seats/provider-instances'
 import { registerHostResourceHandlers } from './transport/handlers/host-resource-handlers'
 import { HostResourceReader } from './host/host-resources'
 import { ResourceMonitor, resolveResourceMonitorPath } from './host/resource-monitor'
@@ -878,13 +880,18 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
   registerSessionHandlers(server, sessionDeps)
   registerSessionRepositoryHandlers(server, sessionBundleTransfers, shares, opts.sessionRuntime, sessionArchive)
+  let onUsageProviderInstancesChanged: (() => void) | null = null
+  const broadcastProviderInstancesChanged = (): void => {
+    events.broadcast('provider-instances.changed', {})
+    onUsageProviderInstancesChanged?.()
+  }
   registerSettingsHandlers(server, {
     sessionRuntime: opts.sessionRuntime,
     onHostConfigChanged: (snapshot) => {
       publishHostConfig(snapshot)
       hostUpdates.refreshInstallations()
     },
-    onProviderInstancesChanged: () => events.broadcast('provider-instances.changed', {}),
+    onProviderInstancesChanged: broadcastProviderInstancesChanged,
   })
 
   // One worktree mover for the user's move, the agent's tool, and an offer's Switch.
@@ -991,7 +998,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // when it starts (`integrationToolbox`), so nothing is listed at boot.
   const integrations = new IntegrationStore()
   // A command's verdict and facts are saved, so it starts once and a run start starts nothing (mcp-first-class.md §7.5).
-  const integrationGateway = new IntegrationGateway(integrations, undefined, { savedFacts: new ServerFactsStore() })
+  const integrationGateway = new IntegrationGateway(integrations, undefined, { savedFacts: new ServerFactsStore(), icons: integrationIcons })
   const claudeAppProcesses = new ClaudeAppProcesses()
   const integrationApps = new IntegrationApps(integrationGateway, opts.sessionRuntime, claudeAppProcesses)
   integrationGateway.useAppCapture((call) => integrationApps.capture(call))
@@ -1131,6 +1138,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
   integrationGateway.onFactsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'facts' }) })
+  // A new server icon is part of the record the clients read, so they read it again.
+  integrationIcons.onChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'updated' }) })
   cliSkipLog.onChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'facts' }) })
   integrationGateway.onConnectNeeded((request) => { void events.broadcast('integration.connectNeeded', request) })
   integrationGateway.onCustomServerNeeded((request) => { void events.broadcast('integration.customServerNeeded', request) })
@@ -1172,7 +1181,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // The one place a person's credentials are kept and read (docs/plans/access-model.md §2.6).
   const credentialVault = new Vault({ reads: accountReadsOfServer })
   useVault(credentialVault)
-  const integrationOAuth = new IntegrationOAuth({ connections: integrationConnectionStore, integrations, vault: credentialVault, clients: hostIntegrationClients, events: integrationConnectionEvents })
+  const integrationOAuth = new IntegrationOAuth({
+    connections: integrationConnectionStore, integrations, vault: credentialVault, clients: hostIntegrationClients, events: integrationConnectionEvents,
+    // The writes are made below; a registration happens only once the host serves.
+    recordRegisteredClient: (integration, clientId) => integrationWrites.recordRegisteredClient(integration, clientId),
+  })
   const integrationConnections = new IntegrationConnections({
     store: integrationConnectionStore, integrations, vault: credentialVault, clients: hostIntegrationClients, oauth: integrationOAuth, events: integrationConnectionEvents,
     // The Solus GitHub app's token, read as the person, is GitHub's MCP server's credential (§13.1).
@@ -1212,7 +1225,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       reconcile: (owner, cloudConnections) => integrationConnections.reconcile(owner, cloudConnections).then(() => undefined),
     },
   })
-  registerSeatHandlers(server, { seats, connector: seatConnector, profiles, agentAuth, providerInstancesChanged: () => events.broadcast('provider-instances.changed', {}) })
+  registerSeatHandlers(server, { seats, connector: seatConnector, profiles, agentAuth, providerInstancesChanged: broadcastProviderInstancesChanged })
   /**
    * The organization a member's personal records belong to on this host, for a pull
    * no principal asked for: the organization this host acts for them in, else the
@@ -1576,8 +1589,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     sessionRuntime: opts.sessionRuntime,
     events,
     seats,
+    providerInstances: privateProviderInstances(),
     clientsForSeat,
   })
+  onUsageProviderInstancesChanged = usageWatches.providerInstancesChanged
   const serverRegistry = initRunningServers((clientIds, servers, error) => { void events.publish(clientIds, 'runningServers.changed', { servers, error }) }, withHostScope)
   const serverTunnels = registerRunningServerHandlers(server, serverRegistry, (port) => port === actualPort || port === tunnelPort)
   let previewTunnelEnabled = getHostConfig().config.previewTunnelEnabled

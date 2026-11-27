@@ -11,7 +11,7 @@
   import { ChevronRight } from "@lucide/svelte";
   import { suggestedCommandName } from "@solus/contracts/integrations/command-server";
   import { Input } from "../ui/input";
-  import McpCommandValues from "./McpCommandValues.svelte";
+  import McpEnvVariables from "./McpEnvVariables.svelte";
   import type { McpCommandForm } from "./lib/mcp-command.svelte";
 
   interface Props {
@@ -19,11 +19,13 @@
     idPrefix: string;
     /** Show a field for each value: the add dialog takes them with the command. */
     showValues?: boolean;
+    /** Show the line's own field; the add dialog's one field is the line, so it hides this one. */
+    showLine?: boolean;
     hasSavedValues?: boolean;
     disabled?: boolean;
   }
 
-  let { form, idPrefix, showValues = false, hasSavedValues = false, disabled = false }: Props = $props();
+  let { form, idPrefix, showValues = false, showLine = true, hasSavedValues = false, disabled = false }: Props = $props();
 
   const lineProblem = $derived(form.problemOf("line") ?? form.lineProblem);
   const optionalProblem = $derived(form.problemOf("cwd") ?? form.problemOf("envNames"));
@@ -40,6 +42,7 @@
 {/snippet}
 
 <div class="flex flex-col gap-3.5">
+  {#if showLine}
   <div class="flex flex-col gap-1.5">
     <label for="{idPrefix}-line" class="text-workspace-chrome font-medium text-foreground">Command</label>
     <!-- svelte-ignore a11y_autofocus -->
@@ -59,6 +62,7 @@
       {@render hint(`${idPrefix}-line-hint`, "A program and its arguments, such as npx or uvx. Solus starts it without a shell.", false)}
     {/if}
   </div>
+  {/if}
 
   {#if !form.editing}
     <div class="flex flex-col gap-1.5">
@@ -73,7 +77,7 @@
       aria-expanded={showsMore} aria-controls="{idPrefix}-more" onclick={() => (isMoreOpen = !showsMore)}>
       <ChevronRight size={14} class="shrink-0 transition-transform motion-reduce:transition-none {showsMore ? 'rotate-90' : ''}" />
       <span class="shrink-0">Folder and variables</span>
-      {#if !showsMore && moreSummary}<span class="truncate font-mono text-chrome-dense text-muted-foreground">{moreSummary}</span>{/if}
+      {#if !showsMore && moreSummary}<span class="truncate text-chrome-dense text-muted-foreground">{moreSummary}</span>{/if}
     </button>
 
     <!-- Hidden, not unmounted: the typed values stay while the section is closed. -->
@@ -81,20 +85,11 @@
       <div class="flex flex-col gap-1.5">
         <label for="{idPrefix}-cwd" class="text-workspace-chrome font-medium text-foreground">Working directory</label>
         <Input id="{idPrefix}-cwd" bind:value={form.cwd} placeholder="~" autocomplete="off" spellcheck={false} dictation={false} {disabled}
-          aria-describedby="{idPrefix}-cwd-hint" class="h-8 min-w-0 font-mono text-workspace-chrome" />
+          aria-describedby="{idPrefix}-cwd-hint" class="h-8 min-w-0 text-workspace-chrome" />
         {@render hint(`${idPrefix}-cwd-hint`, form.problemOf("cwd") ?? "A folder on the host. Empty is the home folder.", !!form.problemOf("cwd"))}
       </div>
 
-      <div class="flex flex-col gap-1.5">
-        <label for="{idPrefix}-env" class="text-workspace-chrome font-medium text-foreground">Environment variables</label>
-        <Input id="{idPrefix}-env" bind:value={form.envNames} placeholder="GITHUB_TOKEN, API_URL" autocomplete="off" spellcheck={false} dictation={false} {disabled}
-          aria-invalid={form.problemOf("envNames") ? true : undefined} aria-describedby="{idPrefix}-env-hint" class="h-8 min-w-0 font-mono text-workspace-chrome" />
-        {@render hint(`${idPrefix}-env-hint`, form.problemOf("envNames") ?? "Names, separated by commas. Each value is a secret that only you can use.", !!form.problemOf("envNames"))}
-      </div>
-
-      {#if showValues && form.names.length > 0}
-        <McpCommandValues names={form.names} values={form.values} hasSaved={hasSavedValues} idPrefix="{idPrefix}-value" {disabled} />
-      {/if}
+      <McpEnvVariables {form} idPrefix="{idPrefix}-env" {showValues} {hasSavedValues} {disabled} />
     </div>
   </div>
 

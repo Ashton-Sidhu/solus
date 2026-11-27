@@ -129,7 +129,7 @@
       Only approve a sign-in you just started.
     </p>
     <div bind:this={decisionEl} class="flex items-center justify-end gap-2">
-      <Button variant="outline" size="sm" disabled={phase.kind === "deciding"} onclick={() => void decide("deny")}>
+      <Button variant="ghost" size="sm" class="bg-muted" disabled={phase.kind === "deciding"} onclick={() => void decide("deny")}>
         {phase.kind === "deciding" && phase.decision === "deny" ? "Denying…" : "Deny"}
       </Button>
       <Button size="sm" disabled={phase.kind === "deciding" || timeLeft === null} onclick={() => void decide("approve")}>
@@ -143,7 +143,7 @@
       <span class="text-workspace-chrome text-(--solus-text-primary)">{appSignInDoneText(request.appName, phase.decision)}</span>
     </div>
     <div bind:this={decisionEl}>
-      <Button variant="outline" size="sm" onclick={another}>Approve another sign-in</Button>
+      <Button variant="ghost" size="sm" class="bg-muted" onclick={another}>Approve another sign-in</Button>
     </div>
   {/if}
 

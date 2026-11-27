@@ -34,7 +34,7 @@
   import { toasts } from "../../../lib/toasts";
   import { hostLabel, isHostComputer } from "./outside-apps.svelte";
   import OutsideAppRow from "./OutsideAppRow.svelte";
-  import OutsideAppsAddressWays from "./OutsideAppsAddressWays.svelte";
+  import OutsideAppsReach from "./OutsideAppsReach.svelte";
   import OutsideAppsApprove from "./OutsideAppsApprove.svelte";
 
   interface Props {
@@ -133,7 +133,7 @@
       <p class="text-[0.9375rem] leading-5.5 text-pretty text-(--solus-text-secondary)">Each app signs in once and acts as you on {hostName}.</p>
     </div>
     <div class="flex min-w-0 flex-wrap items-center gap-2 @max-[44rem]/directory:w-full">
-      <Button variant="ghost" size="sm" class="text-(--solus-text-secondary)" aria-expanded={approval !== null} onclick={() => (approval = approval ? null : { requestId: null })}>
+      <Button variant="ghost" size="sm" class="bg-muted" aria-expanded={approval !== null} onclick={() => (approval = approval ? null : { requestId: null })}>
         Approve a sign-in
       </Button>
       <SearchField bind:value={search} placeholder="Search apps" class="w-52 flex-none basis-auto rounded-[0.625rem] @max-[44rem]/directory:w-auto @max-[44rem]/directory:flex-1" />
@@ -141,25 +141,18 @@
   </header>
 
   {#if approval}
-    <div class="flex flex-col gap-4 rounded-[0.875rem] p-5 ring-1 ring-border">
+    <div class="flex flex-col gap-4 rounded-xl bg-(--solus-tx-card-bg) p-5 shadow-[shadow:var(--solus-card-shadow-collapsed)]">
       {#key approval}
         <OutsideAppsApprove {serverId} {hostName} signInRequestId={approval.requestId} onOtherHost={showApprovalOn} />
       {/key}
       <div class="flex justify-end">
-        <Button variant="outline" size="sm" onclick={() => (approval = null)}>Done</Button>
+        <Button variant="ghost" size="sm" class="bg-muted" onclick={() => (approval = null)}>Done</Button>
       </div>
     </div>
   {/if}
 
-  {#if internet === false}
-    <div class="flex flex-col gap-4 rounded-[0.875rem] bg-(--warning)/12 px-5.5 py-5" role="region" aria-label="Give {hostName} an internet address">
-      <div class="flex flex-col gap-1">
-        <p class="text-[0.9375rem] leading-4.5 font-semibold text-(--solus-text-primary)">Cloud apps can’t reach {hostName} yet</p>
-        <p class="text-[0.8125rem] leading-[1.45] text-pretty text-(--solus-text-secondary)">Claude, ChatGPT, and the other cloud apps need an internet address. Apps on your computers already work. Pick one way:</p>
-      </div>
-      <OutsideAppsAddressWays {serverId} {hostName} reach="internet" />
-    </div>
-  {/if}
+  <!-- The one address apps reach this host by, above the apps that need it (docs/outside-apps.md). -->
+  <OutsideAppsReach {serverId} {hostName} />
 
   {#if hasNoMatch}
     <p class="py-6 text-center text-workspace-chrome text-(--solus-text-tertiary)">No app matches “{search.trim()}”.</p>
@@ -244,7 +237,7 @@
 
   {#if grants.length > 1}
     <div class="-mt-4 flex justify-end">
-      <Button variant="ghost" size="sm" class="text-(--solus-text-secondary) hover:text-(--solus-status-error)" disabled={isRevokingAll} onclick={() => void revokeAll()}>
+      <Button variant="ghost" size="sm" class="text-(--solus-status-error) hover:text-(--solus-status-error)" disabled={isRevokingAll} onclick={() => void revokeAll()}>
         {isRevokingAll ? "Disconnecting…" : "Disconnect all apps"}
       </Button>
     </div>

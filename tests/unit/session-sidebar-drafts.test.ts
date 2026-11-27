@@ -1,7 +1,10 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import type { PinnedSession, Session } from '@solus/contracts/types'
 import type { SidebarSession } from '@solus/workspace-ui/components/session/lib/sidebar-rows'
-import { makePrompt } from '@solus/workspace-ui/contexts/workspace/session.factories'
+import { makePrompt, makeRunConfig } from '@solus/workspace-ui/contexts/workspace/session.factories'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
+import { extractTrackedReferences } from '@solus/workspace-ui/components/editor/reference-tokens'
+import { sessionDropInsertion } from '@solus/workspace-ui/lib/session-drag'
 import type { SessionSidebarStore as SidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
 import { singleHostServerConnections } from './helpers/server-connections-mock'
@@ -37,9 +40,10 @@ beforeAll(async () => {
 })
 
 function sidebar() {
-  const sessions = new Map<string, Pick<Session, 'prompt'>>([
-    ['first', { prompt: makePrompt({ text: 'Follow up on the result' }) }],
-    ['second', { prompt: makePrompt() }],
+  const run = makeRunConfig({ provider: 'codex', location: folderLocation({ serverId: 'host-b', path: '/repo' }) })
+  const sessions = new Map<string, Pick<Session, 'id' | 'prompt' | 'run'>>([
+    ['first', { id: 'first-session', run, prompt: makePrompt({ text: 'Follow up on the result' }) }],
+    ['second', { id: 'second-session', run, prompt: makePrompt() }],
   ])
   const shown = new Set(['first'])
   const selected: string[] = []
@@ -50,6 +54,11 @@ function sidebar() {
       { tabIds: ['second'] },
     ],
     session: {
+      drafts: {
+        sessionDrafts: new Map([['new-draft', { id: 'new-draft', run, prompt: makePrompt({
+          text: 'An unsent first prompt\nWith details',
+        }) }]]),
+      },
       hasCompanionPanes: true,
       router: { panes: [{ id: 'lead' }, { id: 'aside' }] },
       chatTabIn: (paneId: string) => {
@@ -103,6 +112,32 @@ describe('unsent prompts in open sidebar sessions', () => {
     const { store, selected } = sidebar()
     store.openDraftRow({ draftId: 'session:first', tabId: 'first' } as Parameters<SidebarStore['openDraftRow']>[0])
     expect(selected).toEqual(['first'])
+  })
+
+  test('either kind of draft produces a normal session chip', () => {
+    const { store, sessions } = sidebar()
+    const row = {
+      draftId: 'new-draft',
+      title: 'A shortened title',
+      projectKey: '/repo',
+      projectLabel: 'Repo',
+      groupKey: '/repo',
+      serverId: 'host-b',
+      hasAttachments: false,
+    }
+    for (const [source, sessionId] of [
+      [row, 'new-draft'],
+      [{ ...row, draftId: 'session:first', tabId: 'first' }, 'first-session'],
+    ] as const) {
+      const reference = store.draftReferenceForRow(source)!
+      const { insert } = sessionDropInsertion('', 0, [reference])!
+      expect(extractTrackedReferences(insert).sessionRefs).toEqual([{
+        sessionId, provider: 'codex', title: row.title, cwd: '/repo', serverId: 'host-b',
+      }])
+    }
+
+    sessions.delete('first')
+    expect(store.draftReferenceForRow({ ...row, draftId: 'session:first', tabId: 'first' })).toBeNull()
   })
 
   test('discard clears only the prompt and Undo restores it without replacing newer text', () => {

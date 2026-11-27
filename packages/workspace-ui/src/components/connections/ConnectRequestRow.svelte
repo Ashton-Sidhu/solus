@@ -25,7 +25,9 @@
   import IntegrationOAuthClientForm from "../settings/IntegrationOAuthClientForm.svelte";
   import { mcpStore } from "../../contexts/mcp";
   import { IntegrationLabels } from "../settings/lib/integration-labels";
-  import { connectRequestCopy } from "./lib/connect-card-copy";
+  import StepRail from "../steps/StepRail.svelte";
+  import MarkdownAlert from "../ui/MarkdownAlert.svelte";
+  import { connectRequestCopy, customServerSteps } from "./lib/connect-card-copy";
   import { connectsInOneLine } from "./lib/connect-card-layout";
   import { connectRequestStatus } from "./lib/connect-request-status";
 
@@ -56,7 +58,11 @@
     });
   });
   const accountConnectionsUrl = $derived(request.kind === "account" ? request.accountConnectionsUrl : undefined);
-  const hasBody = $derived(!connected && (!isOneLine || !!copy.note) && !accountConnectionsUrl);
+  /** A server added by its address in this card: the address, then the sign-in, on one timeline. */
+  const addSteps = $derived(
+    request.kind === "custom-server" ? customServerSteps(undefined) : request.kind === "integration" && request.addedUrl ? customServerSteps(request.addedUrl) : null,
+  );
+  const hasBody = $derived(!connected && (!!addSteps || ((!isOneLine || !!copy.note) && !accountConnectionsUrl)));
 
   // The one-line row mounts no connect form, so it reads the host itself.
   $effect(() => {
@@ -96,7 +102,7 @@
         {#if setupHandoff}
           <TranscriptCardAction kind="ghost" onclick={() => onhandoff(setupHandoff.prompt)}>Set up with an agent</TranscriptCardAction>
         {/if}
-        {#if isOneLine && integrationId}
+        {#if isOneLine && integrationId && !addSteps}
           <TranscriptCardAction
             kind="filled"
             disabled={hostState?.isDisconnected}
@@ -116,8 +122,31 @@
     <!-- Indented to the name: the 24px mark and the 10px gap. -->
     <div class="flex min-w-0 flex-col gap-2 pt-2 pl-[2.125rem] text-transcript-meta">
       <!-- Connect waits for the client, so the row shows one step at a time. -->
-      {#if request.kind === "custom-server"}
-        <CustomServerConnectForm {request} {onhandoff} />
+      {#if addSteps}
+        <StepRail steps={addSteps}>
+          {#snippet detail(step)}
+            {#if step.state === "current"}
+              <div class="mt-2 flex min-w-0 flex-col gap-2">
+                {#if request.kind === "custom-server"}
+                  <CustomServerConnectForm {request} {onhandoff} />
+                {:else if integrationNeedingClient}
+                  <IntegrationOAuthClientForm {serverId} integration={integrationNeedingClient} compact />
+                {:else if request.kind === "integration" && !isOneLine}
+                  <IntegrationConnectForm {serverId} integrationId={request.integrationId} integrationName={request.integrationName} compact />
+                {:else if integrationId}
+                  <TranscriptCardAction
+                    kind="filled"
+                    class="self-start"
+                    disabled={hostState?.isDisconnected}
+                    onclick={() => void mcpStore.integrations.connect(serverId, integrationId)}
+                  >
+                    Sign in
+                  </TranscriptCardAction>
+                {/if}
+              </div>
+            {/if}
+          {/snippet}
+        </StepRail>
       {:else if integrationNeedingClient}
         <IntegrationOAuthClientForm {serverId} integration={integrationNeedingClient} compact />
       {:else if request.kind === "integration" && !isOneLine}
@@ -130,7 +159,9 @@
         <p class="m-0 text-muted-foreground">Connect this account in Settings, then continue.</p>
       {/if}
       {#if copy.note}
-        <p class="m-0 text-muted-foreground opacity-80">{copy.note}</p>
+        {@const note = copy.note}
+        {#snippet noteText()}<p class="m-0 text-pretty">{note}</p>{/snippet}
+        <MarkdownAlert alertType="note" content={noteText} />
       {/if}
     </div>
   {/if}

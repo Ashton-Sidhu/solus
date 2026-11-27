@@ -13,8 +13,11 @@
   import OverviewSource from "./overview/OverviewSource.svelte";
   import OverviewStatus from "./overview/OverviewStatus.svelte";
   import OverviewTopline from "./overview/OverviewTopline.svelte";
+  import ManageSectionState from "./ManageSectionState.svelte";
+  import { OVERVIEW_EMPTY } from "./lib/section-empty";
   import { Button } from "../../ui/button";
   import type { AppProblem } from "../lib/app-view";
+  import { isHostUnreachable } from "../../../lib/sessionUtils";
 
   /**
    * The first section of the Manage page (docs/plans/apps.md §9.2). Top to
@@ -57,6 +60,7 @@
   const versions = $derived(appsStore.versions.get(serverId, app.id));
   const building = $derived(buildingVersion(versions ?? []));
   const hostLabel = $derived(serversStore.hostFor(serverId)?.label ?? serverId);
+  const hostUnreachable = $derived(isHostUnreachable(serversStore.readinessFor(serverId).readiness));
 
   /** The Activity section opens on the failed calls: its filter is the call log's query. */
   function showFailures() {
@@ -66,21 +70,31 @@
 </script>
 
 <div class="flex flex-col gap-8" data-testid="app-overview">
-  <OverviewTopline {app} {hostLabel} {building} runtime={appState?.runtime ?? null} {busy} {pinned} {onToggleStopped} {onTogglePinned} {onOpenApp} />
+  <OverviewTopline {app} {hostLabel} {building} runtime={appState?.runtime ?? null} isHostUnreachable={hostUnreachable} {busy} {pinned} {onToggleStopped} {onTogglePinned} {onOpenApp} />
 
   {#if problems.length > 0}
     <OverviewProblems {serverId} {app} {problems} {onSelectSection} />
   {/if}
 
-  <OverviewDay {serverId} {app} {metrics} onShowFailures={showFailures} />
+  <!-- An app with no version and no build has no day and no status to show: the empty state says how to start it. -->
+  <ManageSectionState
+    {serverId}
+    {app}
+    count={app.activeVersion === null && building === null ? 0 : 1}
+    error={null}
+    empty={{ ...OVERVIEW_EMPTY, actions: [{ label: "Open Versions", run: () => onSelectSection("versions") }] }}
+    onRetry={() => {}}
+  >
+    <OverviewDay {serverId} {app} {metrics} onShowFailures={showFailures} />
 
-  <div class="flex items-start gap-10 @max-[56rem]/pane:flex-col @max-[56rem]/pane:gap-8">
-    <OverviewOperations {serverId} {app} {metrics} {versions} {onSelectSection} />
-    <OverviewStatus {serverId} {app} state={appState} {versions} {building} {onSelectSection} />
-  </div>
+    <div class="flex items-start gap-10 @max-[56rem]/pane:flex-col @max-[56rem]/pane:gap-8">
+      <OverviewOperations {serverId} {app} {metrics} {versions} {onSelectSection} />
+      <OverviewStatus {serverId} {app} state={appState} {versions} {building} {onSelectSection} />
+    </div>
+  </ManageSectionState>
 
-  <!-- A hairline, then three plain columns. They stack when the pane is narrow. -->
-  <div class="grid grid-cols-3 gap-6 border-t border-[var(--hairline-strong)] pt-6 @max-[56rem]/pane:grid-cols-1 @max-[56rem]/pane:gap-8">
+  <!-- Three plain columns, set apart by space, not a rule. They stack when the pane is narrow. -->
+  <div class="grid grid-cols-3 gap-6 pt-4 @max-[56rem]/pane:grid-cols-1 @max-[56rem]/pane:gap-8">
     <OverviewAbout {serverId} {app} />
     <OverviewSource {serverId} {app} state={appState} {onSelectSection} />
     <OverviewAccess {serverId} {app} state={appState} />

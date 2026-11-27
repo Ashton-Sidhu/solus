@@ -5,19 +5,19 @@
     TriangleAlert as WarningIcon,
   } from "@lucide/svelte";
   import { localApi } from "@solus/client-core/local-api";
-  import type { StatusCardState, StatusCardStep, StatusCardStepStatus } from "@solus/contracts/types";
+  import type { StatusCardState, StatusCardStep } from "@solus/contracts/types";
   import TranscriptCard from "./TranscriptCard.svelte";
   import TranscriptCardAction from "./TranscriptCardAction.svelte";
+  import StepRail from "../steps/StepRail.svelte";
+  import SetupBranches from "./SetupBranches.svelte";
   import { TerminalOutput } from "../ui/terminal-output";
   import { SetupStepTiming } from "./lib/setup-timing.svelte";
-  import { showsStepDetail, statusCardLine, substepNote } from "./lib/status-card";
+  import { setupOutputHome, showsStepDetail, statusCardLine, stepRailStateOf, stepTrailingNote } from "./lib/status-card";
   import { sessionSyncFailureAction } from "@solus/client-core/session-sync-card";
   import {
-    formatStepDuration,
     isWorktreeSetupCard,
     mayWorkLocallyDuringSetup,
     setupOutputTail,
-    stepDurationMs,
   } from "@solus/contracts/setup-card";
 
   interface Props {
@@ -32,7 +32,7 @@
     onConnectSeat?: () => void;
     /** "Connect Claude" or "Connect Codex". */
     connectSeatLabel?: string;
-    /** What the person needs under a step while it runs, such as the check code of an approval request. It renders its own `<li>`. */
+    /** What the person needs under a step while it runs, such as the check code of an approval request. */
     stepAddon?: Snippet<[StatusCardStep]>;
   }
 
@@ -58,58 +58,26 @@
   // A step with a warning is what the reader must see, so its card stays open.
   const hasWarning = $derived(card.steps.some((step) => step.status === "warning"));
   const expanded = $derived(userExpanded ?? (!isDone || keepsStepsOpen || hasWarning));
+
+  const railSteps = $derived(card.steps.map((step) => ({ title: step.label, state: stepRailStateOf(step.status) })));
+  // The host's output sits next to what failed.
+  const outputHome = $derived(setupOutputHome(card));
+  const output = $derived(outputHome && card.output ? setupOutputTail(card.output) : "");
 </script>
 
-<!-- The mark of a row: the same one for a step and for a sub-step. -->
-{#snippet stepMarker(status: StatusCardStepStatus)}
-  {#if status === "done"}
-    <CheckIcon size={12} class="shrink-0 text-[color:color-mix(in_oklch,var(--chart-3)_62%,var(--foreground))]" aria-hidden="true" />
-  {:else if status === "error"}
-    <span class="setup-dot setup-dot--error" aria-hidden="true"></span>
-  {:else if status === "warning"}
-    <WarningIcon size={12} class="shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
-  {:else if status === "skipped"}
-    <span class="setup-dash shrink-0" aria-hidden="true"></span>
-  {:else if status === "active"}
-    <!-- The same indeterminate hairline used everywhere else, not a
-         spinner. -->
-    <span class="setup-indet shrink-0" aria-hidden="true"><span></span></span>
-  {:else}
-    <span class="setup-dot" aria-hidden="true"></span>
-  {/if}
-{/snippet}
-
-{#snippet stepLabel(row: Pick<StatusCardStep, "label" | "status">)}
-  <span
-    class="min-w-0 flex-1 truncate text-transcript-card"
-    class:setup-label--done={row.status === "done"}
-    class:setup-label--active={row.status === "active"}
-    class:setup-label--pending={row.status === "pending" || row.status === "skipped"}
-    class:setup-label--error={row.status === "error"}
-    class:setup-label--warning={row.status === "warning"}
-  >
-    {row.label}
-  </span>
-{/snippet}
-
-<!-- A hairline joins a mark to the next one in its column, green below a finished row. -->
-{#snippet stepRail(status: StatusCardStepStatus, left: string)}
-  <span
-    class="absolute top-[calc(50%+0.5625rem)] -bottom-[0.3125rem] w-[1.5px] rounded-full {left} {status === 'done'
-      ? 'bg-[color:color-mix(in_oklch,var(--chart-3)_45%,transparent)]'
-      : 'bg-[color:color-mix(in_oklch,var(--foreground)_12%,transparent)]'}"
-    aria-hidden="true"
-  ></span>
-{/snippet}
+<!-- The time a finished setup took; the line has no step count. -->
+{#snippet railTime()}{line.rail}{/snippet}
 
 <div role="status" aria-live="polite">
   <TranscriptCard
     title={card.title}
     type={line.type}
+    rail={line.rail ? railTime : undefined}
     {expanded}
     failed={isError}
     glyphClass={isError ? "is-failed" : isDone ? "is-done" : ""}
-    bodyLayout="rows"
+    bodyLayout="steps"
+    actionsOnCardLine
     ariaLabel={expanded ? "Hide setup steps" : "Show setup steps"}
     data-testid="status-card"
     {skipMotion}
@@ -124,203 +92,73 @@
         <span class="activity-spinner"></span>
       {/if}
     {/snippet}
-    {#snippet rail()}{line.rail}{/snippet}
     {#snippet actions()}
       {#if isError && card.recovery === "connect-github" && card.recoveryUrl}
         {@const connectUrl = card.recoveryUrl}
-        <TranscriptCardAction kind="filled" onclick={() => void localApi.openExternal(connectUrl)}>Connect GitHub</TranscriptCardAction>
+        <TranscriptCardAction pill kind="filled" onclick={() => void localApi.openExternal(connectUrl)}>Connect GitHub</TranscriptCardAction>
       {/if}
       {#if syncAction === "connect-seat" && onConnectSeat}
-        <TranscriptCardAction kind="filled" onclick={onConnectSeat}>{connectSeatLabel}</TranscriptCardAction>
+        <TranscriptCardAction pill kind="filled" onclick={onConnectSeat}>{connectSeatLabel}</TranscriptCardAction>
       {/if}
       {#if isError && card.recovery === "worktree"}
-        {#if onWorkLocally}<TranscriptCardAction kind="ghost" onclick={onWorkLocally}>Work locally</TranscriptCardAction>{/if}
-        {#if onRetry}<TranscriptCardAction kind="primary" onclick={onRetry}>Retry setup</TranscriptCardAction>{/if}
+        {#if onWorkLocally}<TranscriptCardAction pill kind="ghost" onclick={onWorkLocally}>Work locally</TranscriptCardAction>{/if}
+        {#if onRetry}<TranscriptCardAction pill kind="primary" onclick={onRetry}>Retry setup</TranscriptCardAction>{/if}
       {/if}
       {#if canWorkLocally}
-        <TranscriptCardAction kind="ghost" onclick={onWorkLocally}>Work locally</TranscriptCardAction>
+        <TranscriptCardAction pill kind="ghost" onclick={onWorkLocally}>Work locally</TranscriptCardAction>
       {/if}
       {#if canCancel}
-        <TranscriptCardAction kind="ghost" onclick={onCancel}>Cancel</TranscriptCardAction>
+        <TranscriptCardAction pill kind="ghost" onclick={onCancel}>Cancel</TranscriptCardAction>
       {/if}
     {/snippet}
     {#snippet body()}
-      <!-- Compact rows, no dividers, no filled discs. A hairline rail joins
-           each marker to the next, green below a finished step. -->
-      <ul class="flex flex-col" role="list">
-        {#each card.steps as step, index (step.id)}
-          {@const stepMs = stepDurationMs(step) ?? timing.msFor(step.id)}
-          <!-- A running step that reports its percentage (a clone, an install) fills its
-               own tint from the left: the bar is the row, not one more line. -->
-          <li
-            class="setup-step relative flex min-h-7 items-center gap-2.5 rounded-md px-2 py-[0.3125rem]"
-            class:is-active={step.status === "active"}
-            style:--step-percent={step.status === "active" && step.percent !== undefined ? `${step.percent}%` : undefined}
-          >
-            <!-- A failed or warned step shows its detail under it, and a step of
-                 several repositories shows their rows, so the rail stops there. -->
-            {#if index < card.steps.length - 1 && !showsStepDetail(step) && !step.substeps?.length}
-              {@render stepRail(step.status, "left-[calc(0.875rem-0.75px)]")}
+      <!-- The steps on the step timeline every "this, then that" uses. A step
+           of several repositories shows each one as a branch off its rail. -->
+      <div class="text-transcript-card">
+        <StepRail steps={railSteps}>
+          {#snippet trailing(_railStep, index)}
+            {@const note = stepTrailingNote(card.steps[index]!, timing.msFor(card.steps[index]!.id))}
+            {#if note}
+              <span class="shrink-0 text-transcript-meta leading-5.5 text-(--solus-text-tertiary) tabular-nums">{note}</span>
             {/if}
-            {@render stepMarker(step.status)}
-            {@render stepLabel(step)}
-
-            {#if step.status === "active"}
-              <span class="setup-elapsed shrink-0">{step.percent === undefined ? "running" : `${step.percent}%`}</span>
-            {:else if step.status === "skipped"}
-              <span class="setup-elapsed shrink-0">skipped</span>
-            {:else if stepMs}
-              <span class="setup-elapsed shrink-0">{formatStepDuration(stepMs)}</span>
+          {/snippet}
+          {#snippet detail(_railStep, index)}
+            {@const step = card.steps[index]!}
+            {#if step.status === "active" && step.percent !== undefined && !step.substeps?.length}
+              <!-- A running step that reports its share (a clone, a checkout) shows it on a bar. -->
+              <div class="mt-1.5 flex items-center gap-2.5">
+                <span class="flex h-0.5 w-60 max-w-full overflow-hidden rounded-full bg-(--hairline)">
+                  <span class="h-full rounded-full bg-(--solus-text-primary) transition-[width] duration-350 ease-(--ease-premium) motion-reduce:transition-none" style:width="{step.percent}%"></span>
+                </span>
+                <span class="text-transcript-meta text-(--solus-text-secondary) tabular-nums">{step.percent}%</span>
+              </div>
             {/if}
-          </li>
-          {#if showsStepDetail(step)}
-            <li class="setup-detail px-2 pb-1.5" class:setup-detail--warning={step.status === "warning"}>
-              {step.detail}
-            </li>
-          {/if}
-          {@render stepAddon?.(step)}
-          <!-- The part of each repository in the step: the row of a step, one level in. -->
-          {#each step.substeps ?? [] as substep, substepIndex (substep.id)}
-            {@const note = substepNote(substep)}
-            <li class="relative flex min-h-7 items-center gap-2.5 py-[0.3125rem] pr-2 pl-[1.875rem]">
-              {#if substepIndex < (step.substeps?.length ?? 0) - 1 && !showsStepDetail(substep)}
-                {@render stepRail(substep.status, "left-[calc(2.25rem-0.75px)]")}
-              {/if}
-              {@render stepMarker(substep.status)}
-              {@render stepLabel(substep)}
-              {#if note}<span class="setup-elapsed shrink-0">{note}</span>{/if}
-            </li>
-            {#if showsStepDetail(substep)}
-              <li class="setup-detail pr-2 pb-1.5 pl-[1.875rem]" class:setup-detail--warning={substep.status === "warning"}>
-                {substep.detail}
-              </li>
+            {#if showsStepDetail(step)}
+              <p
+                class="m-0 mt-0.5 text-transcript-meta text-pretty {step.status === 'error'
+                  ? 'text-destructive'
+                  : 'text-[color:color-mix(in_oklch,var(--warning)_70%,var(--foreground))]'}"
+              >
+                {step.detail}
+              </p>
             {/if}
-          {/each}
-        {/each}
-      </ul>
-      {#if isError && card.output?.length}
-        <!-- The end of the host's output, in the terminal panel every command
-             output uses. -->
-        <TerminalOutput
-          output={setupOutputTail(card.output)}
-          label="Setup output"
-          class="mx-2 mt-1 mb-1.5 max-h-48"
-        />
-      {/if}
-    {/snippet}
-    {#snippet seam()}
-      <!-- Progress is the card's own state, so it runs along its bottom edge
-           until setup is done. -->
-      {#if !isDone}
-        <span
-          class="h-full transition-[width] duration-350 ease-(--ease-premium) motion-reduce:transition-none {isError
-            ? 'bg-destructive'
-            : 'bg-primary'}"
-          style="width:{line.progressPercent}%"
-        ></span>
-      {/if}
+            {#if step.substeps?.length}
+              <SetupBranches
+                substeps={step.substeps}
+                outputSubstepId={outputHome?.kind === "substep" && outputHome.stepId === step.id ? outputHome.substepId : undefined}
+                {output}
+              />
+            {/if}
+            {#if outputHome?.kind === "step" && outputHome.stepId === step.id}
+              <TerminalOutput {output} label="Setup output" class="mt-2 max-h-48" />
+            {/if}
+            {@render stepAddon?.(step)}
+          {/snippet}
+        </StepRail>
+        {#if outputHome?.kind === "end"}
+          <TerminalOutput {output} label="Setup output" class="mt-3 ml-9 max-h-48" />
+        {/if}
+      </div>
     {/snippet}
   </TranscriptCard>
 </div>
-
-<style>
-  .setup-step.is-active {
-    background: linear-gradient(
-      to right,
-      color-mix(in oklch, var(--primary) 16%, transparent) var(--step-percent, 0%),
-      color-mix(in oklch, var(--primary) 7%, transparent) var(--step-percent, 0%)
-    );
-  }
-
-  /* Pending is a ring, not an empty circle. */
-  .setup-dot {
-    width: 0.75rem;
-    height: 0.75rem;
-    flex-shrink: 0;
-    border-radius: 9999px;
-    box-shadow: inset 0 0 0 0.09375rem
-      color-mix(in oklch, var(--foreground) 14%, transparent);
-  }
-  .setup-dot--error {
-    box-shadow: inset 0 0 0 0.09375rem
-      color-mix(in oklch, var(--destructive) 55%, transparent);
-  }
-
-  /* Skipped: a short dash, the step had no work. */
-  .setup-dash {
-    width: 0.75rem;
-    height: 0.09375rem;
-    border-radius: 9999px;
-    background: color-mix(in oklch, var(--foreground) 22%, transparent);
-  }
-
-  .setup-indet {
-    display: inline-flex;
-    align-items: center;
-    width: 0.75rem;
-    height: 0.125rem;
-    overflow: hidden;
-    border-radius: 9999px;
-    background: color-mix(in oklch, var(--primary) 25%, transparent);
-  }
-  .setup-indet > span {
-    display: block;
-    width: 0.375rem;
-    height: 0.125rem;
-    border-radius: 9999px;
-    background: var(--primary);
-    animation: setup-indet 1.3s ease-in-out infinite;
-  }
-
-  /* Step labels are present participles while running and stay in that tense
-     once done — only the collapsed summary speaks in the past. */
-  .setup-label--active {
-    font-weight: 500;
-    color: var(--solus-text-primary);
-  }
-  .setup-label--done {
-    color: var(--solus-text-primary);
-    opacity: 0.6;
-  }
-  .setup-label--pending {
-    color: var(--muted-foreground);
-  }
-  .setup-label--error {
-    color: var(--destructive);
-  }
-  .setup-label--warning {
-    color: var(--solus-text-primary);
-  }
-
-  .setup-elapsed {
-    font-size: var(--text-transcript-meta);
-    color: var(--muted-foreground);
-    opacity: 0.7;
-  }
-
-  .setup-detail {
-    font-size: var(--text-transcript-meta);
-    line-height: 1.5;
-    color: var(--muted-foreground);
-    text-wrap: pretty;
-  }
-  .setup-detail--warning {
-    color: color-mix(in oklch, var(--warning) 70%, var(--foreground));
-  }
-
-  @keyframes setup-indet {
-    0% {
-      transform: translateX(-40%);
-    }
-    100% {
-      transform: translateX(240%);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .setup-indet > span {
-      animation: none;
-      width: 100%;
-    }
-  }
-</style>

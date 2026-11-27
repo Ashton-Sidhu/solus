@@ -12,11 +12,12 @@ Solus makes two kinds of worktree for a session:
 ## See and delete them
 
 **Settings → Source control → Solus worktrees** lists both kinds on the
-selected host. The host reads worktrees from each project and from each
-repository of a codebase on that host, and task folders from its own record of
-them. A task folder is one row.
+selected host on desktop and web. On mobile, go to **Settings → Worktrees**
+to see the list for each selected host. The host reads worktrees from its
+projects and codebase repositories. It reads task folders from its own
+records. A task folder is one row.
 
-- **Groups and filters.** Rows are grouped by project, or by codebase for a
+- **Groups and filters on desktop and web.** Rows are grouped by project, or by codebase for a
   task folder. The **Filters** menu, the same one as on the pull request and
   task pages, has a **Project** group and a **Status** group, each with
   counts. In a group, the rows that are safe to delete come first.
@@ -31,8 +32,8 @@ them. A task folder is one row.
     block Delete: the row says *Session open*, and the confirmation says that
     the session loses its working folder. Its conversation stays.
 
-  Each row has the same two actions: **Open session** and **Delete**.
-- **Size.** Each row shows its size on disk, and each group and filter its
+  On desktop and web, each row also has **Open session** and **Delete** actions.
+- **Size on desktop and web.** Each row shows its size on disk, and each group and filter its
   total. The toolbar also shows the free space on the disk that holds the
   Solus data folder (`HostResources.disk`, which the host page shows too). A
   removal answers with a fresh read of it, so the gain shows at once. Sizes arrive after the list, because each one walks a whole checkout. A
@@ -43,6 +44,15 @@ repository for a task folder. It asks first. The question says what is lost
 and how much space it frees. When work is lost, the button says
 **Delete and lose work**.
 
+To delete more than one worktree, select the rows and choose **Delete** in
+the selection bar. On desktop and web, the checkboxes appear when you hover
+over or focus a row. Shift-click selects a range. Press Cmd+A or Ctrl+A
+with focus on a worktree row to select all eligible rows in the current list.
+On mobile, tap a row to show the selection bar, which has **Select all**.
+The confirmation shows what each deletion removes. If the host cannot delete
+a worktree, the list shows the reason and the host continues with the other
+selected worktrees.
+
 - A worktree where a turn runs cannot be deleted.
 - If unsaved work appears after the list loads, the host does not delete it.
   The row shows the new state, and you confirm again.
@@ -50,4 +60,3 @@ and how much space it frees. When work is lost, the button says
 
 The host serves the list over `managedWorktreesList`, `managedWorktreeRemove`,
 and `managedWorktreeSizes` (`packages/server/src/git/managed-worktrees.ts`).
-Desktop and web show the section. The mobile app does not show it yet.

@@ -8,6 +8,7 @@ import {
   type WebhookVerification,
 } from '@solus/contracts/webhooks'
 import { sourceLabel, verificationFailureText } from '../../../webhooks/lib/webhook-deliveries'
+import type { ManageState } from './states'
 
 /**
  * The Webhooks section (docs/plans/apps.md §9.2): the deliveries of one app
@@ -35,6 +36,12 @@ export function isRefused(outcome: WebhookDeliveryOutcome): boolean {
 /** The delivery's mutation did not end well, or the receiver refused it. */
 export function isFailedDelivery(outcome: WebhookDeliveryOutcome): boolean {
   return isRefused(outcome) || outcome === 'failed' || outcome === 'partial'
+}
+
+/** The mark of a delivery: running while its mutation runs, failed when it failed or was refused, else ok. */
+export function deliveryMark(outcome: WebhookDeliveryOutcome): ManageState {
+  if (outcome === 'pending') return 'running'
+  return isFailedDelivery(outcome) ? 'failed' : 'ok'
 }
 
 /** One line for a delivery in the list: what happened to it. `run` is the mutation the webhook runs. */

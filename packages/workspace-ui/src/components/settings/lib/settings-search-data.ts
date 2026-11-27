@@ -294,6 +294,9 @@ export const sharingSearchWords = ["sharing", "access", "mcp", "outside apps", "
 /** Search words, read by the settings page to find Solus Cloud from any other. */
 export const solusCloudSearchWords = ["solus cloud", "cloud", "register", "registration", "tunnel", "internet", "reachable", "connection test", "team access", "organizations", "insights", "delivery"];
 
+/** Search words, read by the settings page to find Usage from any other. */
+export const usageSearchWords = ["usage", "quota", "limits", "rate limit", "remaining", "left", "pace", "reset", "claude", "codex", "antigravity", "subscription", "harness"];
+
 /** Search words, read by the settings page to find the Codebases page from any other. */
 export const codebasesSearchWords = ["codebase", "codebases", "folder", "folders", "repository", "repositories", "multi-repo", "monorepo", "workspace", "code-workspace", "root", "codebase names", "naming"];
 

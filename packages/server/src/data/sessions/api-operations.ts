@@ -301,6 +301,7 @@ export class SessionApiOperations {
     }
     if (query.chats === 'true') filters.push(sql`session_records.place = 'chat'`)
     if (query.provider) filters.push(sql`provider = ${query.provider}`)
+    if (query.sessionIds) filters.push(sql`session_records.session_id IN (${sql.join(query.sessionIds.split(',').map(id => sql`${id}`), sql`, `)})`)
     // Top-level sessions, or the ones one session started; the caller's session list
     // unless they ask for every session they may read (docs/plans/session-archive.md).
     const reader = this.reader(context)

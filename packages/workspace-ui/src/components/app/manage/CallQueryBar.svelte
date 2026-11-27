@@ -8,13 +8,15 @@
   /**
    * The query bar of the Activity section (docs/plans/apps.md §9.2), drawn as
    * the Insights query console (insights/QueryConsole.svelte): one card with
-   * the kind of row, the query, the range, and Run; under them one quiet band
-   * with the quick queries, the filter chips, and the count. The console's
+   * the query, the range, and Run; under them one quiet band with the saved
+   * views, the filter chips, and the count. One log holds the calls and the
+   * model calls; the Model calls view narrows it to the second. The console's
    * SQL editor, saved queries, and history are Insights' own, so the bar takes
    * its look, not the component. Enter runs the query. Field names take a
    * colour as the person types.
    */
   interface Props {
+    /** The kind of call the view narrows to; '' for every call. The Model calls view shows as on while it is 'model'. */
     kind: CallKind;
     /** The text in the field; `applied` is the text the log shows. */
     text: string;
@@ -23,19 +25,13 @@
     chips: AppCallTerm[];
     /** "137 calls"; empty while the host has not answered. */
     count: string;
-    onKind: (kind: CallKind) => void;
     onText: (text: string) => void;
     onRun: () => void;
     onRange: (range: CallRange) => void;
     onQuick: (query: QuickQuery) => void;
     onRemoveChip: (index: number) => void;
   }
-  let { kind, text, applied, range, chips, count, onKind, onText, onRun, onRange, onQuick, onRemoveChip }: Props = $props();
-
-  const KINDS: { value: CallKind; label: string }[] = [
-    { value: "operation", label: "Calls" },
-    { value: "model", label: "Model calls" },
-  ];
+  let { kind, text, applied, range, chips, count, onText, onRun, onRange, onQuick, onRemoveChip }: Props = $props();
 
   const parsed = $derived(parseCallQuery(text));
   const isDirty = $derived(text.trim() !== applied.trim());
@@ -63,23 +59,6 @@
   data-testid="app-call-query"
 >
   <div class="flex min-h-12 min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 py-2 pr-2 pl-2.5" role="search">
-    <!-- The kind of row, as the console's language segment: two words inside the field. -->
-    <div class="flex h-6.5 shrink-0 items-center gap-0.5 rounded-lg bg-[var(--wash-1)] p-0.5" role="tablist" aria-label="Kind of call">
-      {#each KINDS as choice (choice.value)}
-        <button
-          type="button"
-          role="tab"
-          aria-selected={kind === choice.value}
-          class="flex h-5.5 cursor-pointer items-center rounded-md px-2 text-insights-chrome font-medium whitespace-nowrap transition-[background-color,color] {kind === choice.value
-            ? 'bg-card text-foreground shadow-[shadow:var(--elev-ring)]'
-            : 'text-muted-foreground hover:text-foreground'}"
-          onclick={() => onKind(choice.value)}
-        >
-          {choice.label}
-        </button>
-      {/each}
-    </div>
-
     <div class="flex h-8 min-w-48 flex-1 items-center gap-2.5">
       <SearchIcon size={12} class="shrink-0 text-muted-foreground opacity-70" aria-hidden="true" />
       <!-- The coloured pieces sit under the typed text, which is clear; they scroll with it. -->
@@ -155,10 +134,15 @@
   <!-- One quiet band under the field: what can be asked on the left, the filters and the count on the right. -->
   <div class="flex min-h-7.5 min-w-0 flex-wrap items-center gap-x-1 gap-y-1 px-2 py-0.5 shadow-[inset_0_0.5px_0_var(--hairline)]">
     <div class="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" data-sb>
-      {#each QUICK_QUERIES as quick (quick.label)}
+      {#each QUICK_QUERIES as quick, index (quick.label)}
+        {@const isOn = "kind" in quick && quick.kind === kind}
+        {#if index > 0}<span class="shrink-0 text-insights-chrome text-(--solus-text-tertiary)" aria-hidden="true">·</span>{/if}
         <button
           type="button"
-          class="h-6 shrink-0 cursor-pointer rounded-md px-2 text-insights-chrome whitespace-nowrap text-muted-foreground outline-none transition-[background-color,color,box-shadow,scale] hover:bg-[var(--wash-1)] hover:text-foreground hover:shadow-[shadow:var(--elev-ring)] focus-visible:bg-[var(--wash-1)] focus-visible:text-foreground focus-visible:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--primary)_38%,transparent),0_0_0_2px_color-mix(in_oklch,var(--primary)_9%,transparent)] active:scale-[0.96]"
+          class="h-6 shrink-0 cursor-pointer rounded-md px-2 text-insights-chrome whitespace-nowrap outline-none transition-[background-color,color,box-shadow,scale] hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:bg-[var(--wash-1)] focus-visible:text-foreground focus-visible:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--primary)_38%,transparent)] active:scale-[0.96] {isOn
+            ? 'font-medium text-foreground'
+            : 'text-(--solus-text-secondary)'}"
+          aria-pressed={"kind" in quick ? isOn : undefined}
           onclick={() => onQuick(quick)}>{quick.label}</button
         >
       {/each}

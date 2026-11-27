@@ -4,6 +4,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/client'
 import type { Transport } from '@modelcontextprotocol/client'
 import { SdkError, SdkErrorCode, type CallToolRequest, type Prompt, type Tool } from '@modelcontextprotocol/client'
 import { DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationEnvValue, type IntegrationFacts } from '@solus/contracts/integration-types'
+import { loopbackServerPort } from '@solus/contracts/integrations/local-servers'
+import { hostDisplayName } from '../platform/host-display-name'
 import { solusServerFor } from './solus-servers'
 import { solusMcpServer } from './solus-servers/solus-server'
 import type { AgentToolContext, AgentToolResult } from '../execution/agents/tools/agent-tool'
@@ -194,4 +196,22 @@ export function promptNames(prompts: UpstreamPrompt[]): string {
 export function errorText(cause: unknown): string {
   const text = cause instanceof Error ? cause.message : String(cause)
   return text.replace(/(https?:\/\/[^\s?#]+)[?#]\S*/g, '$1').slice(0, 300)
+}
+
+/**
+ * Why a call failed, for the agent. Nothing listens on the port of a server on
+ * this host's loopback: it is not running, which the socket error does not say
+ * (mcp-first-class.md §9.3). The connection is not marked as an error.
+ */
+export function callFailureText(integration: Pick<Integration, 'name' | 'url'>, tool: string, cause: unknown): string {
+  if (loopbackServerPort(integration.url) !== null && cause instanceof Error && isConnectionRefused(cause)) return `${integration.name} is not running on ${hostDisplayName()}. Start it, then try again.`
+  return `${integration.name} could not run ${tool}: ${errorText(cause)}`
+}
+
+/** A connection that nothing listened for, in the error or in an error it wraps. */
+function isConnectionRefused(error: Error): boolean {
+  for (let cause: Error | null = error, depth = 0; cause && depth < 6; cause = cause.cause instanceof Error ? cause.cause : null, depth++) {
+    if (('code' in cause && (cause.code === 'ECONNREFUSED' || cause.code === 'ConnectionRefused')) || /ECONNREFUSED/.test(cause.message)) return true
+  }
+  return false
 }

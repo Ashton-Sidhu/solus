@@ -53,6 +53,8 @@ export interface SessionShellSnapshot {
 export type SessionShellChange =
   | { kind: 'row.updated'; row: SessionShellRow }
   | { kind: 'row.removed'; sessionId: string }
+  /** Only the agent's activity of a row the client holds changed. A client that does not hold the row ignores it. */
+  | { kind: 'row.activity'; sessionId: string; agentActivity: AgentActivity | null }
   | { kind: 'project.updated'; project: ProjectEntry }
   | { kind: 'project.removed'; path: string }
   | { kind: 'codebases.updated'; codebases: Codebase[] }

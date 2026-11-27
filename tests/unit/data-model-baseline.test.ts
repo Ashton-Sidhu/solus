@@ -19,7 +19,7 @@ const SOLUS_TABLES = [
   'app_workflow_runs', 'app_workflow_steps', 'apps',
   'asset_publications', 'async_questions', 'automation_runs',
   'automations', 'browser_profiles', 'codebases', 'comment_threads', 'delivery_queue', 'host_device', 'host_list', 'indexed_plans', 'insight_log_events',
-  'insight_span_texts', 'insight_spans', 'integration', 'integration_connection', 'integration_resource_watch', 'integration_server_facts', 'issue_source_access', 'issue_source_items', 'issue_sources', 'issues', 'kv', 'mcp_task', 'member_folder',
+  'insight_span_texts', 'insight_spans', 'integration', 'integration_connection', 'integration_icon', 'integration_resource_watch', 'integration_server_facts', 'issue_source_access', 'issue_source_items', 'issue_sources', 'issues', 'kv', 'mcp_task', 'member_folder',
   'notification_pr_observations', 'notifications', 'operation_receipts', 'outbox_ops', 'personal_resource_state',
   'plan_annotations', 'plan_index_providers', 'projects', 'pull_request_observations',
   'resource_links', 'run_exchanges', 'run_queue', 'runner_delivery_cursors', 'runs', 'saved_metrics_queries',

@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { CircleX as FailedIcon, Hammer as BuildIcon, Redo2 as RollForwardIcon, Undo2 as RollbackIcon, Upload as DeployIcon } from "@lucide/svelte";
+  import { Redo2 as RollForwardIcon, Undo2 as RollbackIcon, Upload as DeployIcon } from "@lucide/svelte";
   import { activationLabel, canActivate, deployEventDetail, deployEventTitle, shortCommit, type AppDeployEvent } from "@solus/client-core/app-versions";
   import { attributionLabel } from "@solus/contracts/user";
   import { Button } from "../../ui/button";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
   import { appTime } from "../lib/app-view";
   import ActivationConfirm from "./ActivationConfirm.svelte";
   import BuildLog from "./BuildLog.svelte";
@@ -35,42 +36,39 @@
       {@const comparesRevisions = event.previousRevision !== null && event.previousRevision !== event.version.revision}
       <li class="flex min-w-0 flex-col gap-2.5 border-t border-[var(--hairline)] px-1 py-3.5 first:border-t-0" data-testid="app-deploy-event" data-kind={event.kind}>
         <div class="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-2">
-          <!-- What happened, as its mark: a deploy, a rollback, a roll forward, a build, or a build that failed. -->
-          <span
-            class="mt-0.5 flex shrink-0 {event.isLive
-              ? 'text-(--success)'
-              : event.kind === 'rollback'
-                ? 'text-(--warning)'
-                : event.kind === 'failed'
-                  ? 'text-(--failure)'
-                  : event.kind === 'building'
-                    ? 'text-(--solus-status-running)'
-                    : 'text-muted-foreground'}"
-            aria-hidden="true"
-          >
-            {#if event.kind === "rollback"}
-              <RollbackIcon size={16} strokeWidth={1.75} />
-            {:else if event.kind === "roll-forward"}
-              <RollForwardIcon size={16} strokeWidth={1.75} />
-            {:else if event.kind === "failed"}
-              <FailedIcon size={16} strokeWidth={1.75} />
+          <!-- What happened, as its mark: a build in progress and a build that failed take the state mark; a deploy, a rollback, and a roll forward take their kind, in ink. -->
+          <span class="mt-0.5 flex shrink-0 text-muted-foreground">
+            {#if event.kind === "failed"}
+              <StateIcon state="failed" label="The build failed" />
             {:else if event.kind === "building"}
-              <BuildIcon size={16} strokeWidth={1.75} />
+              <StateIcon state="running" label="Building" />
+            {:else if event.kind === "rollback"}
+              <RollbackIcon size={16} strokeWidth={1.75} aria-hidden="true" />
+            {:else if event.kind === "roll-forward"}
+              <RollForwardIcon size={16} strokeWidth={1.75} aria-hidden="true" />
             {:else}
-              <DeployIcon size={16} strokeWidth={1.75} />
+              <DeployIcon size={16} strokeWidth={1.75} aria-hidden="true" />
             {/if}
           </span>
           <div class="flex min-w-48 flex-1 flex-col gap-1">
             <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-              <span class="text-sm font-medium {event.kind === 'failed' ? 'text-(--failure)' : 'text-foreground'}">{deployEventTitle(event)}</span>
+              <span class="text-sm font-medium text-foreground">{deployEventTitle(event)}</span>
               {#if event.isLive}
-                <span class="inline-flex items-center gap-1 text-xs font-medium text-(--success)"><StateIcon state="ok" size={12} />Live</span>
+                <span class="inline-flex" title="Live"><StateIcon state="ok" label="Live" size={14} /></span>
               {/if}
               <span class="text-xs text-(--solus-text-secondary)" title={new Date(event.at).toLocaleString()}>
                 {attributionLabel(event.by)} · {appTime(event.at)}
               </span>
             </div>
-            <span class="text-[13px] text-pretty {event.kind === 'failed' ? 'text-(--failure)' : 'text-(--solus-text-secondary)'}">{deployEventDetail(event)}</span>
+            {#if event.kind === "failed"}
+              <MarkdownAlert alertType="error">
+                {#snippet content()}
+                  <p class="m-0 text-[13px] text-pretty text-foreground select-text">{deployEventDetail(event)}</p>
+                {/snippet}
+              </MarkdownAlert>
+            {:else}
+              <span class="text-[13px] text-pretty text-(--solus-text-secondary)">{deployEventDetail(event)}</span>
+            {/if}
             <span class="truncate text-xs text-(--solus-text-secondary)" title={event.version.message}>
               <span class="font-mono">{shortCommit(event.version.revision)}</span>
               {event.version.message ? ` ${event.version.message}` : ""}

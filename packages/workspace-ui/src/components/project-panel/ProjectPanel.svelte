@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import {
     codebasesStore,
     getWorkspaceContext,
@@ -203,6 +203,21 @@
   const panelSession = $derived(session.sessionFor(sourceId));
   const panelRun = $derived(session.runFor(sourceId));
   const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
+
+  // A link that reveals a section of this rail (the background row's Running
+  // servers) scrolls the card into view once the rail and the card are drawn.
+  let handledSectionReveal = untrack(() => session.panelSectionReveal?.seq ?? 0);
+  $effect(() => {
+    const reveal = session.panelSectionReveal;
+    if (!reveal || reveal.seq === handledSectionReveal || reveal.tabId !== sourceId || !open) return;
+    handledSectionReveal = reveal.seq;
+    const element = sectionsElement;
+    void tick().then(() => {
+      element
+        ?.querySelector(`[data-panel-section="${reveal.section}"]`)
+        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  });
 
   // What the person chose to show. A hidden item unmounts, and the reads that
   // only it needs stop with it.

@@ -6,6 +6,7 @@
   "tos_uri": "https://solus.sh/terms",
   "application_type": "native",
   "redirect_uris": [
+    "http://127.0.0.1:51790/callback",
     "http://127.0.0.1:3001/oauth/integration/callback",
     "http://localhost:3001/oauth/integration/callback",
     "http://127.0.0.1:3000/oauth/integration/callback",

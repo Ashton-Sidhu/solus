@@ -1,43 +1,40 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
-  import { createColumnHelper, createTable, functionalUpdate, type ColumnVisibilityState, type SvelteTable } from "@tanstack/svelte-table";
-  import { Sparkles as ModelIcon } from "@lucide/svelte";
-  import type { AppCallDetail, AppCallView, AppWebhookView } from "@solus/contracts/apps";
+  import { tick, type Snippet } from "svelte";
+  import { ChevronRight as OpenIcon, Sparkles as ModelIcon } from "@lucide/svelte";
+  import type { AppCallTerm, AppCallView, AppWebhookView } from "@solus/contracts/apps";
   import DataTableEmptyState from "../../insights/data-table/DataTableEmptyState.svelte";
   import DataTableSortIcon from "../../insights/data-table/DataTableSortIcon.svelte";
-  import { insightsTableFeatures, type InsightsTableFeatures } from "../../insights/data-table/data-table-features";
   import { hasTextSelection } from "../../insights/data-table/table-pointer";
   import { spansMultipleDays } from "../../insights/lib/format";
   import { Button } from "../../ui/button";
-  import * as Table from "../../ui/table";
-  import CallDetail from "./CallDetail.svelte";
-  import ModelCallDetail from "./ModelCallDetail.svelte";
-  import { appTime, callOutcomeLabel, callerText, versionLabel } from "../lib/app-view";
+  import CallSheet from "./CallSheet.svelte";
+  import StateIcon from "./StateIcon.svelte";
+  import { appTime } from "../lib/app-view";
   import {
-    CALL_COLUMN_CHOICES,
     CALL_LIST_STEP,
     DEFAULT_CALL_COLUMNS,
+    callChipText,
     callClockText,
-    callColumnFits,
-    callDurationText,
+    callMessage,
     callMillisText,
-    callOrderOf,
     callRunGroups,
-    callRunText,
-    callSortOf,
     orderedCalls,
-    type CallColumn,
+    type CallFieldName,
+    type CallFixFacts,
     type CallOrder,
     type CallRunGroup,
   } from "./lib/activity";
+  import { callState } from "./lib/states";
 
   /**
-   * The call log as the Insights data table, plain on the page (docs/plans/apps.md
-   * §9.2): one row for each call, with when it started and the columns chosen.
-   * The Time and Duration heads set the order. A row opens the call under it,
-   * in the same tinted block; one call is open at a time. The arrow keys move
-   * between rows. The Activity section gives it a toolbar, which gets the
-   * table for its Columns menu; a run's log has none.
+   * The call log as events (docs/plans/apps.md §9.2): one row for each call,
+   * with when it started to the millisecond and a document — the operation,
+   * its message, and a chip for each field of the columns. A model call has
+   * the sparkle in the state slot; a failed or running call has its mark.
+   * The Time and Duration heads set the order. A row opens the call in a
+   * sheet over the page. The arrow keys, or j and k, move between rows, and
+   * Enter opens one. The Activity section gives the log a toolbar; a run's
+   * log has none.
    */
   interface Props {
     serverId: string;
@@ -48,20 +45,30 @@
     webhooks: AppWebhookView[];
     openCallId: string | null;
     onOpenRun?: (runId: string) => void;
-    onAskAgent?: (call: AppCallDetail) => void;
-    columns?: CallColumn[];
+    onAskAgent?: (call: CallFixFacts) => void;
+    onFilter?: (term: AppCallTerm) => void;
+    onToggleColumn?: (field: CallFieldName) => void;
+    columns?: readonly CallFieldName[];
     order?: CallOrder;
     /** The rows stand under the run they belong to. */
     groupByRun?: boolean;
+    /** The p95 of the calls in the query, which the sheet sets beside a call's duration. */
+    p95Ms?: number | null;
+    /** The version that runs now. */
+    liveVersion?: number | null;
     /** The controls above the head. */
-    toolbar?: Snippet<[SvelteTable<InsightsTableFeatures, AppCallView>]>;
-    /** What the table says of its rows: how many, how many failed. */
+    toolbar?: Snippet;
+    /** What the list shows with no row in view; the plain table message without it. */
+    noRows?: Snippet;
+    /** Drawn at the left of the rows on a wide pane, over them on a narrow one: the Fields list. */
+    aside?: Snippet;
+    /** What the log says of its rows: how many, how many failed. */
     summary?: string;
     /** The rows are an older answer, dimmed until the host answers the new query. */
     isStale?: boolean;
-    /** What the table says when it has no row. */
+    /** What the log says when it has no row. */
     empty?: string;
-    /** Asks the host for a larger read. Absent when the host holds no more calls than the table has. */
+    /** Asks the host for a larger read. Absent when the host holds no more calls than the log has. */
     onLoadMore?: () => void;
   }
   let {
@@ -72,10 +79,16 @@
     openCallId = $bindable(),
     onOpenRun,
     onAskAgent,
-    columns = $bindable([...DEFAULT_CALL_COLUMNS]),
+    onFilter,
+    onToggleColumn,
+    columns = DEFAULT_CALL_COLUMNS,
     order = $bindable("newest"),
     groupByRun = false,
+    p95Ms = null,
+    liveVersion = null,
     toolbar,
+    noRows,
+    aside,
     summary,
     isStale = false,
     empty = "No call is in view.",
@@ -83,72 +96,43 @@
   }: Props = $props();
 
   let shownCount = $state(CALL_LIST_STEP);
-  let logWidth = $state(0);
+  let list = $state<HTMLElement | null>(null);
 
-  const columnHelper = createColumnHelper<InsightsTableFeatures, AppCallView>();
-  const tableColumns = columnHelper.columns([
-    columnHelper.accessor("startedAt", { id: "time", header: "Time", sortDescFirst: true, enableHiding: false }),
-    ...CALL_COLUMN_CHOICES.map((choice) =>
-      choice.value === "duration"
-        ? columnHelper.accessor((call) => call.durationMs ?? undefined, { id: "duration", header: choice.label, sortDescFirst: true })
-        : columnHelper.accessor((call) => call.id, { id: choice.value, header: choice.label, enableSorting: false }),
-    ),
-  ]);
-
-  const data = $derived([...calls]);
-  const visibility = $derived<ColumnVisibilityState>(Object.fromEntries(CALL_COLUMN_CHOICES.map((choice) => [choice.value, columns.includes(choice.value)])));
-
-  // The table holds no state of its own: the order and the columns are the section's, and the rows are drawn from `calls`.
-  const dataTable = createTable({
-    features: insightsTableFeatures,
-    get data() {
-      return data;
-    },
-    columns: tableColumns,
-    manualSorting: true,
-    enableSortingRemoval: false,
-    state: {
-      get sorting() {
-        return [callSortOf(order)];
-      },
-      get columnVisibility() {
-        return visibility;
-      },
-    },
-    onSortingChange: (updater) => {
-      order = callOrderOf(functionalUpdate(updater, [callSortOf(order)])[0]);
-    },
-    onColumnVisibilityChange: (updater) => {
-      const next = functionalUpdate(updater, visibility);
-      columns = CALL_COLUMN_CHOICES.map((choice) => choice.value).filter((column) => next[column] !== false);
-    },
-  });
-
-  // The columns chosen, less the ones a narrow log drops. Hidden in script rather than by a
-  // container query, so the open call's cell spans exactly the columns drawn.
-  const shownColumns = $derived(dataTable.getVisibleLeafColumns().filter((column) => callColumnFits(column.id, logWidth)));
   const withDay = $derived(spansMultipleDays(calls.map((call) => call.startedAt)));
   const ordered = $derived(orderedCalls(calls, order));
-  // An open call stays in view: a point of the chart can open a call past the rows drawn.
+  // An open call stays in view: a point of the chart, or j in the sheet, can open a call past the rows drawn.
   const openIndex = $derived(openCallId === null ? -1 : ordered.findIndex((call) => call.id === openCallId));
+  const openCall = $derived(openIndex === -1 ? null : ordered[openIndex]);
   const shown = $derived(ordered.slice(0, Math.max(shownCount, openIndex + 1)));
   const hasHiddenRows = $derived(ordered.length > shown.length);
   const groups = $derived<CallRunGroup[]>(shown.length === 0 ? [] : groupByRun ? callRunGroups(shown) : [{ runId: null, workflow: null, calls: [...shown] }]);
 
-  function toggle(callId: string) {
-    openCallId = openCallId === callId ? null : callId;
+  function rowOf(callId: string): HTMLElement | null {
+    return list?.querySelector<HTMLElement>(`[data-call-id="${CSS.escape(callId)}"]`) ?? null;
+  }
+
+  // Escape returns the keyboard to the row the sheet was open on, in view.
+  async function closeSheet() {
+    const callId = openCallId;
+    openCallId = null;
+    if (callId === null) return;
+    await tick();
+    const row = rowOf(callId);
+    row?.focus({ preventScroll: true });
+    row?.scrollIntoView({ block: "nearest" });
   }
 
   function onRowKey(event: KeyboardEvent & { currentTarget: HTMLElement }, callId: string) {
-    if (event.target !== event.currentTarget) return;
+    if (event.target !== event.currentTarget || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      toggle(callId);
+      openCallId = callId;
       return;
     }
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    const rows = [...(event.currentTarget.closest("[data-call-list]")?.querySelectorAll<HTMLElement>("[data-call-row]") ?? [])];
-    const next = rows[rows.indexOf(event.currentTarget) + (event.key === "ArrowDown" ? 1 : -1)];
+    const step = event.key === "ArrowDown" || event.key === "j" ? 1 : event.key === "ArrowUp" || event.key === "k" ? -1 : 0;
+    if (step === 0) return;
+    const rows = [...(list?.querySelectorAll<HTMLElement>("[data-call-row]") ?? [])];
+    const next = rows[rows.indexOf(event.currentTarget) + step];
     if (!next) return;
     event.preventDefault();
     next.focus();
@@ -160,147 +144,138 @@
   }
 </script>
 
-<section class="flex min-w-0 flex-col gap-3" aria-label="Calls" data-testid="app-calls" bind:clientWidth={logWidth}>
-  {@render toolbar?.(dataTable)}
+<section class="flex min-w-0 flex-col gap-3" aria-label="Calls" data-testid="app-calls">
+  {@render toolbar?.()}
 
-  <div class="min-w-0" data-call-list>
-    <Table.Root containerClass="overflow-visible rounded-none border-0 bg-transparent shadow-none dark:bg-transparent" class="min-w-full border-separate border-spacing-0 [&_td]:bg-none">
-      <Table.Header class="shadow-[inset_0_-0.5px_0_var(--hairline-strong)]">
-        <Table.Row class="border-0 hover:bg-transparent">
-          {#each shownColumns as column (column.id)}
-            {@const sorted = column.getIsSorted()}
-            {@const label = typeof column.columnDef.header === "string" ? column.columnDef.header : column.id}
-            <Table.Head
-              class="px-3 {column.id === 'time'
-                ? 'w-32 min-w-32'
-                : column.id === 'operation'
-                  ? 'w-[38%] max-w-0'
-                  : column.id === 'caller'
-                    ? 'w-[22%] max-w-0'
-                    : column.id === 'run'
-                      ? 'w-[30%] max-w-0'
-                      : column.id === 'duration'
-                        ? 'w-24 min-w-24 text-right'
-                        : 'w-24 min-w-24'}"
-              aria-sort={sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : undefined}
-            >
-              {#if column.getCanSort()}
-                <button
-                  type="button"
-                  class="group/sort flex h-9 w-full cursor-pointer items-center gap-1 uppercase outline-none transition-colors hover:text-foreground focus-visible:text-foreground {sorted ? 'text-foreground' : ''}"
-                  class:flex-row-reverse={column.id === "duration"}
-                  onclick={column.getToggleSortingHandler()}
-                >
-                  <span class="truncate">{label}</span>
-                  <DataTableSortIcon direction={sorted} />
-                </button>
-              {:else}
-                <span class="block truncate">{label}</span>
-              {/if}
-            </Table.Head>
-          {/each}
-        </Table.Row>
-      </Table.Header>
-      <!-- The app disables selection at the root, so the rows opt back in: a reader must be able to drag an error out of the log. -->
-      <Table.Body class={["select-text motion-safe:transition-opacity", isStale && "opacity-55"]} aria-busy={isStale}>
-        {#each groups as group (group.runId ?? "")}
-          {#if groupByRun}
-            <Table.Row class="h-10 border-0 bg-[color-mix(in_oklch,var(--wash-1)_74%,var(--background))] shadow-[inset_0_-0.5px_0_var(--hairline),inset_0_0.5px_0_var(--hairline)] hover:bg-[color-mix(in_oklch,var(--wash-1)_74%,var(--background))]">
-              <Table.Cell colspan={shownColumns.length} class="px-3 py-0 text-insights-table">
-                <span class="flex min-w-0 items-center gap-3">
-                  {#if group.runId}
-                    <span class="truncate font-mono text-xs text-foreground">{group.runId}</span>
-                    <span class="truncate text-muted-foreground">{group.workflow}</span>
-                  {:else}
-                    <span class="truncate text-muted-foreground">Not in a run</span>
-                  {/if}
-                  <span class="shrink-0 tabular-nums text-muted-foreground">{group.calls.length === 1 ? "1 call" : `${group.calls.length} calls`}</span>
-                  {#if group.runId && onOpenRun}
-                    {@const runId = group.runId}
-                    <Button size="xs" variant="ghost" class="ml-auto" onclick={() => onOpenRun(runId)}>Open run</Button>
-                  {/if}
-                </span>
-              </Table.Cell>
-            </Table.Row>
-          {/if}
-          {#each group.calls as call (call.id)}
-            {@const isOpen = openCallId === call.id}
-            {@const isFailed = call.outcome === "failed"}
-            <Table.Row
-              class="h-10 cursor-pointer border-0 outline-none transition-[background-color] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary) {isOpen
-                ? `[&>td:first-child]:rounded-tl-xl [&>td:last-child]:rounded-tr-xl ${isFailed ? '[&>td]:bg-[color-mix(in_oklch,var(--failure)_8%,transparent)]' : '[&>td]:bg-[var(--wash-2)]'}`
-                : 'shadow-[inset_0_-0.5px_0_var(--hairline)] hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)]'}"
-              tabindex={0}
-              aria-expanded={isOpen}
-              aria-label="{call.operation}, {callOutcomeLabel(call.outcome)}, {callDurationText(call)}"
-              data-call-row
-              data-testid="app-call-row"
-              onclick={() => {
-                if (!hasTextSelection()) toggle(call.id);
-              }}
-              onkeydown={(event: KeyboardEvent & { currentTarget: HTMLElement }) => onRowKey(event, call.id)}
-            >
-              {#each shownColumns as column (column.id)}
-                {#if column.id === "time"}
-                  <Table.Cell class="truncate px-3 py-0 text-insights-table tabular-nums text-foreground" title="{new Date(call.startedAt).toLocaleString()} · {appTime(call.startedAt)}">
-                    {callClockText(call.startedAt, withDay)}<span class="text-muted-foreground/60">{callMillisText(call.startedAt)}</span>
-                  </Table.Cell>
-                {:else if column.id === "operation"}
-                  <Table.Cell class="max-w-0 px-3 py-0 text-insights-table text-foreground">
-                    <span class="flex min-w-0 items-center gap-1.5">
-                      <!-- A model call goes by its model setting, marked so it does not read as an operation. -->
-                      {#if call.kind === "model"}
-                        <ModelIcon size={14} strokeWidth={1.5} class="shrink-0 text-muted-foreground" aria-label="Model call" />
-                      {/if}
-                      <span class="truncate">{call.operation}</span>
-                    </span>
-                  </Table.Cell>
-                {:else if column.id === "caller"}
-                  <Table.Cell class="max-w-0 truncate px-3 py-0 text-insights-table text-muted-foreground">{callerText(call.caller, webhooks)}</Table.Cell>
-                {:else if column.id === "run"}
-                  {@const runText = callRunText(call)}
-                  <Table.Cell class="max-w-0 truncate px-3 py-0 text-insights-table text-muted-foreground" title={runText ?? undefined}>{runText ?? "–"}</Table.Cell>
-                {:else if column.id === "outcome"}
-                  <Table.Cell class="truncate px-3 py-0 text-insights-table {isFailed ? 'text-(--failure)' : 'text-muted-foreground'}">{callOutcomeLabel(call.outcome)}</Table.Cell>
-                {:else if column.id === "version"}
-                  <Table.Cell class="truncate px-3 py-0 text-insights-table tabular-nums text-muted-foreground">{versionLabel(call.version)}</Table.Cell>
-                {:else if column.id === "duration"}
-                  <Table.Cell class="truncate px-3 py-0 text-right text-insights-table tabular-nums {isFailed ? 'text-(--failure)' : 'text-foreground'}">{callDurationText(call)}</Table.Cell>
-                {/if}
-              {/each}
-            </Table.Row>
-            {#if isOpen}
-              <Table.Row class="border-0 hover:bg-transparent">
-                <Table.Cell
-                  colspan={shownColumns.length}
-                  class="rounded-b-xl p-0 whitespace-normal {isFailed ? 'bg-[color-mix(in_oklch,var(--failure)_8%,transparent)]' : 'bg-[var(--wash-2)]'}"
-                >
-                  {#if call.kind === "model"}
-                    <ModelCallDetail {serverId} {appId} callId={call.id} />
-                  {:else}
-                    <CallDetail {serverId} {appId} callId={call.id} {webhooks} {onOpenRun} {onAskAgent} tinted={false} />
-                  {/if}
-                </Table.Cell>
-              </Table.Row>
+  <div class="grid min-w-0 grid-cols-1 items-start gap-x-4 gap-y-4 {aside ? '@min-[52rem]/pane:grid-cols-[12.5rem_minmax(0,1fr)]' : ''}">
+  {#if aside}<div class="min-w-0">{@render aside()}</div>{/if}
+  <div class="min-w-0" bind:this={list}>
+    <div class="flex h-8 min-w-0 items-center gap-2 px-2 shadow-[inset_0_-0.5px_0_var(--hairline-strong)]">
+      <span class="w-4 shrink-0" aria-hidden="true"></span>
+      <span class="w-4 shrink-0" aria-hidden="true"></span>
+      <button
+        type="button"
+        class="flex min-w-24 shrink-0 cursor-pointer items-center gap-1 rounded text-[10px] leading-3 font-medium tracking-[0.06em] uppercase outline-none hover:text-foreground focus-visible:text-foreground focus-visible:shadow-[0_0_0_2px_color-mix(in_oklch,var(--primary)_30%,transparent)] {order === 'slowest' ? 'text-(--solus-text-tertiary)' : 'text-(--solus-text-secondary)'}"
+        aria-label={order === "oldest" ? "Time, the oldest first. Show the newest first" : "Time, the newest first. Show the oldest first"}
+        onclick={() => (order = order === "newest" ? "oldest" : "newest")}
+      >
+        Time<DataTableSortIcon direction={order === "slowest" ? false : order === "oldest" ? "asc" : "desc"} />
+      </button>
+      <span class="min-w-0 flex-1 truncate text-[10px] leading-3 font-medium tracking-[0.06em] text-(--solus-text-tertiary) uppercase">Document</span>
+      <button
+        type="button"
+        class="flex shrink-0 cursor-pointer items-center gap-1 rounded text-[10px] leading-3 font-medium tracking-[0.06em] uppercase outline-none hover:text-foreground focus-visible:text-foreground focus-visible:shadow-[0_0_0_2px_color-mix(in_oklch,var(--primary)_30%,transparent)] {order === 'slowest' ? 'text-(--solus-text-secondary)' : 'text-(--solus-text-tertiary)'}"
+        aria-pressed={order === "slowest"}
+        aria-label={order === "slowest" ? "The slowest first. Show the newest first" : "Show the slowest first"}
+        onclick={() => (order = order === "slowest" ? "newest" : "slowest")}
+      >
+        Duration<DataTableSortIcon direction={order === "slowest" ? "desc" : false} />
+      </button>
+    </div>
+
+    <!-- The app disables selection at the root, so the rows opt back in: a reader must be able to drag an error out of the log. -->
+    <div class={["flex min-w-0 flex-col select-text motion-safe:transition-opacity", isStale && "opacity-55"]} aria-busy={isStale}>
+      {#each groups as group (group.runId ?? "")}
+        {#if groupByRun}
+          <div class="flex h-10 min-w-0 items-center gap-3 bg-[var(--wash-1)] px-2 text-[13px] shadow-[inset_0_-0.5px_0_var(--hairline-strong)]" role="presentation">
+            {#if group.runId}
+              <span class="truncate font-mono text-xs text-foreground">{group.runId}</span>
+              <span class="truncate text-(--solus-text-tertiary)">{group.workflow}</span>
+            {:else}
+              <span class="truncate text-(--solus-text-tertiary)">Not in a run</span>
             {/if}
-          {/each}
-        {:else}
-          <Table.Row class="border-0 hover:bg-transparent">
-            <Table.Cell colspan={Math.max(1, shownColumns.length)} class="p-0 whitespace-normal">
-              <DataTableEmptyState filtered={false} title="No calls" description={empty} />
-            </Table.Cell>
-          </Table.Row>
+            <span class="shrink-0 font-mono text-[11.5px] text-(--solus-text-tertiary)">{group.calls.length === 1 ? "1 call" : `${group.calls.length} calls`}</span>
+            {#if group.runId && onOpenRun}
+              {@const runId = group.runId}
+              <Button size="xs" variant="ghost" class="ml-auto" onclick={() => onOpenRun(runId)}>Open run</Button>
+            {/if}
+          </div>
+        {/if}
+        {#each group.calls as call (call.id)}
+          {@const isOpen = openCallId === call.id}
+          {@const message = callMessage(call)}
+          <div
+            class="flex min-w-0 cursor-pointer items-start gap-2 px-2 py-2.25 outline-none transition-[background-color] focus-visible:shadow-[inset_0_0_0_1.5px_color-mix(in_oklch,var(--primary)_55%,transparent)] {isOpen
+              ? 'rounded-lg bg-[var(--wash-3)]'
+              : 'shadow-[inset_0_-0.5px_0_var(--hairline-strong)] hover:bg-[var(--wash-1)]'}"
+            role="button"
+            tabindex={0}
+            aria-haspopup="dialog"
+            aria-pressed={isOpen}
+            aria-label="{call.operation}{message ? `, ${message}` : ''}"
+            data-call-row
+            data-call-id={call.id}
+            data-testid="app-call-row"
+            onclick={() => {
+              if (!hasTextSelection()) openCallId = call.id;
+            }}
+            onkeydown={(event: KeyboardEvent & { currentTarget: HTMLElement }) => onRowKey(event, call.id)}
+          >
+            <span class="flex h-4.5 w-4 shrink-0 items-center justify-center text-(--solus-text-tertiary)" aria-hidden="true"><OpenIcon size={12} strokeWidth={2} /></span>
+            <span class="flex h-4.5 w-4 shrink-0 items-center">
+              {#if call.outcome !== "ok"}
+                <StateIcon state={callState(call.outcome)} size={15} label={call.outcome === "failed" ? "Failed" : "Running"} />
+              {:else if call.kind === "model"}
+                <ModelIcon size={15} strokeWidth={1.75} class="text-(--solus-text-tertiary)" aria-label="Model call" />
+              {/if}
+            </span>
+            <span class="min-w-24 shrink-0 font-mono text-xs leading-4.5 whitespace-nowrap text-(--solus-text-secondary)" title="{new Date(call.startedAt).toLocaleString()} · {appTime(call.startedAt)}">
+              {callClockText(call.startedAt, withDay)}{callMillisText(call.startedAt)}
+            </span>
+            <span class="flex min-w-0 flex-1 flex-col gap-1">
+              <span class="truncate text-[13px] leading-4.5 text-foreground"><span class="font-medium">{call.operation}</span>{#if message}<span class="text-(--solus-text-tertiary)"> · {message}</span>{/if}</span>
+              {#if columns.length > 0}
+                <span class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                  {#each columns as column (column)}
+                    {@const value = callChipText(call, column)}
+                    {#if value !== null}
+                      <span class="flex min-w-0 items-center gap-1.25 font-mono text-[11.5px] leading-4.25">
+                        <span class="shrink-0 rounded-[4px] bg-[var(--wash-3)] px-1 text-(--solus-text-tertiary)">{column}</span>
+                        <span class="min-w-0 truncate text-foreground" title={value}>{value}</span>
+                      </span>
+                    {/if}
+                  {/each}
+                </span>
+              {/if}
+            </span>
+          </div>
         {/each}
-      </Table.Body>
-    </Table.Root>
+      {:else}
+        {#if noRows}
+          {@render noRows()}
+        {:else}
+          <DataTableEmptyState filtered={false} title="No calls" description={empty} />
+        {/if}
+      {/each}
+    </div>
 
     {#if summary || hasHiddenRows || onLoadMore}
-      <footer class="flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-3 py-1.5 text-insights-chrome text-muted-foreground">
+      <footer class="flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-2 py-1.5 text-[13px] text-(--solus-text-tertiary)">
         <span class="min-w-0 truncate tabular-nums" role="status">{summary ?? ""}</span>
         {#if hasHiddenRows || onLoadMore}
-          <Button size="xs" variant="ghost" class="text-muted-foreground hover:text-foreground" onclick={showMore}>Show more</Button>
+          <Button size="xs" variant="ghost" class="text-(--solus-text-tertiary) hover:text-foreground" onclick={showMore}>Show more</Button>
         {/if}
       </footer>
     {/if}
   </div>
+  </div>
 </section>
+
+{#if openCall}
+  <CallSheet
+    {serverId}
+    {appId}
+    call={openCall}
+    calls={ordered}
+    {webhooks}
+    {p95Ms}
+    {liveVersion}
+    {columns}
+    {onOpenRun}
+    {onAskAgent}
+    {onFilter}
+    {onToggleColumn}
+    onOpenCall={(callId) => (openCallId = callId)}
+    onClose={() => void closeSheet()}
+  />
+{/if}

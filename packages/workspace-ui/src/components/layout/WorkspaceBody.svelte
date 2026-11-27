@@ -393,6 +393,27 @@
     if (!open) requestInputFocus();
   }
 
+  // A link that shows a rail section (the background row's Running servers)
+  // opens the leading rail as its toggle would, also where it is hidden for
+  // width. The split chat's rail answers in `AsidePaneShell`.
+  let handledPanelReveal = untrack(() => session.panelSectionReveal?.seq ?? 0);
+  $effect(() => {
+    const reveal = session.panelSectionReveal;
+    if (!reveal || reveal.seq === handledPanelReveal) return;
+    handledPanelReveal = reveal.seq;
+    if (!active || reveal.tabId === session.chatSurfaceTabId) return;
+    untrack(() => {
+      const shown = isProjectRailOpen(
+        isPrimaryProjectPanelOpen,
+        projectRailContainerWidth,
+        false,
+        projectRailRevealed,
+        projectRailSoleViewWidth,
+      );
+      if (!shown) toggleProjectPanel();
+    });
+  });
+
   // Publish the frame-level expand controls so full-page sub-views (Folio,
   // Plans, Settings) can host them inline in their own headers instead of in a
   // separate chrome strip. Settings owns the persisted project-panel flag;

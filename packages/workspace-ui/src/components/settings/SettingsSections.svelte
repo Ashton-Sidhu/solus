@@ -198,6 +198,14 @@
   {:catch}
     {@render loadError()}
   {/await}
+{:else if session.settingsTab === "usage"}
+  {#await settingsSection("usage")}
+    {@render loading()}
+  {:then { default: SettingsTabUsage }}
+    <SettingsTabUsage />
+  {:catch}
+    {@render loadError()}
+  {/await}
 {:else if session.settingsTab === "api-access"}
   {#await settingsSection("api-access")}
     {@render loading()}

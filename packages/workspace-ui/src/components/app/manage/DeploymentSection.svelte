@@ -36,6 +36,7 @@
   import { appsStore } from "../../../contexts/apps/apps.store.svelte";
   import { Button } from "../../ui/button";
   import CopyButton from "../../ui/CopyButton.svelte";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
   import { Switch } from "../../ui/switch";
   import SettingsRow from "../../settings/SettingsRow.svelte";
   import SettingsSection from "../../settings/SettingsSection.svelte";
@@ -44,6 +45,7 @@
   import DeploymentPeople from "./DeploymentPeople.svelte";
   import ManageHeading from "./ManageHeading.svelte";
   import ManageSectionState from "./ManageSectionState.svelte";
+  import { DEPLOYMENT_EMPTY } from "./lib/section-empty";
   import StateIcon from "./StateIcon.svelte";
   import { deploymentMark, subjectDirectoryOf } from "./lib/deployment";
 
@@ -144,14 +146,22 @@
 />
 
 <ManageSectionState
+  {serverId}
+  {app}
   count={deployment === undefined ? undefined : 1}
   error={appsStore.deployment.errorFor(serverId, app.id)}
-  empty=""
+  empty={DEPLOYMENT_EMPTY}
   onRetry={() => void appsStore.deployment.load(serverId, app.id)}
 >
   <div class="flex min-w-0 flex-col gap-8" data-testid="app-deployment" aria-busy={isBusy}>
     {#if problem}
-      <p class="m-0 rounded-[10px] bg-destructive/8 px-4 py-3 text-[13px] leading-5 text-pretty text-destructive select-text" role="alert" data-testid="app-deployment-problem">{problem}</p>
+      <div data-testid="app-deployment-problem">
+        <MarkdownAlert alertType="error">
+          {#snippet content()}
+            <p class="m-0 text-[13px] leading-5 text-pretty text-foreground select-text" role="alert">{problem}</p>
+          {/snippet}
+        </MarkdownAlert>
+      </div>
     {/if}
 
     {#if deployment}
@@ -280,12 +290,16 @@
             {#snippet body()}
               {#if log !== undefined}
                 {#if log}
-                  <pre class="m-0 max-h-96 overflow-auto rounded-md bg-muted/50 p-2 font-mono text-xs whitespace-pre select-text" data-testid="app-deployment-log">{log}</pre>
+                  <pre class="m-0 max-h-96 overflow-auto rounded-[10px] bg-[var(--wash-2)] px-3 py-2.5 font-mono text-xs whitespace-pre select-text" data-testid="app-deployment-log">{log}</pre>
                 {:else}
                   <p class="m-0 text-xs text-muted-foreground">The container wrote no text.</p>
                 {/if}
               {:else if logError}
-                <p class="m-0 text-xs text-destructive" role="alert">{logError}</p>
+                <MarkdownAlert alertType="error">
+                  {#snippet content()}
+                    <p class="m-0 text-xs text-pretty text-foreground" role="alert">{logError}</p>
+                  {/snippet}
+                </MarkdownAlert>
               {:else}
                 <p class="m-0 text-xs text-muted-foreground" role="status" aria-busy="true">Loading the log…</p>
               {/if}

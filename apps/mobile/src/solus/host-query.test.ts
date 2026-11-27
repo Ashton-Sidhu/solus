@@ -1,14 +1,19 @@
 import { EnvironmentId } from "@t3tools/contracts";
+import type { ManagedWorktree, ManagedWorktreeRemoveResult } from "@solus/contracts/git-types";
 import { executeAtomQuery, runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult, AtomRegistry } from "effect/reactivity";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { hostCommand } from "./host-command";
 import { hostQuery } from "./host-query";
+import { hostQueryScope } from "../state/host-query-scope";
+import { removeManagedWorktrees } from "./managed-worktrees";
 
 const state = vi.hoisted(() => ({
   account: "one",
   generation: 1,
   listeners: new Set<() => void>(),
+  removeWorktree: vi.fn<() => Promise<ManagedWorktreeRemoveResult>>(),
+  listWorktrees: vi.fn<() => Promise<ManagedWorktree[]>>(),
 }));
 vi.mock("./runtime", () => {
   const changes = {
@@ -24,6 +29,10 @@ vi.mock("./runtime", () => {
       connections: {
         state: () => ({ sessionGeneration: state.generation, readiness: "ready" }),
         may: () => true,
+        connection: () => ({ api: {
+          managedWorktreesList: state.listWorktrees,
+          managedWorktreeRemove: state.removeWorktree,
+        } }),
         changes,
       },
     },
@@ -34,6 +43,8 @@ const target = { environmentId: EnvironmentId.make("mac"), input: null };
 afterEach(() => {
   state.account = "one";
   state.generation = 1;
+  state.listWorktrees.mockReset();
+  state.removeWorktree.mockReset();
 });
 
 it("shares a warm host answer and keeps unchanged rows across a refresh", async () => {
@@ -113,6 +124,47 @@ it("checks the account again before a queued edit reaches the host", async () =>
     expect((await first)._tag).toBe("Success");
     expect((await second)._tag).toBe("Failure");
     expect(writes).toEqual(["first"]);
+  } finally {
+    registry.dispose();
+  }
+});
+
+it("stops a confirmed worktree batch if the host reconnects midway", async () => {
+  const started = Promise.withResolvers<void>();
+  const firstRemoval = Promise.withResolvers<ManagedWorktreeRemoveResult>();
+  const worktree = (path: string): ManagedWorktree => ({
+    path,
+    kind: "worktree",
+    group: { key: "project", name: "Project", detail: "/project" },
+    title: path,
+    branch: null,
+    hasUncommittedWork: false,
+    hasUnmergedCommits: false,
+    sessionId: null,
+    sessions: [],
+  });
+  state.listWorktrees.mockResolvedValue([]);
+  state.removeWorktree.mockImplementationOnce(() => {
+    started.resolve();
+    return firstRemoval.promise;
+  });
+  const registry = AtomRegistry.make();
+  try {
+    const removing = runAtomCommand(
+      registry,
+      removeManagedWorktrees,
+      {
+        environmentId: target.environmentId,
+        input: { scope: hostQueryScope(target.environmentId), worktrees: [worktree("/first"), worktree("/second")] },
+      },
+      { reportFailure: false },
+    );
+    await started.promise;
+    state.generation++;
+    firstRemoval.resolve({ status: "removed" });
+
+    expect((await removing)._tag).toBe("Failure");
+    expect(state.removeWorktree).toHaveBeenCalledExactlyOnceWith("/first", { force: false });
   } finally {
     registry.dispose();
   }

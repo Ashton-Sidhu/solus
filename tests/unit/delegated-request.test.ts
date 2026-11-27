@@ -99,11 +99,14 @@ describe('what a started session waits on the person for', () => {
     expect(changed).toEqual(['parent'])
   })
 
-  test('an independent session has its own row, so its request is not the parent\'s', async () => {
+  test('an independent session nests under the parent, so its request is the parent\'s', async () => {
+    // WHY: an independent session sits under the row of the session that
+    // started it. A question it waits on must mark that row, or a folded
+    // drawer hides a session that wants the person.
     const { orchestrator, changed, start } = fixture()
     const independent = await start('parent', { independent: true })
     orchestrator.inputRequested(independent, QUESTION)
-    expect(orchestrator.delegatedRequestOf('parent')).toBeUndefined()
-    expect(changed).toEqual([])
+    expect(orchestrator.delegatedRequestOf('parent')).toBe('question')
+    expect(changed).toEqual(['parent'])
   })
 })

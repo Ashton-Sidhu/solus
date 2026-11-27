@@ -1,9 +1,11 @@
+import { DEFAULT_PERSONAL_SETTINGS } from "@solus/contracts/settings"
+
 /**
  * What the project panel shows. The person's choice is the synced personal
- * setting `projectPanelHiddenItems`: only the items they turned off, so an
- * empty list is the default and every item shows. The list keeps ids this
- * client does not know, so an older and a newer client never erase each
- * other's choices.
+ * setting `projectPanelHiddenItems`: only the items they turned off. The
+ * default hides `environment.usage` (usage lives in Settings → Usage) and
+ * shows every other section and row. The list keeps ids this client does not
+ * know, so an older and a newer client never erase each other's choices.
  *
  * Every section can hide, and so can each kind of row in it. A section shows
  * while it is on and at least one of its rows is. Webhooks lists one row per
@@ -68,6 +70,13 @@ export function projectPanelSections(showDesktopSections: boolean): readonly Pan
 
 export function isPanelItemShown(hidden: readonly string[], id: ProjectPanelItemId): boolean {
   return !hidden.includes(id)
+}
+
+/** True when `hidden` matches the default panel visibility list (ignoring order). */
+export function isDefaultPanelHiddenItems(hidden: readonly string[]): boolean {
+  const defaults = DEFAULT_PERSONAL_SETTINGS.projectPanelHiddenItems
+  if (hidden.length !== defaults.length) return false
+  return defaults.every((id) => hidden.includes(id))
 }
 
 /** The hidden list after one item changes. Every other id stays, in its order. */

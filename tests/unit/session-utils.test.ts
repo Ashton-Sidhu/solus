@@ -14,6 +14,7 @@ import {
   findOpenTabForSession,
   getStatusLabel,
   sessionDisplayName,
+  sessionName,
 } from '@solus/workspace-ui/lib/sessionUtils'
 
 describe('routed model preference', () => {
@@ -261,5 +262,29 @@ describe('getStatusLabel', () => {
 
     expect(active.filter((status) => !getStatusLabel(status))).toEqual([])
     expect(getStatusLabel('idle')).toBeNull()
+  })
+})
+
+describe('the name a session goes by', () => {
+  const run = { location: folderLocation({ serverId: 'host-a', path: '/repo' }) }
+  const automationRun = {
+    title: 'This is an automation run. Create the daily comparison table.',
+    messages: [],
+    startedBy: { kind: 'automation', automationId: 'auto-1', runId: 'run-1' },
+    run,
+  } as unknown as Session
+  const names = (automationId: string, serverId: string | null | undefined) =>
+    automationId === 'auto-1' && serverId === 'host-a' ? 'Daily comparison' : undefined
+
+  test('an automation run goes by its automation\'s name, as its sidebar row does', () => {
+    // WHY: the tab chip and the breadcrumb showed the raw run prompt while the
+    // sidebar row showed the automation's name, so one session had two names.
+    expect(sessionName(automationRun, names)).toBe('Daily comparison')
+  })
+
+  test('a run whose automation this client does not know, and any other session, go by their title', () => {
+    expect(sessionName(automationRun, () => undefined)).toBe(automationRun.title)
+    const named = { title: 'Parser fix', messages: [], startedBy: { kind: 'person', personKey: 'local' }, run } as unknown as Session
+    expect(sessionName(named, names)).toBe('Parser fix')
   })
 })

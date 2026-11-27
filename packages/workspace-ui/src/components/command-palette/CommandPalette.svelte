@@ -1,19 +1,25 @@
 <script lang="ts">
-  import { tick, untrack } from "svelte";
+  import { onDestroy, tick, untrack } from "svelte";
   import {
     Search as MagnifyingGlassIcon,
     ChevronRight as CaretRightIcon,
     ChevronLeft as CaretLeftIcon,
   } from "@lucide/svelte";
   import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
+  import { accountStore } from "../../contexts/account/account.store.svelte";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
+  import { ConversationSearch, MIN_CONTENT_QUERY_LENGTH } from "../session/unified-picker/lib/conversation-search.svelte";
   import SnoozeTaskMenu from "../session/SnoozeTaskMenu.svelte";
-  import { currentSessionCommands, type CustomSessionSnooze } from "./lib/session-commands";
+  import { currentSessionCommands, sessionStartCommands, type CustomSessionSnooze } from "./lib/session-commands";
+  import { recentSessionCommands, sessionSearchCommands } from "./lib/session-lookup";
+  import { settingsSearchCommands } from "./lib/settings-lookup";
   import Kbd from "../ui/Kbd.svelte";
   import { menuRowVariants } from "../ui/menu/menu-row";
   import {
     useScope,
     useKeybinding,
   } from "../../lib/keybindings/use-keybinding.svelte";
+  import { getKeybindingsContext } from "../../lib/keybindings/dispatcher.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { track } from "../../lib/analytics";
@@ -47,10 +53,13 @@
 
   const workspace = getWorkspaceContext();
   const sidebar = getSessionSidebarStore();
+  const keybindings = getKeybindingsContext();
+  const sessionSearch = new ConversationSearch();
   let customSnooze = $state.raw<CustomSessionSnooze | null>(null);
   const commands = $derived(open ? [
     ...baseCommands,
-    ...currentSessionCommands(workspace, sidebar, (snooze) => (customSnooze = snooze)),
+    ...sessionStartCommands(workspace),
+    ...currentSessionCommands(workspace, sidebar, (snooze) => (customSnooze = snooze), () => keybindings.runAction("conversation.find")),
   ] : baseCommands);
 
   let query = $state("");
@@ -69,8 +78,17 @@
     if (!page) return commands;
     return commands.find((c) => c.id === page!.id)?.children ?? [];
   });
+  const trimmedQuery = $derived(query.trim());
+  const settingsQuery = $derived(trimmedQuery.replace(/^>\s*/, ""));
+  const sessionQuery = $derived(
+    open && !page && !trimmedQuery.startsWith(">") && trimmedQuery.length >= MIN_CONTENT_QUERY_LENGTH
+      ? trimmedQuery : "",
+  );
+  const recent = $derived(open && !page && !trimmedQuery ? recentSessionCommands(workspace, sidebar) : []);
+  const matchingSettings = $derived(open && !page ? settingsSearchCommands(workspace, settingsQuery) : []);
+  const matchingSessions = $derived(sessionQuery ? sessionSearchCommands(workspace, sessionSearch.results, sessionQuery) : []);
   const shownCommands = $derived(commandsShown(activeCommands, query, page !== null));
-  const filtered = $derived(shownCommands.shown);
+  const filtered = $derived([...recent, ...shownCommands.shown, ...matchingSettings, ...matchingSessions]);
   const hiddenMatchCount = $derived(shownCommands.hiddenCount);
   const groups = $derived(groupCommands(filtered));
   const ordered = $derived(groups.flatMap((group) => group.items));
@@ -78,6 +96,18 @@
     ordered.map((command) => command.id).join("\u0000"),
   );
   const hasResults = $derived(filtered.length > 0);
+
+  $effect(() => {
+    if (!sessionQuery) {
+      untrack(() => sessionSearch.reset());
+      return;
+    }
+    // A change of account or organization starts a new read and drops old replies.
+    void accountStore.state;
+    void serversStore.activeOrganizationId;
+    untrack(() => sessionSearch.search(sessionQuery, null));
+  });
+  onDestroy(() => sessionSearch.reset());
 
   useScope("command-palette", { exclusive: true, active: () => open });
   useKeybinding("command-palette.close", () => close());
@@ -195,7 +225,7 @@
         const initialCommands = page
           ? (commands.find((command) => command.id === page!.id)?.children ??
             [])
-          : commands;
+          : [...recent, ...commands].filter((command) => !command.searchOnly);
         selectedValue = initialCommands[0]?.id ?? "";
         if (initialPage) initialPage = null;
       });
@@ -233,7 +263,12 @@
   {:else}
     <span class="size-[1.625rem] flex-shrink-0"></span>
   {/if}
-  <span class="min-w-0 flex-1 truncate">{cmd.label}</span>
+  <span class="min-w-0 flex-1">
+    <span class="block truncate">{cmd.label}</span>
+    {#if cmd.detail}
+      <span class="block truncate text-chrome-dense text-(--solus-text-tertiary)">{cmd.detail}</span>
+    {/if}
+  </span>
   {#if cmd.hint}
     <Kbd variant="keycap" class="flex-shrink-0">{cmd.hint}</Kbd>
   {/if}
@@ -303,7 +338,7 @@
           onkeydown={onSearchKeydown}
           type="search"
           name="command-palette-search"
-          aria-label={page ? `Search ${page.title}` : "Search commands"}
+          aria-label={page ? `Search ${page.title}` : "Search commands and sessions. Start with > for actions only."}
           aria-controls="command-palette-results"
           aria-expanded="true"
           aria-activedescendant={selectedValue
@@ -312,7 +347,7 @@
           role="combobox"
           placeholder={page
             ? `Search ${page.title.toLowerCase()}…`
-            : "Type a command or search…"}
+            : trimmedQuery.startsWith(">") ? "Search actions…" : "Search commands and sessions…"}
           class="flex-1 min-w-0 h-auto bg-transparent border-none outline-none text-(--solus-text-primary) caret-(--solus-accent) placeholder:text-(--solus-text-tertiary) [&::-webkit-search-cancel-button]:hidden"
           autocomplete="off"
           spellcheck="false"
@@ -327,7 +362,7 @@
       <div
         id="command-palette-results"
         role="listbox"
-        aria-label={page ? page.title : "Commands"}
+        aria-label={page ? page.title : "Command palette results"}
         class="flex-1 max-h-[26rem] overflow-hidden"
       >
         <div
@@ -344,10 +379,16 @@
                 class="text-(--solus-text-tertiary)"
               />
               <span>
-                {#if activeCommands.length === 0}
+                {#if sessionQuery && sessionSearch.loading}
+                  Searching sessions…
+                {:else if sessionQuery && sessionSearch.indexing}
+                  Some sessions are still being indexed
+                {:else if sessionQuery && sessionSearch.errors.length > 0}
+                  Session search is incomplete
+                {:else if activeCommands.length === 0}
                   {page ? "Nothing here yet" : "No commands available yet"}
                 {:else}
-                  No commands match “{query.trim()}”
+                  {sessionQuery ? "No commands or sessions match" : "No commands match"} “{trimmedQuery}”
                 {/if}
               </span>
             </div>
@@ -376,7 +417,7 @@
                     data-selected={selectedValue === cmd.id ? "" : undefined}
                     class={cn(
                       menuRowVariants({ stagger: false }),
-                      "group/command-item h-[2.625rem] gap-3 w-full px-3 border-none rounded-lg cursor-pointer text-left bg-transparent font-normal text-(--solus-text-secondary) data-[selected]:text-(--solus-text-primary) data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]!",
+                      "group/command-item min-h-[2.625rem] gap-3 w-full px-3 border-none rounded-lg cursor-pointer text-left bg-transparent font-normal text-(--solus-text-secondary) data-[selected]:text-(--solus-text-primary) data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]!",
                     )}
                     onpointermove={() => (selectedValue = cmd.id)}
                     onclick={() => run(cmd)}

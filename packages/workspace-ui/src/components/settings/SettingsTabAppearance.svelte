@@ -37,6 +37,8 @@
   import PromptFontPreview from "./PromptFontPreview.svelte";
   import DocumentFontPreview from "./DocumentFontPreview.svelte";
   import CodeFontPreview from "./CodeFontPreview.svelte";
+  import { DEFAULT_PERSONAL_SETTINGS } from "@solus/contracts/settings";
+  import { isDefaultPanelHiddenItems } from "../project-panel/lib/panel-items";
   import ProjectPanelItemsMenu from "../project-panel/ProjectPanelItemsMenu.svelte";
   import SidebarPlacesMenu from "../session/SidebarPlacesMenu.svelte";
   import { isPlacesLayoutChanged } from "../../lib/sidebar-places";
@@ -244,8 +246,12 @@
     visible={isVisible("project-panel-items")}
   >
     {#snippet control()}
-      {#if theme.projectPanelHiddenItems.length > 0}
-        <Button variant="ghost" size="sm" onclick={() => theme.setPersonal("projectPanelHiddenItems", [])}>
+      {#if !isDefaultPanelHiddenItems(theme.projectPanelHiddenItems)}
+        <Button
+          variant="ghost"
+          size="sm"
+          onclick={() => theme.setPersonal("projectPanelHiddenItems", [...DEFAULT_PERSONAL_SETTINGS.projectPanelHiddenItems])}
+        >
           Reset
         </Button>
       {/if}

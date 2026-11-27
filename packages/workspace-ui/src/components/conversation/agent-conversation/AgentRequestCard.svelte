@@ -8,6 +8,7 @@
   import QuestionCard from "../QuestionCard.svelte";
   import SecretRequestCard from "../SecretRequestCard.svelte";
   import AddMachineCard from "../AddMachineCard.svelte";
+  import HostProvidersCard from "../HostProvidersCard.svelte";
   import CloudMachineCard from "../CloudMachineCard.svelte";
   import AgentPlanDecision from "./AgentPlanDecision.svelte";
   import { toasts } from "../../../lib/toasts";
@@ -56,6 +57,16 @@
     <AddMachineCard
       {tabId}
       request={request.question}
+      answer={(questionId, answers) => api.respondQuestion(ctx, ref.sessionId, questionId, answers).catch(answerRefused)}
+    />
+  {/key}
+{:else if request.kind === "question" && request.question.kind === "host-providers" && request.question.hostProviders}
+  <!-- The other session's Sign in card: Not now answers that session. -->
+  {#key request.question.questionId}
+    <HostProvidersCard
+      {tabId}
+      request={request.question}
+      ask={request.question.hostProviders}
       answer={(questionId, answers) => api.respondQuestion(ctx, ref.sessionId, questionId, answers).catch(answerRefused)}
     />
   {/key}

@@ -36,6 +36,7 @@
   import QuestionCard from "./QuestionCard.svelte";
   import SecretRequestCard from "./SecretRequestCard.svelte";
   import AddMachineCard from "./AddMachineCard.svelte";
+  import HostProvidersCard from "./HostProvidersCard.svelte";
   import CloudMachineCard from "./CloudMachineCard.svelte";
   import RateLimitCard from "./RateLimitCard.svelte";
   import ConnectCard from "../connections/ConnectCard.svelte";
@@ -907,6 +908,11 @@
                    Keyed so the next card starts with empty fields. -->
               {#key sess.questionQueue[0].questionId}
                 <AddMachineCard tabId={tab.id} request={sess.questionQueue[0]} />
+              {/key}
+            {:else if sess.questionQueue[0].kind === "host-providers" && sess.questionQueue[0].hostProviders}
+              <!-- add_host's Sign in card: the session host closes it when the new host reports the sign-in. -->
+              {#key sess.questionQueue[0].questionId}
+                <HostProvidersCard tabId={tab.id} request={sess.questionQueue[0]} ask={sess.questionQueue[0].hostProviders} />
               {/key}
             {:else if sess.questionQueue[0].kind === "cloud-machine" && sess.questionQueue[0].cloudMachine}
               <!-- A cloud machine tool's card: it collects the choice and answers with respondQuestion.

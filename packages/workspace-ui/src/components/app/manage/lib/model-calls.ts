@@ -14,13 +14,6 @@ export function modelCallDuration(call: Pick<AppModelCallView, 'startedAt' | 'en
   return call.startedAt === null ? '—' : formatDuration((call.endedAt ?? now) - call.startedAt)
 }
 
-/** `1,204 in · 380 out`, or empty when the provider said nothing. */
-export function modelCallTokens(call: Pick<AppModelCallView, 'usage'>): string {
-  const usage = call.usage
-  if (!usage || (usage.inputTokens === undefined && usage.outputTokens === undefined)) return ''
-  return `${(usage.inputTokens ?? 0).toLocaleString()} in · ${(usage.outputTokens ?? 0).toLocaleString()} out`
-}
-
 /** A result as the detail shows it: text as it is, data as indented JSON. */
 export function modelCallResultText(result: AppModelCallView['result']): string {
   const text = z.string().safeParse(result)

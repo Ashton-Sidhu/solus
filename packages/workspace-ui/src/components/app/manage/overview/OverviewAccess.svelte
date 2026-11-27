@@ -3,6 +3,7 @@
   import { appsStore } from "../../../../contexts/apps/apps.store.svelte";
   import { Button } from "../../../ui/button";
   import { hostFoldersText } from "../lib/overview";
+  import StateIcon from "../StateIcon.svelte";
 
   /**
    * What the active version may use, plain on the page: the network hosts, the
@@ -36,7 +37,8 @@
       {#each appState.roles as role (role.slug)}
         <span class="min-w-0 truncate text-[13px] text-foreground" title={role.name === null ? "You have no integration with this name." : undefined}>
           {role.name ?? role.slug}
-          <span class={role.connected ? "text-(--solus-text-tertiary)" : "text-(--warning)"}>· {role.name === null ? "Not set up" : role.connected ? "Connected" : "Not connected"}</span>
+          <span class="text-(--solus-text-tertiary)">· {role.name === null ? "Not set up" : role.connected ? "Connected" : "Not connected"}</span>
+          {#if !role.connected}<StateIcon state="warning" size={12} class="inline align-[-1px]" />{/if}
         </span>
       {:else}
         <span class="text-[13px] text-(--solus-text-tertiary)">None</span>

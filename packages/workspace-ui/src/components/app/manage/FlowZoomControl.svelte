@@ -14,7 +14,7 @@
   const zoom = $derived(viewport.current.zoom);
 </script>
 
-<div class="flex items-center gap-0.5 rounded-[10px] border border-(--hairline-strong) bg-background p-0.75 dark:bg-card" role="group" aria-label="Zoom">
+<div class="flex items-center gap-0.5 rounded-[10px] bg-background p-0.75 shadow-[shadow:var(--elev-ring)] dark:bg-card" role="group" aria-label="Zoom">
   <Button variant="ghost" size="icon-sm" class="text-(--solus-text-secondary) pointer-coarse:tap-area" aria-label="Zoom out" disabled={zoom <= minZoom + 0.001} onclick={() => void flow.zoomOut({ duration: 0 })}>
     <ZoomOutIcon size={14} aria-hidden="true" />
   </Button>

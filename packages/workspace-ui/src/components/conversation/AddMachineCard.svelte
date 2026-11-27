@@ -182,15 +182,14 @@
 <!-- The approval request waits on the target's owner: the check code is what they compare. -->
 {#snippet approvalCode(step: StatusCardStep)}
   {#if step.id === "approve" && step.status === "active" && card.approval}
-    <li class="pr-2 pb-2 pl-[1.875rem]">
-      <div class="flex flex-wrap items-center gap-x-3.5 gap-y-2 rounded-lg bg-(--solus-surface-hover) px-3.5 py-3">
-        <code class="shrink-0 font-mono text-[1.375rem] leading-none font-medium tracking-[0.08em] whitespace-nowrap text-(--solus-text-primary) tabular-nums">{card.approval.checkCode}</code>
-        <p class="m-0 min-w-48 flex-1 text-transcript-meta text-pretty text-(--muted-foreground)">
-          {@render stepText(approveSteps(name, card.approval.checkCode))}
-          <span class="whitespace-nowrap tabular-nums">{countdown(card.approval.expiresAt - now)} left</span>
-        </p>
-      </div>
-    </li>
+    <!-- On the step itself, under its title: the code to compare, then what to do. -->
+    <div class="mt-1 flex flex-col gap-0.5">
+      <code class="font-mono text-[1.125rem] leading-7 font-medium tracking-[0.08em] whitespace-nowrap text-(--solus-text-primary) tabular-nums">{card.approval.checkCode}</code>
+      <p class="m-0 text-transcript-meta text-pretty text-(--muted-foreground)">
+        {@render stepText(approveSteps(name, card.approval.checkCode))}
+        <span class="whitespace-nowrap tabular-nums">{countdown(card.approval.expiresAt - now)} left</span>
+      </p>
+    </div>
   {/if}
 {/snippet}
 

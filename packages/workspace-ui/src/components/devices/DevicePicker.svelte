@@ -6,12 +6,12 @@
   import { devicesStore, deviceErrorMessage } from "../../contexts/devices/devices.store.svelte";
   import { Skeleton } from "../ui/skeleton";
   import * as TooltipUI from "../ui/tooltip";
-  import { addableDevices, unavailablePlatformReasons } from "./lib/device-pane";
+  import { pickerDevices, unavailablePlatforms } from "./lib/device-pane";
 
   /**
-   * Installed devices that can be added to this session, grouped by device
-   * host. Device identities come from the host; viewport presets do not
-   * apply here.
+   * Installed simulators and emulators, grouped by device host. One already
+   * open in this session goes to its tab. Device identities come from the
+   * host; viewport presets do not apply here.
    */
 
   interface Props {
@@ -20,11 +20,15 @@
     sessionId: string;
     opening: string | null;
     onOpen: (device: DeviceSummary) => void;
+    /** Goes to the tab of a device that is already open in this session. */
+    onSelect: (devicePreviewId: string) => void;
+    /** Opens Device setup, where a missing platform is fixed. */
+    onSetup: () => void;
     /** Set when a device is already open behind this: leaving has to be possible. */
     onCancel?: (() => void) | undefined;
   }
 
-  let { serverId, deviceState, sessionId, opening, onOpen, onCancel }: Props = $props();
+  let { serverId, deviceState, sessionId, opening, onOpen, onSelect, onSetup, onCancel }: Props = $props();
 
   // The host snapshot lists only devices found so far; a restarted host has
   // found none. Discover before saying there are none.
@@ -43,8 +47,8 @@
     untrack(discover);
   });
 
-  const groups = $derived(addableDevices(deviceState, sessionId));
-  const reasons = $derived(unavailablePlatformReasons(deviceState));
+  const groups = $derived(pickerDevices(deviceState, sessionId));
+  const unavailable = $derived(unavailablePlatforms(deviceState));
   const connected = $derived(deviceState?.devices.filter((device) => device.physical).length ?? 0);
   const running = $derived(devicesStore.runningVirtualDevices(serverId));
   const isStopping = $derived(devicesStore.isStoppingFromList(serverId));
@@ -118,14 +122,16 @@
           {#each groups as group (group.deviceHostId)}
             <section class="flex flex-col gap-1" aria-label={group.label}>
               {#if groups.length > 1}<p class="px-1 text-(--solus-text-tertiary)">{group.label}</p>{/if}
-              {#each group.devices as device (device.deviceId)}
+              {#each group.devices as entry (entry.device.deviceId)}
+                {@const device = entry.device}
+                {@const devicePreviewId = entry.devicePreviewId}
                 {@const key = `${device.deviceHostId}:${device.deviceId}`}
                 <div class="flex min-w-0 items-center rounded-md border border-(--solus-container-border)">
                   <button
                     type="button"
                     class="flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md px-3 py-2 text-left transition-colors hover:bg-(--solus-surface-hover) disabled:hover:bg-transparent"
                     disabled={opening !== null || isStopping}
-                    onclick={() => onOpen(device)}
+                    onclick={() => (devicePreviewId ? onSelect(devicePreviewId) : onOpen(device))}
                   >
                     {#if device.platform === "ios"}
                       <AppleLogoIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
@@ -138,7 +144,11 @@
                       <span class="shrink-0 text-(--solus-text-tertiary)">Opening…</span>
                     {:else}
                       {#if device.booted}<span class="size-1.5 shrink-0 rounded-full bg-[var(--success)]" title="Running"></span><span class="sr-only">running</span>{/if}
-                      <span class="shrink-0 text-(--solus-text-tertiary) tabular-nums">{device.version}</span>
+                      {#if devicePreviewId}
+                        <span class="shrink-0 text-(--solus-text-tertiary)">Open</span>
+                      {:else}
+                        <span class="shrink-0 text-(--solus-text-tertiary) tabular-nums">{device.version}</span>
+                      {/if}
                     {/if}
                   </button>
                   {#if device.booted}
@@ -174,22 +184,31 @@
         </ul>
       {:else}
         <p class="text-(--solus-text-tertiary)" role="status">
-          {#if discoveryError}
-            {discoveryError}
-          {:else if deviceState?.devices.some((device) => !device.physical)}
-            Every device is already open in this session.
-          {:else}
-            No simulators or emulators were found.
-          {/if}
+          {discoveryError ?? "No simulators or emulators found."}
         </p>
       {/if}
 
-      {#if connected > 0}
-        <p class="mt-3 text-(--solus-text-tertiary)">{connected} connected device{connected === 1 ? "" : "s"}. Install builds on {connected === 1 ? "it" : "them"} from Run app.</p>
+      <!-- One quiet line: phones take builds from Builds, and a missing
+           platform names its fix in a tooltip and opens Device setup. -->
+      {#if connected > 0 || unavailable.length}
+        <p class="mt-3 flex flex-wrap items-center gap-x-1.5 text-(--solus-text-tertiary)">
+          {#if connected > 0}<span>{connected} connected device{connected === 1 ? "" : "s"}</span>{/if}
+          {#each unavailable as entry, index (entry.platform)}
+            {#if connected > 0 || index > 0}<span aria-hidden="true">·</span>{/if}
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props })}
+                  <button {...props} type="button" class="rounded-sm underline decoration-dotted underline-offset-2 transition-colors hover:text-(--solus-text-primary)"
+                    aria-label={`${entry.platform} unavailable: ${entry.reason} Open device setup.`} onclick={onSetup}>
+                    {entry.platform} unavailable
+                  </button>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content side="bottom" value={entry.reason} />
+            </TooltipUI.Root>
+          {/each}
+        </p>
       {/if}
-      {#each reasons as reason (reason)}
-        <p class="mt-1 text-(--solus-text-tertiary)">{reason}</p>
-      {/each}
     </div>
   </div>
 </div>

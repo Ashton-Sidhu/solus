@@ -1,5 +1,5 @@
 import type { HostReadiness, SetupAgent } from '@solus/contracts/types'
-import type { SeatProvider } from '@solus/contracts/seats'
+import { SETUP_AGENT_SEAT_PROVIDERS, type SeatProvider } from '@solus/contracts/seats'
 import { hasGithubCliScopes } from '@solus/contracts/github-auth'
 
 export type OnboardingStepId =
@@ -36,11 +36,9 @@ export interface OnboardingStep {
  * always listed: one is enough to take a session, and the others have to stay
  * one click away rather than disappearing because the host arrived with a CLI.
  */
-const SEAT_PROVIDERS = { claude: 'claude-code', codex: 'codex', agy: 'antigravity' } as const satisfies Record<SetupAgent, SeatProvider>
-
 /** The wizard names agents by their setup id; the seat contract by provider id. */
 export function seatProviderFor(agent: SetupAgent): SeatProvider {
-  return SEAT_PROVIDERS[agent]
+  return SETUP_AGENT_SEAT_PROVIDERS[agent]
 }
 
 export const SETUP_PROVIDERS: Array<{ id: SetupAgent; label: string }> = [

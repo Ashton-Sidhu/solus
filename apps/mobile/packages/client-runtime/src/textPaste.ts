@@ -1,4 +1,6 @@
 export const PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES = 32 * 1024;
+/** Solus: a paste with this many line breaks is attached too, whatever its size. */
+export const PASTED_TEXT_ATTACHMENT_THRESHOLD_LINE_BREAKS = 100;
 
 const textEncoder = new TextEncoder();
 
@@ -38,10 +40,19 @@ export function pastedTextDisposition(input: {
     return "inline";
   }
   return input.wouldExceedInputLimit ||
+    hasLineBreaks(input.text, PASTED_TEXT_ATTACHMENT_THRESHOLD_LINE_BREAKS) ||
     input.text.length >= PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES ||
     textEncoder.encode(input.text).byteLength >= PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES
     ? "attachment"
     : "inline";
+}
+
+function hasLineBreaks(text: string, count: number): boolean {
+  let found = 0;
+  for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) {
+    if (++found >= count) return true;
+  }
+  return false;
 }
 
 export function nextPastedTextFileName(existingNames: ReadonlyArray<string>): string {

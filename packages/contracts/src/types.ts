@@ -2727,6 +2727,10 @@ export interface AgentUsageLimits {
   /** A monthly spend cap, for an account that has no 5h or weekly window
    *  (a Claude Enterprise seat). The provider gives no reset time for it. */
   monthly?: UsageWindow | null
+  /** Claude only: the weekly window of the Fable models, which Claude counts
+   *  apart from the all-models week. For display only; `weekly` drives turn
+   *  admission. */
+  fableWeekly?: UsageWindow | null
   planType: string | null
   /** API-key sessions use metered API billing, not subscription quota windows.
    *  `signed_out`: the agent has no login, so there is no quota until the user

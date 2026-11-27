@@ -57,18 +57,16 @@ export default function InlineReviewGuide({ draft }: { draft: Draft }) {
     </View>
   );
   return (
-    <View className="my-2 gap-2 rounded-2xl border border-border-subtle bg-card p-4">
-      <InlinePreviewFrame
-        title={guide.title}
-        heading={<AppText accessibilityRole="header" className="text-lg leading-6 font-t3-semibold">{guide.title}</AppText>}
-        expandedContent={() => (
-          <ScrollView contentContainerStyle={{ padding: 16 }}>
-            <View className="mx-auto w-full max-w-[760px]">{content(false)}</View>
-          </ScrollView>
-        )}
-      >
-        <View className="mt-2">{content(true)}</View>
-      </InlinePreviewFrame>
-    </View>
+    <InlinePreviewFrame
+      title={guide.title}
+      heading={<AppText accessibilityRole="header" className="text-lg leading-6 font-t3-semibold">{guide.title}</AppText>}
+      expandedContent={() => (
+        <ScrollView contentContainerStyle={{ padding: 16 }}>
+          <View className="mx-auto w-full max-w-[760px]">{content(false)}</View>
+        </ScrollView>
+      )}
+    >
+      <View className="mt-2">{content(true)}</View>
+    </InlinePreviewFrame>
   );
 }

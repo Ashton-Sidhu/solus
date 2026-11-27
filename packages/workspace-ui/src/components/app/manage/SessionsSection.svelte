@@ -11,6 +11,7 @@
   import { providerMark } from "../../insights/lib/provider";
   import AppSessionCard from "./AppSessionCard.svelte";
   import ManageSectionState from "./ManageSectionState.svelte";
+  import { SESSIONS_EMPTY } from "./lib/section-empty";
   import { appSessionRun, replyToAppSession, startAppSession } from "./lib/app-session-actions";
   import { adjacentAppSession, appSessionGroups, selectedAppSession } from "./lib/app-sessions";
 
@@ -91,11 +92,13 @@
   }
 </script>
 
-{#if sessions === undefined}
+{#if sessions === undefined || (sessions.length === 0 && !isStartingNew)}
   <ManageSectionState
-    count={undefined}
+    {serverId}
+    {app}
+    count={sessions?.length}
     error={appsStore.sessions.errorFor(serverId, app.id)}
-    empty=""
+    empty={{ ...SESSIONS_EMPTY, actions: [{ label: "Start a session", run: () => (isStartingNew = true) }] }}
     onRetry={() => void appsStore.sessions.load(serverId, app.id)}
   >
     {#snippet children()}{/snippet}

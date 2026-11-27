@@ -7,6 +7,7 @@
   import { Switch } from "../../../ui/switch";
   import { appTime, scheduleTriggerText } from "../../lib/app-view";
   import { nextScheduleRun, scheduleNextText } from "../lib/overview";
+  import StateIcon from "../StateIcon.svelte";
 
   /**
    * The right column under the last 24 hours, a plain list of facts: the live
@@ -97,7 +98,10 @@
           onclick={() => onSelectSection("schedules")}
           data-testid="app-overview-schedule"
         >
-          <span class="min-w-0 truncate {schedule.lastOutcome === 'failed' ? 'text-(--failure)' : 'text-foreground'}">{schedule.name}</span>
+          <span class="flex min-w-0 items-center gap-2">
+            {#if schedule.lastOutcome === "failed"}<StateIcon state="failed" size={14} />{/if}
+            <span class="min-w-0 truncate text-foreground">{schedule.name}</span>
+          </span>
           <span class="shrink-0 tabular-nums text-(--solus-text-tertiary)">{scheduleNextText(schedule)}</span>
         </button>
       {/each}

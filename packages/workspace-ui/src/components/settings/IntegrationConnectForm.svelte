@@ -22,6 +22,7 @@
   import { Input } from "../ui/input";
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import McpCommandValues from "./McpCommandValues.svelte";
+  import McpBasicCredentialsForm from "./McpBasicCredentialsForm.svelte";
   import { mcpStore } from "../../contexts/mcp";
   import { connectionStatusText, IntegrationLabels } from "./lib/integration-labels";
 
@@ -45,6 +46,7 @@
   const isOffline = $derived(!!hostState?.isDisconnected);
   const integration = $derived(hostState?.integrations?.find((item) => item.id === integrationId) ?? null);
   const valueNames = $derived(integration ? new IntegrationLabels(integration).valueNames : []);
+  const takesUsernameAndPassword = $derived(integration ? new IntegrationLabels(integration).takesUsernameAndPassword : false);
   const valuesText = $derived(valueNames.length > 0 ? commandValuesText(valueNames, connection) : null);
   const status = $derived(valuesText
     ? { text: valuesText.text, detail: valuesText.detail, action: valuesText.hasValues ? "Disconnect" as const : "Connect" as const }
@@ -80,6 +82,13 @@
     value = "";
     if (!(await mcpStore.integrations.submit(serverId, integrationId, submitted))) value = submitted;
     await focusNextControl();
+  }
+
+  /** A user name and a password, encoded by their form, go as the key. */
+  async function submitKey(key: string): Promise<boolean> {
+    const isSaved = await mcpStore.integrations.submit(serverId, integrationId, key);
+    await focusNextControl();
+    return isSaved;
   }
 
   /** The values leave this form in the call that saves them. */
@@ -122,7 +131,7 @@
 
 {#snippet fieldForm(label: string, fieldId: string, type: "text" | "password", error: string | undefined)}
   <form class="flex flex-col gap-1.5" onsubmit={submit}>
-    <label for={fieldId} class="text-workspace-chrome font-medium text-foreground">{label}</label>
+    <label for={fieldId} class={compact ? "text-transcript-meta text-(--muted-foreground)" : "text-workspace-chrome font-medium text-foreground"}>{label}</label>
     <div class="flex flex-wrap items-center gap-2">
       <Input id={fieldId} {type} bind:value class="h-8 min-w-0 flex-1 text-workspace-chrome" autocomplete="off" spellcheck={false} dictation={false}
         disabled={isOffline} aria-invalid={error ? true : undefined} aria-describedby={error ? `${fieldId}-error` : undefined} onkeydown={onFieldKeydown} />
@@ -202,6 +211,8 @@
     {#if flow.input === "redirect-url"}
       {@render fieldForm("Paste the address of the page you landed on", `integration-redirect-${integrationId}`, "text", flow.error)}
     {/if}
+  {:else if flow?.kind === "token" && takesUsernameAndPassword}
+    <McpBasicCredentialsForm idPrefix="integration-basic-{integrationId}" error={flow.error} disabled={isOffline} {compact} onsubmit={submitKey} oncancel={cancel} />
   {:else if flow?.kind === "token"}
     {@render fieldForm("API key", `integration-key-${integrationId}`, "password", flow.error)}
   {:else if flow?.kind === "values"}
@@ -211,7 +222,7 @@
     <form class="flex flex-col gap-2.5" onsubmit={(event) => submitValues(event, names)} onkeydown={onFieldKeydown}>
       <McpCommandValues {names} values={valueDrafts} hasSaved={!!valuesText?.hasValues} idPrefix="integration-values-{integrationId}" disabled={isOffline} autofocus />
       <p class="text-chrome-dense text-(--solus-text-secondary)">The values stay on this host for you alone. Agents never see them, and Solus never shows them again.</p>
-      <div class="flex flex-wrap items-center gap-2 {compact ? 'justify-end' : ''}">
+      <div class="flex flex-wrap items-center gap-2">
         {#if compact}
           {@render ghostAction("Cancel", cancel)}
           <TranscriptCardAction kind="filled" type="submit" disabled={isOffline}>Save values</TranscriptCardAction>

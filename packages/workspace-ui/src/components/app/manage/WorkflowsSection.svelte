@@ -1,14 +1,17 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { CircleStop as TerminateIcon, RotateCw as RetryIcon } from "@lucide/svelte";
+  import { ChevronDown as CaretDownIcon, CircleDashed as StateFilterIcon, CircleStop as TerminateIcon, RotateCw as RetryIcon } from "@lucide/svelte";
   import type { AppRunState, AppState, AppSummary } from "@solus/contracts/apps";
   import { appsStore } from "../../../contexts/apps/apps.store.svelte";
   import { requestInputFocus } from "../../../lib/inputFocus";
   import { messageTimestampClock } from "../../../lib/shared-clock";
   import { toasts } from "../../../lib/toasts";
   import { Button } from "../../ui/button";
-  import SettingsSelect from "../../settings/SettingsSelect.svelte";
+  import * as DropdownMenu from "../../ui/dropdown-menu";
+  import { FILTER_CHIP, FILTER_CHIP_OFF, FILTER_CHIP_ON } from "../../ui/list-page/filter-styles";
+  import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
   import ManageSectionState from "./ManageSectionState.svelte";
+  import { workflowsEmpty } from "./lib/section-empty";
   import PickerPill from "./PickerPill.svelte";
   import RunDetail from "./RunDetail.svelte";
   import StateIcon from "./StateIcon.svelte";
@@ -21,7 +24,7 @@
    * workflow and the run, and holds Terminate and Retry. The run shows as a
    * graph in the section's one card, with its selected step beside it and
    * its timeline under it. The runs of every workflow are a plain list under
-   * that, with a filter on the state.
+   * that, with the state filter as a chip of the list pages' filter band.
    */
   interface Props {
     serverId: string;
@@ -34,6 +37,7 @@
 
   let stateFilter = $state<AppRunState | "">(untrack(() => appsStore.runs.queryFor(serverId, app.id).state ?? ""));
   let chosenWorkflow = $state<string | null>(null);
+  const stateFilterLabel = $derived(RUN_STATE_CHOICES.find((choice) => choice.value === stateFilter)?.label ?? "All states");
 
   $effect(() => {
     const hostId = serverId;
@@ -120,7 +124,7 @@
 {#snippet runValue()}
   {#if run}
     <span class="min-w-0 truncate font-mono text-[13px] font-medium text-foreground">{shortRunId(run.id)}</span>
-    <span class="shrink-0 {run.state === 'failed' ? 'text-(--failure)' : 'text-(--solus-text-secondary)'}">{runStateLabel(run.state)}</span>
+    <StateIcon state={runState(run.state)} label={runStateLabel(run.state)} size={14} />
     <span class="shrink-0 truncate text-(--solus-text-tertiary) @max-[40rem]/pane:hidden">· {appTime(run.startedAt, now)}</span>
   {:else}
     <span class="min-w-0 truncate text-(--solus-text-secondary)">{shownRunId ? shortRunId(shownRunId) : "No run"}</span>
@@ -160,10 +164,14 @@
     <RunDetail {serverId} appId={app.id} {run} {lastGood} {webhooks} {now} />
   {:else if shownRunId}
     {#if runError}
-      <div class="flex flex-wrap items-center gap-2" role="alert">
-        <span class="text-sm text-destructive">{runError}</span>
-        <Button size="xs" variant="outline" onclick={() => void appsStore.runDetail.load(serverId, app.id, shownRunId)}>Try again</Button>
-      </div>
+      <MarkdownAlert alertType="error">
+        {#snippet content()}
+          <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+            <p class="m-0 min-w-0 flex-1 text-pretty text-foreground" role="alert">{runError}</p>
+            <Button size="xs" variant="link" class="h-auto px-0 text-sm" onclick={() => void appsStore.runDetail.load(serverId, app.id, shownRunId)}>Try again</Button>
+          </div>
+        {/snippet}
+      </MarkdownAlert>
     {:else if isMissing}
       <p class="m-0 text-sm text-muted-foreground">The host no longer keeps this run.</p>
     {:else}
@@ -174,12 +182,37 @@
   <section class="flex min-w-0 flex-col gap-2 pt-4" aria-label="Runs" data-testid="app-runs">
     <div class="flex min-w-0 items-center gap-3 px-1">
       <h3 class="m-0 min-w-0 flex-1 text-[15px] font-semibold text-foreground">Runs</h3>
-      <SettingsSelect compact ariaLabel="Run state" options={RUN_STATE_CHOICES} value={stateFilter} onSelect={(next) => (stateFilter = next)} />
+      <DropdownMenu.Root onOpenChange={(isOpen) => !isOpen && requestInputFocus()}>
+        <DropdownMenu.Trigger>
+          {#snippet child({ props })}
+            <button
+              {...props}
+              type="button"
+              class="{FILTER_CHIP} {stateFilter ? FILTER_CHIP_ON : FILTER_CHIP_OFF} text-workspace-chrome focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+              aria-label="Run state: {stateFilterLabel}"
+              data-testid="app-runs-state-filter"
+            >
+              <StateFilterIcon size={14} class="shrink-0 opacity-75" aria-hidden="true" />
+              <span>{stateFilterLabel}</span>
+              <CaretDownIcon size={9} class="shrink-0 opacity-60" aria-hidden="true" />
+            </button>
+          {/snippet}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[190px]">
+          <DropdownMenu.RadioGroup value={stateFilter}>
+            {#each RUN_STATE_CHOICES as choice (choice.value)}
+              <DropdownMenu.RadioItem value={choice.value} onSelect={() => (stateFilter = choice.value)}>{choice.label}</DropdownMenu.RadioItem>
+            {/each}
+          </DropdownMenu.RadioGroup>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
     </div>
     <ManageSectionState
       count={runs?.length}
       error={appsStore.runs.errorFor(serverId, app.id)}
-      empty={stateFilter ? "No run is in this state." : declared.length > 0 || !appState ? "No workflow of this app ran yet." : "This app declares no workflow."}
+      {serverId}
+      {app}
+      empty={workflowsEmpty(stateFilter !== "", declared.length > 0 || !appState, () => (stateFilter = ""))}
       onRetry={() => void appsStore.runs.load(serverId, app.id)}
     >
       <ul class="m-0 flex list-none flex-col p-0">
@@ -193,7 +226,7 @@
               data-testid="app-run-row"
               onclick={() => openRunRow(entry.id, entry.workflow)}
             >
-              <StateIcon state={runState(entry.state)} />
+              <StateIcon state={runState(entry.state)} label={runStateLabel(entry.state)} />
               <span class="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span class="flex min-w-0 items-center gap-2">
                   <span class="truncate text-sm font-medium text-foreground">{entry.workflow}</span>
@@ -203,7 +236,7 @@
                   {/if}
                 </span>
                 <span class="truncate text-[13px] text-(--solus-text-secondary)">
-                  <span class={entry.state === "failed" ? "text-(--failure)" : ""}>{runStateLabel(entry.state)}</span>{#if entry.dismissedAt !== null} · Dismissed{/if} · {entry.stepCount === 1 ? "1 step" : `${entry.stepCount} steps`}{#if entry.state === "sleeping" && entry.wakeAt !== null} · wakes {appTime(entry.wakeAt, now)}{/if}{#if entry.error}<span class="text-(--failure)" title={entry.error}> · {entry.error}</span>{/if}
+                  {entry.stepCount === 1 ? "1 step" : `${entry.stepCount} steps`}{#if entry.dismissedAt !== null} · Dismissed{/if}{#if entry.state === "sleeping" && entry.wakeAt !== null} · wakes {appTime(entry.wakeAt, now)}{/if}{#if entry.error}<span title={entry.error}> · {entry.error}</span>{/if}
                 </span>
               </span>
               <span class="shrink-0 text-xs text-(--solus-text-tertiary) tabular-nums" title={new Date(entry.startedAt).toLocaleString()}>{appTime(entry.startedAt, now)}</span>

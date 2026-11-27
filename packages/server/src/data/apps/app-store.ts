@@ -502,8 +502,14 @@ function containsPattern(text: string): string {
 // The log lines and the caller are JSON text; the host keeps at most 2,000 calls of an app, so a scan is cheap.
 const callText = sql`LOWER(operation || ' ' || caller || ' ' || COALESCE(error, '') || ' ' || COALESCE(input, '') || ' ' || logs)`
 
-/** One term of a query as SQL. A version that is not a whole number matches no call. */
+/** One term of a query as SQL; a term with `not` matches every call the term does not. A call with no run is not in the run, so NULL counts as no match. */
 function termSql(term: AppCallTerm): SQL {
+  const match = matchSql(term)
+  return term.not ? sql`NOT COALESCE((${match}), 0)` : match
+}
+
+/** What a term finds. A version that is not a whole number matches no call. */
+function matchSql(term: AppCallTerm): SQL {
   const value = term.value.trim()
   switch (term.field) {
     case 'operation': return sql`LOWER(operation) = ${value.toLowerCase()}`

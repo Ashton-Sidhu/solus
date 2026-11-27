@@ -4,6 +4,7 @@ import { hostNoticeKind, watchNotification } from "@solus/client-core/host-notic
 import { applyOrchestrationV2ProjectionEvent } from "@t3tools/client-runtime/state/orchestration-v2-projection";
 import { sessionSubagent, type AgentFeedContext } from "./session-subagent";
 import type { ReactNode } from "react";
+import { secretReceiptRows, secretReceiptText } from "@solus/contracts/secret-request";
 import { mcpAppLiveToolName } from "@solus/contracts/mcp-apps";
 import { viewedImagePath } from "@solus/client-core/viewed-workspace-image";
 import {
@@ -40,12 +41,11 @@ import { HTML_RENDER_TOOL_NAME } from "@t3tools/shared/htmlRender";
 const empty = [] as const;
 type Tool = Extract<TranscriptItem, { kind: "tool" }>;
 
-function needsToolCard(item: Tool): boolean {
-  if (item.images?.length || item.audio?.length || item.leftOut?.length ||
-      item.secretOutcomes?.length || mcpAppLiveToolName(item.toolName)) return true;
+function hasInlineToolResult(item: Tool): boolean {
+  if (item.images?.length || item.audio?.length || item.progress?.message) return true;
   if (!item.children) return false;
   for (const child of item.children.items.values()) {
-    if (child.kind === "tool" && needsToolCard(child)) return true;
+    if (child.kind === "tool" && hasInlineToolResult(child)) return true;
   }
   return false;
 }
@@ -55,6 +55,8 @@ function needsToolCard(item: Tool): boolean {
 function toolReply(item: Tool): string | null {
   const lines: string[] = [];
   if (item.errorHead) lines.push(item.errorHead);
+  if (item.secretOutcomes?.length) lines.push(secretReceiptText(secretReceiptRows(item.secretOutcomes, item.input ?? undefined)));
+  if (item.leftOut) lines.push(...item.leftOut);
   for (const id of item.children?.order ?? empty) {
     const child = item.children?.items.get(id);
     if (child?.kind === "assistant" || child?.kind === "user" || child?.kind === "notice") lines.push(child.text);
@@ -141,6 +143,7 @@ export function conversationFeed(
   resolveImagePath: (path: string, refresh?: boolean) => Promise<string>,
   readToolInput: (key: string) => Promise<string>,
   agents: AgentFeedContext,
+  isLiveAppHeld?: (toolUseId: string) => boolean,
 ) {
   type Item = NonNullable<ReturnType<ConversationStore["item"]>>;
   const cache = new WeakMap<
@@ -231,11 +234,9 @@ export function conversationFeed(
       subagentByItem.set(projected, agent);
       return [{ sourceItemId, sourceThreadId: threadId, position: 0, visibility: "local", item: projected }];
     }
-    const viewedImage =
-      item.kind === "tool" ? item.viewedImagePath ?? viewedImagePath(item.toolName, item.input, item.status) : undefined;
     // Ordinary calls use the same activity projection and disclosures as T3.
-    // Calls with Solus resources keep their interactive card.
-    if (item.kind === "tool" && !needsToolCard(item)) {
+    if (item.kind === "tool") {
+      const viewedImage = item.viewedImagePath ?? viewedImagePath(item.toolName, item.input, item.status);
       const time = DateTime.makeUnsafe(date && createdAt ? date : 0);
       const base = {
         id: TurnItemId.make(key),
@@ -260,7 +261,7 @@ export function conversationFeed(
       const projected = toolItem(item.input, saved?.type === "command_execution" || saved?.type === "dynamic_tool" ? saved : undefined);
       const detailKey = item.toolInputKey;
       let detail: Promise<OrchestrationV2TurnItem> | undefined;
-      const loadHostDetail = detailKey || item.report || item.childCount
+      const loadHostDetail = detailKey || item.report || item.childCount || item.leftOut?.length || item.secretOutcomes?.length
         ? () => detail ??= (detailKey ? readToolInput(detailKey) : Promise.resolve(item.input))
             .then(input => toolItem(input, undefined, toolReply(item)))
             .catch(error => {
@@ -268,7 +269,7 @@ export function conversationFeed(
               throw error;
             })
         : undefined;
-      return [
+      const rows: ThreadFeedSourceRow[] = [
         {
           item: projected,
           sourceItemId: base.id,
@@ -279,37 +280,28 @@ export function conversationFeed(
           hostTool: {
             hasDetail: !!(item.input?.trim() || item.errorHead),
             ...(loadHostDetail && { load: loadHostDetail }),
+            ...(hasInlineToolResult(item) && { renderResult: () => renderCard(key) }),
           },
         },
       ];
+      // On completion only a mounted app needs the live row for the handoff.
+      if (mcpAppLiveToolName(item.toolName) && (item.status === "running" || isLiveAppHeld?.(item.toolId))) {
+        rows.push({ hostEntries: [{
+          type: "conversation-card", id: key + ":app", runId: null, createdAt,
+          render: () => renderCard(key, true),
+        }] });
+      }
+      return rows;
     }
     const card: RawThreadFeedEntry = {
       type: "conversation-card",
       id: key,
       createdAt,
       runId: leadingRun,
-      ...(item.kind === "tool" && { toolStatus: item.status }),
-      ...(viewedImage && { viewedImagePath: viewedImage }),
       render: () => renderCard(key),
     };
     if (item.kind !== "user" && item.kind !== "assistant") {
-      return [
-        {
-          hostEntries:
-            item.kind === "tool" && mcpAppLiveToolName(item.toolName)
-              ? [
-                  card,
-                  {
-                    type: "conversation-card",
-                    id: key + ":app",
-                    runId: null,
-                    createdAt,
-                    render: () => renderCard(key, true),
-                  },
-                ]
-              : [card],
-        },
-      ];
+      return [{ hostEntries: [card] }];
     }
     const time = DateTime.makeUnsafe(date && createdAt ? date : 0);
     const streaming = item.kind === "assistant" && item.streaming === true;
@@ -481,6 +473,7 @@ export function conversationFeed(
               item.errorHead === before.errorHead &&
               item.images === before.images &&
               item.audio === before.audio &&
+              !!item.progress?.message === !!before.progress?.message &&
               item.leftOut === before.leftOut &&
               item.secretOutcomes === before.secretOutcomes &&
               (item.subagent || (!item.children && !before.children)) &&

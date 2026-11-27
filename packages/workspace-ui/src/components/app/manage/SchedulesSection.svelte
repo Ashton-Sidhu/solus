@@ -6,6 +6,7 @@
   import { messageTimestampClock } from "../../../lib/shared-clock";
   import { toasts } from "../../../lib/toasts";
   import ManageSectionState from "./ManageSectionState.svelte";
+  import { SCHEDULES_EMPTY } from "./lib/section-empty";
   import ScheduleCalendar from "./ScheduleCalendar.svelte";
   import ScheduleDetail from "./ScheduleDetail.svelte";
   import { calendarEdges, sameEdges, shiftAnchor, type CalendarView } from "./lib/schedule-calendar";
@@ -81,7 +82,9 @@
 <ManageSectionState
   count={schedules?.length}
   error={appsStore.schedules.errorFor(serverId, app.id)}
-  empty="This app declares no schedule."
+  {serverId}
+  {app}
+  empty={SCHEDULES_EMPTY}
   onRetry={() => void appsStore.schedules.load(serverId, app.id)}
 >
   <div class="flex min-w-0 flex-col gap-5" data-testid="app-schedules">

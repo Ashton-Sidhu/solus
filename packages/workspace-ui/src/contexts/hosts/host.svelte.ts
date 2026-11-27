@@ -143,8 +143,8 @@ export class Host {
     this.#facts.set('voiceModel', await serverConnections.apiFor(this.id).voiceModelRetry())
   }
 
-  /** Read a fact again. With `maxAgeMs`, a recent read stays. */
-  refresh(key: HostFactKey, opts?: { maxAgeMs?: number }): Promise<void> {
+  /** Read a fact again. With `maxAgeMs`, a recent read stays. With `force`, bypasses usage cache. */
+  refresh(key: HostFactKey, opts?: { maxAgeMs?: number; force?: boolean }): Promise<void> {
     return this.#facts.refresh(key, opts)
   }
 

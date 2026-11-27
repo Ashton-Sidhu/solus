@@ -115,9 +115,33 @@ export function versionDetail(version: Pick<AppVersionView, 'message' | 'state' 
   return version.message ? `${version.message} · ${by}` : `By ${by}`
 }
 
-/** The line after the state: the version that runs and the host. "version 14 · Studio". */
-export function appVersionHostLine(app: Pick<AppSummary, 'activeVersion'>, hostLabel: string): string {
-  return [app.activeVersion === null ? 'no version' : `version ${app.activeVersion}`, hostLabel].join(' · ')
+/** The version fact of the status line: "v14", "v14 → v15" while v15 builds, or "No version". */
+export function appVersionText(app: Pick<AppSummary, 'activeVersion'>, building: { number: number } | null): string {
+  if (building) return app.activeVersion === null ? `v${building.number}` : `v${app.activeVersion} → v${building.number}`
+  return app.activeVersion === null ? 'No version' : `v${app.activeVersion}`
+}
+
+/** The memory fact of the status line: "47 MB" while the backend has a process that answered once; null otherwise. */
+export function appMemoryText(runtime: Pick<AppRuntimeView, 'running' | 'rssBytes'> | null): string | null {
+  return runtime?.running && runtime.rssBytes !== null ? formatFileSize(runtime.rssBytes) : null
+}
+
+/**
+ * The words of the app's state mark, for its tooltip and its accessible name:
+ * the state, then why. "Running · 1 call in progress", "Stopped · No operation
+ * runs and no schedule fires.". The status line shows only the mark.
+ */
+export function appStateTitle(
+  app: Pick<AppSummary, 'stopped' | 'activeVersion' | 'buildingVersion'>,
+  building: { number: number } | null,
+  runtime: AppRuntimeView | null,
+  isHostUnreachable: boolean,
+): string {
+  if (isHostUnreachable) return 'Offline · The host does not answer'
+  const state = appRunState(app)
+  // A live app with no process shows the idle mark, so its words do not say Running.
+  if (state === 'running' && !runtime?.running) return appStateText(app, building, runtime)
+  return `${appRunStateLabel(state)} · ${appStateText(app, building, runtime)}`
 }
 
 /** The schedule that runs first, of the ones that run; null when none is planned. */

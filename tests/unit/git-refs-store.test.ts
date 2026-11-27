@@ -2,7 +2,7 @@ import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import { hostKey } from '@solus/client-core/host-key'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
-import { parseBranchRefs, type BranchRef, type IpcContext, type RunConfig } from '@solus/contracts/types'
+import { parseBranchRefs, type BranchRef, type GitState, type GitStateOptions, type IpcContext, type RunConfig } from '@solus/contracts/types'
 import { dispatchTo, folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const previousWindow = globalThis.window
@@ -232,8 +232,9 @@ describe('SessionEnvironmentStore detail watches', () => {
     spyOn(Date, 'now').mockImplementation(() => now)
     let calls = 0
     const api = {
-      gitRefreshState: async () => {
-        calls += 1
+      // A checkout with no status also reads the summary once; this test counts the details reads.
+      gitRefreshState: async (_cwd: string, options?: GitStateOptions) => {
+        if (options?.includeDetails) calls += 1
         return null
       },
     }
@@ -264,5 +265,45 @@ describe('SessionEnvironmentStore detail watches', () => {
     await Bun.sleep(0)
     expect(calls).toBe(2)
     stopAfterIdle()
+  })
+
+  test('a checkout with no status shows its branch before the details read ends', async () => {
+    // WHY: the branch row shows only once the checkout has a status. A details
+    // read waits for the change counts and a pull request lookup, so a session
+    // folder that only a details watch reads showed no branch for seconds.
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    let finishDetails!: (state: GitState) => void
+    const summary: GitState = {
+      repoRoot: '/repo',
+      headSha: 'head',
+      branch: 'feature',
+      targetBranch: 'main',
+      upstreamRef: null,
+      aheadCount: 0,
+      behindCount: 0,
+      uncommittedChanges: { files: [], hasMoreFiles: false, fileCount: 0, mergeInProgress: false },
+    }
+    const api = {
+      gitRefreshState: (_cwd: string, options?: GitStateOptions) => options?.includeDetails
+        ? new Promise<GitState>((resolve) => { finishDetails = resolve })
+        : Promise.resolve(summary),
+    }
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    stubHosts({ 'host-a': api })
+
+    const stop = store.watchDetails('host-a', '/repo')
+    await Bun.sleep(0)
+    expect(store.statusFor('host-a', '/repo')?.branch).toBe('feature')
+
+    // The details answer replaces the summary, and a late summary does not undo it.
+    const branchChanges = { fileCount: 1, insertions: 2, deletions: 0 }
+    finishDetails({ ...summary, branchChanges })
+    await Bun.sleep(0)
+    expect(store.statusFor('host-a', '/repo')?.branchChanges).toEqual(branchChanges)
+    stop()
   })
 })

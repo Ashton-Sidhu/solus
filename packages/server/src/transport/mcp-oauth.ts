@@ -380,7 +380,7 @@ const SOLUS_MARK = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAA
 function page(title: string, main: string, script: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title>
 <style>
-:root{color-scheme:light dark;--page:#f9f8f4;--card:#fffffd;--fg:#2a2618;--fg2:#484538;--fg3:#7d7a6e;--hairline:#e6e3da;--border:#d2cfc5;--wash:#f1efe9;--accent:#d97757;--on-accent:#fff;--shadow:0 0 0 1px var(--hairline),0 12px 32px #2a261814}
+:root{color-scheme:light dark;--page:#f9f8f4;--card:#fffffd;--fg:#2a2618;--fg2:#484538;--fg3:#7d7a6e;--hairline:#e6e3da;--border:#d2cfc5;--wash:#f1efe9;--accent:#d97757;--on-accent:#fff;--shadow:0 1px 2px #2a26180f,0 12px 32px #2a26181a}
 @media (prefers-color-scheme:dark){:root{--page:#21201d;--card:#2a2926;--fg:#f0ede5;--fg2:#bdbab3;--fg3:#8d8a83;--hairline:#ffffff14;--border:#ffffff26;--wash:#ffffff0d;--accent:#e68e6b;--on-accent:#21201d;--shadow:0 0 0 1px var(--hairline),0 12px 32px #00000066}}
 *{box-sizing:border-box}[hidden]{display:none!important}
 body{margin:0;min-height:100vh;display:grid;place-items:center;padding:48px 16px;background:var(--page);color:var(--fg);font:14px/21px Inter,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;overflow-wrap:anywhere}
@@ -391,32 +391,29 @@ h1{margin:0;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.015
 .tile{flex-shrink:0;display:grid;place-items:center;width:40px;height:40px;border-radius:10px}
 .mark{display:block;overflow:hidden;box-shadow:0 0 0 1px var(--hairline)}.mark img{display:block;margin:-8px}
 .initial{background:var(--wash);box-shadow:0 0 0 1px var(--hairline);color:var(--fg2);font-size:17px;font-weight:600}
-dl{margin:0;border-block:1px solid var(--hairline)}
-.fact{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;padding:10px 0;font-size:13px;line-height:16px}.fact+.fact{border-top:1px solid var(--hairline)}
+dl{margin:0;display:flex;flex-direction:column;gap:6px}
+.fact{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;padding:4px 0;font-size:13px;line-height:16px}
 dt{color:var(--fg3)}dd{margin:0;text-align:right;font-weight:500}dd strong{font-weight:500}
 dd .muted{display:block;margin-top:2px;color:var(--fg3);font-weight:400;font-size:12px}
-.segments{display:inline-flex;gap:2px;padding:2px;border-radius:8px;background:var(--wash)}
-.segments label{position:relative;padding:4px 10px;border-radius:6px;color:var(--fg2);cursor:pointer}
-.segments input{position:absolute;inset:0;margin:0;opacity:0;cursor:pointer}
-.segments label:has(input:checked){background:var(--card);color:var(--fg);box-shadow:0 0 0 1px var(--hairline),0 1px 2px #2a26180f}
-.segments label:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:1px}
+.access{appearance:none;-webkit-appearance:none;padding:3px 26px 3px 9px;border:0;border-radius:6px;background:var(--wash) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237d7a6e' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 8px center;color:var(--fg);font:inherit;font-weight:500;cursor:pointer}
+.access:focus-visible{outline:2px solid var(--fg3);outline-offset:1px}
 dd.explain{flex-basis:100%;text-align:left;font-weight:400;font-size:12px;color:var(--fg3)}dd.explain span{display:none}
-dl:has([value=read]:checked) [data-access=read],dl:has([value=write]:checked) [data-access=write],dl:has([value=full]:checked) [data-access=full]{display:inline}
+dl:has(option[value=read]:checked) [data-access=read],dl:has(option[value=write]:checked) [data-access=write],dl:has(option[value=full]:checked) [data-access=full]{display:inline}
 .group,.field,#other,#inSolusWait,#check{display:flex;flex-direction:column;gap:10px}
 .field label{font-weight:600;line-height:18px}
-input[type=text]{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:8px;background:transparent;color:var(--fg);font-family:inherit;font-size:20px;line-height:24px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;outline:none}
+input[type=text]{width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:transparent;color:var(--fg);font-family:inherit;font-size:20px;line-height:24px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;outline:none}
 input[type=text]::placeholder{color:var(--fg3);opacity:.6;font-weight:500}
-input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
+input[type=text]:focus{border-color:var(--fg3);box-shadow:0 0 0 3px var(--wash)}
 .buttons{display:flex;gap:8px}
-button,a.button{display:block;padding:11px 18px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--fg2);font:inherit;font-weight:500;line-height:18px;text-align:center;text-decoration:none;cursor:pointer}
+button,a.button{display:block;padding:11px 18px;border:0;border-radius:8px;background:var(--wash);color:var(--fg);font:inherit;font-weight:500;line-height:18px;text-align:center;text-decoration:none;cursor:pointer}
 button.primary{flex:1;background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
-button:hover:not(:disabled),a.button:hover{background:var(--wash)}button.primary:hover:not(:disabled){background:color-mix(in oklab,var(--accent) 88%,#000)}
-button:disabled{opacity:.55;cursor:default}button:focus-visible,a.button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:hover:not(:disabled),a.button:hover{background:color-mix(in srgb,var(--fg) 10%,transparent)}button.primary:hover:not(:disabled){background:color-mix(in oklab,var(--accent) 88%,#000)}
+button:disabled{opacity:.55;cursor:default}button:focus-visible,a.button:focus-visible{outline:2px solid var(--fg3);outline-offset:2px}
 #other button,.field button{width:100%}
 .other-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:2px;font-size:13px;line-height:16px;color:var(--fg3)}
-button.link{width:auto;padding:0;border:0;background:none;color:var(--accent);font-weight:500;line-height:16px}button.link:hover:not(:disabled){background:none;text-decoration:underline}
-#other{gap:12px;padding-top:20px;border-top:1px solid var(--hairline)}#inSolusWait p,#check p{color:var(--fg2)}
-.code{padding:14px;border:1px dashed var(--border);border-radius:8px;text-align:center;font-size:22px;line-height:1;font-weight:600;letter-spacing:.12em}.code.large{font-size:30px;padding:18px}
+button.link{width:auto;padding:0;border:0;background:none;color:var(--fg);font-weight:500;line-height:16px;text-decoration:underline;text-underline-offset:3px}button.link:hover:not(:disabled){background:none;color:var(--fg2)}
+#other{gap:12px;padding-top:8px}#inSolusWait p,#check p{color:var(--fg2)}
+.code{padding:14px;border-radius:10px;background:var(--wash);text-align:center;font-size:22px;line-height:1;font-weight:600;letter-spacing:.12em}.code.large{font-size:30px;padding:18px}
 .qr svg{display:block;width:184px;height:184px;margin:4px auto 0;border-radius:8px}.caption{text-align:center}
 .note,.caption{font-size:13px;line-height:19px;color:var(--fg3)}
 .status{color:var(--fg2);font-size:13px;line-height:19px}.status:empty{display:none}
@@ -460,10 +457,10 @@ function consentPage(signIn: Omit<AuthorizationRequest, 'access'>, hostName: str
 <p>${app} wants to use ${escapeHtml(hostName)} as you. Only approve a sign-in you just started.</p></div>
 <dl>
 <div class="fact"><dt>Access goes to</dt><dd><strong>${escapeHtml(place.label)}</strong> <span class="muted">${place.onThisComputer ? 'On the computer that opened this page' : 'Whoever runs it gets this access.'}</span></dd></div>
-<div class="fact"><dt id="accessLabel">It can</dt><dd><div class="segments" role="radiogroup" aria-labelledby="accessLabel">
-<label><input type="radio" name="access" value="read">Read</label>
-<label><input type="radio" name="access" value="write" checked>Read and write</label>
-<label><input type="radio" name="access" value="full">Full</label></div></dd>
+<div class="fact"><dt id="accessLabel">It can</dt><dd><select class="access" id="access" name="access" aria-labelledby="accessLabel">
+<option value="read">Read</option>
+<option value="write" selected>Read and write</option>
+<option value="full">Full</option></select></dd>
 <dd class="explain"><span data-access="read">See works, projects, tasks, automations, and sessions.</span><span data-access="write">Also start sessions and change records.</span><span data-access="full">Also run tools that ask for approval in Solus.</span></dd></div>
 </dl>
 <div class="group">
@@ -495,7 +492,7 @@ const status=$('status');const target=new URL(request.redirect_uri);
 const follow=(redirect)=>{let url=null;try{url=new URL(redirect)}catch{}
 if(!url||url.protocol!==target.protocol||url.host!==target.host||url.pathname!==target.pathname){status.textContent='Solus returned an address this page will not open.';return false}
 location.replace(url.href);return true};
-const access=()=>document.querySelector('input[name=access]:checked').value;
+const access=()=>document.getElementById('access').value;
 const post=(path,data,bearer)=>fetch(path,{method:'POST',headers:bearer?{'content-type':'application/json',authorization:'Bearer '+bearer}:{'content-type':'application/json'},body:JSON.stringify(data)}).then(async(r)=>({ok:r.ok,body:await r.json()})).catch(()=>({ok:false,body:{error:'Could not reach this host. Try again.'}}));
 const go=(redirect)=>{if(follow(redirect))status.textContent='Approved. Returning to the app…'};
 const ask=$('ask');const usePairing=$('usePairing');const approveAs=$('approveAs');const inSolus=$('inSolus');const busy=new Set();let armed=false;let timer=0;

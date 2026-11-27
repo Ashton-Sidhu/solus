@@ -1,7 +1,7 @@
 /**
  * The size of a large modal that the reader resized: the session picker,
  * Settings, the folder picker, search in files. A modal opens at its own default size; the reader drags
- * its right edge, bottom edge, or corner, and this device keeps the size for
+ * any edge or corner, and this device keeps the size for
  * that kind of modal. A double-click on a handle goes back to the default.
  */
 
@@ -23,7 +23,35 @@ export type ModalSizeKey =
  *  the top grows only downward. Every resizable modal is centred horizontally. */
 export type ModalAnchor = 'center' | 'top'
 
-export type ModalEdge = 'right' | 'bottom' | 'corner'
+/** The edge or corner that the reader drags. */
+export type ModalEdge =
+  | 'top'
+  | 'right'
+  | 'bottom'
+  | 'left'
+  | 'top-left'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-right'
+
+/** Which way each handle moves its edge: +1 grows the modal when the pointer
+ *  moves right or down, -1 when it moves left or up, 0 leaves that size. */
+const EDGE_DIRECTION = {
+  top: { x: 0, y: -1 },
+  right: { x: 1, y: 0 },
+  bottom: { x: 0, y: 1 },
+  left: { x: -1, y: 0 },
+  'top-left': { x: -1, y: -1 },
+  'top-right': { x: 1, y: -1 },
+  'bottom-left': { x: -1, y: 1 },
+  'bottom-right': { x: 1, y: 1 },
+} as const satisfies Record<ModalEdge, { x: -1 | 0 | 1; y: -1 | 0 | 1 }>
+
+/** A modal pinned near the top cannot move its top edge, so it has no handles
+ *  there. */
+export function hasTopHandles(anchor: ModalAnchor): boolean {
+  return anchor === 'center'
+}
 
 export interface ModalSize {
   width: number
@@ -63,10 +91,11 @@ export function resizeModal(
   anchor: ModalAnchor,
   max: ModalSize,
 ): ModalSize {
+  const direction = EDGE_DIRECTION[edge]
   return clampModalSize(
     {
-      width: edge === 'bottom' ? start.width : start.width + delta.x * 2,
-      height: edge === 'right' ? start.height : start.height + delta.y * (anchor === 'center' ? 2 : 1),
+      width: start.width + delta.x * direction.x * 2,
+      height: start.height + delta.y * direction.y * (anchor === 'center' ? 2 : 1),
     },
     max,
   )

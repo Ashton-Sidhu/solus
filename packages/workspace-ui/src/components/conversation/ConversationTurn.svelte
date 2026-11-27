@@ -4,15 +4,16 @@
   import type { StatusCardState, TurnStartKind } from "@solus/contracts/types";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
   import type { ReplySegment } from "@solus/client-core/reply-pull-requests";
-  import { getSettingsContext, getWorkspaceContext, hosts } from "../../contexts";
+  import { getClientShellContext, getSettingsContext, getWorkspaceContext, hosts } from "../../contexts";
   import { runningServers } from "../../contexts/running-servers/running-servers.store.svelte";
   import { backgroundWorkIsServers } from "@solus/client-core/background-work";
   import { backgroundServersOf, NO_BACKGROUND_SERVERS } from "./lib/background-servers";
+  import { isSectionShown } from "../project-panel/lib/panel-items";
   import { sessionArtifactsStore } from "../../contexts/sessions/session-artifacts.store.svelte";
   import { turnReplyCards } from "./lib/turn-reply-cards";
   import { NO_BURST, type UserBurst } from "./lib/user-burst";
   import { type Turn, type GroupedItem, itemKey, needsLiveRow, shouldAnimateTurnEntry, visibleTurnBody } from "./lib/turns";
-  import { describeBackgroundWait, settledBackgroundWait } from "./lib/activity-summary";
+  import { backgroundWorkEntries, describeBackgroundWait, settledBackgroundWait } from "./lib/activity-summary";
   import BackgroundWorkRow from "./BackgroundWorkRow.svelte";
   import McpTaskRows from "./McpTaskRows.svelte";
   import ResourceWatchRows from "./ResourceWatchRows.svelte";
@@ -66,6 +67,7 @@
   const body = $derived(visibleTurnBody(turn, settings.showToolCalls));
   const items = $derived([...body, ...turn.tail]);
   const session = getWorkspaceContext();
+  const shell = getClientShellContext();
   // A pull request the turn linked and its final reply mentions shows as a
   // card in the reply; the rest stay chips at the turn's end.
   const replyCards = $derived(
@@ -255,8 +257,9 @@
 {#if hasBackgroundWork && isLastTurn && !live && !backgroundWorkIsMcpTasks && !hidesBackgroundRow}
   <BackgroundWorkRow
     wait={settledBackgroundWait(turn.body, ownSession?.backgroundTasks)}
+    entries={backgroundWorkEntries(turn.body, ownSession?.backgroundTasks)}
     serverAddresses={backgroundServers.addresses}
-    onShowServers={() => session.revealRunningServers(tabId)}
+    onShowServers={shell.hasProjectPanel && isSectionShown(settings.projectPanelHiddenItems, "servers") ? () => session.revealRunningServers(tabId) : undefined}
     onStop={onStopBackgroundWork}
   />
 {/if}

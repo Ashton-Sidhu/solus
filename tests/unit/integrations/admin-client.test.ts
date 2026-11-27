@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { OAUTH_CLIENT_REQUIRED_MESSAGE } from '@solus/contracts/integrations/oauth-protocol'
 import { SOLUS_CLIENT_ID_URL, SOLUS_CLIENT_METADATA } from '@solus/contracts/integrations/client-metadata-document'
 import { rmSync } from 'node:fs'
+import { INTEGRATION_OAUTH_LOOPBACK_URL } from '@solus/contracts/integrations/oauth-callback'
 import { join } from 'node:path'
 import { DatabaseSync } from '../helpers/bun-sqlite'
 import type { IntegrationChangedEvent } from '@solus/contracts/integration-types'
@@ -10,6 +11,7 @@ import { TEST_HANDLER_CTX } from '../helpers/handler-ctx'
 import { resetTestDatabase } from '../helpers/test-db'
 import { installTestIdentities } from '../helpers/acting-identities'
 import { startFakeServers, type FakeServers } from './fake-servers'
+import { documentNaming, freeLoopbackPort } from './loopback-port'
 import { memoryClients, memorySecretStore } from './memory-secrets'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
@@ -40,13 +42,14 @@ const START = { callbackBaseUrl: 'https://host.example', fallbackHost: '127.0.0.
 
 let fake: FakeServers
 
-function setup(fetchImpl?: typeof fetch, now?: () => number) {
+function setup(fetchImpl?: typeof fetch, now?: () => number, loopbackPort = 0) {
   const secrets = memoryClients()
   const store = new IntegrationStore()
   const events = { connectionChanged: () => undefined, authFinished: () => undefined }
   const connections = new IntegrationConnectionStore()
   const vault = new Vault({ secrets: memorySecretStore() })
-  const oauth = new IntegrationOAuth({ connections, integrations: store, vault, clients: secrets, events, fetch: fetchImpl, now })
+  // Port 0: a test never takes the fixed loopback port another test file may hold.
+  const oauth = new IntegrationOAuth({ connections, integrations: store, vault, clients: secrets, events, fetch: fetchImpl, now, loopbackPort })
   const server = new SolusServer()
   const changed: IntegrationChangedEvent[] = []
   const invalidated: string[] = []
@@ -120,11 +123,12 @@ describe('the owner\'s OAuth client', () => {
     fake.options.metadataDocument = true
     let published = false
     let clock = Date.now()
+    const port = await freeLoopbackPort()
     const fetchImpl: typeof fetch = Object.assign(async (input: string | URL | Request, init?: RequestInit) => {
-      if (String(input) === SOLUS_CLIENT_ID_URL) return published ? Response.json(SOLUS_CLIENT_METADATA) : new Response('not found', { status: 404 })
+      if (String(input) === SOLUS_CLIENT_ID_URL) return published ? Response.json(documentNaming(port)) : new Response('not found', { status: 404 })
       return fetch(input, init)
     }, { preconnect: fetch.preconnect })
-    const { store, integration, changed, server } = setup(fetchImpl, () => clock)
+    const { store, integration, changed, server } = setup(fetchImpl, () => clock, port)
     store.update(integration.id, { auth: { kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'metadata-document' } }, 'local')
     const connect = () => withActingScope(ALICE, () => server().handle('integrationConnectStart', [{ id: integration.id, callbackBaseUrl: 'http://127.0.0.1:3001' }], TEST_HANDLER_CTX))
     const list = () => server().handle('integrationList', [], TEST_HANDLER_CTX)
@@ -178,7 +182,7 @@ describe('the owner\'s OAuth client', () => {
     // WHY: the record crosses the wire; it may say a secret exists but never carry it.
     expect(updated.auth).toEqual({ kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'client-required', clientId: 'zoom-client', hasClientSecret: true })
     expect(JSON.stringify(updated)).not.toContain('zoom-secret')
-    expect([...secrets.clients.values()]).toContainEqual({ clientId: 'zoom-client', clientSecret: 'zoom-secret', tokenEndpointAuthMethod: 'client_secret_post', redirectUris: [] })
+    expect([...secrets.clients.values()]).toContainEqual({ clientId: 'zoom-client', clientSecret: 'zoom-secret', tokenEndpointAuthMethod: 'client_secret_post', redirectUris: [INTEGRATION_OAUTH_LOOPBACK_URL] })
     expect(invalidated).toContain(integration.id)
     expect(changed.at(-1)).toEqual({ integrationId: integration.id, change: 'updated' })
 
@@ -218,7 +222,7 @@ describe('the owner\'s OAuth client', () => {
     const { update, secrets, integration } = setup()
     const updated = await update({ clientId: 'public-client' })
     expect(updated.auth).toMatchObject({ clientId: 'public-client', hasClientSecret: false })
-    expect([...secrets.clients.values()]).toContainEqual({ clientId: 'public-client', tokenEndpointAuthMethod: 'none', redirectUris: [] })
+    expect([...secrets.clients.values()]).toContainEqual({ clientId: 'public-client', tokenEndpointAuthMethod: 'none', redirectUris: [INTEGRATION_OAUTH_LOOPBACK_URL] })
   })
 
   test('null removes the client from the record and the secret store', async () => {

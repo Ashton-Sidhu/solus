@@ -19,9 +19,9 @@ import { OutsideAppConnectSheet } from "./OutsideAppConnectSheet";
 import { solus } from "./runtime";
 
 /**
- * Where outside apps reach this host's `/mcp` (plans/035 §0.8): **Anywhere**, the
- * address a cloud app uses, and **Your devices**, a tailnet address, each with
- * Copy. With no address the internet reaches, Anywhere offers **Set up**, which
+ * Where outside apps reach this host's `/mcp` (plans/035 §0.8, docs/outside-apps.md):
+ * one address with Copy, the internet one that cloud apps and your devices use,
+ * else a tailnet one for your devices only. With no internet address, **Set up**
  * opens the ways to give the host one. It shows to each person who sees the apps.
  */
 export function AppAddressesSection(props: { readonly hostId: string; readonly hostName: string }) {
@@ -33,6 +33,8 @@ export function AppAddressesSection(props: { readonly hostId: string; readonly h
   useEffect(() => () => clearTimeout(copiedTimer.current), []);
   if (access.kind !== "loaded" || !showsOutsideApps(access.info)) return null;
   const reach = appReachOf(access.appEndpoint ? appAddressesOf(access.appEndpoint) : []);
+  // One address: the internet one, which your devices use too, else the tailnet one (docs/outside-apps.md).
+  const shown = reach.anywhere ?? reach.devices;
   const copy = (url: string) =>
     void Clipboard.setStringAsync(url)
       .then(() => {
@@ -46,9 +48,11 @@ export function AppAddressesSection(props: { readonly hostId: string; readonly h
       <SettingsSection
         title="Where apps reach this host"
         footer={
-          access.appEndpointError || reach.anywhere
+          access.appEndpointError
             ? undefined
-            : "Cloud apps like Claude and ChatGPT need an address on the internet."
+            : reach.anywhere
+              ? "Cloud apps like Claude and ChatGPT, and your other devices, use this address."
+              : "Cloud apps like Claude and ChatGPT need an address on the internet."
         }
       >
         {access.appEndpointError ? (
@@ -57,24 +61,21 @@ export function AppAddressesSection(props: { readonly hostId: string; readonly h
           </AppText>
         ) : (
           <>
-            {reach.anywhere ? (
+            {shown ? (
               <AddressRow
-                label="Anywhere"
-                address={reach.anywhere}
-                isCopied={copiedUrl === reach.anywhere.url}
+                line={
+                  reach.anywhere
+                    ? `Through ${appAddressSourceLabel(shown.source)}`
+                    : `Your devices only, through ${appAddressSourceLabel(shown.source)}`
+                }
+                address={shown}
+                isCopied={copiedUrl === shown.url}
                 onCopy={copy}
               />
-            ) : (
-              <SetUpRow onPress={() => setIsSettingUp(true)} />
-            )}
-            {reach.devices ? (
-              <View className="border-t border-border-subtle">
-                <AddressRow
-                  label="Your devices"
-                  address={reach.devices}
-                  isCopied={copiedUrl === reach.devices.url}
-                  onCopy={copy}
-                />
+            ) : null}
+            {!reach.anywhere ? (
+              <View className={shown ? "border-t border-border-subtle" : undefined}>
+                <SetUpRow onPress={() => setIsSettingUp(true)} />
               </View>
             ) : null}
           </>
@@ -93,7 +94,8 @@ export function AppAddressesSection(props: { readonly hostId: string; readonly h
 }
 
 function AddressRow(props: {
-  readonly label: string;
+  /** How the host gets the address, and who it reaches when that is not everyone. */
+  readonly line: string;
   readonly address: AppAddress;
   readonly isCopied: boolean;
   readonly onCopy: (url: string) => void;
@@ -104,13 +106,13 @@ function AddressRow(props: {
     <View className="min-h-14 flex-row items-center gap-3 px-4 py-3">
       <View
         accessible
-        accessibilityLabel={`${props.label}, ${source}, ${address.url}`}
+        accessibilityLabel={`${address.url}, ${props.line}`}
         className="min-w-0 flex-1 gap-0.5"
       >
-        <AppText className="text-base text-foreground">{props.label}</AppText>
-        <AppText selectable numberOfLines={1} ellipsizeMode="middle" className="text-sm text-foreground-muted">
+        <AppText selectable numberOfLines={1} ellipsizeMode="middle" className="text-base text-foreground">
           {shortAppAddress(address.url)}
         </AppText>
+        <AppText className="text-sm text-foreground-muted">{props.line}</AppText>
       </View>
       <Pressable
         accessibilityRole="button"
@@ -119,7 +121,7 @@ function AddressRow(props: {
         onPress={() => props.onCopy(address.url)}
         className="active:opacity-70"
       >
-        <AppText className="text-base text-primary-text">{props.isCopied ? "Copied" : "Copy"}</AppText>
+        <AppText className="text-base text-foreground-secondary">{props.isCopied ? "Copied" : "Copy"}</AppText>
       </Pressable>
     </View>
   );

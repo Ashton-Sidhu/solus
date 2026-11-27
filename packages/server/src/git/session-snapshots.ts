@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
-import { lstat, readlink } from 'fs/promises'
+import { copyFile, lstat, readlink, stat, utimes } from 'fs/promises'
 import { join, resolve } from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { createLogger } from '../logger'
 import { isInsideRoot } from '../paths'
-import { runAsync } from './exec'
+import { gitOutputPath, runAsync } from './exec'
 import { turnActivity } from './turn-activity'
 import { getCheckoutComparisonBase } from './worktree-manager'
 import type {
@@ -793,9 +793,36 @@ function diffFormatArgs(): string[] {
 const EMPTY_DIFF: DiffResult = { patch: '' }
 
 /**
- * Seed a throwaway index from HEAD and intent-to-add every untracked file, so a
- * single `git diff HEAD` surfaces tracked edits AND untracked files (as new
- * files with full content) without touching the user's real index. Runs in the
+ * Seed the throwaway index with a copy of the checkout's own index, so its stat
+ * cache stays: `git diff` then reads only the files that changed. An index that
+ * `read-tree` makes has no stat data, and `git diff` hashes every tracked file
+ * against it (about 1 s on a checkout of 11,000 files). The tracked files of
+ * the copy can differ from HEAD only by what is staged, and a diff against a
+ * commit compares that commit with the working tree, so the answer is the same.
+ * The copy keeps the time of the source: an entry that Git must check again
+ * because it changed while the index was written stays so. False before the
+ * first commit, or when the checkout has no index: the caller reads HEAD.
+ */
+async function copyCheckoutIndex(workTree: string, tmpIndex: string): Promise<boolean> {
+  try {
+    const [indexPath] = (await runAsync('git', ['rev-parse', '--git-path', 'index', 'HEAD'], workTree)).split('\n')
+    if (!indexPath) return false
+    const source = gitOutputPath(workTree, indexPath)
+    // Read the time first: a newer index that replaces it during the copy only makes more entries checked again.
+    const { atime, mtime } = await stat(source)
+    await copyFile(source, tmpIndex)
+    await utimes(tmpIndex, atime, mtime)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Seed a throwaway index from the checkout (`copyCheckoutIndex`), else from
+ * HEAD, and intent-to-add every untracked file, so a single `git diff HEAD`
+ * surfaces tracked edits AND untracked files (as new files with full content)
+ * without touching the user's real index. Runs in the
  * worktree's own git context so HEAD resolves to its checked-out branch. Before
  * the first commit, use an empty tree for both the index and the diff base.
  */
@@ -809,17 +836,20 @@ async function withWorkingTreeIndex<T>(
   const env: NodeJS.ProcessEnv = { GIT_INDEX_FILE: tmpIndex }
   try {
     let head = 'HEAD'
-    try {
-      await runAsync('git', ['read-tree', head], workTree, { env })
-    } catch (error) {
-      // Only an unborn branch has an empty base. A broken existing ref or an
-      // index failure must still fail instead of reporting every file as new.
-      if (!await isUnbornHead(workTree)) throw error
-      await runAsync('git', ['read-tree', '--empty'], workTree, { env })
-      // Git computes the tree ID in the repository's object format (SHA-1 or SHA-256).
-      head = await runAsync('git', ['write-tree'], workTree, { env })
+    if (!await copyCheckoutIndex(workTree, tmpIndex)) {
+      try {
+        await runAsync('git', ['read-tree', head], workTree, { env })
+      } catch (error) {
+        // Only an unborn branch has an empty base. A broken existing ref or an
+        // index failure must still fail instead of reporting every file as new.
+        if (!await isUnbornHead(workTree)) throw error
+        await runAsync('git', ['read-tree', '--empty'], workTree, { env })
+        // Git computes the tree ID in the repository's object format (SHA-1 or SHA-256).
+        head = await runAsync('git', ['write-tree'], workTree, { env })
+      }
     }
-    await runAsync('git', [...DISPOSABLE_ADD_CONFIG, 'add', '-N', '--', '.'], workTree, { env })
+    // A split index would write a new shared index into the repository.
+    await runAsync('git', [...DISPOSABLE_ADD_CONFIG, '-c', 'core.splitIndex=false', 'add', '-N', '--', '.'], workTree, { env })
     return await fn(env, head)
   } finally {
     try { unlinkSync(tmpIndex) } catch { /* best-effort */ }

@@ -117,7 +117,7 @@ export function installDesktopKeybindings(
   useKeybinding("global.new-chat", () => openChatDraft(session, "keybinding"));
   useKeybinding("global.new-session-in-task", () => {
     session.drafts.openSessionDraft({ via: "keybinding" });
-  });
+  }, { enabled: () => !!session.rootTaskIdFor(session.focusedSourceId ?? session.activeTabId) });
   // Starts a new task. The tasks page binds this id too, so this handler
   // stands down while that page is up.
   useKeybinding(

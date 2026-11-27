@@ -513,13 +513,23 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
     followThreadProvider(session, activeMember.provider)
     session.agentSessionId = activeMember.providerSessionId
   }
-
+  // The watch travels beside the page and attaches to the live runtime. Its
+  // events are held until the page is applied: a page that leaves out a
+  // running turn paints with the watch's replay of it, so the conversation
+  // opens once with that turn (docs/plans/running-turn-open.md).
+  let watching: Promise<WatchSessionResult> | undefined
+  if (session.agentSessionId) {
+    ctx.eventReducer.holdEvents(session.id)
+    watching = api.watchSession({ sessionId: session.id, attachRuntime: true })
+    void watching.catch(() => null)
+  }
 
   if (snapTab.agentSessionId || handoff) {
     const sessionId = session.id
     const provider = activeMember?.provider ?? snapshotProvider
     const tabId = snapTab.tabId
     session.loadingHistory = session.messages.length === 0
+    let isPageRead = false
     try {
       const shouldApply = () => {
         const t = ctx.tabs[tabId]
@@ -541,6 +551,9 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
           })
         : { messages: [], planIds: [], progress: null, truncated: false, before: undefined, pendingMessages: undefined }
       if (!shouldApply()) return false
+      const pageTurn = (await history?.catch(() => null))?.runningTurnStartedAt
+      const watchedEarly = pageTurn === undefined ? undefined : await watching?.catch(() => null)
+      if (!shouldApply()) return false
       const t = ctx.tabs[tabId]
       const s = t ? ctx.sessions.byId[t.sessionId] : undefined
       if (s) {
@@ -559,6 +572,8 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
         for (const planId of transcript.planIds) void ctx.planStore.hydrateAnnotations(planId)
         if (transcript.endsInRefusedLogin) ctx.offerSignInAgain(s.id, s)
       }
+      if (watchedEarly && watchedEarly.runningTurnStartedAt === pageTurn) ctx.eventReducer.releaseEvents(session.id)
+      isPageRead = true
       if (
         s &&
         snapTab.terminalFailure &&
@@ -576,6 +591,8 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
         })
       }
     } finally {
+      // A page that never came holds nothing back: the session's events apply as they are.
+      if (!isPageRead) ctx.eventReducer.releaseEvents(session.id)
       const t = ctx.tabs[tabId]
       const s = t ? ctx.sessions.byId[t.sessionId] : undefined
       if (s === session) s.loadingHistory = false
@@ -590,17 +607,11 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
     await Promise.all([environmentRefresh, taskHydration])
   })
 
-  if (session.agentSessionId) {
-    // Join the live event stream only after durable history is in memory.
-    // Otherwise an event that arrives during loadSession makes the successful
-    // history response look stale and the restored session can stay blank.
-    // The same round trip attaches to the live runtime, which a separate bind
-    // used to do after the watch. Its replay of a running turn waits until the
-    // page is known to leave out that same turn (docs/plans/running-turn-open.md).
-    ctx.eventReducer.holdEvents(session.id)
+  if (watching) {
+    // A page and a watch that name different running turns are read again in one opening read.
     let watched: WatchSessionResult
     try {
-      watched = await api.watchSession({ sessionId: session.id, attachRuntime: true })
+      watched = await watching
       const pageTurn = (await history?.catch(() => null))?.runningTurnStartedAt
       const provider = activeMember?.provider ?? snapshotProvider
       if (history && ctx.sessionFor(snapTab.tabId) === session) {

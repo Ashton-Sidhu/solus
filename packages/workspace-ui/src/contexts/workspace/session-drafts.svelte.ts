@@ -235,10 +235,11 @@ export class SessionDrafts {
   /** Go back to a draft that was written in and left — what its sidebar row
    *  does. The pane it lands in lets go of whatever draft it was holding first,
    *  on the same rule every other route change uses. */
-  openDraft(draftId: string, via: Via = 'click'): void {
-    if (!this.sessionDrafts.has(draftId)) return
+  openDraft(draftId: string, via: Via = 'click'): boolean {
+    if (!this.sessionDrafts.has(draftId)) return false
     this.releaseDraftIn(this.workspace.router.focusedPaneId, draftId)
     this.workspace.router.navigate({ name: 'draft', params: { draftId } }, { via, target: this.focusedTarget })
+    return true
   }
 
   /**
@@ -248,7 +249,8 @@ export class SessionDrafts {
   startSessionDraft(draftId: string, options: CreateTabOptions = {}): string | null {
     const draft = this.sessionDrafts.get(draftId)
     if (!draft) return null
-    const tabId = this.workspace.createSession(draft.spec, options)
+    // A link to the draft keeps opening the same conversation after Send.
+    const tabId = this.workspace.createSession(draft.spec, options, draftId)
     // The conversation keeps what the user opened beside its draft. A draft
     // sent in the background leaves its strip with the composer that stays.
     const sessionId = this.workspace.sessionFor(tabId)?.id

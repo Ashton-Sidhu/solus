@@ -134,6 +134,7 @@ export function toQuestionRequest(event: Extract<NormalizedEvent, { type: 'quest
   }
   if (event.kind) request.kind = event.kind
   if (event.hostLink) request.hostLink = event.hostLink
+  if (event.hostProviders) request.hostProviders = event.hostProviders
   if (event.cloudMachine) request.cloudMachine = event.cloudMachine
   if (event.responseMode) request.responseMode = event.responseMode
   if (event.turnAuthor) request.turnAuthor = event.turnAuthor
@@ -363,14 +364,14 @@ export function applyRuntimeConfig(session: Session, info: RuntimeSessionInfo): 
 }
 
 /**
- * The session that started this one. A local child has a `delegation` record; a
- * child that an agent on another host started has only its origin (`startedBy`,
- * docs/plans/cross-host-sessions.md §5.5). Both nest under the parent's row.
+ * The session that started this one. A local child has a `delegation` record; an
+ * independent child, and a child that an agent on another host started, have only
+ * their origin (`startedBy`, docs/plans/cross-host-sessions.md §5.5). All of them
+ * nest under the parent's row.
  */
 export function parentSessionIdOf(meta: Pick<SessionMeta, 'delegation' | 'startedBy'>): string | undefined {
   if (meta.delegation) return meta.delegation.parentSessionId
-  // A local session started without delegation (an independent one) stays top-level.
-  return meta.startedBy?.kind === 'session' && meta.startedBy.hostLabel ? meta.startedBy.sessionId : undefined
+  return meta.startedBy?.kind === 'session' ? meta.startedBy.sessionId : undefined
 }
 
 /**

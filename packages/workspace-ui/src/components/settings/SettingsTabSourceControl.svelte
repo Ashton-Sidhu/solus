@@ -313,12 +313,14 @@
   />
 </SettingsSection>
 
-<ManagedWorktreesSection
-  {serverId}
-  {api}
-  {...settingsDefinitions["source-control.managed-worktrees"]}
-  visible={isVisible("managed-worktrees")}
-/>
+{#key serverId}
+  <ManagedWorktreesSection
+    {serverId}
+    {api}
+    {...settingsDefinitions["source-control.managed-worktrees"]}
+    visible={isVisible("managed-worktrees")}
+  />
+{/key}
 
 {#if error}
   <p class="text-xs text-destructive" role="alert">{error}</p>

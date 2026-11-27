@@ -34,7 +34,6 @@ import {
   Building2 as OrganizationIcon,
 } from "@lucide/svelte";
 
-import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
 import type { ProjectSource } from "@solus/workspace-ui/components/servers/lib/open-project-flow";
 
 import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
@@ -50,8 +49,6 @@ import {
   hosts,
   sharesStore,
 } from "@solus/workspace-ui/contexts";
-import { localHostStore } from "@solus/workspace-ui/contexts/connections/local-host.store.svelte";
-import { connectionsNav } from "@solus/workspace-ui/components/connections/connections-nav.svelte";
 import { updatesStore } from "@solus/workspace-ui/contexts/updates/updates.store.svelte";
 
 import { toasts } from "@solus/workspace-ui/lib/toasts";
@@ -257,25 +254,6 @@ export function createDesktopPalette(
       keywords: ["create", "session", "tab", "chat"],
       run: () => session.drafts.openSessionDraft({ freshTask: true, via: "palette" }),
     },
-    {
-      id: "new-session-in-task",
-      label: "New session in issue",
-      group: "General",
-      icon: PlusIcon,
-      hint: comboHint("global.new-session-in-task"),
-      keywords: ["create", "session", "tab", "task"],
-      run: () => session.drafts.openSessionDraft({ via: "palette" }),
-    },
-    {
-      id: "new-session-without-task",
-      label: "New session without issue",
-      group: "General",
-      icon: PlusIcon,
-      hint: comboHint("global.new-session-without-task"),
-      keywords: ["create", "session", "tab", "no issue", "no task"],
-      run: () =>
-        session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
-    },
     newChatCommand(session),
     {
       id: "view-working-tree-diff",
@@ -310,21 +288,6 @@ export function createDesktopPalette(
     ...fleetPaletteCommands(() => session.showSettings("api-access", "palette"), (serverId) => session.router.navigate(sharingAccessRoute(serverId), { replace: false })),
     addOverSshPaletteCommand(),
     ...addWslDistroPaletteCommands(() => session.showSettings("api-access", "palette")),
-    {
-      id: "local-host",
-      label: localHostStore.isOff ? "Turn on local host" : "Turn off local host",
-      group: "Servers",
-      icon: PlugsIcon,
-      keywords: ["remote only", "this computer", "local server"],
-      // Turning it off stops work here, so that way goes through the confirmation in Settings → Hosts.
-      run: () => {
-        if (localHostStore.isOff) void localHostStore.setEnabled(true);
-        else {
-          connectionsNav.back();
-          session.showSettings("api-access", "palette");
-        }
-      },
-    },
   ];
 
   async function switchPaletteBranch(branch: string): Promise<boolean> {
@@ -452,22 +415,6 @@ export function createDesktopPalette(
     }
 
     commands.push(...switchOrganizationCommands());
-
-    for (const host of serversStore.nearbyHosts) {
-      commands.push({
-        id: `connect-host:${host.server.installationId}`,
-        label: `Connect to ${host.server.name}`,
-        group: "Servers",
-        icon: PlugsIcon,
-        keywords: [
-          "server",
-          "connect",
-          `${host.server.host}:${host.server.port}`,
-          host.server.source,
-        ],
-        run: () => hostOnboardingStore.openForDiscovered(host.server),
-      });
-    }
 
     // Always surface the parent commands so they appear the instant the palette
     // opens; their children stream in as the background loads resolve, and the

@@ -63,20 +63,20 @@
     </span>
     <span class="flex shrink-0 items-center">
       {#if isOpen && !isConnected}
-        <span class="rounded-full px-3.5 py-1.5 text-[0.8125rem] leading-4 font-medium text-(--solus-text-secondary) group-hover:bg-muted">Cancel</span>
+        <span class="inline-flex h-7 items-center rounded-[min(var(--radius-md),12px)] bg-muted px-2.5 text-sm font-medium text-(--solus-text-primary) transition-colors group-hover:bg-(--solus-surface-active)">Cancel</span>
       {:else if state === "connected"}
-        <span class="flex items-center gap-1.5 px-1 py-1.5 text-[0.8125rem] leading-4 font-medium text-(--solus-status-complete)">
+        <span class="flex items-center gap-1.5 text-sm font-medium text-(--solus-status-complete)">
           <CheckIcon size={14} strokeWidth={3} />
           Connected
         </span>
       {:else if state === "cant-reach"}
-        <span class="px-1 py-1.5 text-[0.8125rem] leading-4 font-medium text-(--solus-status-error)">Can’t reach Solus</span>
+        <span class="text-sm font-medium text-(--solus-status-error)">Can’t reach Solus</span>
       {:else if state === "needs-address"}
-        <span class="px-3.5 py-1.5 text-[0.8125rem] leading-4 font-medium text-(--solus-text-tertiary)">Needs address</span>
+        <span class="text-sm font-medium text-(--solus-text-tertiary)">Needs address</span>
       {:else if state === "not-allowed"}
-        <span class="px-3.5 py-1.5 text-[0.8125rem] leading-4 font-medium text-(--solus-text-tertiary)">Not allowed</span>
+        <span class="text-sm font-medium text-(--solus-text-tertiary)">Not allowed</span>
       {:else}
-        <span class="rounded-full bg-muted px-3.5 py-1.5 text-[0.8125rem] leading-4 font-semibold text-(--solus-text-primary) transition-colors group-hover:bg-(--solus-surface-active)">{guide ? "Connect" : "Set up"}</span>
+        <span class="inline-flex h-7 items-center rounded-[min(var(--radius-md),12px)] bg-muted px-2.5 text-sm font-medium text-(--solus-text-primary) transition-colors group-hover:bg-(--solus-surface-active)">{guide ? "Connect" : "Set up"}</span>
       {/if}
     </span>
   </button>

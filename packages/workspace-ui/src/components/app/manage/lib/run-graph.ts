@@ -1,4 +1,4 @@
-import type { AppCaller, AppRunDetail, AppStepRetryPolicy, AppStepSource, AppStepView } from '@solus/contracts/apps'
+import type { AppCaller, AppRunDetail, AppStepRetryPolicy, AppStepSource, AppStepState, AppStepView } from '@solus/contracts/apps'
 import { formatDuration } from '../../../insights/lib/format'
 import { stepKindLabel } from './runs'
 
@@ -69,6 +69,18 @@ export function triggerKindLabel(caller: AppCaller): string {
 /** "Webhook · 14:01:41": the second line of the trigger's node. */
 export function triggerDetailText(run: Pick<AppRunDetail, 'startedBy' | 'startedAt'>): string {
   return `${triggerKindLabel(run.startedBy)} · ${new Date(run.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+}
+
+const STEP_STATE_LABELS = {
+  running: 'Running',
+  done: 'Done',
+  failed: 'Failed',
+  sleeping: 'Sleeping',
+} satisfies { [State in AppStepState]: string }
+
+/** The name of a step's state, read aloud for its mark: the node itself shows no state word. */
+export function stepStateLabel(state: AppStepState): string {
+  return STEP_STATE_LABELS[state]
 }
 
 /** "3 tries failed", "1m36", "Not run": the second line of a step's node. */

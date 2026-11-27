@@ -6,6 +6,7 @@ import {
 import {
   PROJECT_PANEL_SECTIONS,
   allPanelItemsHidden,
+  isDefaultPanelHiddenItems,
   isGitActionRowShown,
   isPanelItemShown,
   isSectionShown,
@@ -15,14 +16,22 @@ import {
 
 // The project panel's choice is synced across clients of different versions.
 // It stores only what the person hid, so a new section or row shows by
-// default, and it keeps ids this client does not know, so one client never
-// erases another's.
+// default (except environment.usage, which is hidden by default now that
+// Settings → Usage exists), and it keeps ids this client does not know, so
+// one client never erases another's.
 describe('project panel items', () => {
-  test('the default shows every section and every row', () => {
+  test('the default hides environment.usage and shows every other section and row', () => {
     const hidden = DEFAULT_PERSONAL_SETTINGS.projectPanelHiddenItems
+    expect(hidden).toEqual(['environment.usage'])
+    expect(isDefaultPanelHiddenItems(hidden)).toBe(true)
+    expect(isDefaultPanelHiddenItems([])).toBe(false)
+    expect(isDefaultPanelHiddenItems(['environment.usage', 'git.discard'])).toBe(false)
+
     for (const section of PROJECT_PANEL_SECTIONS) {
       expect(isSectionShown(hidden, section.id)).toBe(true)
-      for (const row of section.rows) expect(isPanelItemShown(hidden, row.id)).toBe(true)
+      for (const row of section.rows) {
+        expect(isPanelItemShown(hidden, row.id)).toBe(row.id !== 'environment.usage')
+      }
     }
   })
 

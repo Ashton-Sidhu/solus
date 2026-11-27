@@ -1,22 +1,27 @@
 <script lang="ts">
   import { onDestroy, tick, untrack } from "svelte";
-  import { FileUp as DropIcon, Upload as UploadIcon, X as DismissIcon } from "@lucide/svelte";
+  import { FileType as TypeIcon, FileUp as DropIcon, Search as SearchIcon, Upload as UploadIcon, X as DismissIcon } from "@lucide/svelte";
   import type { AppFileView, AppSummary } from "@solus/contracts/apps";
   import { appsStore } from "../../../contexts/apps/apps.store.svelte";
   import { requestInputFocus } from "../../../lib/inputFocus";
+  import { useKeybinding } from "../../../lib/keybindings/use-keybinding.svelte";
   import { messageTimestampClock } from "../../../lib/shared-clock";
   import { copyText, toasts } from "../../../lib/toasts";
   import { formatFileSize } from "../../files/lib/non-text-file";
   import { Button } from "../../ui/button";
+  import * as DropdownMenu from "../../ui/dropdown-menu";
   import FileIcon from "../../ui/file-icon/FileIcon.svelte";
   import { MiddleTruncate } from "../../ui/middle-truncate";
   import { Progress } from "../../ui/progress";
-  import { SearchField } from "../../ui/search-field";
+  import { FILTER_SEARCH_INPUT, FILTER_SEARCH_KEYCAP, FILTER_SORT_CHIP, ListFilterGroup, ListFilterMenu } from "../../ui/list-page";
   import SortMenu from "../../ui/SortMenu.svelte";
   import AppFileInspector from "./AppFileInspector.svelte";
   import ManageSectionState from "./ManageSectionState.svelte";
+  import { FILES_EMPTY } from "./lib/section-empty";
   import { downloadFile, uploadFile, uploadPercent, uploadRefusal, uploadsHeading, type FileUpload } from "./lib/app-file-transfer";
   import {
+    activeFileFilterCount,
+    ALL_FILES,
     FILE_ORDER_OPTIONS,
     FILE_PAGE,
     fileAddedText,
@@ -24,18 +29,20 @@
     fileSourceOptions,
     fileSourceText,
     fileTypeName,
+    fileTypeOptions,
     fileTypeTile,
     visibleFiles,
+    type FileFilter,
     type FileOrder,
-    type FileSourceFilter,
   } from "./lib/app-file-list";
   import { FilePreview } from "./lib/app-file-preview.svelte";
   import { FILE_TILE_TONES } from "./lib/file-tile-styles";
 
   /**
    * The app files as a file browser (docs/plans/apps.md §4.3, §9.2): the files
-   * people uploaded and the ones the backend wrote. Figures sum them up; a
-   * search, a source, and an order narrow the plain table; the inspector beside
+   * people uploaded and the ones the backend wrote. Figures sum them up; the
+   * band of the list pages (a search, an order, and the Filters menu with the
+   * source and the type) narrows the plain table; the inspector beside
    * it previews the selected file and downloads, copies the id of, or deletes
    * it. A file dropped anywhere on the section uploads.
    */
@@ -53,12 +60,13 @@
   $effect(() => messageTimestampClock.subscribe((now) => (nowMs = now)));
 
   let query = $state("");
-  let source = $state<FileSourceFilter>("all");
+  let filter = $state<FileFilter>({ ...ALL_FILES });
   let order = $state<FileOrder>("newest");
   let shownCount = $state(FILE_PAGE);
   const figures = $derived(fileFigures(files ?? [], nowMs));
   const sourceOptions = $derived(fileSourceOptions(files ?? []));
-  const matching = $derived(visibleFiles(files ?? [], query, source, order));
+  const typeOptions = $derived(fileTypeOptions(files ?? []));
+  const matching = $derived(visibleFiles(files ?? [], query, filter, order));
   const shown = $derived(matching.slice(0, shownCount));
 
   /** The file the person chose; the first row until they choose, or when theirs is gone. */
@@ -76,6 +84,7 @@
   let copiedFileId = $state<string | null>(null);
   let fileInput = $state<HTMLInputElement | null>(null);
   let table = $state<HTMLElement | null>(null);
+  let searchInput = $state<HTMLInputElement | null>(null);
 
   // Bound to the app once, so each part of a file goes to the same app.
   function hostCall() {
@@ -153,15 +162,15 @@
     table?.querySelector<HTMLElement>(`[data-file-id="${chosenFileId}"]`)?.focus();
   }
 
-  /** The source control is one tab stop; the arrow keys choose within it. */
-  function handleSourceKeydown(event: KeyboardEvent & { currentTarget: HTMLElement }) {
-    const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-    if (delta === 0) return;
+  // "/" focuses the search, as on the list pages; Escape in the field gives the keyboard back to the table.
+  useKeybinding("app-manage.focus-search", () => searchInput?.focus(), { enabled: () => document.activeElement !== searchInput });
+
+  function handleSearchKeydown(event: KeyboardEvent) {
+    if (event.key !== "Escape") return;
     event.preventDefault();
-    const index = sourceOptions.findIndex((option) => option.value === source);
-    const next = sourceOptions[(index + delta + sourceOptions.length) % sourceOptions.length]!;
-    source = next.value;
-    event.currentTarget.querySelector<HTMLElement>(`[data-source="${next.value}"]`)?.focus();
+    event.stopPropagation();
+    if (query !== "") query = "";
+    else table?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus();
   }
 
   async function download(file: AppFileView) {
@@ -285,34 +294,38 @@
     <ManageSectionState
       count={files?.length}
       error={appsStore.files.errorFor(serverId, app.id)}
-      empty="This app holds no file."
+      {serverId}
+      {app}
+      empty={{ ...FILES_EMPTY, actions: [{ label: "Upload", run: () => fileInput?.click() }] }}
       onRetry={() => void appsStore.files.load(serverId, app.id)}
     >
       <div class="flex min-w-0 flex-col gap-5">
-        <!-- The toolbar: search, source, order. -->
-        <div class="flex min-w-0 flex-wrap items-center gap-2.5">
-          <SearchField bind:value={query} placeholder="Search files" class="h-9 max-w-75 flex-none basis-75 rounded-full px-3.5 @max-[40rem]/pane:max-w-none @max-[40rem]/pane:basis-full" />
-          <!-- svelte-ignore a11y_interactive_supports_focus -->
-          <div class="flex h-9 shrink-0 items-center gap-0.5 rounded-full bg-[var(--wash-2)] p-0.75" role="radiogroup" aria-label="Source" tabindex="-1" onkeydown={handleSourceKeydown}>
-            {#each sourceOptions as option (option.value)}
-              {@const isActive = option.value === source}
-              <button
-                type="button"
-                role="radio"
-                aria-checked={isActive}
-                tabindex={isActive ? 0 : -1}
-                data-source={option.value}
-                class="flex h-7.5 cursor-pointer items-center rounded-full border-0 px-3.5 text-[13px] whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring {isActive
-                  ? 'bg-background font-medium text-foreground shadow-[0_1px_2px_rgb(0_0_0/0.08)] dark:bg-card'
-                  : 'bg-transparent text-(--solus-text-tertiary) hover:text-foreground'}"
-                onclick={() => (source = option.value)}
-              >
-                {option.label}
-              </button>
-            {/each}
+        <!-- The narrowing band of the list pages: search, order, and the Filters menu. -->
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <div class="flex h-8 min-w-0 flex-1 basis-60 items-center gap-2 rounded-lg bg-card px-2.5 text-workspace-chrome shadow-[shadow:var(--elev-ring)] focus-within:shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent)]">
+            <SearchIcon size={16} class="shrink-0 text-muted-foreground" />
+            <input bind:this={searchInput} bind:value={query} type="text" placeholder="Search files" aria-label="Search files" class={FILTER_SEARCH_INPUT} onkeydown={handleSearchKeydown} />
+            <kbd class="{FILTER_SEARCH_KEYCAP} font-mono text-[11px] leading-none pointer-coarse:hidden" aria-hidden="true">/</kbd>
           </div>
-          <span class="min-w-0 flex-1"></span>
-          <SortMenu options={FILE_ORDER_OPTIONS} bind:value={order} ariaLabel="Order" class="h-9 rounded-full border border-border px-3.5" />
+          <SortMenu options={FILE_ORDER_OPTIONS} bind:value={order} ariaLabel="Order" class="{FILTER_SORT_CHIP} h-8 text-workspace-chrome" />
+          <div class="text-workspace-chrome">
+            <ListFilterMenu activeCount={activeFileFilterCount(filter)} onClear={() => (filter = { ...ALL_FILES })}>
+              <DropdownMenu.Label>Source</DropdownMenu.Label>
+              <DropdownMenu.RadioGroup
+                value={filter.source}
+                onValueChange={(value) => (filter.source = sourceOptions.find((option) => option.value === value)?.value ?? "all")}
+              >
+                {#each sourceOptions as option (option.value)}
+                  <DropdownMenu.RadioItem value={option.value} data-source={option.value}>
+                    <span class="min-w-0 flex-1 truncate">{option.label}</span>
+                    <span class="mr-1 tabular-nums text-muted-foreground">{option.count}</span>
+                  </DropdownMenu.RadioItem>
+                {/each}
+              </DropdownMenu.RadioGroup>
+              <DropdownMenu.Separator />
+              <ListFilterGroup label="Type" icon={TypeIcon} options={typeOptions} selected={[filter.type]} emptyLabel="Any type" onChange={([next]) => (filter.type = next ?? "all")} />
+            </ListFilterMenu>
+          </div>
         </div>
 
         <div class="flex min-w-0 items-start gap-7 @max-[52rem]/pane:flex-col">
@@ -328,13 +341,13 @@
 
             {#if shown.length === 0}
               <div class="flex flex-col items-center gap-2 px-6 py-10 text-center">
-                <p class="m-0 text-[13px] text-(--solus-text-secondary)">No file matches{query.trim() ? ` “${query.trim()}”` : " this source"}.</p>
+                <p class="m-0 text-[13px] text-(--solus-text-secondary)">No file matches{query.trim() ? ` “${query.trim()}”` : " these filters"}.</p>
                 <Button
                   size="xs"
                   variant="outline"
                   onclick={() => {
                     query = "";
-                    source = "all";
+                    filter = { ...ALL_FILES };
                   }}>Show all files</Button
                 >
               </div>
@@ -351,7 +364,7 @@
                     tabindex={isSelected ? 0 : -1}
                     data-file-id={file.id}
                     class="flex h-12 w-full min-w-0 shrink-0 cursor-pointer items-center gap-3 overflow-hidden rounded-[10px] border-0 px-3.5 text-left text-[13.5px] leading-4.5 transition-colors duration-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring {isSelected
-                      ? 'bg-[var(--wash-2)]'
+                      ? 'bg-[var(--wash-3)]'
                       : 'bg-transparent hover:bg-[var(--wash-1)]'}"
                     onclick={() => (chosenFileId = file.id)}
                     ondblclick={() => void download(file)}

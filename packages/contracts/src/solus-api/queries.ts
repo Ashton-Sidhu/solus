@@ -24,6 +24,8 @@ export const workspaceWorkSearchQuerySchema = z.strictObject({
   type: z.enum(['doc', 'slides', 'artifact']).optional(),
   limit: z.coerce.number().int().min(1).max(20).default(10),
 })
+/** The most session ids one `listSessions` request may name. */
+export const WORKSPACE_SESSION_IDS_MAX = 100
 export const workspaceSessionQuerySchema = z.strictObject({
   projectPath: z.string().max(4096).optional(),
   includeWorktrees: z.enum(['true', 'false']).optional(),
@@ -34,6 +36,9 @@ export const workspaceSessionQuerySchema = z.strictObject({
   scope: z.enum(['list', 'all', 'pinned']).default('list'),
   /** The sessions this session started. Without it, only top-level sessions are answered. */
   parentSessionId: workspaceIdSchema.optional(),
+  /** Only these sessions, by id, comma separated: one read for many known sessions. */
+  sessionIds: z.string().max(WORKSPACE_SESSION_IDS_MAX * 257).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*(,[A-Za-z0-9][A-Za-z0-9_.:-]*)*$/)
+    .refine(value => value.split(',').length <= WORKSPACE_SESSION_IDS_MAX, `At most ${WORKSPACE_SESSION_IDS_MAX} session ids.`).optional(),
   ...page,
   projectId: workspaceIdSchema.optional(),
   /** One repository's sessions on every machine that ran them, by repository key (`github.com/acme/web`; project-model §1). */

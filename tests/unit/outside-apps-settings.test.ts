@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { claudeMcpAddCommand, copiedMcpAddress, OUTSIDE_APP_ACCESS_LEVELS, DEFAULT_OUTSIDE_APP_ACCESS, outsideAppsKeywords, pairingCodeCountdown } from '@solus/workspace-ui/components/connections/lib/outside-apps'
 import { devicesWithAccess, isPhoneLabel, pairedDeviceDetail, revokeAllAppsQuestion } from '@solus/workspace-ui/components/connections/lib/paired-devices'
-import { addressHealth, appAddressTestText, isHairpinReason, preferredAppAddress, publicAddressProblem, reachRows, tailscaleCard, tailscaleWay } from '@solus/workspace-ui/components/connections/lib/app-addresses'
+import { addressHealth, appAddressTestText, hostAppAddress, isHairpinReason, shownAppAddress, preferredAppAddress, publicAddressProblem, tailscaleCard, tailscaleWay } from '@solus/workspace-ui/components/connections/lib/app-addresses'
 import type { AppAddress, TailscaleServeStatus } from '@solus/contracts/host-api'
 import { OUTSIDE_APP_GUIDES } from '@solus/contracts/outside-apps'
 
@@ -19,24 +19,16 @@ const LOCAL_ONLY = { localUrl: 'http://localhost:4810/mcp', publicUrl: null, add
 const WITH_TUNNEL = { localUrl: 'http://localhost:4810/mcp', publicUrl: SOLUS.url, addresses: [SOLUS] }
 
 describe('the MCP address', () => {
-  test('a host with no other address reaches only apps on its own computer', () => {
-    expect(reachRows(LOCAL_ONLY, 'Studio').map((row) => [row.label, row.url])).toEqual([
-      ['Anywhere', null],
-      ['Your devices', null],
-      ['This computer', 'http://localhost:4810/mcp'],
-    ])
-  })
-
-  test('Anywhere is the address a cloud app takes, and Your devices the tailnet one', () => {
-    // WHY: a cloud app must never be handed the tailnet address, and the row must show the address it will get.
-    const rows = reachRows({ localUrl: 'http://localhost:4810/mcp', addresses: [SERVE, CUSTOM, SOLUS] }, 'Studio')
-    expect(rows.map((row) => [row.place, row.url, row.source])).toEqual([
-      ['anywhere', SOLUS.url, 'solus'],
-      ['devices', SERVE.url, 'tailscale-serve'],
-      ['computer', 'http://localhost:4810/mcp', null],
-    ])
-    expect(rows.map((row) => row.setupReach)).toEqual(['internet', 'internet-or-tailnet', null])
-    expect(rows[2]?.detail).toBe('Apps on Studio')
+  test('the section shows one address: the internet one, which your devices use too, else the tailnet one', () => {
+    // WHY: a cloud app must never be handed the tailnet address, and with Funnel on a separate
+    // "Your devices · Not set up yet" row was false. One address, and its line says who it reaches.
+    expect(hostAppAddress([])).toEqual({ address: null, isDevicesOnly: false })
+    expect(hostAppAddress([SERVE, CUSTOM, SOLUS])).toEqual({ address: SOLUS, isDevicesOnly: false })
+    expect(hostAppAddress([FUNNEL])).toEqual({ address: FUNNEL, isDevicesOnly: false })
+    expect(hostAppAddress([SERVE])).toEqual({ address: SERVE, isDevicesOnly: true })
+    // The page shows an address without its scheme; Copy keeps the whole address.
+    expect(shownAppAddress(FUNNEL.url)).toBe('box.tail1.ts.net/mcp')
+    expect(shownAppAddress('http://localhost:4810/mcp')).toBe('localhost:4810/mcp')
   })
 
   test('an address shows how its last test went, and a test of another url says nothing about it', () => {

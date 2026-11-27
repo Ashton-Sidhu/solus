@@ -256,6 +256,9 @@ it("folds tool calls under their own prompt, keeps interactive results visible a
     "session",
     () => null,
   ).get();
+  expect(feed.filter(row => row.type === "conversation-card")).toEqual([]);
+  expect(feed.flatMap(row => row.type === "activity-group" ? row.activities : [])
+    .map(activity => activity.projectedItem.sourceItemId)).toContain("app");
   const present = (
     expanded: Set<RunId>,
     visibility: "showAll" | "zen" | "hideSuccessful" = "showAll",
@@ -268,7 +271,6 @@ it("folds tool calls under their own prompt, keeps interactive results visible a
   expect(collapsed.map((row) => row.id)).toEqual([
     "one",
     "run-fold:runless:one",
-    "app:app",
     "answer",
     "two",
     "run-fold:runless:two",
@@ -279,9 +281,6 @@ it("folds tool calls under their own prompt, keeps interactive results visible a
     "one",
     "run-fold:runless:one",
     "work-toggle:work-group:local:session:read",
-    "screenshot",
-    "app",
-    "app:app",
     "answer",
     "two",
     "run-fold:runless:two",
@@ -289,11 +288,34 @@ it("folds tool calls under their own prompt, keeps interactive results visible a
   for (const mode of ["zen", "hideSuccessful"] as const) {
     const ids = present(expanded, mode).map((row) => row.id);
     expect(ids).not.toContain("read");
-    expect(ids).toContain("app:app");
+    expect(ids).not.toContain("app:app");
   }
 });
 
-it("shows workspace image reads inside the turn fold while keeping tool output in its card", () => {
+it.each([
+  ["mcp__solus__calendar__agenda", false],
+  ["solus.calendar__agenda", true],
+] as const)("keeps %s in the work log through the live app handoff", (toolName, held) => {
+  let item: Extract<TranscriptItem, { kind: "tool" }> = {
+    kind: "tool", id: "row", toolId: "call", toolName, status: "running", input: null,
+    errorHead: null, childCount: 0, subagent: null, report: null,
+  };
+  let notify = (_ids: readonly string[]) => {};
+  const store = { item: () => item, subscribeFeedItems: (listener: typeof notify) => {
+    notify = listener;
+    return () => {};
+  } };
+  const feed = createFeed(store, "session", () => null, async path => path, async key => key,
+    { provider: "claude-code", child: () => undefined }, toolUseId => held && toolUseId === "call")(["row"]);
+  const stop = feed.subscribe(() => {});
+  expect(feed.get().map(row => row.type)).toEqual(["activity-group", "conversation-card"]);
+  item = { ...item, status: "completed" };
+  notify(["row"]);
+  expect(feed.get().map(row => row.type)).toEqual(held ? ["activity-group", "conversation-card"] : ["activity-group"]);
+  stop();
+});
+
+it("shows workspace image reads inside the turn fold and opens tool media from the work log", () => {
   const read: Extract<TranscriptItem, { kind: "tool" }> = {
     kind: "tool",
     id: "read",
@@ -327,10 +349,14 @@ it("shows workspace image reads inside the turn fold while keeping tool output i
     feed, null, new Set([RunId.make("runless:prompt")]),
   );
   expect(expanded.filter((row) => row.type === "viewed-images").map((row) => row.paths)).toEqual([
-    ["docs/screen.png"],
-    ["/repo/rich.png"],
+    ["docs/screen.png", "/repo/rich.png"],
   ]);
-  expect(expanded.filter((row) => row.type === "conversation-card").map((row) => row.id)).toEqual(["rich", "shot"]);
+  for (const id of ["rich", "shot"]) {
+    const activities = feed.flatMap(row => row.type === "activity-group" ? row.activities : []);
+    expect(activities.find(activity => activity.projectedItem.sourceItemId === id)).toMatchObject({
+      canExpand: true, renderHostResult: expect.any(Function),
+    });
+  }
 });
 
 it("keeps the arrival time of live messages across streaming updates and leaves unknown history times blank", () => {
@@ -777,4 +803,24 @@ it("leaves the session worktree setup to the T3 setup view and projects notices 
     { type: "system_notice", message: "Session resumed" },
     { type: "compaction", beforeTokenCount: 200, afterTokenCount: 100 },
   ]);
+});
+
+it("keeps a host question at its transcript position through sync, expiry and resolution", () => {
+  const model = new TranscriptModel("session");
+  const ask = { type: "question_request" as const, kind: "secret" as const, questionId: "private", questions: [] };
+  model.apply(ask);
+  model.apply({ type: "assistant_message", text: "Next message" });
+  const original = [...model.order];
+  expect(model.items.get(original[0]!)).toMatchObject({ kind: "host_question", question: { questionId: "private" } });
+  model.apply({ type: "pending_input_sync", pendingInputEvents: [ask] });
+  expect(model.order).toEqual(original);
+  model.expireRequest("private", "closed");
+  expect(model.items.get(original[0]!)).toMatchObject({ question: { expired: "closed" } });
+  model.apply({ type: "pending_input_sync", pendingInputEvents: [] });
+  expect(model.order).toEqual(original.slice(1));
+  expect(model.items.has(original[0]!)).toBe(false);
+  model.apply({ type: "pending_input_sync", pendingInputEvents: [ask] });
+  expect(model.order).toEqual([original[1], original[0]]);
+  model.apply({ type: "question_answered", timestamp: 1, answer: { questionId: "private", questions: [], answers: {} } });
+  expect(model.order).toEqual(original.slice(1));
 });
