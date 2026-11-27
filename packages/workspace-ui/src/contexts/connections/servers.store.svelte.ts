@@ -50,6 +50,7 @@ import { hostRowLabel, SOLUS_CLOUD_LABEL } from './host-label'
 import { hostAffinityGlyph, type HostAffinityGlyph } from './host-affinity'
 import { DIRECTORY_FOCUS_GAP_MS, directoryRefreshDelayMs } from './directory-refresh'
 import { askBeforeDiscardingUnsent } from '../works/work-live-discard'
+import { offerToRemoveHostAppShortcuts } from '../apps/app-shortcut-commands'
 import { prDeviceCache } from '../prs/pr-device-cache'
 import { personHistoryStore } from '../person-history/person-history.store.svelte'
 import { settingsSyncStore } from '../app/settings-sync.store.svelte'
@@ -806,6 +807,8 @@ class ServersStore {
     serverConnections.unretain(serverId)
     serverConnections.release(serverId)
     requestInputFocus()
+    // The app shortcuts of this host's apps cannot open now. The person chooses whether they go (docs/app-shortcuts.md §5).
+    void offerToRemoveHostAppShortcuts(serverId, server)
     // A forgotten host becomes discoverable again — rescan so it drops straight
     // back into Nearby instead of vanishing until the next sweep.
     void this.scanForServers()

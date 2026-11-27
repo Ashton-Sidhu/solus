@@ -5,15 +5,23 @@ import type { AppDetailsOptions, ShortcutDetails } from 'electron'
 import { appLinkOf, type AppShortcutTarget } from '@solus/contracts/app-shortcuts'
 import { ICO_SIZES, icoFile } from '@solus/desktop-main/app-shortcuts/icon-files'
 import { appShortcutId, appShortcutIdentifier, windowsShortcutArguments } from '@solus/desktop-main/app-shortcuts/launcher-files'
-import { freeLauncherPath, isDirectChild, launcherFolderName, type AppLaunchers, type SolusInstall } from '@solus/desktop-main/app-shortcuts/launchers'
+import {
+  freeLauncherPath,
+  isDirectChild,
+  launcherFolderName,
+  trashLauncher,
+  type AppLaunchers,
+  type SolusInstall,
+  type TrashShell,
+} from '@solus/desktop-main/app-shortcuts/launchers'
 
 /** The icon file of an app's shortcut, which its window shows on the taskbar too. */
 function windowsShortcutIconPath(install: Pick<SolusInstall, 'filesDirectory'>, target: AppShortcutTarget): string {
   return join(install.filesDirectory, `${appShortcutId(target)}.ico`)
 }
 
-/** The part of Electron's `shell` that reads and writes a Windows shortcut. */
-export interface ShortcutShell {
+/** The part of Electron's `shell` that reads and writes a Windows shortcut, and moves one to the Recycle Bin. */
+export interface ShortcutShell extends TrashShell {
   readShortcutLink(shortcutPath: string): Pick<ShortcutDetails, 'appUserModelId'>
   writeShortcutLink(shortcutPath: string, operation: 'create', options: ShortcutDetails): boolean
 }
@@ -22,7 +30,8 @@ export interface ShortcutShell {
  * Windows lists the shortcuts in the Start menu folder of the person. The
  * shortcut starts Solus with the app link as an argument: a Solus that runs
  * gets it as a second launch. Its AppUserModelID is the app's own, so the
- * app's window has its own taskbar button with the shortcut's icon.
+ * app's window has its own taskbar button with the shortcut's icon. A
+ * removed shortcut goes to the Recycle Bin, where the person can restore it.
  */
 export function windowsAppLaunchers(
   install: Pick<SolusInstall, 'isPackaged' | 'executablePath' | 'launchArguments' | 'filesDirectory' | 'appDataDirectory'>,
@@ -30,14 +39,12 @@ export function windowsAppLaunchers(
 ): AppLaunchers {
   const directory = join(install.appDataDirectory, 'Microsoft', 'Windows', 'Start Menu', 'Programs', launcherFolderName(install))
   const isOwned = (target: AppShortcutTarget, shortcut: string) => {
+    if (!isDirectChild(directory, shortcut)) return false
     try {
       return shell.readShortcutLink(shortcut).appUserModelId === appShortcutIdentifier(target)
     } catch {
       return false
     }
-  }
-  const removeShortcut = async (target: AppShortcutTarget, path: string) => {
-    if (isDirectChild(directory, path) && isOwned(target, path)) await rm(path, { force: true })
   }
 
   return {
@@ -58,13 +65,17 @@ export function windowsAppLaunchers(
         appUserModelId: appShortcutIdentifier(target),
       })
       if (!written) throw new Error('Windows did not write the shortcut.')
+      // The shortcut at the new name replaces the old one, so the old one is deleted, not put in the Recycle Bin.
       // The icon file stays: the shortcut at the new name uses it.
-      if (launcher.previousPath && launcher.previousPath !== shortcut) await removeShortcut(target, launcher.previousPath)
+      const { previousPath } = launcher
+      if (previousPath && previousPath !== shortcut && isOwned(target, previousPath)) await rm(previousPath, { force: true })
       return shortcut
     },
     async remove(target, path) {
-      await removeShortcut(target, path)
-      await rm(windowsShortcutIconPath(install, target), { force: true })
+      const removal = isOwned(target, path) ? await trashLauncher(shell, target, path) : { launcher: 'removed' as const }
+      // A shortcut that stays keeps its icon.
+      if (removal.launcher !== 'kept') await rm(windowsShortcutIconPath(install, target), { force: true })
+      return removal
     },
     windowIdentity(target, name) {
       const icon = windowsShortcutIconPath(install, target)

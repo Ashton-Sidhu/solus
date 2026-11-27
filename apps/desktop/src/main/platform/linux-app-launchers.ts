@@ -40,10 +40,15 @@ export function linuxAppLaunchers(
       await rename(staging, entry)
       return entry
     },
+    // Deleted, not put in the Trash (docs/app-shortcuts.md §4): the Trash of
+    // a Linux desktop needs its own program (`gio`), which many desktops do
+    // not have, and the entry's icon is a file of Solus that goes with it. A
+    // new "Add app shortcut" writes the same entry again.
     async remove(target, path) {
-      if (path !== entryPath(target)) return
+      if (path !== entryPath(target)) return { launcher: 'removed' }
       await rm(path, { force: true })
       await rm(iconPath(target), { force: true })
+      return { launcher: 'removed' }
     },
     // The desktop groups windows by the program's window class, so the window stays in Solus's group and takes only the icon.
     windowIdentity: (target) => ({ iconPath: existsSync(iconPath(target)) ? iconPath(target) : null, taskbar: null }),

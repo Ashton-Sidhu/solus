@@ -1843,7 +1843,8 @@ export interface NativeSolusAPI {
   appShortcuts(): Promise<import('./app-shortcuts').AppShortcutView[]>
   /** Writes the launcher of one app where this operating system lists apps, or writes it again with a new name. */
   addAppShortcut(request: import('./app-shortcuts').AppShortcutRequest): Promise<void>
-  removeAppShortcut(target: import('./app-shortcuts').AppShortcutTarget): Promise<void>
+  /** Removes the record and moves the launcher to the Trash where the operating system has one. */
+  removeAppShortcut(target: import('./app-shortcuts').AppShortcutTarget): Promise<import('./app-shortcuts').AppShortcutRemoval>
   /** Opens the app window of one app, or brings the one it has to the front. */
   openAppWindow(request: import('./app-shortcuts').AppWindowRequest): Promise<void>
 }

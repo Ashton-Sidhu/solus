@@ -1,8 +1,11 @@
 import { existsSync } from 'fs'
 import { isAbsolute, join, relative, resolve, sep } from 'path'
 import type { AppDetailsOptions } from 'electron'
-import type { AppShortcutTarget } from '@solus/contracts/app-shortcuts'
+import type { AppShortcutRemoval, AppShortcutTarget } from '@solus/contracts/app-shortcuts'
+import { createLogger } from '@solus/server/logger'
 import { launcherNameCandidates } from './launcher-files'
+
+const log = createLogger('main', 'app-launchers')
 
 /** The launcher of one app shortcut, as the operating system's adapter writes it. */
 export interface AppLauncher {
@@ -30,10 +33,34 @@ export interface AppWindowIdentity {
 export interface AppLaunchers {
   /** Writes the launcher and gives its path. */
   write(launcher: AppLauncher): Promise<string>
-  /** Removes the launcher at `path` when it is this app's. */
-  remove(target: AppShortcutTarget, path: string): Promise<void>
+  /**
+   * Removes the launcher at `path` when it is this app's, to the Trash where
+   * the operating system has a dependable one. A Trash that refuses it leaves
+   * it in place: that is a warning, not a failure.
+   */
+  remove(target: AppShortcutTarget, path: string): Promise<AppShortcutRemoval>
   /** What the window of the app shows where the operating system lists open windows. */
   windowIdentity(target: AppShortcutTarget, name: string): AppWindowIdentity
+}
+
+/** The part of Electron's `shell` that moves a file to the Trash (macOS) or the Recycle Bin (Windows). */
+export interface TrashShell {
+  trashItem(path: string): Promise<void>
+}
+
+/**
+ * Moves a launcher that Solus owns to the Trash, so the person can take it
+ * back. Solus does not delete it for good without asking: when the Trash
+ * refuses it, it stays where it is and still opens its app.
+ */
+export async function trashLauncher(shell: TrashShell, target: AppShortcutTarget, path: string): Promise<AppShortcutRemoval> {
+  try {
+    await shell.trashItem(path)
+    return { launcher: 'trashed' }
+  } catch (error) {
+    log.warn('app_launcher_trash_failed', { appId: target.appId, host: target.host, error: error instanceof Error ? error.message : String(error) })
+    return { launcher: 'kept', launcherPath: path }
+  }
 }
 
 /** What an adapter must know of this copy of Solus to write a launcher for it. */

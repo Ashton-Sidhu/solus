@@ -112,6 +112,7 @@ export const generalSettings = [
   },
   { id: "code-editor", ...settingsDefinitions["general.code-editor"], keywords: ["vscode", "ide", "applications"] },
   { id: "terminal", ...settingsDefinitions["general.fallback-terminal"], keywords: ["shell", "command", "console", "tmux", "applications"] },
+  { id: "app-shortcuts", ...settingsDefinitions["general.app-shortcuts"], keywords: ["apps", "launcher", "dock", "start menu", "remove", "applications"] },
   {
     id: "about",
     ...settingsDefinitions["general.section-about-solus"],

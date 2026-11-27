@@ -52,6 +52,18 @@ export interface AppShortcutView extends AppShortcutTarget {
   name: string
 }
 
+/**
+ * What became of the launcher when its shortcut was removed
+ * (docs/app-shortcuts.md §4). The record goes in each case.
+ */
+export type AppShortcutRemoval =
+  /** In the Trash (macOS) or the Recycle Bin (Windows): the person can take it back. */
+  | { launcher: 'trashed' }
+  /** No launcher of this app is left: it was deleted (Linux), or it was not there. */
+  | { launcher: 'removed' }
+  /** The Trash refused the launcher, so it stays at `launcherPath`. It still opens the app. */
+  | { launcher: 'kept'; launcherPath: string }
+
 const APP_WINDOW_HOST_PARAM = 'app-window-host'
 const APP_WINDOW_APP_PARAM = 'app-window-app'
 const APP_WINDOW_NAME_PARAM = 'app-window-name'
