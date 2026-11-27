@@ -33,6 +33,7 @@
   const tailscale = $derived(tailscaleCard(tailscaleWay(tailscaleStatus, mayReachLocally), tailscaleStatus, reach, hostName));
   const tailscaleError = $derived(connectionsStore.appTailscaleErrorFor(serverId) ?? tailscaleStatus?.error ?? null);
   const isTailscaleBusy = $derived(connectionsStore.appTailscaleBusyServerId === serverId);
+  const tailscaleFeature = $derived(reach === "internet" ? "Funnel" : "Serve");
 
   const uplink = $derived(uplinkStore.statusFor(serverId));
   const isTurningOn = $derived(outsideApps.turningOnServerId === serverId);
@@ -86,9 +87,9 @@
 {/snippet}
 
 {#snippet tailscaleAction()}
-  {#if tailscale.action === "turn-on"}
-    <Button size="sm" class="font-semibold" disabled={isTailscaleBusy} onclick={() => void outsideApps.turnOnTailscale(serverId, reach)}>
-      {#if isTailscaleBusy}<SpinnerIcon class="motion-safe:animate-spin" />Turning on…{:else}Turn on{/if}
+  {#if isTailscaleBusy || tailscale.action === "turn-on"}
+    <Button size="sm" class="font-semibold" disabled={connectionsStore.appTailscaleBusyServerId !== null} onclick={() => void outsideApps.turnOnTailscale(serverId, reach)}>
+      {#if isTailscaleBusy}<SpinnerIcon class="motion-safe:animate-spin" />Turning on {tailscaleFeature}…{:else}Turn on {tailscaleFeature}{/if}
     </Button>
   {:else if tailscale.action === "check"}
     <Button variant="outline" size="sm" onclick={() => void outsideApps.check(serverId)}>Check again</Button>

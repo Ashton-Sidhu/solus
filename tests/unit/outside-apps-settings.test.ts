@@ -186,6 +186,17 @@ describe('the Tailscale choice', () => {
     expect(tailscaleCard('serve-elsewhere', null, 'internet', 'Studio')).toEqual({ summary: 'Turn it on from Studio itself.', action: 'check' })
     expect(tailscaleCard('unknown', null, 'internet', 'Studio').summary).toContain('Install Tailscale on Studio')
   })
+
+  test('the card distinguishes a private Serve address from a Funnel address that is ready', () => {
+    expect(tailscaleCard('turn-on-funnel', status({}), 'internet', 'Studio').summary)
+      .toBe('Tailscale Serve is on for your devices. Turn on Funnel to give cloud apps a public address.')
+    expect(tailscaleCard('funnel-elsewhere', status({}), 'internet-or-tailnet', 'Studio').summary)
+      .toBe('Tailscale Serve is on for your devices.')
+    expect(tailscaleCard('funnel-on', status({ funnel: true, url: null }), 'internet', 'Studio').summary)
+      .toBe('Tailscale Funnel is on. Waiting for a public address.')
+    expect(tailscaleCard('funnel-on', status({ funnel: true }), 'internet', 'Studio').summary)
+      .toBe('Tailscale Funnel is on. A public HTTPS address is available.')
+  })
 })
 
 describe('Use your own address', () => {

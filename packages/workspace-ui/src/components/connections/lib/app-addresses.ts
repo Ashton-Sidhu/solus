@@ -128,11 +128,22 @@ export interface TailscaleCard {
 export function tailscaleCard(way: TailscaleWay, status: TailscaleServeStatus | null, reach: AppAddressReach, hostName: string): TailscaleCard {
   switch (way) {
     case 'unknown': return { summary: `Install Tailscale on ${hostName} and sign in.`, action: 'check' }
-    case 'turn-on-serve': return { summary: 'Tailscale is on. No account needed.', action: 'turn-on' }
-    case 'turn-on-funnel': return reach === 'internet' ? { summary: 'Tailscale is on. No account needed.', action: 'turn-on' } : { summary: 'Tailscale Serve is on.', action: 'check' }
-    case 'serve-elsewhere':
-    case 'funnel-elsewhere': return { summary: `Turn it on from ${hostName} itself.`, action: 'check' }
+    case 'turn-on-serve': return {
+      summary: reach === 'internet' ? 'Give cloud apps a public HTTPS address with Funnel.' : 'Give devices on your tailnet an HTTPS address with Serve.',
+      action: 'turn-on',
+    }
+    case 'turn-on-funnel':
+    case 'funnel-elsewhere': {
+      if (reach === 'internet-or-tailnet') return { summary: 'Tailscale Serve is on for your devices.', action: 'check' }
+      return way === 'turn-on-funnel'
+        ? { summary: 'Tailscale Serve is on for your devices. Turn on Funnel to give cloud apps a public address.', action: 'turn-on' }
+        : { summary: `Tailscale Serve is on for your devices. Turn on Funnel from ${hostName} itself.`, action: 'check' }
+    }
+    case 'serve-elsewhere': return { summary: `Turn it on from ${hostName} itself.`, action: 'check' }
     case 'serve-waiting': return { summary: `Tailscale Serve: ${status ? tailscaleServeStateText(status.state) : 'starting'}.`, action: 'check' }
-    case 'funnel-on': return { summary: 'Funnel is on. The address comes in a moment.', action: 'check' }
+    case 'funnel-on': return {
+      summary: status?.url ? 'Tailscale Funnel is on. A public HTTPS address is available.' : 'Tailscale Funnel is on. Waiting for a public address.',
+      action: 'check',
+    }
   }
 }

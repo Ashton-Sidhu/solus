@@ -46,12 +46,35 @@ class OutsideApps {
    * for an internet address, Funnel then opens it to the internet. Local owner only.
    */
   async turnOnTailscale(serverId: string, reach: AppAddressReach): Promise<void> {
+    if (connectionsStore.appTailscaleBusyServerId !== null) return
+    const name = hostLabel(serverId)
+    const feature = reach === 'internet' ? 'Tailscale Funnel' : 'Tailscale Serve'
     if (connectionsStore.appTailscaleFor(serverId)?.enabled !== true) {
       await connectionsStore.enableAppTailscaleServe(serverId)
-      if (connectionsStore.appTailscaleErrorFor(serverId)) return
     }
-    if (reach === 'internet' && connectionsStore.appTailscaleFor(serverId)?.funnel !== true) {
+    if (reach === 'internet' && !connectionsStore.appTailscaleErrorFor(serverId) && connectionsStore.appTailscaleFor(serverId)?.funnel !== true) {
       await connectionsStore.setAppTailscaleFunnel(serverId, true)
+    }
+
+    const error = connectionsStore.appTailscaleErrorFor(serverId) ?? connectionsStore.appTailscaleFor(serverId)?.error
+    if (error) {
+      toasts.error(`Could not turn on ${feature} on ${name}`, { description: error })
+      return
+    }
+    const endpointError = connectionsStore.appEndpointErrorFor(serverId)
+    if (endpointError) {
+      toasts.error(`Could not read the Tailscale address for ${name}`, { description: endpointError })
+      return
+    }
+    const address = connectionsStore.appEndpointFor(serverId)?.addresses.find(({ source }) =>
+      source === 'tailscale-funnel' || (reach !== 'internet' && source === 'tailscale-serve'),
+    )
+    if (address) {
+      toasts.success(`${feature} is on for ${name}`, { description: address.url })
+    } else {
+      toasts.info(`Waiting for the Tailscale address for ${name}`, {
+        action: { label: 'Check again', onAction: () => void this.check(serverId) },
+      })
     }
   }
 

@@ -211,14 +211,18 @@ export class ConnectionsStore {
   /** The host asks its own address of this source from outside, as an app would. One test at a time for each address. */
   async testAppAddress(serverId: string, source: AppAddressSource): Promise<void> {
     const url = this.appEndpointFor(serverId)?.addresses.find((address) => address.source === source)?.url
-    if (!url || this.appAddressTestsFor(serverId)[source]?.kind === 'running') return
-    this.#setAddressTest(serverId, source, { kind: 'running', url })
+    const current = this.appAddressTestsFor(serverId)[source]
+    if (!url || (current?.kind === 'running' && current.url === url)) return
+    const running: AppAddressTestState = { kind: 'running', url }
+    this.#setAddressTest(serverId, source, running)
+    let answer: AppAddressTestState
     try {
       const result = await serverConnections.apiFor(serverId).connectionsTestAppAddress({ source })
-      this.#setAddressTest(serverId, source, { kind: 'done', url, reachable: result.reachable, reason: result.reason, checkedAt: Date.now() })
+      answer = { kind: 'done', url, reachable: result.reachable, reason: result.reason, checkedAt: Date.now() }
     } catch (e) {
-      this.#setAddressTest(serverId, source, { kind: 'error', url, message: e instanceof Error ? e.message : String(e) })
+      answer = { kind: 'error', url, message: e instanceof Error ? e.message : String(e) }
     }
+    if (this.appAddressTestsFor(serverId)[source] === running) this.#setAddressTest(serverId, source, answer)
   }
 
   /** "Check again": the next gate tests the address again. */

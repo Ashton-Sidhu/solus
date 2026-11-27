@@ -39,7 +39,7 @@ Through an address that comes through a proxy (the Solus tunnel, Tailscale Serve
 
 Apps that run in the cloud need an address that the internet reaches. Before an app's code shows, Solus checks that the host has one, and tests it.
 
-- **No address.** The page shows **Cloud apps can't reach {host} yet** above the directory, with three ways: **Tailscale Funnel** (**Turn on**, only for a local owner), **Solus Cloud** (**Sign in and link**), and **Your own address** (**Add address**, then **Save and test**). The cloud apps show **Needs address**, and a connected cloud app shows **Can't reach Solus**. See [Give the host an address](#give-the-host-an-address).
+- **No address.** The page shows **Cloud apps can't reach {host} yet** above the directory, with three ways: **Tailscale Funnel** (**Turn on Funnel**, only for a local owner), **Solus Cloud** (**Sign in and link**), and **Your own address** (**Add address**, then **Save and test**). The cloud apps show **Needs address**, and a connected cloud app shows **Can't reach Solus**. See [Give the host an address](#give-the-host-an-address).
 - **The test.** Solus tests the chosen address before the code shows: the host asks its own address, as an app does. When the test fails, Solus shows the reason and **Check again**. When the host cannot reach its own address (see [the test](#test-an-address)), Solus also shows **Go on anyway**.
 
 An app on the host's own computer, such as Claude Code or Codex next to the desktop app, uses `http://localhost:<port>/mcp` and needs no other address. An app on another computer of yours can also use the Tailscale Serve address.
@@ -72,7 +72,7 @@ A host does not have to be linked to a Solus account for outside apps. The host 
 | Tailscale Serve | Only the devices on your tailnet | A local owner, on desktop or web (not on a phone) |
 | Your own https address | The internet, or what your proxy allows | A host administrator (`host.admin`), on desktop, web, or phone |
 
-**Where apps reach this host** on **Settings → Sharing & access** lists three places: **Anywhere** (the internet address that cloud apps use), **Your devices** (the Tailscale Serve address), and **This computer** (the local address). Each has a copy button and a dot for its last test. **Set up** or **Change** opens the three ways. Under it, **Devices** lists the phones and computers that use the host, with **Revoke**, **Pair a device**, and the machines that ask to pair.
+**Where apps reach this host** on **Settings → Sharing & access** lists three places: **Anywhere** (the internet address that cloud apps use), **Your devices** (the Tailscale Serve address), and **This computer** (the local address). Each address has a copy button. For a remote address, the row shows when the test passes or why it failed. Select **Check again** to retry a failed test. **Set up** or **Change** opens the three ways. Under it, **Devices** lists the phones and computers that use the host, with **Revoke**, **Pair a device**, and the machines that ask to pair.
 
 ### The order of the addresses
 
@@ -96,7 +96,7 @@ Tailscale Serve gives the host an https address on your tailnet: `https://<machi
 Tailscale Funnel gives the same address to the whole internet. Then cloud apps can reach it too.
 
 1. As a local owner, on desktop or web, open **Settings → Sharing & access** and turn on **Tailscale HTTPS** (Serve). Remote access must be on.
-2. Turn on **Funnel**. Solus runs `tailscale funnel --bg` for the same HTTPS port and the same local target as Serve, so the address does not change.
+2. Select **Turn on Funnel**. Solus runs `tailscale funnel --bg` for the same HTTPS port and the same local target as Serve, so the address does not change. Solus confirms when Funnel is on or shows the error. On mobile, select **Check again** after you turn on Funnel on the host.
 
 Funnel has these rules:
 

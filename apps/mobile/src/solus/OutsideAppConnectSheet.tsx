@@ -235,6 +235,11 @@ function ConnectBody(props: {
   return (
     <View className="gap-5">
       <AppHeading guide={guide} />
+      {props.address.source === "tailscale-funnel" ? (
+        <AppText accessibilityLiveRegion="polite" className="text-sm text-foreground-secondary">
+          Tailscale Funnel address check passed.
+        </AppText>
+      ) : null}
       <View className="gap-2">
         <SegmentedControl
           options={APP_ACCESS_OPTIONS.map((option) => ({ value: option.access, label: option.label }))}

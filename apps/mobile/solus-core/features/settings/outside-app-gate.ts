@@ -127,7 +127,12 @@ export function outsideAppGateMessage(
         ],
         // Funnel first: it needs no account. The phone cannot turn on Funnel or the tunnel.
         ways: [
-          { label: 'Tailscale Funnel', detail: `Turn on in Solus on ${hostName}` },
+          {
+            label: 'Tailscale Funnel',
+            detail: gate.hasTailnetAddress
+              ? `Tailscale Serve is on for your devices. Turn on Funnel in Solus on ${hostName}, then check again here.`
+              : `Turn on Funnel in Solus on ${hostName}, then check again here.`,
+          },
           { label: 'Solus Cloud', detail: solusWayDetail(gate.solus, hostName) },
           {
             label: 'Your own address',
@@ -137,13 +142,13 @@ export function outsideAppGateMessage(
           },
         ],
         showsAddressField: options.mayChangeHostSettings,
-        canCheckAgain: false,
+        canCheckAgain: true,
       }
     }
     case 'unreachable': {
       const isOwnAddress = gate.address.source === 'custom'
       return {
-        title: `${hostName} does not answer at its address`,
+        title: gate.address.source === 'tailscale-funnel' ? 'Could not verify the Tailscale Funnel address' : `${hostName} does not answer at its address`,
         lines: [
           `${gate.address.url} (${appAddressSourceLabel(gate.address.source)})`,
           gate.reason,

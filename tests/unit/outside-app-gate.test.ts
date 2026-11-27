@@ -128,7 +128,8 @@ describe('what the phone says when the gate is not open', () => {
     expect(message.title).toBe('Claude needs an internet address')
     expect(message.lines).toEqual(['Studio Mac can only be reached on your devices now. Pick one way to open it to Claude.'])
     expect(message.ways.map((way) => way.label)).toEqual(['Tailscale Funnel', 'Solus Cloud', 'Your own address'])
-    expect(message.ways[0]!.detail).toBe('Turn on in Solus on Studio Mac')
+    expect(message.ways[0]!.detail).toBe('Tailscale Serve is on for your devices. Turn on Funnel in Solus on Studio Mac, then check again here.')
+    expect(message.canCheckAgain).toBe(true)
   })
 
   test('opened from the host\'s addresses, it speaks of cloud apps; a host with no tailnet address is not said to reach the devices', () => {
@@ -157,7 +158,11 @@ describe('what the phone says when the gate is not open', () => {
     expect(own.lines).toEqual([`${CUSTOM.url} (Your own address)`, 'TLS failed.'])
     expect(own.showsAddressField).toBe(true)
     expect(own.canCheckAgain).toBe(true)
-    expect(outsideAppGateMessage({ kind: 'unreachable', address: FUNNEL, reason: 'x' }, 'Studio Mac', owner).showsAddressField).toBe(false)
+    const funnel = outsideAppGateMessage({ kind: 'unreachable', address: FUNNEL, reason: 'The host cannot reach its own Funnel address.' }, 'Studio Mac', owner)
+    expect(funnel.title).toBe('Could not verify the Tailscale Funnel address')
+    expect(funnel.lines).toContain('The host cannot reach its own Funnel address.')
+    expect(funnel.showsAddressField).toBe(false)
+    expect(funnel.canCheckAgain).toBe(true)
     expect(outsideAppGateMessage({ kind: 'checking', step: 'address' }, 'Studio Mac', owner).canCheckAgain).toBe(false)
   })
 })

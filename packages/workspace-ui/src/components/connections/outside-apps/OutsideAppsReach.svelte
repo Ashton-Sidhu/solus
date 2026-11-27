@@ -2,12 +2,12 @@
   /** "Where apps reach this host" (plans/035 §0.8): Anywhere (an internet
    *  address, for cloud apps), your devices (the tailnet), and this computer,
    *  each with its address to copy. The host tests each address from outside
-   *  once the page shows it, and its dot says how the test went. "Set up" and
+   *  once the page shows it, and the row says how the test went. "Set up" and
    *  "Change" open the three ways to give the host an address. */
   import { untrack } from "svelte";
   import { connectionsStore } from "../../../contexts";
   import { Button } from "../../ui/button";
-  import { addressHealth, appAddressTestText, reachRows, type AppAddressReach } from "../lib/app-addresses";
+  import { addressHealth, appAddressSourceLabel, appAddressTestText, reachRows, type AppAddressReach } from "../lib/app-addresses";
   import { outsideApps } from "./outside-apps.svelte";
   import OutsideAppsAddressWays from "./OutsideAppsAddressWays.svelte";
 
@@ -54,11 +54,11 @@
     {#each rows as row (row.place)}
       {@const test = row.source ? tests[row.source] : undefined}
       {@const health = row.url && row.source ? addressHealth(test, row.url) : row.url ? "answers" : null}
-      {@const failure = health === "fails" && row.url ? appAddressTestText(test, row.url) : null}
+      {@const result = row.source && row.url ? appAddressTestText(test, row.url) : null}
       <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-border py-3.5 last:border-b-0">
         <div class="flex w-45 shrink-0 flex-col gap-0.5 @max-[30rem]/reach:w-full">
           <span class="text-[0.875rem] leading-4.5 font-medium text-(--solus-text-primary)">{row.label}</span>
-          <span class="text-[0.8125rem] leading-4 text-(--solus-text-tertiary)">{row.detail}</span>
+          <span class="text-[0.8125rem] leading-4 text-(--solus-text-tertiary)">{row.source === "tailscale-funnel" ? appAddressSourceLabel(row.source) : row.detail}</span>
         </div>
         <div class="flex min-w-0 flex-1 basis-48 flex-col gap-1">
           <div class="flex min-w-0 items-center gap-2">
@@ -75,11 +75,20 @@
               <span class="text-[0.8125rem] leading-4 text-(--solus-text-secondary)">Not set up yet</span>
             {/if}
           </div>
-          {#if failure}
-            <p role="alert" class="pl-3.75 text-chrome-dense text-(--solus-status-error) select-text">{failure}</p>
+          {#if row.source && row.url}
+            <p aria-live="polite" class={[
+              "pl-3.75 text-chrome-dense select-text",
+              health === "answers" ? "text-(--solus-status-complete)" : health === "fails" ? "text-(--solus-status-error)" : "text-(--solus-text-tertiary)",
+            ]}>{health === "answers" ? "Address check passed" : result ?? "Testing the address…"}</p>
           {/if}
         </div>
         <div class="flex shrink-0 items-center justify-end gap-1">
+          {#if row.source && health === "fails"}
+            {@const source = row.source}
+            <Button variant="outline" size="sm" aria-label={`Check the ${row.label.toLowerCase()} address again`} onclick={() => void connectionsStore.testAppAddress(serverId, source)}>
+              Check again
+            </Button>
+          {/if}
           {#if row.url}
             {@const url = row.url}
             <Button variant="ghost" size="sm" class="text-(--solus-text-secondary)" aria-label={`Copy the ${row.label.toLowerCase()} address`} onclick={() => void copy(url)}>
