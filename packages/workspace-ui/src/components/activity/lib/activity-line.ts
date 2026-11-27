@@ -66,6 +66,7 @@ function dividerPredicate(activity: Activity): string | null {
     case 'forked': return activity.midRun ? 'forked mid-run from' : 'forked from'
     case 'moved_to_worktree': return activity.projectFolder ? 'continued in the project folder on' : 'continued in worktree'
     case 'agent_switched': return 'continued with'
+    case 'claude_auto_fallback': return 'asked for approval because Claude Auto was unavailable'
     case 'codebase_formed': return 'made codebase'
     case 'plan_decided': return activity.newSessionId ? 'started a new session implementing' : null
     default: return null

@@ -2123,7 +2123,7 @@ export interface ToolResultAudio {
 export type NormalizedEvent =
   | { type: 'provider_startup'; startup: ProviderStartup }
   | { type: 'model_routed'; provider: AgentId; modelConfig: ModelConfig; usedFallback: boolean }
-  | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage }
+  | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage; claudeAutoFallback?: { restriction: import('./claude-auto-mode').ClaudeAutoRestriction | null } }
   | { type: 'text_pending' }
   | { type: 'text_chunk'; text: string; parentToolUseId?: string; streaming?: boolean }
   /** Updates carry the readable text so far. A provider block keeps its thoughtId

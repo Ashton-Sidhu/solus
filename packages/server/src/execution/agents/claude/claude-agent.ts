@@ -6,6 +6,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { Options, query, type CanUseTool, type ModelInfo, type OnElicitation, type PermissionMode as SdkPermissionMode, type Query, type Settings } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAppCapture, type ClaudeMcpApp } from './claude-mcp-apps'
+import { CLAUDE_TURN_SETTING_SOURCES, claudeAutoFallsBack, claudeAutoModeRestriction } from './claude-auto-mode'
 import { ClaudeTurnNormalizer, isAbortSeamResult } from './claude-event-normalizer'
 import { resumeCompactionDialog } from './claude-resume-compaction'
 import { TurnInputChannel } from './claude-turn-input'
@@ -13,6 +14,7 @@ import { resolveClaudeToolSearchOverride } from './claude-tool-search'
 import { claudeRunSkip } from './claude-cli-skip'
 import type { RunCliSkip } from '../../../integrations/cli-skips'
 import { createLogger } from '../../../logger'
+import { realPathOf } from '../../../paths'
 import { resolveHomePath } from '../../../platform/paths'
 import { endTreeAfterExit } from '../../../platform/process-tree'
 import { agentExecutables, findOnPath, launchedProcess, startableCommand, warmCliPath, type ProcessUser } from '../../../cli-env'
@@ -69,6 +71,7 @@ const initMessageSchema = z.object({
   type: z.literal('system'),
   subtype: z.literal('init'),
   session_id: z.string(),
+  permissionMode: z.string().optional(),
 })
 
 /**
@@ -377,7 +380,7 @@ export class ClaudeAgent {
       model: opts.model ?? undefined,
       abortController,
       includePartialMessages: true,
-      settingSources: opts.bare ? [] : ['user', 'project'],
+      settingSources: opts.bare ? [] : CLAUDE_TURN_SETTING_SOURCES,
       strictMcpConfig: !!opts.bare,
       canUseTool: opts.canUseTool ?? autoAllow,
       permissionMode: sdkPermissionMode,
@@ -541,7 +544,17 @@ export class ClaudeAgent {
           // comes after it, so this settle is where the query ends.
           const stoppedTaskSettled = normalized.some((evt) => evt.type === 'background_task_settled' && stoppedTasks.has(evt.taskId))
           if (stoppedTaskSettled && sawResult && agentIdle && backgroundTasks.size === 0) input?.close()
-          for (const evt of normalized) yield evt
+          for (const evt of normalized) {
+            if (evt.type === 'session_init' && opts.persistSession !== false && initMessage.success
+              && claudeAutoFallsBack(opts.permissionMode, opts.seat?.launchArgs ?? [], initMessage.data.permissionMode)) {
+              const checkoutScope = opts.seat?.user ? await realPathOf(cwd) : undefined
+              const restriction = await claudeAutoModeRestriction(
+                cwd, claudeConfigDir(opts.seat), opts.seat?.launchArgs ?? [], claudeOptions.settingSources ?? [],
+                undefined, checkoutScope,
+              ).catch(() => null)
+              yield { ...evt, claudeAutoFallback: { restriction } }
+            } else yield evt
+          }
         }
 
         // A query can end without the result that reports the turn's spend.

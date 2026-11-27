@@ -165,7 +165,7 @@ export class ProviderInstances {
   }
 
   /** A session keeps its instance when the person changes the default instance. */
-  forRun(personKey: string, provider: InstanceProvider, sessionId?: string, continuation = false, projectRoot?: string) {
+  forRun(personKey: string, provider: InstanceProvider, sessionId?: string, continuation = false, projectRoot?: string, bind = true) {
     const state = this.read(personKey)
     const bindingKey = sessionId ? `${provider}:${sessionId}` : null
     const project = providerProjectOverride(state.projects, projectRoot)
@@ -173,14 +173,16 @@ export class ProviderInstances {
     const instance = state.instances.find((candidate) => candidate.provider === provider && candidate.id === instanceId)
     if (!instance) throw new Error('The provider instance for this session is unavailable.')
     if (!(project?.enabled[instance.id] ?? instance.enabled)) throw new Error(`${instance.displayName} is disabled. Check its availability in Settings → Projects or Providers.`)
-    if (bindingKey && !state.bindings[bindingKey]) {
-      // Avoid a write for the unchanged built-in defaults. No settings document exists yet.
-      if (state.revision || instance.id !== provider) {
-        state.bindings[bindingKey] = instance.id
-        this.save(personKey, state)
-      }
-    }
+    if (bind && bindingKey) this.rememberBinding(personKey, state, bindingKey, instance)
     return { instance, idleCompaction: instance.idleCompaction === 'default' ? state.idleCompaction : instance.idleCompaction, revision: state.revision, authEpoch: state.authEpochs[instance.id] ?? 0 }
+  }
+
+  private rememberBinding(personKey: string, state: StoredInstances, bindingKey: string, instance: ProviderInstance): void {
+    // Avoid a write for the unchanged built-in defaults. No settings document exists yet.
+    if (!state.bindings[bindingKey] && (state.revision || instance.id !== instance.provider)) {
+      state.bindings[bindingKey] = instance.id
+      this.save(personKey, state)
+    }
   }
 }
 

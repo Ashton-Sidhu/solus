@@ -299,6 +299,7 @@ export const RPC_PLANES = {
   shareLinkOrigin: 'collaboration',
 
   // Provider seats belong only to the execution host
+  claudeAutoModeRestriction: 'execution',
   providerInstanceStatus: 'execution',
   providerInstanceSignIn: 'execution',
   providerInstanceSubmitCode: 'execution',

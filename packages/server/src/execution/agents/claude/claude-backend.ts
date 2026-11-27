@@ -1,4 +1,5 @@
 import { routeClaudeTaskReplies } from './claude-subagent-protocol'
+import type { ProviderRuntime } from '../../seats/provider-runtime'
 import type { PermissionMode } from '@solus/contracts/types'
 import { isPermissionModeAbove } from '@solus/contracts/policy'
 import { hostPolicies } from '../../../host/policy/host-policy-store'
@@ -162,6 +163,19 @@ export function claudeSeatOf(seat: TurnSeat): ClaudeSeat {
     if (seat.launch.user) claudeSeat.user = seat.launch.user
   }
   return claudeSeat
+}
+
+export function claudeSeatForRun(seat?: TurnSeat | null, runtime?: ProviderRuntime): ClaudeSeat | undefined {
+  if (!runtime) return seat ? claudeSeatOf(seat) : undefined
+  return {
+    ...(seat ? claudeSeatOf(seat) : { home: runtime.homePath ?? '' }),
+    envToken: runtime.homePath ? undefined : seat?.envToken,
+    binaryPath: runtime.binaryPath,
+    autoCompactWindow: runtime.autoCompactWindow,
+    idleCompaction: runtime.idleCompaction,
+    launchArgs: runtime.launchArgs,
+    environmentOverrides: runtime.launch.env,
+  }
 }
 
 /** A Solus tool call may wait an hour (request_secret); the limit stays above that. */
@@ -384,15 +398,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         bare: request.bare,
         canUseTool,
         onElicitation,
-        seat: request.providerRuntime ? {
-          ...(request.seat ? claudeSeatOf(request.seat) : { home: request.providerRuntime.homePath ?? '' }),
-          envToken: request.providerRuntime.homePath ? undefined : request.seat?.envToken,
-          binaryPath: request.providerRuntime.binaryPath,
-          autoCompactWindow: request.providerRuntime.autoCompactWindow,
-          idleCompaction: request.providerRuntime.idleCompaction,
-          launchArgs: request.providerRuntime.launchArgs,
-          environmentOverrides: request.providerRuntime.launch.env,
-        } : request.seat ? claudeSeatOf(request.seat) : undefined,
+        seat: claudeSeatForRun(request.seat, request.providerRuntime),
         persistSession: request.persistence === 'session',
         abortController,
         onMcpApp: request.persistence === 'session' ? claudeAppSaver(() => handle.sessionId) : undefined,

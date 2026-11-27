@@ -1,5 +1,6 @@
 import { getProjectionArrayReplacementIndex } from "@t3tools/client-runtime/state/orchestration-v2-projection";
 import { v2ThreadShell } from "../../packages/client-runtime/src/state/orchestrationV2TestFixtures";
+import type { Activity } from "@solus/contracts/activity";
 import { UNMEASURED_REPLY_HEIGHT } from "@solus/contracts/session-history";
 import { EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
 import { messageImageGallery } from "../features/threads/messageImageGallery";
@@ -631,6 +632,31 @@ it("shows the upstream fork marker between inherited history and the new convers
     activities: [{ projectedItem: { visibility: "synthetic", item: { type: "fork", title: "Forked from conversation" } } }],
   });
   expect(feed[2]).toMatchObject({ type: "message", message: { text: "Try another path" } });
+});
+
+it("shows a Claude Auto fallback once when history and live replay both carry the notice", () => {
+  const activity: Activity = {
+    kind: "claude_auto_fallback", id: "fallback", subject: { kind: "session", id: "session" },
+    providerSessionId: "claude-thread", restriction: "user-settings", at: 10, by: { kind: "system" },
+  };
+  const live = new TranscriptModel("session");
+  const reopened = TranscriptModel.fromHistory("session", {
+    before: null,
+    messages: [{ messageId: "fallback", role: "system", content: "", timestamp: 10, activity }],
+  });
+  for (const model of [live, reopened]) {
+    model.apply({ type: "activity", activity });
+    const feed = conversationFeed(
+      { item: (id) => model.items.get(id), subscribeFeedItems: () => () => {} },
+      model.order,
+      "session",
+      () => null,
+    );
+    expect(feed.projection(v2ThreadShell).turnItems).toMatchObject([{
+      type: "system_notice",
+      message: expect.stringContaining("Your Claude settings turn off Auto."),
+    }]);
+  }
 });
 
 it("enables a response checkpoint as soon as its live turn finishes", () => {

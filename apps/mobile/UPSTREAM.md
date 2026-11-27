@@ -422,3 +422,8 @@ A provider agent with a native tool call ID opens its transcript from the conver
 Session worktree setup uses the T3 setup header, working-row chip and Details sheet. A successful setup retires when the agent starts. The sheet also exposes Solus repository substeps, host output and recovery actions. System notices and context compactions use T3 activities. Host operations that need their own attachment or recovery controls use the work-log disclosure layout.
 
 A pending worktree offer uses T3's approval card. An answered offer shows the host's decision and branch in a status row. Secret requests use T3's masked input and buttons, with one field per requested secret and private delivery through the Solus host. Closed and full-screen MCP apps use T3's feed placeholders. A live app can request a border, and a saved app can be docked above the composer.
+
+- **Claude Auto.** The thread settings sheet uses the disabled runtime choice
+  and source labels from T3 Code #43162. The scoped Solus host query checks the
+  selected checkout and provider settings. The existing system notice row shows
+  a fallback reported by the Solus host.

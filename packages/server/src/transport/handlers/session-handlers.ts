@@ -1,3 +1,10 @@
+import { claudeConfigDir } from '../../execution/agents/claude/claude-agent'
+import { CLAUDE_TURN_SETTING_SOURCES, claudeAutoModeRestriction } from '../../execution/agents/claude/claude-auto-mode'
+import { claudeSeatForRun } from '../../execution/agents/claude/claude-backend'
+import { governedInstance, instanceRuntime } from '../../execution/seats/provider-runtime'
+import { resolveProjectRoot } from '../../project-config/project-config'
+import { isInsideRoot, realPathOf } from '../../paths'
+import { memberFolderFor } from '../../host/member-folders'
 import { readSessionExecution } from '../../data/sessions/session-executions'
 import { agentForProject } from '@solus/contracts/provider-instance-models'
 import { privateProviderInstances } from '../../execution/seats/provider-instances'
@@ -17,7 +24,7 @@ import type { SessionOrchestrator } from '../../execution/orchestration/session-
 import { activityLeases } from '../../execution/activity-leases'
 import { PERMISSION_MODES, type AgentId, type AgentMetadata, type IpcContext } from '@solus/contracts/types'
 import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
-import { organizationOfSession } from '../../data/sessions/session-records'
+import { getSessionRecord, organizationOfSession } from '../../data/sessions/session-records'
 import { forkSessionFromResponse, mayFork, responseForkStart } from '../../execution/sessions/session-forks'
 import { sessionReadsFor } from './session-reads'
 import { LOCAL_ORGANIZATION_ID } from '../../host/machine-kind'
@@ -30,9 +37,9 @@ import type { SolusServer } from '../server'
 import type { HandlerCtx } from '../server'
 import type { ShareManager } from '../../sharing/share-manager'
 import { mayAnswerFor } from '../../execution/sessions/turn-organization'
-import { isOrganizationSpace, type Principal } from '../../admission/principal'
+import { isOrganizationSpace, organizationForNew, recordScopeOf, type Principal } from '../../admission/principal'
 import { RequestNotAnswerableError } from '../../execution/sessions/pending-input'
-import { chatFolderFor, chatHomeFor, projectsRootFor } from '../../workspace'
+import { chatFolderFor, chatHomeFor, projectsRootFor, setupProjectsRoot } from '../../workspace'
 import { actingPreferences } from '../../execution/person-settings'
 import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { sessionStarterFromHostSchema } from '@solus/contracts/session-starter'
@@ -51,6 +58,11 @@ const execFileAsync = promisify(execFile)
 const imageRefsSchema = z.array(promptImageRefSchema).optional()
 /** A denial's message to the agent that asked: text, never blank. */
 const permissionFeedbackSchema = z.string().trim().min(1).optional()
+
+const claudeAutoModeTargetSchema = z.object({
+  cwd: z.string().min(1).max(4096).optional(),
+  sessionId: z.string().min(1).max(200).optional(),
+})
 
 const headlessPromptSchema = z.object({
   sessionId: z.string().min(1).max(200),
@@ -208,8 +220,41 @@ export async function enrichAgentMetadata(metadata: AgentMetadata): Promise<Agen
   }
 }
 
+async function claudeSettingsContext(
+  runtime: SessionRuntime,
+  principal: Principal,
+  { cwd: requestedPath, sessionId }: z.infer<typeof claudeAutoModeTargetSchema>,
+) {
+  const record = sessionId ? await getSessionRecord(recordScopeOf(principal), sessionId) : null
+  const active = record ? runtime.activeSessions.get(record.sessionId) : undefined
+  const path = active?.runInput?.workingDirectory ?? record?.cwd ?? requestedPath
+  const cwd = path && isAbsolute(path) ? await realPathOf(path) : undefined
+  if (principal.kind !== 'org-member') return { record, cwd }
+  const scopeRoot = await realPathOf(join(setupProjectsRoot(), memberFolderFor(principal.userId, principal.displayName)))
+  return { record, scopeRoot, cwd: cwd && isInsideRoot(scopeRoot, cwd) ? cwd : undefined }
+}
+
 export function registerSessionHandlers(server: SolusServer, deps: SessionDeps): void {
   const { sessionRuntime, agentIdFromContext } = deps
+
+  server.register('claudeAutoModeRestriction', async ([input], ctx) => {
+    const scope = captureActingScope()
+    if (!scope?.personKey || ctx.principal.kind === 'guest') return null
+    const request = claudeAutoModeTargetSchema.parse(input)
+    const { record, cwd, scopeRoot } = await claudeSettingsContext(sessionRuntime, ctx.principal, request)
+    const organizationId = record?.organizationId ?? organizationForNew(ctx.principal)
+    const projectRoot = record?.projectRoot ?? (cwd ? resolveProjectRoot(cwd) : undefined)
+    const { instance } = privateProviderInstances().forRun(scope.personKey, 'claude-code',
+      record?.sessionId, record?.provider === 'claude-code', projectRoot, false)
+    const seat = sessionRuntime.commandSeatFor(ctx.actor, 'claude-code')
+    if (!seat && !scope.identity.isHost) return null
+    const governed = governedInstance(instance, hostPolicies().forWork(organizationId).launch('claude-code'))
+    const runtime = instanceRuntime(governed, seat?.launch, 0, seat?.home)
+    const claudeSeat = claudeSeatForRun(seat, runtime)
+    return claudeAutoModeRestriction(
+      cwd, claudeConfigDir(claudeSeat), runtime.launchArgs, CLAUDE_TURN_SETTING_SOURCES, undefined, scopeRoot,
+    )
+  })
 
 
   /** A new approval or answer needs the person's organization authority again (organization-vms §4). */
