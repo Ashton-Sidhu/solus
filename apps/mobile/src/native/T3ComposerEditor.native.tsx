@@ -1,4 +1,7 @@
-import { PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES } from "@t3tools/client-runtime/text-paste";
+import {
+  PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES,
+  PASTED_TEXT_ATTACHMENT_THRESHOLD_LINE_BREAKS,
+} from "@t3tools/client-runtime/text-paste";
 import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "@t3tools/contracts";
 import { collectComposerInlineTokens } from "@t3tools/shared/composerInlineTokens";
 import { markdownMathRanges } from "@t3tools/shared/markdownMath";
@@ -105,6 +108,7 @@ interface NativeComposerEditorProps extends ViewProps {
     event: NativePasteTextEvent & NativeSyntheticEvent<{ fragment: string; html: string }>,
   ) => void;
   readonly textPasteThresholdBytes: number;
+  readonly textPasteThresholdLineBreaks: number;
   readonly maxInputChars: number;
   readonly onComposerPasteText?: (event: NativePasteTextEvent) => void;
   readonly onComposerFocus?: () => void;
@@ -352,6 +356,7 @@ export function ComposerEditor({
         enterBehavior={props.enterBehavior ?? DEFAULT_COMPOSER_ENTER_BEHAVIOR}
         submitEnabled={onSubmit !== undefined}
         textPasteThresholdBytes={onPasteText ? PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES : 0}
+        textPasteThresholdLineBreaks={onPasteText ? PASTED_TEXT_ATTACHMENT_THRESHOLD_LINE_BREAKS : 0}
         maxInputChars={PROVIDER_SEND_TURN_MAX_INPUT_CHARS}
         style={{ flex: 1, minHeight: 0 }}
         onComposerChange={(event) => {

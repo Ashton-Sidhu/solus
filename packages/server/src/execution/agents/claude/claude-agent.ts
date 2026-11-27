@@ -696,7 +696,9 @@ export class ClaudeAgent {
    */
   async readUsageReport(seat?: ClaudeSeat): Promise<ClaudeUsageReport | null> {
     if (seat?.envToken) return null
-    const executable = await resolveClaudeExecutable()
+    const executable = seat?.binaryPath && seat.binaryPath !== 'claude'
+      ? seat.binaryPath
+      : await resolveClaudeExecutable()
     try {
       return await this.readUsageFromApi(executable, seat)
     } catch (error) {

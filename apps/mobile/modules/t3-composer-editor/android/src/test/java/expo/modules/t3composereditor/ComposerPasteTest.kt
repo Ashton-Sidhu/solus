@@ -36,6 +36,7 @@ class ComposerPasteTest {
   private val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
   private val editor = SelectionAwareEditText(context).apply {
     textPasteThresholdBytes = 32 * 1024
+    textPasteThresholdLineBreaks = 100
     maxInputChars = 120_000
   }
 
@@ -144,6 +145,32 @@ class ComposerPasteTest {
     assertTrue(editor.onTextContextMenuItem(android.R.id.paste))
     assertEquals(pasted, intercepted)
     assertEquals("old", editor.text.toString())
+  }
+
+  @Test
+  fun regularPasteFoldsManyShortLinesUnderTheByteThreshold() {
+    val pasted = "short line\n".repeat(100)
+    clipboard.setPrimaryClip(ClipData.newPlainText("test", pasted))
+    editor.setText("")
+    var intercepted: String? = null
+    editor.pasteTextListener = { text, _, _ -> intercepted = text }
+
+    assertTrue(editor.onTextContextMenuItem(android.R.id.paste))
+    assertEquals(pasted, intercepted)
+    assertEquals("", editor.text.toString())
+  }
+
+  @Test
+  fun regularPasteKeepsFewerLinesInline() {
+    val pasted = "short line\n".repeat(99)
+    clipboard.setPrimaryClip(ClipData.newPlainText("test", pasted))
+    editor.setText("")
+    var intercepted: String? = null
+    editor.pasteTextListener = { text, _, _ -> intercepted = text }
+
+    editor.onTextContextMenuItem(android.R.id.paste)
+    assertEquals(null, intercepted)
+    assertEquals(pasted, editor.text.toString())
   }
 
   @Test

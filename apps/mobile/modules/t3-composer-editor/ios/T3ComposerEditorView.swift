@@ -94,6 +94,7 @@ private final class ComposerTextView: UITextView {
   var onSubmit: ((Bool) -> Void)?
   var isReadOnly = false
   var textPasteThresholdBytes = 0
+  var textPasteThresholdLineBreaks = 0
   var maxInputChars = Int.max
   var enterBehavior: ComposerEnterBehavior = .send
   /// JS supplies the actual send outcomes so the iPad Command-hold HUD names the configured actions.
@@ -273,12 +274,26 @@ private final class ComposerTextView: UITextView {
     if pastedLength >= textPasteThresholdBytes || text.utf8.count >= textPasteThresholdBytes {
       return true
     }
+    if hasLineBreaks(text, textPasteThresholdLineBreaks) {
+      return true
+    }
     // Chips occupy one display character but expand to their source in the
     // submitted message. Measure that source, including the replaced selection.
     let sourceLength = sourceOffset(forDisplayOffset: attributedText.length)
     let selectedLength = sourceOffset(forDisplayOffset: NSMaxRange(selectedRange)) -
       sourceOffset(forDisplayOffset: selectedRange.location)
     return sourceLength - selectedLength + pastedLength > maxInputChars
+  }
+
+  /// Solus: many short lines fold too, although they stay under the byte threshold.
+  private func hasLineBreaks(_ text: String, _ count: Int) -> Bool {
+    guard count > 0 else { return false }
+    var found = 0
+    for byte in text.utf8 where byte == 0x0A {
+      found += 1
+      if found >= count { return true }
+    }
+    return false
   }
 
   override func deleteBackward() {
@@ -873,6 +888,10 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
 
   func setTextPasteThresholdBytes(_ threshold: Int) {
     textView.textPasteThresholdBytes = threshold
+  }
+
+  func setTextPasteThresholdLineBreaks(_ threshold: Int) {
+    textView.textPasteThresholdLineBreaks = threshold
   }
 
   func setMaxInputChars(_ maxInputChars: Int) {
