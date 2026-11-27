@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { dirname } from 'path'
 import { z } from 'zod'
 import { isSameAppShortcutTarget, type AppShortcutTarget } from '@solus/contracts/app-shortcuts'
+import { appDesktopPermissionSchema, type AppDesktopGrant, type AppDesktopPermission } from '@solus/contracts/app-desktop'
 import { appShortcutId } from './launcher-files'
 
 const boundsSchema = z.object({
@@ -21,11 +22,24 @@ const shortcutSchema = z.object({
 })
 export type AppShortcutRecord = z.infer<typeof shortcutSchema>
 
+const grantsSchema = z.object({
+  host: z.string(),
+  appId: z.string(),
+  /** The app's name when the person last answered, for Settings when the app is not open. */
+  name: z.string(),
+  grants: z.partialRecord(appDesktopPermissionSchema, z.enum(['granted', 'denied'])),
+})
+export type AppGrantsRecord = z.infer<typeof grantsSchema>
+
 const fileSchema = z.object({
   version: z.literal(1),
   shortcuts: z.array(shortcutSchema),
   /** Where the person left each app window, by the app's shortcut id. An app window needs no shortcut. */
   windowBounds: z.record(z.string(), boundsSchema),
+  /** The person's answers for the desktop capabilities of each app (docs/plans/app-desktop-capabilities.md §2). */
+  permissions: z.array(grantsSchema).default([]),
+  /** Solus turned its login item on for an app that starts at login, so only Solus turns it off again. */
+  loginItemForApps: z.boolean().default(false),
 })
 type AppShortcutFile = z.infer<typeof fileSchema>
 
@@ -50,7 +64,7 @@ export class AppShortcutRecords {
       const parsed = fileSchema.safeParse(JSON.parse(readFileSync(this.path, 'utf-8')))
       if (parsed.success) return parsed.data
     } catch {}
-    return { version: 1, shortcuts: [], windowBounds: {} }
+    return { version: 1, shortcuts: [], windowBounds: {}, permissions: [], loginItemForApps: false }
   }
 
   private write(): void {
@@ -85,6 +99,44 @@ export class AppShortcutRecords {
 
   saveWindowBounds(target: AppShortcutTarget, bounds: AppWindowBounds): void {
     this.file.windowBounds[appShortcutId(target)] = bounds
+    this.write()
+  }
+
+  /** Every app with an answer on this device. */
+  grantsList(): readonly AppGrantsRecord[] {
+    return this.file.permissions
+  }
+
+  grantOf(target: AppShortcutTarget, permission: AppDesktopPermission): AppDesktopGrant | null {
+    return this.file.permissions.find((record) => isSameAppShortcutTarget(record, target))?.grants[permission] ?? null
+  }
+
+  /** Keeps one answer; null clears it, so the app asks again. An app with no answer left has no record. */
+  setGrant(target: AppShortcutTarget, name: string, permission: AppDesktopPermission, grant: AppDesktopGrant | null): void {
+    const before = this.file.permissions.find((record) => isSameAppShortcutTarget(record, target))
+    const grants = { ...before?.grants }
+    if (grant) grants[permission] = grant
+    else delete grants[permission]
+    const others = this.file.permissions.filter((record) => record !== before)
+    const hasAnswers = Object.keys(grants).length > 0
+    this.file.permissions = hasAnswers ? [...others, { host: target.host, appId: target.appId, name: name || before?.name || '', grants }] : others
+    this.write()
+  }
+
+  /** A deleted app keeps no answer on this device. */
+  forgetGrants(target: AppShortcutTarget): void {
+    if (!this.file.permissions.some((record) => isSameAppShortcutTarget(record, target))) return
+    this.file.permissions = this.file.permissions.filter((record) => !isSameAppShortcutTarget(record, target))
+    this.write()
+  }
+
+  get loginItemForApps(): boolean {
+    return this.file.loginItemForApps
+  }
+
+  set loginItemForApps(isOn: boolean) {
+    if (this.file.loginItemForApps === isOn) return
+    this.file.loginItemForApps = isOn
     this.write()
   }
 }

@@ -24,6 +24,7 @@ Build whatever the user asked for, at the size they asked for. Do not reduce the
 | Integrations | `app.ts` | The user's connected services, by slug. |
 | UI | `src/` | A full application in its own window. An app can have no UI. |
 | Storage | `@solus/app` | Key-value data for a UI that needs no backend. |
+| Desktop | `@solus/app` | In the app's own window of the desktop app: a menu-bar item, global shortcuts, notifications, a badge, and more, each with the person's permission. |
 
 Each part is optional. A to-do list needs only a UI and `storage`. A database browser needs operations, a secret, and a network permission. A digest that posts each morning needs an operation and a schedule, and no UI. An importer needs an app file and a workflow.
 
@@ -86,6 +87,7 @@ Do not use `render_artifact` for an app. `npm run bundle` checks the types and t
 | Ask a model: a summary, a classification, an analysis | [models.md](references/models.md) |
 | Use a secret, a connected service, the network, or the host's files | [access.md](references/access.md) |
 | Preview, deploy, repair, or update an older app | [deploy.md](references/deploy.md) |
+| Use the desktop app: a menu-bar item, global shortcuts, notifications, a badge, keep on top, start at login, the microphone or camera | [desktop.md](references/desktop.md) |
 
 ## Done
 

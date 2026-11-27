@@ -59,7 +59,7 @@ export const win32Platform: DesktopPlatform = {
   },
   // A Windows tray icon opens its menu on a right click only.
   trayShowsOnClick: true,
-  setActivityBadge(_app, window, count) {
+  setActivityBadge(_app, window, count, description) {
     // `setBadgeCount` does nothing on Windows; the count is an overlay icon on
     // the taskbar button.
     if (!window) return
@@ -68,7 +68,13 @@ export const win32Platform: DesktopPlatform = {
       return
     }
     const icon = nativeImage.createFromBitmap(badgeBitmap(badgeLabel(count)), { width: BADGE_PIXELS, height: BADGE_PIXELS, scaleFactor: 2 })
-    window.setOverlayIcon(icon, `${count} sessions need attention`)
+    window.setOverlayIcon(icon, description ?? `${count} sessions need attention`)
+  },
+  appBadgesOnOwnWindow: true,
+  async setOpenAtLogin(app, isOn, install) {
+    // The Run key starts this program with these arguments; a development run needs the app's folder first.
+    app.setLoginItemSettings({ openAtLogin: isOn, path: install.executablePath, args: [...install.launchArguments, install.loginArgument] })
+    return 'done'
   },
 
   terminal: {

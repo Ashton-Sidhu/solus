@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { APP_DESKTOP_OPERATIONS, type AppDesktopOperation } from './app-desktop'
 import { MCP_APP_MAX_DATA_BYTES } from './mcp-apps'
 import type { AgentId, SessionRecordStatus } from './types'
 import type { Attribution } from './user'
@@ -39,8 +40,9 @@ const APP_FILES_CALL_PREFIX = '@files/'
 const APP_CLIENT_CALL_PREFIX = '@client/'
 const APP_CONFIG_CALL_PREFIX = '@config/'
 const APP_MODELS_CALL_PREFIX = '@models/'
+const APP_DESKTOP_CALL_PREFIX = '@desktop/'
 
-/** What a UI puts on the wire: `<slug>/<tool>`, `@storage/<operation>`, `@files/<operation>`, `@config/<operation>`, `@models/<operation>`, `@app/<operation>`, or `@client/<operation>`. */
+/** What a UI puts on the wire: `<slug>/<tool>`, `@storage/<operation>`, `@files/<operation>`, `@config/<operation>`, `@models/<operation>`, `@app/<operation>`, `@client/<operation>`, or `@desktop/<operation>`. */
 export const appCallNameSchema = z.string().min(3).max(512).regex(/^[^/\s]+\/[^\s]+$/)
 
 export const APP_STORAGE_OPERATIONS = ['get', 'set', 'delete', 'keys'] as const
@@ -77,6 +79,8 @@ export type AppCallTarget =
   | { kind: 'client'; operation: AppClientOperation }
   | { kind: 'config'; operation: AppConfigOperation }
   | { kind: 'models'; operation: AppModelOperation }
+  /** A desktop capability of the app window (docs/plans/app-desktop-capabilities.md). The client answers it; it never reaches the host. */
+  | { kind: 'desktop'; operation: AppDesktopOperation }
   | { kind: 'operation'; name: string }
 
 export function appStorageCallName(operation: AppStorageOperation): string {
@@ -124,6 +128,10 @@ export function parseAppCallName(name: string): AppCallTarget | null {
   if (name.startsWith(APP_MODELS_CALL_PREFIX)) {
     const operation = APP_MODEL_OPERATIONS.find((known) => known === name.slice(APP_MODELS_CALL_PREFIX.length))
     return operation ? { kind: 'models', operation } : null
+  }
+  if (name.startsWith(APP_DESKTOP_CALL_PREFIX)) {
+    const operation = APP_DESKTOP_OPERATIONS.find((known) => known === name.slice(APP_DESKTOP_CALL_PREFIX.length))
+    return operation ? { kind: 'desktop', operation } : null
   }
   if (name.startsWith(APP_OPERATION_CALL_PREFIX)) {
     const operation = declaredNameSchema.safeParse(name.slice(APP_OPERATION_CALL_PREFIX.length))

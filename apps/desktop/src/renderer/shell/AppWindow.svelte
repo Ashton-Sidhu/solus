@@ -13,6 +13,7 @@
   import { APP_HOST_GONE_TEXT, APP_NO_UI_TEXT, APP_STOPPED_TEXT, appSurfacePhase } from "@solus/workspace-ui/components/app/lib/app-view";
   import { PAGE_SECONDARY_BTN } from "@solus/workspace-ui/lib/page-chrome";
   import { APP_WINDOW_HOST_UNKNOWN_TEXT, appWindowHost } from "./app-window-host";
+  import { appWindowDesktop } from "./app-window-desktop";
 
   /**
    * The page of an app window (docs/app-shortcuts.md §2): one app in all of
@@ -71,7 +72,7 @@
     const appId = app?.id;
     const network = appState?.network;
     if (!hostId || !appId || !network) return undefined;
-    return { network, call: (name: string, argumentsJson: string) => appsStore.call(hostId, appId, name, argumentsJson) };
+    return { network, call: (name: string, argumentsJson: string) => appsStore.call(hostId, appId, name, argumentsJson), desktop: appWindowDesktop };
   });
 
   let reloadKey = $state(0);

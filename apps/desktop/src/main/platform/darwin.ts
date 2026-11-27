@@ -54,6 +54,12 @@ export const darwinPlatform: DesktopPlatform = {
   setActivityBadge(app, _window, count) {
     app.setBadgeCount(count)
   },
+  appBadgesOnOwnWindow: false,
+  async setOpenAtLogin(app, isOn) {
+    // macOS 13 and later keep a new login item until the person allows it in System Settings.
+    app.setLoginItemSettings({ openAtLogin: isOn })
+    return isOn && app.getLoginItemSettings().status === 'requires-approval' ? 'requires-approval' : 'done'
+  },
 
   terminal: {
     resolve: tmux.resolve,

@@ -674,7 +674,7 @@ export class Apps {
     const app = await this.app(authority, idOrSlug)
     const target = parseAppCallName(name)
     if (!target) throw new Error(`This app cannot call ${name}.`)
-    if (target.kind === 'client') throw new Error(`${name} is answered by the client that shows the app, not by its host.`)
+    if (target.kind === 'client' || target.kind === 'desktop') throw new Error(`${name} is answered by the client that shows the app, not by its host.`)
     const input = inputSchema.parse(JSON.parse(argumentsJson))
     let value: StoredValue
     if (target.kind === 'storage') value = await this.runStorage(app.id, target.operation, input)

@@ -22,6 +22,7 @@ export type { NativeSolusAPI } from '@solus/contracts/host-api'
 import type { GuestShortcut, NativeSolusAPI } from '@solus/contracts/host-api'
 import type { NativeServerForwardRequest } from '@solus/contracts/running-servers'
 import type { AppShortcutRequest, AppShortcutTarget, AppWindowRequest } from '@solus/contracts/app-shortcuts'
+import type { AppDesktopEvent, AppDesktopValue, AppPermissionChange } from '@solus/contracts/app-desktop'
 
 // Main has finished booting the local server before it creates either renderer
 // window. Start this immutable bootstrap lookup while the preload itself is
@@ -160,6 +161,13 @@ const nativeApi: NativeSolusAPI = {
   addAppShortcut: (request: AppShortcutRequest) => ipcRenderer.invoke('solus:app-shortcut-add', request),
   removeAppShortcut: (target: AppShortcutTarget) => ipcRenderer.invoke('solus:app-shortcut-remove', target),
   openAppWindow: (request: AppWindowRequest) => ipcRenderer.invoke('solus:app-window-open', request),
+  onAppShortcutsChanged: channelFanOut<[]>('solus:app-shortcuts-changed'),
+  appDesktopCall: (operation: string, args: AppDesktopValue) => ipcRenderer.invoke('solus:app-desktop-call', operation, args),
+  onAppDesktopEvent: channelFanOut<[event: AppDesktopEvent]>('solus:app-desktop-event'),
+  appPermissions: () => ipcRenderer.invoke('solus:app-permissions'),
+  setAppPermission: (change: AppPermissionChange) => ipcRenderer.invoke('solus:app-permission-set', change),
+  forgetAppPermissions: (target: AppShortcutTarget) => ipcRenderer.invoke('solus:app-permissions-forget', target),
+  onAppPermissionsChanged: channelFanOut<[]>('solus:app-permissions-changed'),
 }
 
 contextBridge.exposeInMainWorld('solusNative', nativeApi)

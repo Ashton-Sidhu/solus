@@ -5,7 +5,7 @@ import type { AppSummary } from '@solus/contracts/apps'
 import { isSameAppShortcutTarget, type AppShortcutTarget, type AppShortcutView } from '@solus/contracts/app-shortcuts'
 import { appShortcutIconPng } from './app-shortcut-icon'
 
-type AppShortcutsApi = Pick<NativeSolusAPI, 'appShortcuts' | 'addAppShortcut' | 'removeAppShortcut' | 'openAppWindow'>
+type AppShortcutsApi = Pick<NativeSolusAPI, 'appShortcuts' | 'addAppShortcut' | 'removeAppShortcut' | 'openAppWindow' | 'onAppShortcutsChanged'>
 type ShortcutApp = Pick<AppSummary, 'id' | 'name' | 'colorHue'>
 
 /**
@@ -34,6 +34,8 @@ export class AppShortcutsStore {
   start(): void {
     if (this.hasStarted || !this.isAvailable) return
     this.hasStarted = true
+    // An app window's menu removes a shortcut too.
+    this.api.onAppShortcutsChanged?.(() => void this.reload())
     void this.reload()
   }
 
