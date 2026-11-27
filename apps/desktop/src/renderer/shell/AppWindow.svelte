@@ -48,10 +48,11 @@
     const appId = app?.id;
     if (hostId && appId) untrack(() => appsStore.ensure(hostId, appId));
   });
-  // The launcher keeps the app's name.
+  // The launcher keeps the app's name and icon.
   $effect(() => {
+    const hostId = serverId;
     const current = app;
-    if (current && appShortcutsStore.has(target)) untrack(() => void appShortcutsStore.followName(target, current).catch(() => {}));
+    if (hostId && current && appShortcutsStore.has(target)) untrack(() => void appShortcutsStore.follow(target, hostId, current).catch(() => {}));
   });
 
   const phase = $derived(

@@ -13,6 +13,8 @@ export interface Command {
   keywords?: string[]
   /** Optional leading icon (@lucide/svelte component). */
   icon?: Component
+  /** An image address that takes the place of `icon`, such as an app's own icon. */
+  image?: string
   /** Optional trailing hint, e.g. a formatted shortcut like "⌘B". */
   hint?: string
   /**

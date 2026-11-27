@@ -4,7 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { appLinkOf, appWindowRequestOf, appWindowSearch, parseAppLink } from '@solus/contracts/app-shortcuts'
 import { appLinkTargetIn } from '@solus/desktop-main/app-shortcuts/app-links'
-import { AppShortcutRecords } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
+import { AppShortcutRecords, LAUNCHER_FORMAT, appShortcutView } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
 import { ICNS_SIZES, ICO_SIZES, icnsFile, icoFile } from '@solus/desktop-main/app-shortcuts/icon-files'
 import {
   appShortcutIdentifier,
@@ -316,15 +316,25 @@ describe('the records of this device', () => {
   test('a shortcut and the place of a window hold across a restart', () => {
     const path = join(dir, 'app-shortcuts.json')
     const records = new AppShortcutRecords(path)
-    records.save({ ...notes, name: 'Notes', launcherPath: '/a/Notes.app' })
-    records.save({ ...notes, name: 'Notebook', launcherPath: '/a/Notebook.app' })
+    records.save({ ...notes, name: 'Notes', launcherPath: '/a/Notes.app', iconKey: 'monogram:N:235', launcherFormat: LAUNCHER_FORMAT })
+    records.save({ ...notes, name: 'Notebook', launcherPath: '/a/Notebook.app', iconKey: 'svg:abc', launcherFormat: LAUNCHER_FORMAT })
     records.saveWindowBounds(notes, { x: 10, y: 20, width: 900, height: 700 })
     const reopened = new AppShortcutRecords(path)
-    expect(reopened.list()).toEqual([{ ...notes, name: 'Notebook', launcherPath: '/a/Notebook.app' }])
+    expect(reopened.list()).toEqual([{ ...notes, name: 'Notebook', launcherPath: '/a/Notebook.app', iconKey: 'svg:abc', launcherFormat: LAUNCHER_FORMAT }])
+    expect(reopened.list().map(appShortcutView)).toEqual([{ ...notes, name: 'Notebook', iconKey: 'svg:abc', isOutdated: false }])
     expect(reopened.windowBounds(notes)).toEqual({ x: 10, y: 20, width: 900, height: 700 })
     expect(reopened.windowBounds(tasks)).toBeNull()
     reopened.remove(notes)
     expect(new AppShortcutRecords(path).find(notes)).toBeNull()
+  })
+
+  // WHY: a shortcut from before the icon key must be read, and its launcher written again once: it has the tile of an older Solus.
+  test('a record from before the icon key reads with no key, and a launcher of an older format is outdated', () => {
+    const path = join(dir, 'app-shortcuts.json')
+    writeFileSync(path, JSON.stringify({ version: 1, shortcuts: [{ ...notes, name: 'Notes', launcherPath: '/a/Notes.app' }], windowBounds: {} }))
+    const [record] = new AppShortcutRecords(path).list()
+    expect(appShortcutView(record!)).toEqual({ ...notes, name: 'Notes', iconKey: '', isOutdated: false })
+    expect(appShortcutView({ ...record!, launcherFormat: LAUNCHER_FORMAT - 1 }).isOutdated).toBe(true)
   })
 
   // WHY: a damaged file must not stop the desktop app, and a launcher needs no record to open its app.

@@ -697,6 +697,7 @@ export const RPC_INVOKE_METHODS = [
   'appList',
   'appRead',
   'appUi',
+  'appIcon',
   'appCall',
   'appStop',
   'appStart',

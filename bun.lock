@@ -289,6 +289,7 @@
         "@tiptap/y-tiptap": "^3.0.9",
         "extract-zip": "^2.0.1",
         "image-size": "^2.0.2",
+        "saxes": "6.0.0",
         "yjs": "^13.6.32",
       },
       "devDependencies": {

@@ -54,6 +54,8 @@ export const appVersions = defineTable('app_versions', {
   descriptor: json({ notNull: true }),
   has_backend: boolean({ notNull: true }),
   has_ui: boolean({ notNull: true }),
+  /** The SHA-256 of the build's `icon.svg`; null when the app has no icon. */
+  icon_hash: text(),
   /** `building`, `active`, `superseded`, or `failed`. */
   state: text({ notNull: true }),
   error: text(),

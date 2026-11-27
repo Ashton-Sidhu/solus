@@ -2,11 +2,17 @@ import { localApi } from '@solus/client-core/local-api'
 import { appMonogram, appTileHue } from '@solus/client-core/app-tile'
 import type { NativeSolusAPI } from '@solus/contracts/host-api'
 import type { AppSummary } from '@solus/contracts/apps'
-import { isSameAppShortcutTarget, type AppShortcutTarget, type AppShortcutView } from '@solus/contracts/app-shortcuts'
-import { appShortcutIconPng } from './app-shortcut-icon'
+import { appShortcutIconKey, isSameAppShortcutTarget, type AppShortcutTarget, type AppShortcutView } from '@solus/contracts/app-shortcuts'
+import { appIconsStore, type AppIconsStore } from './app-icons.store.svelte'
+import { appShortcutIconPng, type AppShortcutIconSource } from './app-shortcut-icon'
 
 type AppShortcutsApi = Pick<NativeSolusAPI, 'appShortcuts' | 'addAppShortcut' | 'removeAppShortcut' | 'openAppWindow'>
-type ShortcutApp = Pick<AppSummary, 'id' | 'name' | 'colorHue'>
+type ShortcutApp = Pick<AppSummary, 'id' | 'name' | 'colorHue' | 'iconHash'>
+
+/** What the launcher's icon of an app is drawn from now (`appShortcutIconKey`). */
+function iconKeyOf(app: ShortcutApp, iconHash: string | null = app.iconHash): string {
+  return appShortcutIconKey({ iconHash, monogram: appMonogram(app.name), hue: appTileHue(app) })
+}
 
 /**
  * The app shortcuts of this device and the command that opens an app window
@@ -25,7 +31,8 @@ export class AppShortcutsStore {
 
   constructor(
     private readonly api: Partial<AppShortcutsApi> = localApi,
-    private readonly drawIcon: (monogram: string, hue: number) => Promise<ArrayBuffer> = appShortcutIconPng,
+    private readonly drawIcon: (source: AppShortcutIconSource) => Promise<ArrayBuffer> = appShortcutIconPng,
+    private readonly icons: Pick<AppIconsStore, 'svgFor'> = appIconsStore,
   ) {
     this.isAvailable = api.appShortcuts !== undefined
   }
@@ -45,14 +52,19 @@ export class AppShortcutsStore {
     return this.shortcuts.some((shortcut) => isSameAppShortcutTarget(shortcut, target))
   }
 
-  /** Writes the launcher of the app, with its name and its tile as the icon. */
-  async add(target: AppShortcutTarget, app: ShortcutApp): Promise<void> {
+  /**
+   * Writes the launcher of the app, with its name and its icon: its own
+   * `icon.svg`, read from `serverId`, else its tile. An icon that cannot be
+   * read gives the tile and the tile's key, so the next open tries it again.
+   */
+  async add(target: AppShortcutTarget, serverId: string, app: ShortcutApp): Promise<void> {
     const key = `${target.host}\n${target.appId}`
     if (this.writing.has(key)) return
     this.writing.add(key)
     try {
-      const iconPng = await this.drawIcon(appMonogram(app.name), appTileHue(app))
-      await this.api.addAppShortcut?.({ ...target, name: app.name, iconPng })
+      const svg = await this.icons.svgFor(serverId, app)
+      const iconPng = await this.drawIcon({ monogram: appMonogram(app.name), hue: appTileHue(app), svg })
+      await this.api.addAppShortcut?.({ ...target, name: app.name, iconPng, iconKey: iconKeyOf(app, svg === null ? null : app.iconHash) })
       await this.reload()
     } finally {
       this.writing.delete(key)
@@ -64,10 +76,16 @@ export class AppShortcutsStore {
     await this.reload()
   }
 
-  /** A launcher shows the app's name. After a rename on the host, the launcher is written again with the new name. */
-  async followName(target: AppShortcutTarget, app: ShortcutApp): Promise<void> {
+  /**
+   * A launcher shows the app's name and icon (docs/app-shortcuts.md §4). When
+   * the app opens, a launcher with another name, an icon from another key (a
+   * new icon.svg, a new colour, a new first letter), or the format of an older
+   * Solus is written again. An app that did not change writes nothing.
+   */
+  async follow(target: AppShortcutTarget, serverId: string, app: ShortcutApp): Promise<void> {
     const shortcut = this.shortcuts.find((candidate) => isSameAppShortcutTarget(candidate, target))
-    if (shortcut && shortcut.name !== app.name) await this.add(target, app)
+    if (!shortcut) return
+    if (shortcut.name !== app.name || shortcut.iconKey !== iconKeyOf(app) || shortcut.isOutdated) await this.add(target, serverId, app)
   }
 
   async openWindow(target: AppShortcutTarget, name: string): Promise<void> {

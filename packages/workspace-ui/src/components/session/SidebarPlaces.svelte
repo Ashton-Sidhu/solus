@@ -40,6 +40,7 @@
   } from "../../lib/sidebar-places";
   import { appMonogram, appTileHue } from "@solus/client-core/app-tile";
   import AppTile from "../app/AppTile.svelte";
+  import { appIconsStore } from "../../contexts/apps/app-icons.store.svelte";
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { pointAnchor, type PanelMenuAnchor } from "../project-panel/lib/panel-items";
@@ -58,6 +59,8 @@
     /** A pinned app's letter, in place of an icon, on a tile of the app's own hue. */
     monogram?: string;
     monogramHue?: number;
+    /** A pinned app's own icon, which takes the place of its letter. */
+    iconUrl?: string | null;
     reviewCount?: number;
     reviewLabel?: string;
     countTestId?: string;
@@ -199,6 +202,7 @@
       },
       monogram: appMonogram(row.app.name),
       monogramHue: appTileHue(row.app),
+      iconUrl: appIconsStore.urlFor(row.serverId, row.app),
     };
   }
 
@@ -323,7 +327,7 @@
           {#if Icon}
             <Icon size={16} />
           {:else}
-            <AppTile monogram={button.monogram ?? "?"} hue={button.monogramHue ?? 0} />
+            <AppTile monogram={button.monogram ?? "?"} hue={button.monogramHue ?? 0} iconUrl={button.iconUrl} />
           {/if}
           {#if reviewCount > 0}
             <span

@@ -22,6 +22,12 @@ Then build from the brief, and check each preview against it.
   ```css
   @theme { --color-brand: light-dark(#c2410c, #fb923c); --color-brand-soft: light-dark(#fff1e8, #2a1a10); }
   ```
+- **App icon.** Give the app an `icon.svg` beside `app.ts`, drawn from the brief: its accent and its signature. Solus shows it at 14px to 56px in the workspace, and on the desktop shortcut and the app's window. Draw a full square tile with its own background, as a phone app icon is, so it reads on light and dark: Solus shows it as it is, on any background. Keep it simple enough to read at 16px: one shape or one glyph, no text but one letter. The host checks it at each save and each deploy, and refuses one that is not a plain SVG:
+  - One `<svg xmlns="http://www.w3.org/2000/svg">` root with a `viewBox`, at most 64 KiB, UTF-8.
+  - Shapes, paths, gradients, and `<use href="#id">` only. No `<script>`, `<foreignObject>`, `<image>`, event attributes (`onload`), DOCTYPE, or link to a file or an address: `href` and `url()` name only an element of the icon (`#id`).
+  ```svg
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#c2410c"/><path d="M20 40c6-12 18-12 24 0" stroke="#fff1e8" stroke-width="6" fill="none" stroke-linecap="round"/></svg>
+  ```
 - **Light and dark.** The app follows the mode of Solus; never force one mode. Define each color of your palette for both modes with `light-dark()`, as the starter does, and check that text on the accent reads in both. Solus also puts its theme in the page (`--background`, `--foreground`, `--card`, `--muted`, `--muted-foreground`, `--border`); use them when the app must look like a part of the workspace.
 - **Background.** Solus styles `html` and `body` of the page, and its styles win over yours. Paint the app's background on its root element (`<div className="min-h-dvh bg-page text-ink">` in the starter), not on `html` or `body`.
 - **Type.** Use a real scale: a page title of 24px to 30px with tight tracking (a headline on the first page can be larger, as in the starter), section labels, 13px to 14px body text, 11px to 12px for meta text, `tabular-nums` for numbers, and a mono face for code and ids. No text below 11px. `--font-sans` is the face of the workspace. For a face of your own, install a `@fontsource-variable/<name>` package and import it in `src/main.tsx`; the build puts the font in the page. Each family adds about 250 KiB to the page for each style, so use one display face and the system face for body text.

@@ -1,0 +1,1 @@
+ALTER TABLE "app_versions" ADD COLUMN "icon_hash" text;

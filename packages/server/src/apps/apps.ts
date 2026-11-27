@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { z } from 'zod'
 import {
+  APP_ICON_FILE,
   APP_PROTOCOL,
   appDescriptorSchema,
   appConfigValueProblem,
@@ -17,6 +18,7 @@ import {
   type AppConfigValue,
   type AppDescriptor,
   type AppFileView,
+  type AppIcon,
   type AppCallStats,
   type AppMetrics,
   type AppRevisionDiff,
@@ -76,6 +78,7 @@ import {
   UI_FILE,
   AppProjectError,
   buildFiles,
+  checkAppIcon,
   readProjectOrigin,
   readProjectSource,
   writeProjectOrigin,
@@ -88,6 +91,7 @@ import { scheduleTriggerProblem } from './app-schedules'
 import { readAppSecrets, removeAppSecrets, writeAppSecret, type AppSecretValues } from './app-secrets'
 import type { AppArrivedSignal, AppSignalSource } from './app-signals'
 import type { AppStorage, StoredValue } from './app-storage'
+import { appIconHash } from './app-icon'
 import { appSummary, appSummaryOf } from './app-summaries'
 import { findStepPlace, readStepSourceFiles } from './app-step-source'
 import type { AppRunnable, AppWorkflowRunFace } from './app-workflows'
@@ -307,6 +311,15 @@ export class Apps {
     return build.ui === null ? null : { version: version.number, html: build.ui }
   }
 
+  /** The icon of the active version; null when it has none. The build checked it, so a client shows it as it is. */
+  async icon(authority: AppAuthority, idOrSlug: string): Promise<AppIcon | null> {
+    const app = await this.app(authority, idOrSlug)
+    const version = await this.activeVersion(app)
+    if (!version?.iconHash) return null
+    const svg = (await this.deps.repositories.readFile(app.repository, version.buildCommit, APP_ICON_FILE))?.toString('utf8') ?? null
+    return svg === null ? null : { hash: version.iconHash, svg }
+  }
+
   async versions(authority: AppAuthority, idOrSlug: string): Promise<AppVersionView[]> {
     const app = await this.app(authority, idOrSlug)
     return (await listVersions(app.id)).map((version): AppVersionView => ({
@@ -464,6 +477,8 @@ export class Apps {
     assertMayUse(authority.principal)
     const source = await readProjectSource(input.project)
     if (!source.some((file) => file.path === 'app.ts' || file.path === 'app.js')) throw new AppProjectError('This folder is not an app project: it has no app.ts next to package.json.')
+    const icon = source.find((file) => file.path === APP_ICON_FILE)
+    if (icon) checkAppIcon(icon.bytes)
     const { existing, expected } = await this.saveTarget(authority, input)
     const now = Date.now()
     const app = existing ?? await this.create(authority, input.name?.trim() || declaredName(source) || basename(input.project), input, now)
@@ -524,7 +539,7 @@ export class Apps {
     const number = (await latestVersionNumber(app.id) ?? 0) + 1
     const message = (await this.deps.repositories.revisions(app.repository)).find((entry) => entry.commit === revision)?.message ?? ''
     const version: AppVersionRecord = {
-      appId: app.id, number, sourceCommit: revision, buildCommit: '', descriptor: appDescriptorSchema.parse({ solusApp: APP_PROTOCOL, name: app.name }), hasBackend: false, hasUi: false,
+      appId: app.id, number, sourceCommit: revision, buildCommit: '', descriptor: appDescriptorSchema.parse({ solusApp: APP_PROTOCOL, name: app.name }), hasBackend: false, hasUi: false, iconHash: null,
       state: 'building', error: null, buildLog: null, buildMs: null, message, createdBy: input.createdBy, createdAt: now, activations: [],
     }
     await insertVersion(version)
@@ -547,7 +562,7 @@ export class Apps {
     const trigger = build.descriptor.schedules.map(scheduleTriggerProblem).find((problem) => problem !== null)
     if (trigger) return failed(trigger, built.log, built.ms)
     version.buildCommit = await this.deps.repositories.commitBuild(app.repository, { number, revision, files: buildFiles(build), at: now })
-    Object.assign(version, { descriptor: build.descriptor, hasBackend: build.backend !== null, hasUi: build.ui !== null, buildLog: built.log, buildMs: built.ms })
+    Object.assign(version, { descriptor: build.descriptor, hasBackend: build.backend !== null, hasUi: build.ui !== null, iconHash: build.icon === null ? null : appIconHash(build.icon), buildLog: built.log, buildMs: built.ms })
     await saveVersionBuild(version)
     this.builds.set(app.id, { version: number, backend: build.backend, migrations: build.migrations, ui: build.ui })
     const error = await this.makeActive(app, version, input.createdBy)

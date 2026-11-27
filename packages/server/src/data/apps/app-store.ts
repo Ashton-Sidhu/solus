@@ -53,6 +53,8 @@ export interface AppVersionRecord {
   descriptor: AppDescriptor
   hasBackend: boolean
   hasUi: boolean
+  /** The SHA-256 of the build's `icon.svg`; null when it has none. */
+  iconHash: string | null
   state: AppVersionState
   error: string | null
   /** The end of the text of the host's build; null for a version the host did not build. */
@@ -259,6 +261,7 @@ const versionRowSchema = z.object({
   descriptor: z.string(),
   has_backend: flagSchema,
   has_ui: flagSchema,
+  icon_hash: z.string().nullable(),
   state: z.enum(['building', 'active', 'superseded', 'failed']),
   error: z.string().nullable(),
   build_log: z.string().nullable(),
@@ -278,6 +281,7 @@ function versionFromRow(row: z.infer<typeof versionRowSchema>): AppVersionRecord
     descriptor: appDescriptorSchema.parse(JSON.parse(row.descriptor)),
     hasBackend: row.has_backend,
     hasUi: row.has_ui,
+    iconHash: row.icon_hash,
     state: row.state,
     error: row.error,
     buildLog: row.build_log,
@@ -291,21 +295,21 @@ function versionFromRow(row: z.infer<typeof versionRowSchema>): AppVersionRecord
 
 export async function insertVersion(record: AppVersionRecord, db: Db = getDatabase()): Promise<void> {
   await db.run(sql`
-    INSERT INTO ${appVersions} (app_id, number, source_commit, build_commit, descriptor, has_backend, has_ui, state, error, build_log, build_ms, message, author, created_at, activations)
+    INSERT INTO ${appVersions} (app_id, number, source_commit, build_commit, descriptor, has_backend, has_ui, icon_hash, state, error, build_log, build_ms, message, author, created_at, activations)
     VALUES (
       ${record.appId}, ${record.number}, ${record.sourceCommit}, ${record.buildCommit}, ${JSON.stringify(record.descriptor)},
-      ${flag(db, record.hasBackend)}, ${flag(db, record.hasUi)}, ${record.state}, ${record.error}, ${record.buildLog}, ${record.buildMs}, ${record.message},
+      ${flag(db, record.hasBackend)}, ${flag(db, record.hasUi)}, ${record.iconHash}, ${record.state}, ${record.error}, ${record.buildLog}, ${record.buildMs}, ${record.message},
       ${attributionJson(record.createdBy)}, ${record.createdAt}, ${JSON.stringify(record.activations)}
     )
   `)
 }
 
 /** What a build that ended writes over the row a deploy made when the build started. The state stays `building` until the version starts. */
-export async function saveVersionBuild(record: Pick<AppVersionRecord, 'appId' | 'number' | 'buildCommit' | 'descriptor' | 'hasBackend' | 'hasUi' | 'buildLog' | 'buildMs'>, db: Db = getDatabase()): Promise<void> {
+export async function saveVersionBuild(record: Pick<AppVersionRecord, 'appId' | 'number' | 'buildCommit' | 'descriptor' | 'hasBackend' | 'hasUi' | 'iconHash' | 'buildLog' | 'buildMs'>, db: Db = getDatabase()): Promise<void> {
   await db.run(sql`
     UPDATE ${appVersions} SET
       build_commit = ${record.buildCommit}, descriptor = ${JSON.stringify(record.descriptor)}, has_backend = ${flag(db, record.hasBackend)},
-      has_ui = ${flag(db, record.hasUi)}, build_log = ${record.buildLog}, build_ms = ${record.buildMs}
+      has_ui = ${flag(db, record.hasUi)}, icon_hash = ${record.iconHash}, build_log = ${record.buildLog}, build_ms = ${record.buildMs}
     WHERE app_id = ${record.appId} AND number = ${record.number}
   `)
 }

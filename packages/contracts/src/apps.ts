@@ -387,6 +387,12 @@ export interface AppSummary {
   manifestDescription: string
   /** The hue (0–359) the owner chose for the app's tile; null takes one from the app's id. */
   colorHue: number | null
+  /**
+   * The SHA-256 of the active version's `icon.svg`, in hex; null when it has
+   * none and the tile is the monogram. A client reads the icon once for each
+   * hash (`appIcon`) and keeps it.
+   */
+  iconHash: string | null
   organizationId: string
   /** The version that runs; null when no deploy succeeded yet. */
   activeVersion: number | null
@@ -471,6 +477,18 @@ export interface AppState {
 export interface AppUi {
   version: number
   html: string
+}
+
+/** The file of an app project that holds its icon: beside `app.ts`. */
+export const APP_ICON_FILE = 'icon.svg'
+/** The size limit of an app's icon. An icon is a plain SVG: a larger one is not an icon. */
+export const MAX_APP_ICON_BYTES = 64 * 1024
+
+/** The icon of the active version: a plain SVG that the host checked at the build (no script, no file outside it). */
+export interface AppIcon {
+  /** The SHA-256 of `svg`, as `AppSummary.iconHash` names it. */
+  hash: string
+  svg: string
 }
 
 export interface AppVersionView {

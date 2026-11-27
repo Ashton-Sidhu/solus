@@ -297,15 +297,15 @@ export class AppRuntime {
       if (!existing) {
         await insertVersion({
           appId: app.id, number: push.number, sourceCommit: push.sourceCommit, buildCommit: '',
-          descriptor: appDescriptorSchema.parse({ solusApp: APP_PROTOCOL, name: descriptor.name }), hasBackend: false, hasUi: false,
+          descriptor: appDescriptorSchema.parse({ solusApp: APP_PROTOCOL, name: descriptor.name }), hasBackend: false, hasUi: false, iconHash: null,
           state: 'building', error: null, buildLog: null, buildMs: null, message: push.message, createdBy: hostAttribution(), createdAt: at, activations: [],
         })
       }
       const buildCommit = await this.builds.commitBuild(app.repository, {
         number: push.number, revision: push.sourceCommit, at,
-        files: buildFiles({ descriptor, backend: push.build.backend, ui: push.build.ui, migrations: push.build.migrations }),
+        files: buildFiles({ descriptor, backend: push.build.backend, ui: push.build.ui, icon: null, migrations: push.build.migrations }),
       })
-      await saveVersionBuild({ appId: app.id, number: push.number, buildCommit, descriptor, hasBackend: push.build.backend !== null, hasUi: push.build.ui !== null, buildLog: null, buildMs: null })
+      await saveVersionBuild({ appId: app.id, number: push.number, buildCommit, descriptor, hasBackend: push.build.backend !== null, hasUi: push.build.ui !== null, iconHash: null, buildLog: null, buildMs: null })
     }
     // A start reads the secrets this version declares, which the last active version may not have.
     this.declaredSecrets.set(app.id, descriptor.secrets.map((secret) => secret.name))

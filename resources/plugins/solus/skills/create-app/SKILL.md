@@ -24,6 +24,7 @@ Build whatever the user asked for, at the size they asked for. Do not reduce the
 | Integrations | `app.ts` | The user's connected services, by slug. |
 | UI | `src/` | A full application in its own window. An app can have no UI. |
 | Storage | `@solus/app` | Key-value data for a UI that needs no backend. |
+| Icon | `icon.svg` | The app's icon in Solus (the sidebar, its pane, the Apps tab, the command palette) and on its desktop shortcut. Without one, the app shows its first letter on a colour. |
 
 Each part is optional. A to-do list needs only a UI and `storage`. A database browser needs operations, a secret, and a network permission. A digest that posts each morning needs an operation and a schedule, and no UI. An importer needs an app file and a workflow.
 

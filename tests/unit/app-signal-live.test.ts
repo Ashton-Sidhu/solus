@@ -59,7 +59,7 @@ test('an occurrence reaches the live tail when it is emitted and again when its 
   await store.insertApp(APP)
   await store.insertVersion({
     appId: APP.id, number: 1, sourceCommit: 'a'.repeat(40), buildCommit: 'b'.repeat(40), descriptor: DESCRIPTOR,
-    hasBackend: true, hasUi: false, state: 'building', error: null, buildLog: null, buildMs: null, message: 'v1', createdBy: { kind: 'system' }, createdAt: now, activations: [],
+    hasBackend: true, hasUi: false, iconHash: null, state: 'building', error: null, buildLog: null, buildMs: null, message: 'v1', createdBy: { kind: 'system' }, createdAt: now, activations: [],
   })
   await store.activateVersion(APP, 1, { kind: 'system' })
   const app = { ...APP, activeVersion: 1 }

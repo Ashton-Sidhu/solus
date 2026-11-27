@@ -41,7 +41,7 @@ const OWNER: Attribution = { kind: 'user', user: { id: { kind: 'local', localId:
 async function addVersion(number: number) {
   await store.insertVersion({
     appId: APP.id, number, sourceCommit: String(number).repeat(40), buildCommit: 'b'.repeat(40), descriptor: appDescriptorSchema.parse({ solusApp: 3, name: 'Activations' }),
-    hasBackend: false, hasUi: true, state: 'building', error: null, buildLog: null, buildMs: null, message: `v${number}`, createdBy: AGENT, createdAt: number, activations: [],
+    hasBackend: false, hasUi: true, iconHash: null, state: 'building', error: null, buildLog: null, buildMs: null, message: `v${number}`, createdBy: AGENT, createdAt: number, activations: [],
   })
 }
 

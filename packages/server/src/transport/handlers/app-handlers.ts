@@ -72,6 +72,7 @@ export function registerAppHandlers(server: SolusServer, { apps, schedules, webh
   server.register('appList', (_args, ctx) => apps.list(ctx))
   server.register('appRead', ([input], ctx) => apps.read(ctx, appRequestSchema.parse(input).appId))
   server.register('appUi', ([input], ctx) => apps.ui(ctx, appRequestSchema.parse(input).appId))
+  server.register('appIcon', ([input], ctx) => apps.icon(ctx, appRequestSchema.parse(input).appId))
   server.register('appCall', ([input], ctx) => {
     const request = appCallRequestSchema.parse(input)
     return apps.call(ctx, request.appId, request.name, request.argumentsJson)
