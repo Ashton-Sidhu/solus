@@ -82,6 +82,7 @@ import { watchPullRequestAgentTool } from './pull-request-watch-tool'
 import { organizeSessionAgentTool } from './session-organize-tool'
 import { backgroundWaitAgentTool } from './background-wait-tool'
 import { requestSecretAgentTool } from './secret-request-tool'
+import { askUserAgentTool } from './ask-user-tool'
 import {
   manageWebhooksAgentTool,
   readWebhooksAgentTool,
@@ -193,6 +194,7 @@ export const solusToolbox = {
     install: deviceInstallAgentTool,
   },
   sessions: {
+    askUser: askUserAgentTool,
     requestSecret: requestSecretAgentTool,
     targets: listAgentTargetsAgentTool,
     search: searchSessionsAgentTool,

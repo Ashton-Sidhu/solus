@@ -140,6 +140,7 @@ export const SOLUS_TOOL_GROUPS = [
     'device_install',
   ] },
   { id: 'sessions', label: 'Sessions', tools: [
+    'ask_user',
     'request_secret',
     'list_agent_targets',
     'search_sessions',
