@@ -21,7 +21,7 @@ import type { LocalConnectionInfo } from '@solus/contracts/host-api'
 export type { NativeSolusAPI } from '@solus/contracts/host-api'
 import type { GuestShortcut, NativeSolusAPI } from '@solus/contracts/host-api'
 import type { NativeServerForwardRequest } from '@solus/contracts/running-servers'
-import type { AppShortcutRequest, AppShortcutTarget, AppWindowRequest } from '@solus/contracts/app-shortcuts'
+import type { AppShortcutOffer, AppShortcutRequest, AppShortcutTarget, AppWindowRequest, AppWindowWorkspaceRequest } from '@solus/contracts/app-shortcuts'
 
 // Main has finished booting the local server before it creates either renderer
 // window. Start this immutable bootstrap lookup while the preload itself is
@@ -160,6 +160,9 @@ const nativeApi: NativeSolusAPI = {
   addAppShortcut: (request: AppShortcutRequest) => ipcRenderer.invoke('solus:app-shortcut-add', request),
   removeAppShortcut: (target: AppShortcutTarget) => ipcRenderer.invoke('solus:app-shortcut-remove', target),
   openAppWindow: (request: AppWindowRequest) => ipcRenderer.invoke('solus:app-window-open', request),
+  onAppShortcutOffer: channelFanOut<[offer: AppShortcutOffer]>('solus:app-shortcut-offer'),
+  requestWorkspace: (request: AppWindowWorkspaceRequest) => ipcRenderer.send('solus:app-window-workspace-request', request),
+  onWorkspaceRequest: channelFanOut<[request: AppWindowWorkspaceRequest]>('solus:workspace-request'),
 }
 
 contextBridge.exposeInMainWorld('solusNative', nativeApi)

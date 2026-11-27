@@ -36,6 +36,8 @@ export class AppWindows {
     const key = appShortcutId(request)
     const existing = this.windows.get(key)
     if (existing && !existing.isDestroyed()) {
+      // A shortcut link for an app whose window is open asks in that window.
+      if (request.offer) existing.webContents.send('solus:app-shortcut-offer', request.offer)
       this.reveal(existing)
       return
     }

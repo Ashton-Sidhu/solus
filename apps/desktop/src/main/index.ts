@@ -51,8 +51,9 @@ import { markStartup, traceRendererMarks } from '@solus/desktop-main/startup-tra
 import { z } from 'zod'
 import { remoteEditorFileUrl } from '@solus/contracts/local-editor-links'
 import { outsideAppLinkUrl } from './outside-app-links'
-import { parseAppLink, type AppShortcutTarget } from '@solus/contracts/app-shortcuts'
-import { appLinkTargetIn } from '@solus/desktop-main/app-shortcuts/app-links'
+import { hostAddressOf, type AppWindowWorkspaceRequest } from '@solus/contracts/app-shortcuts'
+import { parseAppLinkAction, type AppLinkAction } from '@solus/contracts/app-shortcut-links'
+import { appLinkActionIn, appWindowRequestFor, queueAppLink } from '@solus/desktop-main/app-shortcuts/app-links'
 import { AppShortcutRecords } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
 import { AppWindows } from '@solus/desktop-main/app-shortcuts/app-windows'
 import { registerAppShortcutIpc } from '@solus/desktop-main/app-shortcuts/ipc'
@@ -70,10 +71,10 @@ desktopPlatform.prepare(app)
 if (desktopPlatform.singleInstance && !isHeadless && process.env.SOLUS_TEST_MODE !== '1') {
   if (!app.requestSingleInstanceLock()) app.exit(0)
   app.on('second-instance', (_event, launchArguments) => {
-    // A second launch from an app shortcut opens that app, not the workspace.
-    const appTarget = appLinkTargetIn(launchArguments)
-    if (appTarget) {
-      openAppTarget(appTarget)
+    // A second launch from an app shortcut, or from a link, opens that app, not the workspace.
+    const appLink = appLinkActionIn(launchArguments)
+    if (appLink) {
+      openAppLink(appLink)
       return
     }
     hiddenUntilTrayShow = false
@@ -163,7 +164,7 @@ let hiddenUntilTrayShow = false
  */
 let startedByAppShortcut = false
 /** App links that arrived before a window can open. */
-const pendingAppTargets: AppShortcutTarget[] = []
+const pendingAppLinks: AppLinkAction[] = []
 let sessionIndexerStartTimer: ReturnType<typeof setTimeout> | null = null
 
 /**
@@ -797,7 +798,7 @@ ipcMain.on('solus:set-zoom-factor', (event, rawFactor) => {
 // ─── App windows and app shortcuts (docs/app-shortcuts.md) ───
 
 const appShortcutRecords = new AppShortcutRecords(join(app.getPath('userData'), 'app-shortcuts.json'))
-const appLaunchers = desktopPlatform.appLaunchers({
+const solusInstall = {
   isPackaged: app.isPackaged,
   executablePath: process.execPath,
   launchArguments: app.isPackaged ? [] : [app.getAppPath()],
@@ -805,7 +806,8 @@ const appLaunchers = desktopPlatform.appLaunchers({
   homeDirectory: homedir(),
   appDataDirectory: app.getPath('appData'),
   env: process.env,
-})
+}
+const appLaunchers = desktopPlatform.appLaunchers(solusInstall)
 const appWindows = isHeadless ? null : new AppWindows({
   records: appShortcutRecords,
   launchers: appLaunchers,
@@ -815,30 +817,46 @@ const appWindows = isHeadless ? null : new AppWindows({
 })
 if (appWindows) registerAppShortcutIpc({ records: appShortcutRecords, launchers: appLaunchers, windows: appWindows })
 
-/** Opens the app of an app link. Before the app is ready, the link waits. */
-function openAppTarget(target: AppShortcutTarget): void {
+/** Opens the app of an app link or a shortcut link. Before the app is ready, the link waits. */
+function openAppLink(action: AppLinkAction): void {
   if (!appWindows) return
   if (!app.isReady()) {
-    pendingAppTargets.push(target)
+    if (!queueAppLink(pendingAppLinks, action)) log.info('app_link_dropped', { appId: action.target.appId })
     return
   }
-  appWindows.open({ ...target, name: appShortcutRecords.find(target)?.name ?? '' })
+  log.info('app_link_opened', { kind: action.kind, appId: action.target.appId, host: action.target.host })
+  appWindows.open(appWindowRequestFor(action, appShortcutRecords))
 }
 
-// Windows and Linux: the launcher starts Solus with the app link as an argument.
-const launchAppTarget = appLinkTargetIn(process.argv.slice(1))
-if (launchAppTarget && !isHeadless) {
+// Windows and Linux: the launcher, or the `solus` scheme, starts Solus with the link as an argument.
+const launchAppLink = appLinkActionIn(process.argv.slice(1))
+if (launchAppLink && !isHeadless) {
   startedByAppShortcut = true
-  pendingAppTargets.push(launchAppTarget)
+  queueAppLink(pendingAppLinks, launchAppLink)
 }
 
-// macOS: the launcher opens the app link, and macOS gives it to the Solus that runs or starts.
+// macOS: the launcher or a browser opens the link, and macOS gives it to the Solus that runs or starts.
 app.on('open-url', (event, url) => {
-  const target = parseAppLink(url)
-  if (!target) return
+  const action = parseAppLinkAction(url)
+  if (!action) return
   event.preventDefault()
   if (!app.isReady()) startedByAppShortcut = true
-  openAppTarget(target)
+  openAppLink(action)
+})
+
+/** An app window whose host this computer does not know asks the workspace window for the Add host dialog or the account settings. */
+const workspaceRequestSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('add-host'), address: z.string().nullable() }),
+  z.object({ kind: z.literal('account') }),
+])
+ipcMain.on('solus:app-window-workspace-request', (_event, rawRequest) => {
+  const parsed = workspaceRequestSchema.safeParse(rawRequest)
+  if (!parsed.success) return
+  const request: AppWindowWorkspaceRequest = parsed.data.kind === 'add-host'
+    ? { kind: 'add-host', address: parsed.data.address === null ? null : hostAddressOf(parsed.data.address) }
+    : { kind: 'account' }
+  showMainWindow({ fromTrayShow: true })
+  sendNativeEvent('solus:workspace-request', request)
 })
 
 /**
@@ -941,6 +959,11 @@ app.whenReady().then(async () => {
         .catch((err) => log.warn('login_shell_env_import_failed', { error: err instanceof Error ? err.message : String(err) }))
 
     desktopPlatform.ready(app)
+    // A link from a browser or a launcher opens this Solus (docs/app-shortcuts.md §4).
+    if (!isHeadless && !isTestMode) {
+      void desktopPlatform.registerLinkScheme(app, solusInstall)
+        .catch((err) => log.warn('link_scheme_register_failed', { error: err instanceof Error ? err.message : String(err) }))
+    }
 
     const windowDeps: WindowDeps | undefined = isHeadless ? undefined : {
       isAppVisible,
@@ -972,7 +995,7 @@ app.whenReady().then(async () => {
     if (!isHeadless) {
       createMainWindow()
       markStartup('window.created')
-      for (const target of pendingAppTargets.splice(0)) openAppTarget(target)
+      for (const action of pendingAppLinks.splice(0)) openAppLink(action)
     }
 
     await loginShellEnv

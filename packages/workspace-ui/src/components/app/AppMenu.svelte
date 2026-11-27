@@ -31,8 +31,10 @@
     onDelete: () => void;
     /** The app window and the shortcut of an app with a UI. Absent on a client that has neither (web). */
     desktop?: { hasShortcut: boolean; shortcutChange: AppShortcutChange | null; onOpenWindow: () => void; onToggleShortcut: () => void };
+    /** On web: Add app shortcut opens the dialog with the link that Solus for desktop takes. */
+    onAddShortcutLink?: () => void;
   }
-  let { stopped, pinned, disabled, onToggleStopped, onTogglePinned, onDelete, desktop }: Props = $props();
+  let { stopped, pinned, disabled, onToggleStopped, onTogglePinned, onDelete, desktop, onAddShortcutLink }: Props = $props();
 </script>
 
 <DropdownMenu.Root>
@@ -65,6 +67,10 @@
       <DropdownMenu.Item class="text-workspace-chrome" disabled={disabled || desktop.shortcutChange !== null} data-testid="app-menu-toggle-shortcut" onSelect={desktop.onToggleShortcut}>
         {#if desktop.hasShortcut}<RemoveShortcutIcon size={14} />{:else}<AddShortcutIcon size={14} />{/if}
         <span class="flex-1 text-left">{shortcutCommandLabel(desktop.hasShortcut, desktop.shortcutChange)}</span>
+      </DropdownMenu.Item>
+    {:else if onAddShortcutLink}
+      <DropdownMenu.Item class="text-workspace-chrome" data-testid="app-menu-shortcut-link" onSelect={onAddShortcutLink}>
+        <AddShortcutIcon size={14} /><span class="flex-1 text-left">Add app shortcut</span>
       </DropdownMenu.Item>
     {/if}
     <DropdownMenu.Item class="text-workspace-chrome text-destructive" {disabled} data-testid="app-menu-delete" onSelect={onDelete}>

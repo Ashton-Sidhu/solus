@@ -24,6 +24,8 @@
   import SandboxFrame from "../artifact/SandboxFrame.svelte";
   import AppMenu from "./AppMenu.svelte";
   import AppTile from "./AppTile.svelte";
+  import AppShortcutLinkDialog from "./AppShortcutLinkDialog.svelte";
+  import { accountStore } from "../../contexts/account/account.store.svelte";
   import AppViewStack from "./AppViewStack.svelte";
   import AppManageToggle from "./AppManageToggle.svelte";
   import { manageSectionOf } from "./lib/app-manage";
@@ -69,6 +71,11 @@
   const hasShortcut = $derived(pin ? appShortcutsStore.has(pin) : false);
   const shortcutChange = $derived(pin ? appShortcutsStore.changeFor(pin) : null);
   appShortcutsStore.start();
+  accountStore.start();
+  // Web: the link that Solus for desktop takes (docs/app-shortcuts.md §5). It names the host by installation id, so a host with none gets no link.
+  const host = $derived(serverId ? serversStore.hostFor(serverId) : null);
+  const linkHost = $derived(host && "url" in host && host.installationId ? host : null);
+  let isShortcutLinkOpen = $state(false);
   $effect(() => {
     const target = pin;
     const hostId = serverId;
@@ -272,7 +279,17 @@
         onTogglePinned={togglePinned}
         onDelete={remove}
         desktop={appShortcutsStore.isAvailable && app.hasUi && pin ? { hasShortcut, shortcutChange, onOpenWindow: openWindow, onToggleShortcut: toggleShortcut } : undefined}
+        onAddShortcutLink={!appShortcutsStore.isAvailable && app.hasUi && pin && linkHost ? () => (isShortcutLinkOpen = true) : undefined}
       />
+      {#if !appShortcutsStore.isAvailable && pin && linkHost}
+        <AppShortcutLinkDialog
+          bind:isOpen={isShortcutLinkOpen}
+          target={pin}
+          appName={app.name}
+          hostUrl={linkHost.url}
+          accountSubject={linkHost.uplink && accountStore.state.kind === "signed-in" ? accountStore.state.identity.sub : null}
+        />
+      {/if}
     {/if}
   </div>
 

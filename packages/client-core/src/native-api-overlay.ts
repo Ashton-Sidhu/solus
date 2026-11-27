@@ -74,6 +74,9 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'addAppShortcut',
   'removeAppShortcut',
   'openAppWindow',
+  'onAppShortcutOffer',
+  'requestWorkspace',
+  'onWorkspaceRequest',
 ] as const
 
 // Most RPC methods belong to the selected host. These describe or act on the

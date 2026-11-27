@@ -15,6 +15,7 @@ import { windowsTerminalLaunch, type WindowsTerminalPrograms } from './win32-ter
 import { windowsAppLaunchers } from './win32-app-launchers'
 
 const log = createLogger('main', 'platform-win32')
+const LINK_SCHEME = 'solus'
 
 /** The notification area draws 16px icons at 100% scale. Windows scales a
  *  1024px source down badly, so give it one sharp size per common display scale. */
@@ -110,6 +111,12 @@ export const win32Platform: DesktopPlatform = {
   },
 
   appLaunchers: (install) => windowsAppLaunchers(install, shell),
+  // The person's own classes key (`HKCU\\Software\\Classes\\solus`) runs this program with the link.
+  // Each launch writes it again, because an update moves the program to a new folder.
+  async registerLinkScheme(app, install) {
+    if (!install.isPackaged) return
+    if (!app.setAsDefaultProtocolClient(LINK_SCHEME)) log.warn('link_scheme_register_failed', { scheme: LINK_SCHEME })
+  },
 
   async captureScreen(path) {
     // Windows gives an app no region picker to wait on, so a capture takes the
