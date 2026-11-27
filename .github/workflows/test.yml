@@ -128,7 +128,7 @@ jobs:
       # A BUILD_TARGET=test bundle has only the mock Claude backend.
       - name: Build desktop and web in sequence
         env:
-          NODE_OPTIONS: --max-old-space-size=3072
+          NODE_OPTIONS: --max-old-space-size=4096
         run: |
           bun run build:desktop
           bun run build:client
