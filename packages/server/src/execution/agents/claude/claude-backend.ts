@@ -4,7 +4,7 @@ import type { PermissionMode } from '@solus/contracts/types'
 import { isPermissionModeAbove } from '@solus/contracts/policy'
 import { hostPolicies } from '../../../host/policy/host-policy-store'
 import { privateProviderInstances } from '../../seats/provider-instances'
-import { providerHistoryInstanceId, type ProviderRuntime } from '../../seats/provider-runtime'
+import { providerHistoryInstanceId } from '../../seats/provider-runtime'
 import { captureActingScope } from '../../../vault/acting-scope'
 import { historyFileRevision, ProviderHistoryPages } from '../history-page-cache'
 import { claudeForkHistoryPath, withClaudeForkedSkills } from './claude-forked-skills'
@@ -876,21 +876,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     this.commandDiscovery.clear()
   }
 
-  async readUsageLimits(seat?: TurnSeat, runtime?: ProviderRuntime): Promise<AgentUsageLimits | null> {
-    const claudeSeat: ClaudeSeat | undefined = runtime
-      ? {
-          home: runtime.homePath ?? seat?.home ?? homedir(),
-          binaryPath: runtime.binaryPath,
-          launchArgs: runtime.launchArgs,
-          env: runtime.launch.env,
-          user: runtime.launch.user,
-          isHostLogin: !runtime.homePath && (!seat || seat.seat.kind === 'host-login'),
-          envToken: runtime.homePath ? undefined : seat?.envToken,
-        }
-      : seat
-        ? claudeSeatOf(seat)
-        : undefined
-    const report = await this.agent.readUsageReport(claudeSeat)
+  async readUsageLimits(seat?: TurnSeat): Promise<AgentUsageLimits | null> {
+    const report = await this.agent.readUsageReport(seat ? claudeSeatOf(seat) : undefined)
     if (!report) return null
     return {
       provider: this.id,

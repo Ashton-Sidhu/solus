@@ -266,7 +266,6 @@ func interceptedPaste(_ items: [String]) -> String? {
   defer { UIPasteboard.general.items = savedItems }
   let editor = ComposerTextView()
   editor.textPasteThresholdBytes = 32 * 1024
-  editor.textPasteThresholdLineBreaks = 100
   var intercepted: String?
   editor.onPasteText = { text, _ in intercepted = text }
   UIPasteboard.general.items = items.map { [UTType.utf8PlainText.identifier: $0] }
@@ -276,10 +275,6 @@ func interceptedPaste(_ items: [String]) -> String? {
 let halfA = String(repeating: "A", count: 20_000)
 let halfB = String(repeating: "B", count: 20_000)
 check(interceptedPaste([halfA, halfB]) == halfA + halfB, "Text items that together reach the threshold must fold")
-let manyLines = String(repeating: "short line\n", count: 100)
-check(interceptedPaste([manyLines]) == manyLines, "Many short lines under the byte threshold must fold")
-let fewerLines = String(repeating: "short line\n", count: 99)
-check(interceptedPaste([fewerLines]) == nil, "A paste one line break under the line threshold must stay inline")
 
 // Two-frame animated GIF: a mixed paste keeps the GIF's original bytes and the still image's PNG, in order.
 private let gifBytes = Data(base64Encoded: "R0lGODlhAQABAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAQABAAAIBAABBAQAIfkEAAoAAAAsAAAAAAEAAQCBAP8AAAAAAAAAAAAACAQAAQQEADs=")!

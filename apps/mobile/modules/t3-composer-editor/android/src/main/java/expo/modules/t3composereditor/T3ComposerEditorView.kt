@@ -368,10 +368,6 @@ class T3ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
     editor.textPasteThresholdBytes = threshold
   }
 
-  fun setTextPasteThresholdLineBreaks(threshold: Int) {
-    editor.textPasteThresholdLineBreaks = threshold
-  }
-
   fun setMaxInputChars(maxInputChars: Int) {
     editor.maxInputChars = maxInputChars
   }
@@ -646,7 +642,6 @@ internal class SelectionAwareEditText(
   var submitEnabled = false
   var returnSends = true
   var textPasteThresholdBytes = 0
-  var textPasteThresholdLineBreaks = 0
   var preservePastedLinks = false
   var maxInputChars = Int.MAX_VALUE
   var clipboardFragment = ""
@@ -991,18 +986,7 @@ internal class SelectionAwareEditText(
 
   private fun shouldFoldText(text: String): Boolean =
     text.length >= textPasteThresholdBytes ||
-      hasLineBreaks(text, textPasteThresholdLineBreaks) ||
       text.toByteArray(Charsets.UTF_8).size >= textPasteThresholdBytes
-
-  // Solus: many short lines fold too, although they stay under the byte threshold.
-  private fun hasLineBreaks(text: String, count: Int): Boolean {
-    if (count <= 0) return false
-    var found = 0
-    for (char in text) {
-      if (char == '\n' && ++found >= count) return true
-    }
-    return false
-  }
 
   // Match native paste's newlines, including empty items.
   // URI-backed clips stay native: coerceToText can read a provider synchronously.

@@ -49,8 +49,6 @@ On a shared host, each member signs in with their own account in Settings → Pr
 
 Check your remaining subscription quota and credits in the official Google Antigravity client. Solus shows quota errors and any reset time that Antigravity reports for a turn.
 
-On desktop and web, the project panel shows a provider's usage row when the host has quota values to display.
-
 ## Limits
 
 - On a Mac, Google Antigravity keeps a Google sign-in in your keychain. Every seat on that Mac uses the last Google account that signed in, and a sign-out in Solus does not remove it from the keychain.
