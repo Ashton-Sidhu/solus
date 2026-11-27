@@ -384,7 +384,8 @@ describe('the Windows launcher', () => {
     expect(identity.taskbar?.relaunchCommand).toBe(`"C:\\Program Files\\Solus\\Solus.exe" "${notesLink}"`)
   })
 
-  test('a rename moves the shortcut and keeps its icon; remove puts the shortcut in the Recycle Bin and takes its icon', async () => {
+  // WHY: the person can restore a shortcut from the Recycle Bin. It names its icon by path, so the icon file must stay with it.
+  test('a rename moves the shortcut and keeps its icon; remove puts the shortcut in the Recycle Bin and keeps its icon', async () => {
     const trash = fakeTrash()
     const { launchers } = startMenu(trash)
     const before = await launchers.write(launcher(notes, 'Notes'))
@@ -398,6 +399,9 @@ describe('the Windows launcher', () => {
     expect(await launchers.remove(notes, after)).toEqual({ launcher: 'trashed' })
     expect(trash.trashed).toEqual([after])
     expect(existsSync(after)).toBe(false)
+    expect(icon && existsSync(icon)).toBe(true)
+    // A deleted app keeps no icon file.
+    await launchers.forget(notes)
     expect(launchers.windowIdentity(notes, 'Notebook').iconPath).toBeNull()
   })
 

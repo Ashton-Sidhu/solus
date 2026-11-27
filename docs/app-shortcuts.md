@@ -99,8 +99,10 @@ Rules for all three:
   on Windows to the Recycle Bin (`shell.trashItem`), so the person can take it
   back. A launcher that was taken back opens its app again (the link needs no
   record), and **Add app shortcut** then takes the same file back and makes no
-  second one. On Windows the shortcut's icon file is deleted with the record, so
-  a restored shortcut shows a plain icon until it is added again.
+  second one. On Windows the shortcut names its icon file (`<id>.ico` in the
+  desktop app's data folder) by path, so that file stays while the shortcut
+  is in the Recycle Bin: a restored shortcut keeps its icon. The file goes when
+  the app is deleted, or when the shortcut is gone and not in the Recycle Bin.
 - **A Trash that refuses the launcher does not stop the removal.** The record
   goes, the main process logs `app_launcher_trash_failed`, and the launcher
   stays where it is: Solus does not delete it for good without asking (the

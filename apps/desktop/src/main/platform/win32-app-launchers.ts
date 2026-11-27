@@ -73,9 +73,13 @@ export function windowsAppLaunchers(
     },
     async remove(target, path) {
       const removal = isOwned(target, path) ? await trashLauncher(shell, target, path) : { launcher: 'removed' as const }
-      // A shortcut that stays keeps its icon.
-      if (removal.launcher !== 'kept') await rm(windowsShortcutIconPath(install, target), { force: true })
+      // The shortcut names its icon by path. One that stays, or one in the Recycle Bin that the person can
+      // restore, keeps the icon file; only a shortcut that is gone takes it.
+      if (removal.launcher === 'removed') await rm(windowsShortcutIconPath(install, target), { force: true })
       return removal
+    },
+    async forget(target) {
+      await rm(windowsShortcutIconPath(install, target), { force: true })
     },
     windowIdentity(target, name) {
       const icon = windowsShortcutIconPath(install, target)

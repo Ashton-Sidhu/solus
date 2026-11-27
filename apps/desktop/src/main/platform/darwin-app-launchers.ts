@@ -83,6 +83,8 @@ export function macAppLaunchers(install: Pick<SolusInstall, 'isPackaged' | 'exec
     async remove(target, path) {
       return isOwned(target, path) ? trashLauncher(shell, target, path) : { launcher: 'removed' }
     },
+    // The icon is inside the bundle: nothing stays outside it.
+    async forget() {},
     // The window is one of Solus's: macOS has one Dock icon for each process.
     windowIdentity: () => ({ iconPath: null, taskbar: null }),
   }

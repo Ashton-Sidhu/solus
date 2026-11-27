@@ -76,6 +76,9 @@ export function linuxAppLaunchers(
       await rm(iconPath(target), { force: true })
       return { launcher: 'removed' }
     },
+    async forget(target) {
+      await rm(iconPath(target), { force: true })
+    },
     // The desktop groups windows by the program's window class, so the window stays in Solus's group and takes only the icon.
     windowIdentity: (target) => ({ iconPath: existsSync(iconPath(target)) ? iconPath(target) : null, taskbar: null }),
   }

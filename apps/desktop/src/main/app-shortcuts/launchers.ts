@@ -39,6 +39,11 @@ export interface AppLaunchers {
    * it in place: that is a warning, not a failure.
    */
   remove(target: AppShortcutTarget, path: string): Promise<AppShortcutRemoval>
+  /**
+   * Deletes what a removal keeps of the app's launcher: on Windows, the icon
+   * file that a shortcut in the Recycle Bin uses. For an app that was deleted.
+   */
+  forget(target: AppShortcutTarget): Promise<void>
   /** What the window of the app shows where the operating system lists open windows. */
   windowIdentity(target: AppShortcutTarget, name: string): AppWindowIdentity
 }

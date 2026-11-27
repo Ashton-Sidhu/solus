@@ -38,6 +38,7 @@ function register(removal: AppShortcutRemoval) {
       removed.push(path)
       return removal
     },
+    forget: async () => {},
     windowIdentity: () => ({ iconPath: null, taskbar: null }),
   }
   registerAppShortcutIpc({ records, launchers, windows: { open: () => {} } as never })
