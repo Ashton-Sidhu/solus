@@ -11,8 +11,6 @@ For an upstream update, compare the new T3 revision with the previous import ove
 The fork import through T3 Code revision `620cf4770d992d642f822a13dc2539c2605a3500` uses the saved Solus candidate `c64d1f0ab74698d6d03006cf255e995cb0159176`. Its changes were applied to the promoted app with a three-way merge. Composer file links with punctuation also include the separate T3 Code fix `0d2d6a0233ff8e84c2ee287d4a9533633d7acff3`.
 
 
-The bundled Markdown library uses its native singular and plural image-copy labels when T3 supplies only the default plural form. Languages with additional plural forms still use the library’s count table. The source change and fork revision are recorded in [the dependency notes](deps/README.md).
-
 Mobile extends T3's image paragraph rule to screenshots on a separate line beside a caption. The native image view draws a cached bitmap as soon as it is ready. The loading label sits behind the bitmap while the load event is in flight.
 
 ## Public T3 Code partial import through 2026-11-27
@@ -50,9 +48,8 @@ earlier partial imports. The full import base stays at `620cf4770d992d642f822a13
   `readProjectFile` and signs authorized previews with `assetCreateUrl`.
   The shared ZIP progress helper uses the singular minute (#43874). The public
   Markdown archive replaces the older Solus archive. Long thread and GitHub
-  links wrap (#43122), and the Solus image-copy label rule is in the applied
-  archive patch. The conversation cards and HTML previews keep their existing
-  renderer.
+  links wrap (#43122). The archive uses T3's image-copy menu and plural rules.
+  The conversation cards and HTML previews keep their existing renderer.
 - **Workspace and settings.** The phone stack and the iOS tablet columns set
   status bar icons from the app theme (#44161). Home's settled list and the
   conversation subagent control use the singular label for one item (#43976,
@@ -114,6 +111,11 @@ four failures on the clean captured revision. Production Expo exports
 contain Hermes bundles for both platforms and configure `sh.solus.mobile`
 for each. Native layout and Android native behavior were not tested on a
 device.
+
+The unmodified T3 Markdown archive passed the frozen install, a check of
+the one-image and multiple-image menu labels, 219 iOS-configured tests and
+209 Android-configured tests. The production Expo exports passed for both
+platforms with identity `sh.solus.mobile`.
 
 ## Public T3 Code partial import through 2026-11-26
 
@@ -210,9 +212,8 @@ Remaining route and adapter work:
   scoped replay operation for the Solus list actions. The Archive screen
   continues to call the selected host through `setArchived`.
 - The T3 Markdown tarball update and its link wrapping and checkbox indexing
-  changes remain pending. The Solus fork has native image-copy labels that
-  must carry forward. LegendList, Reanimated, Clerk, and the wider T3
-  session-open changes also remain pending.
+  changes were pending at this import. LegendList, Reanimated, Clerk, and the
+  wider T3 session-open changes also remain pending.
 
 The frozen root and mobile installs passed. The focused mobile suites passed
 439 tests with the default iOS configuration and 43 with the Android
