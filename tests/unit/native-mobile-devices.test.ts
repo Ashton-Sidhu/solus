@@ -49,6 +49,16 @@ test('native device streams use the connected host origin', async () => {
   devices.forgetHost('inst-a')
 })
 
+test('native preview shutdown uses the selected host and reads back the updated devices', async () => {
+  const { devices, api, setState } = await setup()
+  const target = { deviceHostId: 'local', deviceId: 'sim-1', platform: 'ios' } as const
+  api.on('deviceShutdown', () => { setState(snapshot(6)) })
+  await devices.shutdown('inst-a', target)
+  expect(api.callsOf('deviceShutdown')).toEqual([[target]])
+  expect(devices.stateOf('inst-a')?.revision).toBe(6)
+  devices.forgetHost('inst-a')
+})
+
 describe('first device gesture control handoff', () => {
   test('keeps a tap until control is granted, requests once, and sends it in order', () => {
     const sent: DeviceInput[] = []
