@@ -20,7 +20,12 @@ import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SelectionRow } from "../../components/ui/SelectionRow";
 import { useDebouncedValue } from "../../state/queries";
-import { pullRequestFilterChoices, pullRequestLabelColors } from "./pullRequestList";
+import {
+  pullRequestFilterChoices,
+  pullRequestFilterScope,
+  pullRequestLabelColors,
+  toggledPullRequestLabels,
+} from "./pullRequestList";
 import { PullRequestLabelDot } from "./PullRequestLabelDot";
 import { PullRequestSearchSheet } from "./PullRequestSearchSheet";
 import { usePullRequestListControls } from "./usePullRequestListControls";
@@ -32,6 +37,7 @@ export type PullRequestFilterSearchParams = {
   /** The environments the list reads, which the host search covers as well. */
   readonly environmentIds: readonly string[];
   /** What the loaded rows already carry, offered before the host has answered. */
+  readonly filterScope?: string;
   readonly suggestions: readonly string[];
   /** Dot colors by lowercased label name, from the loaded rows. */
   readonly labelColors?: Readonly<Record<string, string>>;
@@ -79,9 +85,11 @@ export function PullRequestFilterSearchScreen({
   const selectedLabels = controls.filters.labels?.flat() ?? [];
   const author = controls.filters.author;
   const selected = kind === "labels" ? selectedLabels : author ? [author] : [];
+  const colorScope = pullRequestFilterScope(controls.projectId, targets);
+  const sameScope = route.params.filterScope === colorScope;
   const rows = pullRequestFilterChoices({
     selected,
-    suggestions,
+    suggestions: sameScope ? suggestions : [],
     hosted: (settled ? hosted.values : []).flatMap((options) =>
       kind === "labels"
         ? options.labels.map((label) => label.name)
@@ -89,10 +97,17 @@ export function PullRequestFilterSearchScreen({
     ),
     query,
   });
-  const colors = {
-    ...pullRequestLabelColors(hosted.values.flatMap((options) => options.labels)),
-    ...labelColors,
-  };
+  const hostedColors = pullRequestLabelColors(hosted.values.flatMap((options) => options.labels));
+  // A label picked from an earlier search keeps its dot once the host answers a new query without it.
+  const [seen, setSeen] = useState({ scope: colorScope, colors: hostedColors });
+  const seenColors = seen.scope === colorScope ? seen.colors : {};
+  if (
+    seen.scope !== colorScope ||
+    Object.entries(hostedColors).some(([name, color]) => seenColors[name] !== color)
+  ) {
+    setSeen({ scope: colorScope, colors: { ...seenColors, ...hostedColors } });
+  }
+  const colors = { ...seenColors, ...(sameScope ? labelColors : {}) };
   const isSelected = (value: string) =>
     selected.some((held) => held.toLowerCase() === value.toLowerCase());
   const choose = (value: string) => {
@@ -104,9 +119,7 @@ export function PullRequestFilterSearchScreen({
       navigation.goBack();
       return;
     }
-    const labels = isSelected(value)
-      ? selectedLabels.filter((label) => label.toLowerCase() !== value.toLowerCase())
-      : [...selectedLabels, value].slice(0, 10);
+    const labels = toggledPullRequestLabels(selectedLabels, value);
     listControls.setControls(environmentId, {
       ...controls,
       filters: {

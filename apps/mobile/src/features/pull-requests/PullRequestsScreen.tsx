@@ -1,8 +1,9 @@
 import { usePaneRole } from "../../components/ui/Pane";
 import { Button } from "../../components/ui/Button";
 import {
-  applyPullRequestDraftFilterChange,
+  applyPullRequestFilterChange,
   parsePullRequestQuery,
+  pullRequestMenuFilters,
 } from "@t3tools/client-runtime/pull-request-query";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
@@ -34,8 +35,10 @@ import { usePullRequestList } from "./usePullRequestList";
 import { usePullRequestListControls } from "./usePullRequestListControls";
 import { usePullRequestListActions } from "./usePullRequestListActions";
 import {
+  distinctIgnoringCase,
   filterPullRequestList,
   pullRequestListFacets,
+  pullRequestFilterScope,
   pullRequestListInput,
   pullRequestListRowsAreEqual,
   scopedPullRequestListKey as pullRequestKey,
@@ -121,7 +124,6 @@ export function PullRequestsScreen(
   const debouncedQuery = useDebouncedValue(tab.query.trim(), 180);
   const query = tab.searchMode === "resting" ? "" : debouncedQuery;
   const typedQuery = tab.searchMode === "resting" ? "" : tab.query;
-  const typedDraft = parsePullRequestQuery(typedQuery).filters.draft;
   const listControls = usePullRequestListControls();
   const selectedEnvironmentId = listControls.environmentId;
   const environmentId = environments.some((item) => item.environmentId === selectedEnvironmentId)
@@ -192,31 +194,28 @@ export function PullRequestsScreen(
     [result.entries, controls, query, result.data, connectedKey],
   );
   const facets = pullRequestListFacets(result.entries);
-  const [knownFacets, setKnownFacets] = useState({ environmentId, source: facets, ...facets });
-  if (knownFacets.environmentId !== environmentId || knownFacets.source !== facets) {
+  const filterScope = pullRequestFilterScope(controls.projectId, result.targets);
+  const [knownFacets, setKnownFacets] = useState({ filterScope, source: facets, ...facets });
+  const currentFacets = knownFacets.filterScope === filterScope ? knownFacets : facets;
+  if (knownFacets.filterScope !== filterScope || knownFacets.source !== facets) {
     setKnownFacets((previous) => ({
       source: facets,
-      environmentId,
-      authors: [
-        ...new Set([
-          ...(previous.environmentId === environmentId ? previous.authors : []),
-          ...facets.authors,
-        ]),
-      ].sort(),
-      labels: [
-        ...new Set([
-          ...(previous.environmentId === environmentId ? previous.labels : []),
-          ...facets.labels,
-        ]),
-      ].sort(),
+      filterScope,
+      authors: distinctIgnoringCase([
+        ...(previous.filterScope === filterScope ? previous.authors : []),
+        ...facets.authors,
+      ]).sort(),
+      labels: distinctIgnoringCase([
+        ...(previous.filterScope === filterScope ? previous.labels : []),
+        ...facets.labels,
+      ]).sort(),
       labelColors: {
         ...facets.labelColors,
-        ...(previous.environmentId === environmentId ? previous.labelColors : {}),
+        ...(previous.filterScope === filterScope ? previous.labelColors : {}),
       },
     }));
   }
-  const labelColors =
-    knownFacets.environmentId === environmentId ? knownFacets.labelColors : facets.labelColors;
+  const labelColors = currentFacets.labelColors;
   const projects = pullRequestProjectChoices(allProjects, {
     environmentId,
     controls,
@@ -232,11 +231,12 @@ export function PullRequestsScreen(
     })),
     environmentId,
     onEnvironmentChange: listControls.setEnvironmentId,
-    value: typedDraft
-      ? { ...controls, filters: { ...controls.filters, draft: typedDraft } }
-      : controls,
+    value: {
+      ...controls,
+      filters: pullRequestMenuFilters(parsePullRequestQuery(typedQuery).filters, controls.filters),
+    },
     onChange: (next) => {
-      const update = applyPullRequestDraftFilterChange(typedQuery, controls.filters, next.filters);
+      const update = applyPullRequestFilterChange(typedQuery, controls.filters, next.filters);
       listControls.setControls(environmentId, { ...next, filters: update.filters });
       if (update.query !== typedQuery)
         workspace.dispatch({ type: "query", tab: "pullRequests", query: update.query });
@@ -245,8 +245,8 @@ export function PullRequestsScreen(
         animated: false,
       });
     },
-    authors: knownFacets.environmentId === environmentId ? knownFacets.authors : facets.authors,
-    labels: knownFacets.environmentId === environmentId ? knownFacets.labels : facets.labels,
+    authors: currentFacets.authors,
+    labels: currentFacets.labels,
     labelColors,
     projects,
     onSearch: (kind) =>
@@ -254,7 +254,8 @@ export function PullRequestsScreen(
         kind,
         environmentId,
         environmentIds: targets.map((target) => String(target.environmentId)),
-        suggestions: knownFacets.environmentId === environmentId ? knownFacets[kind] : facets[kind],
+        suggestions: currentFacets[kind],
+        filterScope,
         labelColors,
       }),
   });

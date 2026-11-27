@@ -19,10 +19,11 @@ export type SshScriptMode = 'probe' | 'start' | 'agent-start' | 'stop-agent' | '
 /** Resolve common non-interactive Node and SDK locations without sourcing shell profiles. */
 export const REMOTE_ENVIRONMENT = `export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 if [ -z "$ANDROID_HOME" ]; then
-  if [ -d "$HOME/Library/Android/sdk" ]; then export ANDROID_HOME="$HOME/Library/Android/sdk";
+  if [ -n "$ANDROID_SDK_ROOT" ]; then export ANDROID_HOME="$ANDROID_SDK_ROOT";
+  elif [ -d "$HOME/Library/Android/sdk" ]; then export ANDROID_HOME="$HOME/Library/Android/sdk";
   elif [ -d "$HOME/Android/Sdk" ]; then export ANDROID_HOME="$HOME/Android/Sdk"; fi
 fi
-if [ -n "$ANDROID_HOME" ]; then export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"; fi
+if [ -n "$ANDROID_HOME" ]; then export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"; fi
 `
 
 /** The remote command: set PATH, then read the program from stdin. */
@@ -102,10 +103,17 @@ async function install(name, version, entry) {
   const npmOk = run('npm', ['--version']).status === 0;
   const xcode = process.platform === 'darwin' ? (run('xcode-select', ['-p']).stdout || '').trim() : '';
   const ios = process.platform === 'darwin' && !xcode.includes('CommandLineTools') && run('xcrun', ['simctl', 'help']).status === 0;
-  const android = run('adb', ['version']).status === 0;
+  const androidReason = run('adb', ['version']).status !== 0
+    ? 'Android SDK Platform-Tools are missing on the SSH device host.'
+    : run('emulator', ['-version']).status !== 0
+      ? 'Android Emulator is missing on the SSH device host.'
+      : run('sh', ['-c', 'command -v avdmanager']).status !== 0
+        ? 'Android SDK Command-line Tools are missing on the SSH device host.'
+        : null;
+  const android = androidReason === null;
   const platforms = [
     { platform: 'ios', available: ios, ...(!ios ? { reason: process.platform !== 'darwin' ? 'iOS Simulators need macOS with Xcode.' : xcode.includes('CommandLineTools') ? 'Command Line Tools are selected instead of Xcode on the device host.' : 'Xcode simulator tools are not available on the device host.' } : {}) },
-    { platform: 'android', available: android, ...(!android ? { reason: 'Android SDK was not found. Set ANDROID_HOME or put adb on the SSH PATH.' } : {}) },
+    { platform: 'android', available: android, ...(!android ? { reason: androidReason } : {}) },
   ];
   const hubFile = path.join(state, 'hub.json');
   const daemonFile = path.join(state, 'daemon.json');

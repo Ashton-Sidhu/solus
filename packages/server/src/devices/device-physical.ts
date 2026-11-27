@@ -119,14 +119,17 @@ export async function pairPhysicalDevice(run: DeviceCommandRunner, device: Devic
   throw new DeviceDomainError('command_failed', `Could not pair with ${device.name}: ${boundedDetail(output, 200) || 'no output'}`)
 }
 
-/** Connected devices of each available platform. A failed tool lists none. */
-export async function discoverPhysicalDevices(run: DeviceCommandRunner, deviceHostId: string, platforms: { ios: boolean; android: boolean }): Promise<DeviceSummary[]> {
+/** Connected devices of each available platform, with adb failures reported separately. */
+export async function discoverPhysicalDevices(run: DeviceCommandRunner, deviceHostId: string, platforms: { ios: boolean; android: boolean }): Promise<{ devices: DeviceSummary[]; androidDiscoveryFailed: boolean }> {
   const [ios, android] = await Promise.all([
     platforms.ios ? run('sh', ['-c', DEVICECTL_LIST_SCRIPT], { timeoutMs: 15_000 }) : null,
     platforms.android ? run('adb', ['devices', '-l'], { timeoutMs: 10_000 }) : null,
   ])
-  return [
-    ...(ios?.code === 0 ? parseDevicectlDevices(ios.stdout, deviceHostId) : []),
-    ...(android?.code === 0 ? parseAdbDevices(android.stdout, deviceHostId) : []),
-  ]
+  return {
+    devices: [
+      ...(ios?.code === 0 ? parseDevicectlDevices(ios.stdout, deviceHostId) : []),
+      ...(android?.code === 0 ? parseAdbDevices(android.stdout, deviceHostId) : []),
+    ],
+    androidDiscoveryFailed: android !== null && android.code !== 0,
+  }
 }

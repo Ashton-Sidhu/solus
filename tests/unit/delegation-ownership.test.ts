@@ -54,12 +54,14 @@ test('a retry preserves child identity and cannot switch to an independent launc
   expect(created).toHaveLength(1)
 })
 
-test('parent stop reaches nested children even without reports, but excludes independent sessions', async () => {
-  const { orchestrator, stopped, drain } = harness()
+test('children without reports keep their parent links and stop with the parent', async () => {
+  const { orchestrator, created, stopped, drain } = harness()
   const child = await orchestrator.spawn('parent', order, false)
   const grandchild = await orchestrator.spawn(child.sessionId, order, false)
   await orchestrator.spawn(child.sessionId, { ...order, independent: true }, true)
   await drain()
+  expect(created[0]?.delegation).toMatchObject({ parentSessionId: 'parent', intent: 'fire_and_forget' })
+  expect(created[1]?.delegation?.parentSessionId).toBe(child.sessionId)
   expect(orchestrator.isAwaitingReplies('parent')).toBe(false)
   orchestrator.stopChildren('parent', orchestrator.childrenAtWork('parent'))
   expect(stopped).toEqual([child.sessionId, grandchild.sessionId])

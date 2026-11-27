@@ -6,14 +6,123 @@ This workspace contains the T3 mobile app, its workspace dependencies, native in
 
 Make Solus mobile changes here. See `AGENTS.md` for the frontend and backend integration rules. Installation and tests use the source in this repository.
 
+Solus adds bulk deletion to **Settings → Worktrees**. The upstream client has
+a command to remove a known Git worktree by path. Solus also lists its managed
+worktrees and task folders for each selected host and applies its managed
+deletion rules to the confirmed selection.
+
+The Solus Usage settings route (`Settings → Agents → Usage`) shows remaining subscription limits across all connected hosts and configured provider instances (Claude Code, Codex, and Google Antigravity model groups) using the shared `@solus/client-core/usage-limits` model with T3-matching pace ticks, blocked-window suppression, pooled multi-account refill bars, Left/Used toggle, masked email reveal, and pull-to-refresh. The upstream T3 Usage screen reads T3 provider snapshots, which do not include Solus host seats or Antigravity quota.
+
 For an upstream update, compare the new T3 revision with the previous import over the paths in `SOURCE_PATHS`. Apply the relevant changes in an isolated Solus checkout. Keep the production app identity, the local `solus-core` import, the LAN module, and these workspace instructions. Review changes to the native package manifest, native inputs, patches and workspace dependencies. Install with the frozen lockfile, run the mobile checks and export both native bundles. Record the tested revision with the update.
 
 The fork import through T3 Code revision `620cf4770d992d642f822a13dc2539c2605a3500` uses the saved Solus candidate `c64d1f0ab74698d6d03006cf255e995cb0159176`. Its changes were applied to the promoted app with a three-way merge. Composer file links with punctuation also include the separate T3 Code fix `0d2d6a0233ff8e84c2ee287d4a9533633d7acff3`.
 
 
-The bundled Markdown library uses its native singular and plural image-copy labels when T3 supplies only the default plural form. Languages with additional plural forms still use the library’s count table. The source change and fork revision are recorded in [the dependency notes](deps/README.md).
-
 Mobile extends T3's image paragraph rule to screenshots on a separate line beside a caption. The native image view draws a cached bitmap as soon as it is ready. The loading label sits behind the bitmap while the load event is in flight.
+
+## Public T3 Code partial import through 2026-11-27
+
+This import compares public main at `c92d75e4867add69ded93ca37616a731d907669c`
+with the full import at `620cf4770d992d642f822a13dc2539c2605a3500`. It applies
+selected changes to Solus main at `b8d92820aed0a1b7a12f6fef3eb1aa7fa6bc9ffe`.
+The comparison covers all 905 changed paths in `SOURCE_PATHS`, including the
+earlier partial imports. The full import base stays at `620cf4770d992d642f822a13dc2539c2605a3500`.
+
+- **Git.** The phone and tablet use `GitCommitSheet` from the workspace stack.
+  A failed commit keeps its message and its excluded files (#43942). If an
+  excluded file leaves the working tree, the toggle offers **Deselect all**
+  (#44113). The Solus checkout adapter still uses `useCheckoutCommit` and
+  `gitRunAction`, with its account, connection, checkout, and branch checks.
+  A draft from detached HEAD already stays separate from a named branch (#43584).
+- **Pull requests.** The phone and tablet list and filter routes use the shared
+  query parser and list controls for typed checks and review filters (#43679).
+  Label and author searches ignore case. A chosen label keeps its color as
+  search results change (#43839, #43881). The Solus scope includes the project
+  and the account and connection of each host. Old label suggestions and
+  colors expire with that scope. `usePullRequestList` still owns paging over
+  `prListProjects`. The inline-comment sheet waits for the device draft store
+  to save and retries with the same comment ID (#43781). Canceling a new line
+  keeps the outdated draft selected (#43906). The Code route uses the total
+  from `prGetOverview` while `prGetDiff` loads more files (#43986, PR-wide
+  only). The diff picker separates iOS menu sections (#43916), and comment
+  snippets keep added or deleted lines that start with repeated signs (#43867).
+  Attachments show decoded names (#43815). List rows use singular change counts
+  when needed (#43935).
+- **Markdown and files.** The conversation, checkout Markdown preview and PR
+  description keep their rewrites in place when a document starts with a byte
+  order mark (#43473, #43567, #43894, #43972). A preview resolves `~/` file links
+  through T3's shared path resolver (#44080). The selected host still checks
+  `readProjectFile` and signs authorized previews with `assetCreateUrl`.
+  The shared ZIP progress helper uses the singular minute (#43874). The public
+  Markdown archive replaces the older Solus archive. Long thread and GitHub
+  links wrap (#43122). The archive uses T3's image-copy menu and plural rules.
+  The conversation cards and HTML previews keep their existing renderer.
+- **Workspace and settings.** The phone stack and the iOS tablet columns set
+  status bar icons from the app theme (#44161). Home's settled list and the
+  conversation subagent control use the singular label for one item (#43976,
+  #44011). They still read the scoped session list and conversation projection.
+  Add Environment keeps the address on one line on iOS (#43963). The shared
+  pairing form still sends a pasted code or trusted discovery selection through
+  `useRemoteConnections`. The Solus scheduled-task editor uses T3's fixed
+  wall-time rule in `WeeklyScheduleFields` (#43610). It saves through
+  `automationCreate` and `automationUpdate`. Its project selection has no
+  editable source branch or checkout fields to reset (#43973).
+
+Remaining route and adapter work:
+
+- The active `CheckoutBranches` uses a full Solus `worktreeBranches` read.
+  T3's unmounted `GitBranchesSheet` pages a typed branch query (#43719).
+  `worktreeBranches` does not return a continuation cursor. Keep the
+  current branch confirmation when the typed read can drive the shared pager.
+- The mounted `Thread` draft still uses Solus session admission and the
+  shared composer submit handler. T3's `NewTaskFlowProvider` machine switch
+  (#43828), attachment-only offline draft title (#43821) and share-to-draft
+  handoff use the T3 draft queue. The Solus `ThreadRouteScreen` needs the
+  handoff and title behavior at its admission and outbox adapter. Its
+  registered draft and sent attachment viewers still share the scoped reader.
+- The mounted PR Code route keeps the loaded count for a single commit.
+  `prListCommits` supplies the SHA, message, date, and author, and needs
+  per-commit `changedFiles` to use the rest of #43986. The existing
+  `prGetDiff` result still needs a withheld-patch indication. For #44042,
+  the PR attachment renderer needs a content type for the signed resource
+  from `usePullRequestMediaUrl`, or a scoped metadata read. It still selects
+  image and video previews from the existing reference data.
+- Issues uses the mounted `IssuesScreen` and its existing issue search and
+  paging adapter. `IssueTrackerCredentialForm` in `IssueTrackerSection`
+  still needs the T3 Jira credential field definitions and typed connection
+  input (#38003) mapped to Solus's Atlassian connection. The existing issue
+  details and comments reads still settle separately.
+- Archive still routes restore through `listActions.unarchiveThread` and
+  `setArchived`. T3's offline settle and snooze commands (#44035) need the
+  scoped replay operation noted below. The idle socket change (#36507) needs
+  to drive the Solus transport's background and reconnect state.
+- Password-protected ZIP and PDF previews, EPUB captions, fonts, and GBK
+  checkout text are pending. They affect `ZipArchiveView`, the PDF preview,
+  `AttachmentDocumentBody`, Text Appearance, and `ThreadFileScreen`.
+  They need the native assets or decoder and dependency changes as well as
+  tests through the mounted routes. The GBK fallback depends on the authorized
+  binary-file and signed asset contract below. LegendList, Reanimated and
+  Clerk remain pending. The browser sign-in prompt (#35046) needs the auth
+  challenge ID and typed reply in the Solus browser preview operation. The
+  Workflows, linked threads, feedback, and voice gaps below also remain.
+
+The frozen root and mobile installs passed. The focused mobile tests passed
+720 cases in the iOS configuration and 110 in the Android configuration.
+After the final filter-scope fix, the affected iOS suites passed 199 cases
+and the Android filter fixture passed. Seven focused host test files and
+the native iOS composer tests passed. The host and route fixtures cover
+cold and saved reads, a scope change, failed saves and commits, and draft
+and signed attachment reads. The mobile type check reports the same 62
+errors as captured main. The host `session-open-rpc.test.ts` suite reported
+four failures on the clean captured revision. Production Expo exports
+contain Hermes bundles for both platforms and configure `sh.solus.mobile`
+for each. Native layout and Android native behavior were not tested on a
+device.
+
+The unmodified T3 Markdown archive passed the frozen install, a check of
+the one-image and multiple-image menu labels, 219 iOS-configured tests and
+209 Android-configured tests. The production Expo exports passed for both
+platforms with identity `sh.solus.mobile`.
 
 ## Public T3 Code partial import through 2026-11-26
 
@@ -110,9 +219,8 @@ Remaining route and adapter work:
   scoped replay operation for the Solus list actions. The Archive screen
   continues to call the selected host through `setArchived`.
 - The T3 Markdown tarball update and its link wrapping and checkbox indexing
-  changes remain pending. The Solus fork has native image-copy labels that
-  must carry forward. LegendList, Reanimated, Clerk, and the wider T3
-  session-open changes also remain pending.
+  changes were pending at this import. LegendList, Reanimated, Clerk, and the
+  wider T3 session-open changes also remain pending.
 
 The frozen root and mobile installs passed. The focused mobile suites passed
 439 tests with the default iOS configuration and 43 with the Android
@@ -343,7 +451,7 @@ A tap anywhere on a started-session card opens the child thread. It uses the thr
 
 The Add machine card (`add_host`, question kind `host-link`; `docs/plans/add-machine-card.md`) keeps T3 Code's link request card in `src/features/threads/LinkRequestCard.tsx`: the card with its reason and Decline, the machine sheet with the ranked rows and "Another address…", and the step rail for a code. These are the intended differences:
 
-- The card shows above the composer with the other request cards (`RequestPanels`), as the secret card does, not at a `link_request` row in the feed. A Solus session has no `link_request` item, so `ThreadFeed` has no branch for it. The composer is hidden while the card is open.
+- The conversation places Add machine, provider sign-in, cloud machine, and secret requests at their request event in the feed. Reconnect restores outstanding requests from the host. A secret request keeps the composer hidden while it accepts a private answer.
 - The rows come from `rankAddMachineCandidates`: the hosts this phone knows (not the session host), the SSH targets of the session host (`hostsListSshConfigHosts`), and the servers that the last nearby scan found. Each row names its way. The sheet has no access picker: the session host pairs as its owner.
 - Add calls the session host's own RPCs: `hostsAddOverSsh` (with a password field when SSH refuses the key, and `host.sshProgress` on the card), `hostsPair` with a check code that the card shows with a countdown, or `hostsPair` with a code that this phone makes on the target (`connectionsGeneratePairToken`) or that the person types. A typed code is checked with `classifyPairSecret` before it is sent. A refusal shows its message and keeps the card open. On success the card answers with `respondQuestion` and the outcome only. The logic is in `solus-core/features/conversation/lib/add-machine-card.ts`.
 - T3's Connect device approval (`ConnectDeviceApprovalCoordinator`, `connectDeviceApproval.ts`) shows Solus approval requests: `solus.pairApprovals` (`solus-core/features/settings/pair-approvals.ts`) watches each connected host where this phone holds `host.local.reach`. The alert adds **Review**, which opens the host's page. The host's page (`SolusHostDetail`) shows the pairing code and the open requests (`src/solus/HostAccessSection.tsx`). Its `pairCode: "new"` parameter makes a code when the page opens; the card's "Show a code on <name>" link uses it.
@@ -351,7 +459,9 @@ The Add machine card (`add_host`, question kind `host-link`; `docs/plans/add-mac
 - An outside app's sign-in is also approved on the phone (plans/035 §0.5). T3 Code's mobile app has no such flow. When the person chooses Approve in Solus on the app's sign-in page, the page shows a check code and a QR code of `solus://approve-app?host=<installation id>&request=<request id>`. The phone camera opens the link in the app. React Navigation does not route it (the `filter` and `getInitialURL` of `appLinking` in `src/App.tsx` skip it, so a cold start restores the workspace). `AppSignInCoordinator` (`src/solus/AppSignInSheet.tsx`, mounted beside `ConnectDeviceApprovalCoordinator`) reads the link and shows one `Sheet` over the current screen. `solus.appSignIns` (`solus-core/features/settings/app-sign-in.ts`) finds the host whose installation id the link names (the host's own answer, else the saved entry, else the registry id). It waits while the host list and the directory are still loading, and then says "This sign-in is for a host this phone is not connected to." It reads the sign-in with `connectionsReadAppSignIn({ requestId })`. The sheet shows the app's name, "Access goes to {place}", a note when the app is on the computer that opened the page, the access with its effect, the time left, "Only approve a sign-in you just started.", **Deny**, and **Approve** (`connectionsDecideAppSignIn`). Approve is off once the sign-in expired. A refused decision keeps the sign-in open with the reason. After a decision the sheet says "Approved. Go back to {app}." **Approve a sign-in** on Use Solus in other apps opens the same sheet with a field for the check code (`normalizeCheckCode`, then `connectionsReadAppSignIn({ checkCode })`). A newer sign-in replaces the one on screen, and a late reply for the earlier one is dropped. The sign-in page names the `solus` scheme only, so the camera opens only the production build. A development or preview build also accepts the link in its own scheme (`solus-dev://approve-app?…`, `solus-preview://approve-app?…`) when it is opened by hand, and the check code works in every build. The in-app QR scanner of Add Environment does not read this link.
 - The SSH step takes a key. On an SSH config alias, a line shows "Key: from ~/.ssh/config" with **Use another key…**, which shows the Identity file field. The row **Another machine over SSH…** has a **Target** field and an **Identity file (optional)** field. The agent's `sshTarget` selects the alias with that name, else this row with the target filled in; its `identityFile` fills the field. **Browse** lists the files of the session host from `~/.ssh/` with T3's folder browsing (`IdentityFileField` in `src/solus/`). When SSH refuses a key that other users can read (`key-permissions`), the card shows **Fix permissions**: the card sends the same add again with `fixIdentityFilePermissions`, and the session host fixes the key (chmod 600) before it adds. A missing key ("No file at …") shows below the Identity file field.
 
-The machine card of a cloud machine tool (question kind `cloud-machine`, plans/035-cloud-machine-tools.md §6) uses the same parts as the Add machine card: the card in `RequestPanels` with its reason, Decline, and "Waiting for an editor", and a `Sheet` with Settings choice rows (`src/features/threads/CloudMachineCard.tsx`). It has three modes: create (organization, name, size, packages, setup script), edit (packages and setup script, with a restart warning for a machine that runs), and join (organization). The ask holds every value that the card shows, so the phone makes no account call. The card only answers with `respondQuestion`; the host tool makes the change. The logic is in `solus-core/features/conversation/lib/cloud-machine-card.ts`.
+The machine card of a cloud machine tool (question kind `cloud-machine`, plans/035-cloud-machine-tools.md §6) uses the same parts as the Add machine card: a request in the transcript with its reason, Decline, and "Waiting for an editor", and a `Sheet` with Settings choice rows (`src/features/threads/CloudMachineCard.tsx`). It has three modes: create (organization, name, size, packages, setup script), edit (packages and setup script, with a restart warning for a machine that runs), and join (organization). The ask holds every value that the card shows, so the phone makes no account call. The card only answers with `respondQuestion`; the host tool makes the change. The logic is in `solus-core/features/conversation/lib/cloud-machine-card.ts`.
+
+The Sign in card of `add_host` (question kind `host-providers`, `docs/host-provider-sign-in.md`) uses the same parts as the Add machine card: the card with its reason, a full-width action, and quiet links (`src/features/threads/HostProvidersCard.tsx`). It shows when the provider that the work needs is not signed in on the machine that was just added. Approved difference (2026-11-26): T3's provider screen (`SettingsProviderAccountsRouteScreen`) is not routed in Solus, so the phone signs in from the card itself, in its own browser, with the new host's `seatConnectStart` and `seatConnectSubmitCode`. The person stays in the conversation. **Manage host** opens the host's page (`SettingsEnvironmentDetail`), and **Not now** is the card's only answer. The session host closes the card when the new host reports the sign-in. The logic is in `solus-core/features/conversation/lib/host-providers-card.ts`.
 
 T3 Code has no way to add a machine over SSH. The Add environment screen (`ConnectionsNewRouteScreen`) adds the row **Add over SSH** below the "Or enter it" group (`src/solus/AddOverSsh.tsx`, `use-add-over-ssh.ts`). The row shows only when a connected host gives this phone `host.local.reach`. It opens a `Sheet` with **Run from** (those hosts, the last connected first), **Target**, **Identity file (optional)** with **Browse**, and **Link to my Solus account** while the phone is signed in (the account issues the link ticket). Add calls `hostsAddOverSsh` on the Run from host and shows its `host.sshProgress` steps. A refused key asks for a password or passphrase, which goes only into the next add. `key-permissions` shows **Fix permissions**. A linked machine makes the phone read the account's directory again; a forwarded machine makes it read the forwards of the Run from host. A new route for a saved host shows no row.
 
@@ -361,7 +471,7 @@ Sync settings (`docs/plans/settings-sync-hosts.md`) adds rows that T3 Code does 
 - The environment page (`SettingsEnvironmentDetailRouteScreen`) has a **Settings** section with the host's **Sync settings** switch, below **Connection**.
 - T3's Settings environment picker is unchanged. When it shows one environment, the personal settings on screen are that host's copy (`settings-environment-filter.tsx`); otherwise they are the home host's.
 
-The native voice recorder stays with the draft that started it when the user opens another session. Solus cancels its draft operation if that draft is discarded or its session is archived. A chat table’s native context menu copies the table as HTML and tab-separated text, Markdown, or PNG. PNG copy includes the full native grid, even when columns are outside the scroll area. The upstream PNG change covers its web table. The approved iOS and Android addition is recorded in [the dependency notes](deps/README.md). Dragging a file pill to Finder or File Explorer is a desktop shell action. Mobile uses its existing file actions.
+The native voice recorder stays with the draft that started it when the user opens another session. Solus cancels its draft operation if that draft is discarded or its session is archived. A chat table’s native context menu copies the table as HTML and tab-separated text. Dragging a file pill to Finder or File Explorer is a desktop shell action. Mobile uses its existing file actions.
 
 Queued message edits use T3's queue sheet, composer, and model picker. Solus
 loads the queued message's saved options and submits explicit picks with the
@@ -415,10 +525,14 @@ The conversation feed uses T3's subagent rows and groups from revision `a7a6126a
 
 The conversation adapter passes the recorded sender of each delivered prompt to the T3 feed. Agent follow-ups and scheduled runs use the upstream folded rows. Text-only pull request and resource watch notices use the upstream monitor activity in live and saved conversations. Notices with attachments keep their message row so the attachments can be opened.
 
-Claude follow-up calls use the collapsed T3 work log checked at `c6df984916017c3e0bc4423b23be57f91433f299`. The host uses the provider task ID to associate resumed work with the original agent. A call with an unlinked text report or child transcript keeps that output in its disclosure. Calls with interactive host resources keep their resource card.
+Claude follow-up calls use the collapsed T3 work log checked at `c6df984916017c3e0bc4423b23be57f91433f299`. The host uses the provider task ID to associate resumed work with the original agent. A call with an unlinked text report or child transcript keeps that output in its disclosure. Calls with interactive host resources expose the result from the work-log row.
 
 A provider agent with a native tool call ID opens its transcript from the conversation row, using the same screen as the Agents sheet. The row shows the provider name when the host omits the model and includes the model when supplied.
 
 Session worktree setup uses the T3 setup header, working-row chip and Details sheet. A successful setup retires when the agent starts. The sheet also exposes Solus repository substeps, host output and recovery actions. System notices and context compactions use T3 activities. Host operations that need their own attachment or recovery controls use the work-log disclosure layout.
 
-A pending worktree offer uses T3's approval card. An answered offer shows the host's decision and branch in a status row. Secret requests use T3's masked input and buttons, with one field per requested secret and private delivery through the Solus host. Closed and full-screen MCP apps use T3's feed placeholders. A live app can request a border, and a saved app can be docked above the composer.
+A worktree offer shows its actions, then the host’s decision and branch, in a borderless transcript row. Inline review guides use the inline preview frame. Secret requests use T3's masked input and buttons, with one field per requested secret and private delivery through the Solus host. Closed and full-screen MCP apps use T3's feed placeholders. Inline and docked apps have no outer border. A saved app can be docked above the composer.
+
+MCP calls use T3’s work-log activities for both Claude and Codex. Expanding a call shows its details and any returned media. A tool with an MCP app can show the app separately while it runs and hand it over to the saved app when it finishes.
+
+A paste with 100 or more line breaks becomes a pasted-text attachment, also when it is smaller than T3's 32 KB limit. `pastedTextDisposition` in `packages/client-runtime/src/textPaste.ts` has the rule, and the native composer editors get the limit through the `textPasteThresholdLineBreaks` prop. Paste as Text (Command-Shift-V) still keeps the text inline. The desktop and web composer use the same rule (`isLargePaste`).

@@ -14,6 +14,8 @@ const state = vi.hoisted(() => ({
   result: false,
   scope: "account-a",
   pressables: [] as PressProps[],
+  messageField: null as { value: string; onChangeText: (value: string) => void } | null,
+  showLater: true,
   buttons: [] as PressProps[],
   ran: [] as GitActionRequestInput[],
 }));
@@ -33,7 +35,10 @@ vi.mock("../../../components/ui/FitSheet", () => ({
 vi.mock("../../../components/ui/AppSymbol", () => ({ SymbolView: () => null }));
 vi.mock("../../../components/ui/AppText", () => ({
   AppText: () => null,
-  AppTextInput: () => null,
+  AppTextInput: (props: NonNullable<typeof state.messageField>) => {
+    state.messageField = props;
+    return null;
+  },
 }));
 vi.mock("../../../components/ui/Button", () => ({
   Button: (props: PressProps) => {
@@ -60,7 +65,7 @@ vi.mock("../../../solus/CheckoutGit", () => ({
     files: {
       data: [
         { path: "include.ts", insertions: 1, deletions: 0 },
-        { path: "later.ts", insertions: 1, deletions: 0 },
+        ...(state.showLater ? [{ path: "later.ts", insertions: 1, deletions: 0 }] : []),
       ],
     },
   }),
@@ -85,6 +90,11 @@ function openSheet() {
   return {
     isIncluded: (path: string) => row(path).accessibilityState?.checked,
     close: () => act(() => root.unmount()),
+    message: () => state.messageField?.value,
+    typeMessage: (value: string) => act(() => state.messageField?.onChangeText(value)),
+    selectionAction: () => state.buttons.findLast((button) =>
+      button.label === "Select all" || button.label === "Deselect all"
+    )?.label,
     toggle: (path: string) => act(() => row(path).onPress()),
     // The sheet closes on submit, so it unmounts once the commit settles.
     commit: async () => {
@@ -94,24 +104,28 @@ function openSheet() {
   };
 }
 
-it("keeps excluded files after a failed commit until a commit succeeds", async () => {
+it("keeps the message and excluded files after a failed commit until a commit succeeds", async () => {
+  state.ran = [];
   const first = openSheet();
   first.toggle("later.ts");
+  first.typeMessage("  Keep this message  ");
   state.result = false;
   await first.commit();
 
   const retry = openSheet();
   expect(retry.isIncluded("later.ts")).toBe(false);
+  expect(retry.message()).toBe("  Keep this message  ");
   expect(retry.isIncluded("include.ts")).toBe(true);
   state.result = true;
   await retry.commit();
   expect(state.ran).toEqual([
-    { action: "commit", featureBranch: false, filePaths: ["include.ts"] },
-    { action: "commit", featureBranch: false, filePaths: ["include.ts"] },
+    { action: "commit", featureBranch: false, commitMessage: "Keep this message", filePaths: ["include.ts"] },
+    { action: "commit", featureBranch: false, commitMessage: "Keep this message", filePaths: ["include.ts"] },
   ]);
 
   const reopened = openSheet();
   expect(reopened.isIncluded("later.ts")).toBe(true);
+  expect(reopened.message()).toBe("");
   reopened.close();
 });
 
@@ -131,4 +145,19 @@ it("does not restore excluded files after an account or checkout change", async 
   const anotherAccount = openSheet();
   expect(anotherAccount.isIncluded("later.ts")).toBe(true);
   anotherAccount.close();
+});
+
+it("offers to deselect all when an excluded path disappears before retry", async () => {
+  state.scope = "account-c";
+  state.result = false;
+  const first = openSheet();
+  first.toggle("later.ts");
+  await first.commit();
+
+  state.showLater = false;
+  const retry = openSheet();
+  expect(retry.selectionAction()).toBe("Deselect all");
+  await retry.commit();
+  expect(state.ran.at(-1)?.filePaths).toEqual(["include.ts"]);
+  state.showLater = true;
 });

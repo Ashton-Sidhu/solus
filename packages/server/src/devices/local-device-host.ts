@@ -108,6 +108,11 @@ export class LocalDeviceHost implements DeviceHost {
     return (await this.platforms()).find((entry) => entry.platform === platform)!
   }
 
+  androidEmulatorsAvailable(): boolean {
+    const sdk = findAndroidSdk({ env: this.env, hostPlatform: this.hostPlatform })
+    return sdk.emulator && sdk.avdmanager
+  }
+
   private async platforms(): Promise<DevicePlatformAvailability[]> {
     const cached = this.platformCache
     if (cached && this.now() - cached.at < PLATFORM_CACHE_MS) return cached.value

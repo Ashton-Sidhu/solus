@@ -11,6 +11,8 @@ import { Button } from "../../../components/ui/Button";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { T, useGT, Var } from "gt-react-native";
 import { useState } from "react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { Atom } from "effect/reactivity";
 import { Pressable, View } from "react-native";
 import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
 
@@ -27,11 +29,13 @@ type GitCommitSheetProps = StaticScreenProps<
   } & GitRepositoryRouteParams
 >;
 
-// The sheet closes on submit. Retain the file choice for a retry in the same checkout.
-const retainedExclusions = new Map<
-  string,
-  { readonly branch: string | null; readonly excluded: ReadonlySet<string> }
->();
+// The sheet closes on submit. Retain the message and file choice for a retry in the same checkout.
+const retainedCommitDrafts = Atom.make<
+  ReadonlyMap<
+    string,
+    { readonly branch: string | null; readonly excluded: ReadonlySet<string>; readonly message: string }
+  >
+>(new Map()).pipe(Atom.keepAlive);
 
 export function GitCommitSheet(props: GitCommitSheetProps) {
   const controller = useSessionController(props.route.params);
@@ -118,19 +122,31 @@ export function GitCommitForm({
 }) {
   const gt = useGT();
   const navigation = useNavigation();
-  const [dialogCommitMessage, setDialogCommitMessage] = useState("");
-  const retained = retainedExclusions.get(selectionKey);
+  const retained = useAtomValue(retainedCommitDrafts, (drafts) => drafts.get(selectionKey));
+  const setRetained = useAtomSet(retainedCommitDrafts);
+  const [dialogCommitMessage, setDialogCommitMessage] = useState(
+    retained?.branch === branch ? retained.message : "",
+  );
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(
     retained?.branch === branch ? retained.excluded : new Set(),
   );
+  const [previousRetained, setPreviousRetained] = useState(retained);
+  if (previousRetained !== retained) {
+    setPreviousRetained(retained);
+    if (retained === undefined) {
+      if (previousRetained?.excluded === excludedFiles) setExcludedFiles(new Set());
+      if (previousRetained?.message === dialogCommitMessage) setDialogCommitMessage("");
+    }
+  }
   const [selectionBranch, setSelectionBranch] = useState(branch);
   if (selectionBranch !== branch) {
     setSelectionBranch(branch);
     setExcludedFiles(new Set());
+    setDialogCommitMessage("");
   }
 
   const selectedFiles = allFiles.filter((file) => !excludedFiles.has(file.path));
-  const allSelected = excludedFiles.size === 0;
+  const allSelected = selectedFiles.length === allFiles.length;
   const noneSelected = selectedFiles.length === 0;
   const selectedInsertions = selectedFiles.reduce((sum, file) => sum + file.insertions, 0);
   const selectedDeletions = selectedFiles.reduce((sum, file) => sum + file.deletions, 0);
@@ -138,16 +154,22 @@ export function GitCommitForm({
   const runCommitAction = async (featureBranch: boolean) => {
     if (!canWriteSourceControl || (featureBranch && !canCreateFeatureBranch)) return;
     const commitMessage = dialogCommitMessage.trim();
-    retainedExclusions.set(selectionKey, { branch, excluded: excludedFiles });
+    const submitted = { branch, excluded: excludedFiles, message: dialogCommitMessage };
+    setRetained((drafts) => new Map(drafts).set(selectionKey, submitted));
     navigation.goBack();
     const committed = await onCommit({
       action: "commit",
       featureBranch,
       ...(commitMessage ? { commitMessage } : {}),
-      ...(!allSelected ? { filePaths: selectedFiles.map((file) => file.path) } : {}),
+      ...(excludedFiles.size > 0 ? { filePaths: selectedFiles.map((file) => file.path) } : {}),
     });
-    if (committed && retainedExclusions.get(selectionKey)?.excluded === excludedFiles) {
-      retainedExclusions.delete(selectionKey);
+    if (committed) {
+      setRetained((drafts) => {
+        if (drafts.get(selectionKey) !== submitted) return drafts;
+        const remaining = new Map(drafts);
+        remaining.delete(selectionKey);
+        return remaining;
+      });
     }
   };
 
@@ -212,7 +234,9 @@ export function GitCommitForm({
               tone="text"
               onPress={() =>
                 setExcludedFiles(
-                  allSelected ? new Set(allFiles.map((file) => file.path)) : new Set(),
+                  allSelected
+                    ? new Set([...excludedFiles, ...allFiles.map((file) => file.path)])
+                    : new Set(),
                 )
               }
             />

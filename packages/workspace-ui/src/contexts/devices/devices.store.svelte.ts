@@ -1,4 +1,4 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import type {
   DeviceAction,
   DeviceBuild,
@@ -15,7 +15,6 @@ import type {
   DeviceScreenshotResult,
   DeviceState,
   DeviceSummary,
-  SshDeviceHostConfig,
   DeviceHostConfig,
 } from '@solus/contracts/device-types'
 import { parseDeviceError } from '@solus/contracts/device-types'
@@ -68,6 +67,8 @@ export class DevicesStore {
   private branchVersions = new Map<string, number>()
   private projectReads = new Set<string>()
   private loadVersions = new Map<string, number>()
+  private stoppingFromList = new SvelteSet<string>()
+  stopFailures = new SvelteMap<string, string[]>()
 
   /**
    * Follow every host for the app's lifetime. The store loads on first use
@@ -213,6 +214,38 @@ export class DevicesStore {
   async shutdown(serverId: string, target: DeviceTargetRef & { platform: DevicePlatform }): Promise<void> {
     await this.ensureControl(serverId, target)
     await serverConnections.apiFor(serverId).deviceShutdown(target)
+  }
+
+  runningVirtualDevices(serverId: string): DeviceSummary[] {
+    return this.devices(serverId).filter((device) => device.booted && !device.physical)
+  }
+
+  isStoppingFromList(serverId: string): boolean {
+    return this.stoppingFromList.has(serverId)
+  }
+
+  async stopFromList(serverId: string, targets: readonly DeviceTargetRef[]): Promise<void> {
+    if (this.isStoppingFromList(serverId)) return
+    this.stoppingFromList.add(serverId)
+    this.stopFailures.delete(serverId)
+    const failures: string[] = []
+    try {
+      // Each shutdown refreshes the device host's inventory. Let that finish
+      // before the next shutdown so two calls do not race to replace it.
+      for (const target of targets) {
+        const device = this.device(serverId, target)
+        if (!device?.booted || device.physical) continue
+        const { deviceHostId, deviceId, platform } = device
+        try {
+          await this.shutdown(serverId, { deviceHostId, deviceId, platform })
+        } catch (cause) {
+          failures.push(`${device.name}: ${deviceErrorMessage(cause)}`)
+        }
+      }
+    } finally {
+      if (failures.length) this.stopFailures.set(serverId, failures)
+      this.stoppingFromList.delete(serverId)
+    }
   }
 
   async screenshot(serverId: string, target: DeviceTargetRef): Promise<DeviceScreenshotResult> {

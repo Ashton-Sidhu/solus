@@ -6,7 +6,7 @@ import { toasts } from '../../../lib/toasts'
 import { accountStore } from '../../../contexts/account/account.store.svelte'
 import { attachmentUploads } from './attachment-uploads.svelte'
 import {
-  hasStashContent, MAX_STASHED_PROMPTS, PromptStash, promptStashKey, restoreStashedPrompt,
+  hasStashContent, PromptStash, promptStashKey, restoreStashedPrompt,
   stashAttachmentHost, stashedFileExpired, type PromptStashEntry,
 } from './prompt-stash'
 
@@ -188,12 +188,25 @@ export function usePromptStash(options: {
     }
 
     try {
-      const previousCount = entries.length
-      entriesByKey.set(target.key, new PromptStash(localStorage).save(target.key, {
+      const result = new PromptStash(localStorage).save(target.key, {
         id: uuid(), createdAt: Date.now(), serverId,
         sessionId: ctx.session.sessionId, draftId: ctx.session.draftId,
         prompt,
-      }))
+      })
+      entriesByKey.set(target.key, result.entries)
+      if (result.status === 'full') {
+        toasts.info('Prompt stash is full', {
+          description: 'Restore or delete a saved prompt.',
+          action: {
+            label: 'Open stash',
+            onAction: () => {
+              const current = options.target()
+              if (current?.key === target.key && current.prompt === prompt && options.ownsShortcuts()) setOpen(true)
+            },
+          },
+        })
+        return
+      }
       prompt.text = ''
       prompt.attachments.splice(0)
       prompt.planRefs.splice(0)
@@ -201,9 +214,7 @@ export function usePromptStash(options: {
       prompt.sessionRefs.splice(0)
       close()
       options.updateEditor('')
-      toasts.success(previousCount >= MAX_STASHED_PROMPTS
-        ? 'Prompt stashed. The oldest stash was removed.'
-        : 'Prompt stashed.')
+      toasts.success('Prompt stashed.')
     } catch {
       toasts.error('Could not save the stash. Your prompt is still in the composer.')
     }
