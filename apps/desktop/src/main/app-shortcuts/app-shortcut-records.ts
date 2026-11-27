@@ -1,5 +1,5 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
-import { dirname } from 'path'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { dirname, join } from 'path'
 import { z } from 'zod'
 import { isSameAppShortcutTarget, type AppShortcutTarget, type AppShortcutView } from '@solus/contracts/app-shortcuts'
 import { appDesktopPermissionSchema, type AppDesktopGrant, type AppDesktopPermission } from '@solus/contracts/app-desktop'
@@ -154,5 +154,40 @@ export class AppShortcutRecords {
     if (this.file.loginItemForApps === isOn) return
     this.file.loginItemForApps = isOn
     this.write()
+  }
+}
+
+/** The file of the app shortcut records in the desktop app's data folder. */
+export const APP_SHORTCUT_RECORDS_FILE = 'app-shortcut-records.json'
+
+/**
+ * The file that the records shared with the summon shortcut before they had
+ * their own (`summon-shortcut-file.ts` keeps it). Each save of one feature
+ * destroyed the other's data.
+ */
+const SHARED_FILE = 'app-shortcuts.json'
+
+/**
+ * The records of this device, from the desktop app's data folder. Records in
+ * the shared file of an older Solus move to their own file first, so the
+ * person's shortcuts stay; a summon shortcut in that file stays there.
+ */
+export function openAppShortcutRecords(userDataDirectory: string): AppShortcutRecords {
+  const path = join(userDataDirectory, APP_SHORTCUT_RECORDS_FILE)
+  const sharedPath = join(userDataDirectory, SHARED_FILE)
+  if (!existsSync(path) && holdsRecords(sharedPath)) {
+    // A move that fails leaves the old file; the records then start empty, as for a file that cannot be read.
+    try {
+      renameSync(sharedPath, path)
+    } catch {}
+  }
+  return new AppShortcutRecords(path)
+}
+
+function holdsRecords(path: string): boolean {
+  try {
+    return fileSchema.safeParse(JSON.parse(readFileSync(path, 'utf-8'))).success
+  } catch {
+    return false
   }
 }

@@ -37,7 +37,7 @@ app shortcuts). The reference is Executor (`UsefulSoftwareCo/executor`, branch
    removes the item, of `shortcuts` releases each shortcut, of `floating`
    puts the window down, of `startAtLogin` turns the login item off when no
    other app needs it.
-5. The grants are on this device: `app-shortcuts.json` keeps them beside the
+5. The grants are on this device: `app-shortcut-records.json` keeps them beside the
    shortcuts, by app. No host keeps them. A delete of the app removes them.
 6. The main process names the app of a call from the window that sent it,
    never from the call. The app's page has no origin and cannot reach the
@@ -179,7 +179,7 @@ Done in another way:
 | `navigator.clipboard.readText()`, behind the grant. | `desktop.clipboard.readText()`. | The same: no origin. |
 | A menu-bar item needs `ui/menubar.html`, and its click opens a popover. | Any app that sets a title gets an item with a menu; no popover. | The popover is a second page; §9. |
 | The login item is set to the wanted state at start. | Solus changes it only when the first app wants it or the last one stops, and turns off only what it turned on (`loginItemForApps`). | Executor's first sync turns off a login item that the person made. |
-| A store of installed apps with a revision and an installation id. | The answers in `app-shortcuts.json`, by app. | An app window needs no install in Solus. |
+| A store of installed apps with a revision and an installation id. | The answers in `app-shortcut-records.json`, by app. | An app window needs no install in Solus. |
 | An end-to-end test that drives Electron. | Unit tests with fakes for each Electron part. | Solus verifies with focused tests and no build (CLAUDE.md). |
 
 ## 9. Not in this plan

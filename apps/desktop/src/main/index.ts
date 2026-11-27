@@ -1,4 +1,5 @@
 import { DesktopActivityBadges } from './activity-badges'
+import { loadSummonShortcut, saveSummonShortcut } from './summon-shortcut-file'
 import { ServerForwards, serverForwardRequestSchema } from './server-forwards'
 import { registerFileDrag } from './file-drag'
 import { registerLocalFileCopy } from './local-file-copy'
@@ -11,7 +12,7 @@ import { desktopPlatform } from './platform/desktop-platform'
 import { app, BrowserWindow, ipcMain, screen, globalShortcut, Tray, Menu, nativeTheme, safeStorage, shell, powerSaveBlocker, protocol } from 'electron'
 import { join } from 'path'
 import { homedir } from 'os'
-import { readFileSync, statSync, writeFileSync } from 'fs'
+import { readFileSync, statSync } from 'fs'
 import { importLoginShellEnv, warmCliPath } from '@solus/server/cli-env'
 import { createLogger, flushLogs } from '@solus/server/logger'
 import type { AppGlobalShortcuts, AppShortcutCombo } from '@solus/contracts/types'
@@ -54,7 +55,7 @@ import { outsideAppLinkUrl } from './outside-app-links'
 import { hostAddressOf, type AppWindowWorkspaceRequest } from '@solus/contracts/app-shortcuts'
 import { parseAppLinkAction, type AppLinkAction } from '@solus/contracts/app-shortcut-links'
 import { appLinkActionIn, appWindowRequestFor, queueAppLink } from '@solus/desktop-main/app-shortcuts/app-links'
-import { AppShortcutRecords } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
+import { openAppShortcutRecords } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
 import { createAppWindowsRuntime, SOLUS_LOGIN_ARGUMENT } from '@solus/desktop-main/app-shortcuts/app-desktop-electron'
 
 // Every static import above has now evaluated, so this is the main bundle's
@@ -227,35 +228,13 @@ const DEFAULT_APP_SHORTCUTS: AppGlobalShortcuts = {
 
 let currentAppShortcuts: AppGlobalShortcuts = DEFAULT_APP_SHORTCUTS
 
-function appShortcutsPath(): string {
-  return join(app.getPath('userData'), 'app-shortcuts.json')
-}
-
-const appShortcutComboSchema = z.object({
-  code: z.string(),
-  alt: z.boolean().optional(),
-  mod: z.boolean().optional(),
-  shift: z.boolean().optional(),
-  ctrl: z.boolean().optional(),
-  meta: z.boolean().optional(),
-})
-
-const appGlobalShortcutsSchema = z.object({
-  toggle: appShortcutComboSchema,
-})
-
 function loadAppShortcuts(): AppGlobalShortcuts {
-  try {
-    const raw = readFileSync(appShortcutsPath(), 'utf-8')
-    const parsed = appGlobalShortcutsSchema.safeParse(JSON.parse(raw))
-    if (parsed.success) return parsed.data
-  } catch {}
-  return DEFAULT_APP_SHORTCUTS
+  return loadSummonShortcut(app.getPath('userData'), DEFAULT_APP_SHORTCUTS)
 }
 
 function saveAppShortcuts(shortcuts: AppGlobalShortcuts): void {
   try {
-    writeFileSync(appShortcutsPath(), JSON.stringify(shortcuts, null, 2), { mode: 0o600 })
+    saveSummonShortcut(app.getPath('userData'), shortcuts)
   } catch (err: any) {
     log.warn('app_shortcuts_persist_failed', { error: String(err?.message ?? err) })
   }
@@ -802,7 +781,7 @@ ipcMain.on('solus:set-zoom-factor', (event, rawFactor) => {
 
 // ─── App windows and app shortcuts (docs/app-shortcuts.md) ───
 
-const appShortcutRecords = new AppShortcutRecords(join(app.getPath('userData'), 'app-shortcuts.json'))
+const appShortcutRecords = openAppShortcutRecords(app.getPath('userData'))
 const solusInstall = {
   isPackaged: app.isPackaged,
   executablePath: process.execPath,

@@ -61,11 +61,17 @@ The owner manages an app in the workspace. An app window has no Manage page.
 
 ## 3. What this device keeps
 
-`app-shortcuts.json` in the desktop app's own data folder holds the shortcuts
+`app-shortcut-records.json` in the desktop app's own data folder holds the shortcuts
 (the app, the name on the launcher, the path of the launcher, the icon key of
 its icon, and the format of the launcher), the place of each app window, and
 the person's answers for the desktop capabilities of each app (§5.1). No host keeps them, because a launcher is a file of
 one computer.
+
+The global shortcut that summons Solus keeps `app-shortcuts.json`, its own
+file. An older Solus kept the records in that file too, and a save of one
+feature deleted the other's data. At its first start, this Solus moves records
+that it finds in `app-shortcuts.json` to `app-shortcut-records.json`, so the
+person's shortcuts stay; a summon shortcut in that file stays where it is.
 
 A launcher opens its app with no record: the app link is enough. A file that
 cannot be read thus starts empty, and adding a shortcut again takes the same
@@ -226,7 +232,7 @@ A new app has no answers. The first call that needs one shows a native
 **Allow** / **Don't Allow** dialog. After a refusal the call fails with
 `DesktopPermissionDenied` and asks no more; only the person changes the
 answer, in the app menu, the tray menu, or Settings. A revoke applies at once.
-The answers are in `app-shortcuts.json` (§3), by app.
+The answers are in `app-shortcut-records.json` (§3), by app.
 
 App authors use `desktop` from `@solus/app`
 (`resources/plugins/solus/skills/create-app/references/desktop.md`).
