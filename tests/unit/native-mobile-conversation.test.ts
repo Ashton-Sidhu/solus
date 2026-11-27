@@ -1157,36 +1157,42 @@ test('a recent conversation keeps its live watch through replay and is evicted o
   } finally { app.dispose() }
 })
 
-test('opening a running turn consumes the overlapping watch replay once and preserves the live tail', async () => {
-  const api = baseApi().on('loadSessionPage', () => page([
-    userRow('check', 'u'), assistantRow('Reading files', 'a'),
-    { role: 'tool', content: '', toolId: 'call', toolName: 'Read', messageId: 't' },
-  ]))
+// docs/plans/running-turn-open.md: the page holds the settled turns and the
+// watch replays the running turn, so the phone shows each row once without
+// matching one against the other.
+test('opening a running turn shows the settled page, then the replayed turn, each row once', async () => {
+  const api = baseApi()
   const { controller, transport } = await open({ api })
-  api.on('watchSession', () => {
-    transport.emitSession('thread-1', { type: 'text_chunk', text: 'Reading ' })
-    transport.emitSession('thread-1', { type: 'text_chunk', text: 'files' })
+  api.on('loadSessionPage', (request: { openSession?: boolean }) => {
+    expect(request.openSession).toBe(true)
+    // The host watches before it reads the page: the replay reaches the socket first.
+    transport.emitSession('thread-1', { type: 'user_message', text: 'check' })
+    transport.emitSession('thread-1', { type: 'text_chunk', text: 'Reading files' })
     transport.emitSession('thread-1', { type: 'tool_call', toolId: 'call', toolName: 'Read', index: 0 })
-    transport.emitSession('thread-1', { type: 'text_chunk', text: 'New reply' })
-    return { runtime: null }
+    return {
+      ...page([userRow('earlier', 'u'), assistantRow('Done', 'a')]), runningTurnStartedAt: 1,
+      openingDescription: { lineage: null, meta: null },
+      resumedWatch: { runtime: { status: 'running', modelConfig: null, permissionMode: null, queuedPrompts: [], rateLimitInfo: null }, runningTurnStartedAt: 1 },
+    }
   })
   await controller.load()
-  expect(texts(controller)).toEqual(['user:check', 'assistant:Reading files', 'tool', 'assistant:New reply'])
+  transport.emitSession('thread-1', { type: 'text_chunk', text: 'New reply' })
+  expect(texts(controller)).toEqual(['user:earlier', 'assistant:Done', 'user:check', 'assistant:Reading files', 'tool', 'assistant:New reply'])
+  expect(api.callsOf('watchSession')).toHaveLength(0)
   controller.close()
 })
 
-test('the watch RPC can answer before its replay reaches the socket', async () => {
-  const api = baseApi().on('loadSessionPage', () => page([
-    userRow('check', 'u'), assistantRow('Reading', 'a'),
-    { role: 'tool', content: '', toolId: 'call', toolName: 'Read', messageId: 't' },
-  ])).on('watchSession', () => ({ runtime: { status: 'running', modelConfig: null, permissionMode: null, queuedPrompts: [], rateLimitInfo: null } }))
+test('a replay that reaches the socket after the open answers lands after the page, at once', async () => {
+  const api = baseApi().on('loadSessionPage', () => ({
+    ...page([userRow('earlier', 'u'), assistantRow('Done', 'a')]), runningTurnStartedAt: 1,
+    openingDescription: { lineage: null, meta: null },
+    resumedWatch: { runtime: { status: 'running', modelConfig: null, permissionMode: null, queuedPrompts: [], rateLimitInfo: null }, runningTurnStartedAt: 1 },
+  }))
   const { controller, transport } = await open({ api })
   await controller.load()
-  transport.emitSession('thread-1', { type: 'text_chunk', text: 'Reading' })
+  transport.emitSession('thread-1', { type: 'user_message', text: 'check' })
   transport.emitSession('thread-1', { type: 'tool_call', toolId: 'call', toolName: 'Read', index: 0 })
-  transport.emitSession('thread-1', { type: 'pending_input_sync', pendingInputEvents: [] })
-  transport.emitSession('thread-1', { type: 'text_chunk', text: 'After replay' })
-  expect(texts(controller)).toEqual(['user:check', 'assistant:Reading', 'tool', 'assistant:After replay'])
+  expect(texts(controller)).toEqual(['user:earlier', 'assistant:Done', 'user:check', 'tool'])
   controller.close()
 })
 

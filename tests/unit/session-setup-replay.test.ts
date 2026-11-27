@@ -24,6 +24,21 @@ test('a client joining before the provider starts receives the latest setup stag
   } finally { runtime.shutdown() }
 })
 
+test('a client joining a launch before the provider starts receives its prompt from the turn log', () => {
+  // WHY: the provider has written nothing yet and the history leaves the running
+  // turn out (docs/plans/running-turn-open.md), so the replay is the prompt's only source.
+  const runtime = new SessionRuntime(new Map())
+  runtime.launcher.pendingSetupControllers.set('launching', new AbortController())
+  runtime.publish('launching', { type: 'user_message', text: 'Run the diagnosis' }, { except: 'sender' })
+  const received: NormalizedEvent[] = []
+  runtime.on('event', (_sessionId, event, to) => { if (to?.only === 'joining-client') received.push(event) })
+  try {
+    const watch = runtime.watchers.watchSession({ sessionId: 'launching', attachRuntime: true }, 'joining-client')
+    expect(received.map((event) => event.type)).toEqual(['user_message', 'status_change'])
+    expect(watch.runtime?.status).toBe('connecting')
+    expect(watch.runningTurnStartedAt).toBe(runtime.runningTurnStartedAt('launching'))
+  } finally { runtime.shutdown() }
+})
 
 test('a stopped bootstrap cannot replay a stage as still running', () => {
   const runtime = new SessionRuntime(new Map())

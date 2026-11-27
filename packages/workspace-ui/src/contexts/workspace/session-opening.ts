@@ -19,6 +19,7 @@ import { isTaskFolderPath } from '@solus/contracts/codebases'
 import { INITIAL_HISTORY_TURNS, prefetchSessionHistoryPage, requestSessionHistoryPage } from '@solus/client-core/session-history-page'
 import type { SessionHistoryPageRequest } from '@solus/contracts/session-history'
 import { loadSessionTranscript, readTranscriptDependencies } from './session-transcript'
+import { fitTranscriptToWatch } from './running-turn-fit'
 import { measureOpenStep } from '../../lib/mount-timing'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
@@ -615,12 +616,17 @@ export class SessionOpening {
     // screen. Settled rather than left to reject on its own: the join point is
     // several awaits away, so a failure before then would otherwise surface as an
     // unhandled rejection. It is carried and re-thrown at the join instead.
+    //
+    // The watch replays a running turn at once; its events wait for the page.
+    this.workspace.eventReducer.holdEvents(resumedSessionId)
+    let watchedTurn: number | undefined
     const runtimeAttach = this.workspace.apiFor(tabId).watchSession({
       sessionId: resumedSessionId,
       attachRuntime: true,
     })
       .then(
         (watched) => {
+          watchedTurn = watched.runningTurnStartedAt
           if (watched.execution) this.workspace.sessions.adoptExecution(selectedServerId, resumedSessionId, watched.execution)
           this.workspace.applyRuntimeAttach(tabId, watched.runtime)
           this.workspace.applyPendingQuestions(tabId, watched.pendingQuestions)
@@ -680,15 +686,9 @@ export class SessionOpening {
         : Promise.resolve(null)
       // The working directory of a task folder is a worktree only when its working member is a repository.
       const taskFolderPending = isTaskFolderPath(defaultDir) ? api.taskFolderOf(defaultDir).catch(() => null) : Promise.resolve(null)
-      const transcript = await loadSessionTranscript(this.workspace, {
-        sessionId: resumedSessionId,
-        loadPath: firstPage.projectPath,
-        displayCwd: workingDirectory,
-        provider: threadProvider,
-        ctx: this.workspace.ctxFor(tabId),
-        turnLimit: INITIAL_HISTORY_TURNS,
-        history,
-      })
+      const transcriptArgs = { sessionId: resumedSessionId, loadPath: firstPage.projectPath, displayCwd: workingDirectory,
+        provider: threadProvider, ctx: this.workspace.ctxFor(tabId), turnLimit: INITIAL_HISTORY_TURNS }
+      const transcript = await loadSessionTranscript(this.workspace, { ...transcriptArgs, history })
 
       const session = currentResumeTarget()
       if (session) {
@@ -746,8 +746,11 @@ export class SessionOpening {
       // bind still surfaces to the caller, but it can no longer discard a
       // transcript that loaded successfully.
       const attachFailure = await runtimeAttach
+      const pageTurn = (await history).runningTurnStartedAt
+      await fitTranscriptToWatch(this.workspace, tabId, currentResumeTarget(), { pageTurn, watchedTurn }, { ...firstPage, provider: threadProvider }, transcriptArgs)
       if (attachFailure) throw attachFailure
     } finally {
+      this.workspace.eventReducer.releaseEvents(resumedSessionId)
       const session = currentResumeTarget()
       if (session) session.loadingHistory = false
     }

@@ -2577,6 +2577,9 @@ export interface WatchSessionResult {
   runtime?: RuntimeSessionInfo | null
   /** Questions that remain open after their Codex turn has ended. */
   pendingQuestions?: QuestionRequest[]
+  /** The running turn the watch replayed from its prompt, by the time that prompt was recorded.
+   *  A history page that leaves out the same turn fits it (docs/plans/running-turn-open.md). */
+  runningTurnStartedAt?: number
 }
 
 export interface SessionProviderSwitchResult {

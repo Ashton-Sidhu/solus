@@ -21,18 +21,18 @@ test.each([
       watchSession: async () => ({ runtime: null }),
     }),
     ctxFor: () => ({}), sessionFor: () => session,
-    eventReducer: { rebuildAgentConversations() {} }, lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
+    eventReducer: { rebuildAgentConversations() {}, holdEvents() {}, releaseEvents() {}, dropHeldEvents() {} }, lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
     planStore: { hydrateAnnotations() {} }, applyPendingQuestions() {}, refreshThreadGoal() {},
     environment: { refreshEnvironment: async () => {} },
     issuesStore: { ensureSessionBinding: async () => {} },
   }
   const hydrate = new Function('afterPaint', 'requestSessionHistoryPage', 'loadRestoredSessionTranscript',
     'replaceHydratedMessages', 'markStartupTranscriptApplied', 'INITIAL_HISTORY_TURNS', 'isSessionBusyStatus',
-    'serverConnections', 'runLocation', 'machineProjectPath',
+    'serverConnections', 'runLocation', 'machineProjectPath', 'fitTranscriptToWatch',
     `const { runHost, checkoutPlace, checkoutGit, projectHome } = runLocation;\n${hydration}\nreturn hydrateTab;`)(
     () => new Promise(() => {}), async () => ({ messages: [] }),
     async () => ({ messages: [], planIds: [] }), () => {}, () => {}, 200, () => false,
-    { presenceOf: () => 'present' }, runLocation, () => null)
+    { presenceOf: () => 'present' }, runLocation, () => null, async () => {})
   await hydrate(context, { tabId: 'tab', agentSessionId: 'thread', provider: 'claude-code', location })
   expect(session.status).toBe(expected)
 })

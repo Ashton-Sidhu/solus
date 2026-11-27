@@ -67,25 +67,39 @@ export class SessionWatchers {
       ? this.attachRuntime(sessionId, agentSessionId ?? null, clientId, undefined, after)
       : null)
     if (after !== undefined && !runtime) this.dropWatch(sessionId, clientId)
-    return { runtime, ...pending, ...(after !== undefined && { resumed: runtime !== null }) }
+    // A replay from the start names its turn, so the history read beside it leaves that turn out.
+    const runningTurnStartedAt = runtime && after === undefined ? this.rt.promptTimeIn(this.rt.turnLog.get(sessionId) ?? []) : undefined
+    return {
+      runtime, ...pending,
+      ...(after !== undefined && { resumed: runtime !== null }),
+      ...(runningTurnStartedAt !== undefined && { runningTurnStartedAt }),
+    }
   }
 
   /**
-   * Setup can run before there is a provider runtime to attach to. The joining
-   * client gets the latest setup card; a card whose setup no longer runs is
-   * settled first, so it never replays a stage as still running.
+   * Setup, and the launch after it, run before there is a provider runtime to
+   * attach to. The joining client gets the latest setup card; a card whose setup
+   * no longer runs is settled first, so it never replays a stage as still
+   * running. A run that is starting also replays its turn from the prompt on:
+   * the history leaves that turn out.
    */
   private replaySetup(sessionId: string, clientId: string): RuntimeSessionInfo | null {
     if (this.rt.activeSessions.has(sessionId)) return null
     const events = this.rt.turnLog.get(sessionId) ?? []
     const setup = events.findLast((event) => event.type === 'status_card')
-    if (!setup) return null
-    const isStarting = setup.card.status === 'active'
-      && (this.rt.launcher.pendingSetupControllers.has(sessionId) || this.rt.activeRunRequests.has(sessionId))
-    const lastStatus = events.findLast((event) => event.type === 'status_change')?.status
-    const card = setup.card.status === 'active' && !isStarting ? settleSetupCard(setup.card, lastStatus) : setup.card
-    this.rt.publish(sessionId, { type: 'status_card', card }, { only: clientId })
+    const isRunStarting = this.rt.launcher.pendingSetupControllers.has(sessionId) || this.rt.activeRunRequests.has(sessionId)
+    if (!setup && !isRunStarting) return null
+    const isStarting = isRunStarting && (!setup || setup.card.status === 'active')
+    if (setup) {
+      const lastStatus = events.findLast((event) => event.type === 'status_change')?.status
+      const card = setup.card.status === 'active' && !isStarting ? settleSetupCard(setup.card, lastStatus) : setup.card
+      this.rt.publish(sessionId, { type: 'status_card', card }, { only: clientId })
+    }
     if (!isStarting) return null
+    const prompt = events.findLastIndex((event) => event.type === 'user_message' && event.delivery !== 'steer')
+    if (prompt >= 0) {
+      for (const event of events.slice(prompt)) if (event.type !== 'status_card') this.rt.publish(sessionId, event, { only: clientId })
+    }
     this.rt.publish(sessionId, { type: 'status_change', status: 'connecting', oldStatus: 'connecting' }, { only: clientId })
     return {
       modelConfig: null,

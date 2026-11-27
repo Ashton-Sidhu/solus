@@ -3,11 +3,12 @@ import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { afterPaint } from '../../lib/after-paint'
 import { markStartupTranscriptApplied } from './startup-transcript'
 import { INITIAL_HISTORY_TURNS, requestSessionHistoryPage } from '@solus/client-core/session-history-page'
-import { defaultContextWindowFor, isSessionBusyStatus, PERMISSION_MODES, type Message, type ModelConfig, type RunConfig, type Session, type SessionMeta } from '@solus/contracts/types'
+import { defaultContextWindowFor, isSessionBusyStatus, PERMISSION_MODES, type Message, type ModelConfig, type RunConfig, type Session, type SessionMeta, type WatchSessionResult } from '@solus/contracts/types'
 import { hostCatalog } from '@solus/client-core/host-catalog'
 import { makePrompt, makeSession, makeTab } from './session.factories'
 import { taskTargetFrom } from './session-draft.svelte'
 import { loadRestoredSessionTranscript } from './session-transcript'
+import { fitTranscriptToWatch } from './running-turn-fit'
 import { applyRuntimeConfig, followThreadProvider, nextMsgId, parentSessionIdOf } from './session.utils'
 import { initDraftState, loadCachedStart, loadDrafts, loadPersistedSessionDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
@@ -255,9 +256,13 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
       }
 
       // Re-register with the server so event routing is alive again. The same
-      // round trip attaches to a live or starting turn.
+      // round trip attaches to a live or starting turn. The rows on screen stay,
+      // so the replay resumes after the last event applied; a host that cannot
+      // resume it replays the turn from its start.
       const api = ctx.apiFor(tabId)
-      const watched = await api.watchSession({
+      const afterEvent = ctx.eventReducer.cursorOf(sessionId)
+      const resumed = afterEvent ? await api.watchSession({ sessionId, attachRuntime: true, afterEvent }).catch(() => null) : null
+      const watched = resumed?.resumed ? resumed : await api.watchSession({
         sessionId,
         attachRuntime: true,
       }).catch(() => null)
@@ -590,8 +595,22 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
     // Otherwise an event that arrives during loadSession makes the successful
     // history response look stale and the restored session can stay blank.
     // The same round trip attaches to the live runtime, which a separate bind
-    // used to do after the watch.
-    const watched = await api.watchSession({ sessionId: session.id, attachRuntime: true })
+    // used to do after the watch. Its replay of a running turn waits until the
+    // page is known to leave out that same turn (docs/plans/running-turn-open.md).
+    ctx.eventReducer.holdEvents(session.id)
+    let watched: WatchSessionResult
+    try {
+      watched = await api.watchSession({ sessionId: session.id, attachRuntime: true })
+      const pageTurn = (await history?.catch(() => null))?.runningTurnStartedAt
+      const provider = activeMember?.provider ?? snapshotProvider
+      if (history && ctx.sessionFor(snapTab.tabId) === session) {
+        await fitTranscriptToWatch(ctx, snapTab.tabId, session, { pageTurn, watchedTurn: watched.runningTurnStartedAt },
+          { sessionId: session.id, projectPath: loadPath, provider, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true, replyLayout: true },
+          { sessionId: session.id, loadPath, displayCwd, provider, ctx: ctx.ctxFor(snapTab.tabId), turnLimit: INITIAL_HISTORY_TURNS })
+      }
+    } finally {
+      ctx.eventReducer.releaseEvents(session.id)
+    }
     if (watched.execution) ctx.sessions.adoptExecution(runHost(session.run), session.id, watched.execution)
     ctx.applyPendingQuestions(snapTab.tabId, watched.pendingQuestions)
     const info = watched.runtime ?? null

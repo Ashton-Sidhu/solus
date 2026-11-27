@@ -33,7 +33,6 @@ import {
 } from './lib/ipc-context'
 import { hostAgents } from './lib/host-agents'
 import { attachmentKind } from '@solus/contracts/media-types'
-import { reconcileWatchReplay } from './lib/watch-replay'
 import { queuedMessageAttachments, uploadedMessageAttachments, type MessageAttachment } from './lib/message-attachments'
 import { canRouteAuto, newSessionModel, rememberedFastMode, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode, type AgentCapabilities } from './lib/run-settings'
 import { attachmentSizeProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from './lib/attachments'
@@ -67,9 +66,9 @@ import type { SessionCloudReadStatus } from '@solus/client-core/session-cloud-re
  * the event subscription, and the transcript model; React reads the model
  * through `ConversationStore` slices.
  *
- * Order, as the desktop client does it (`session-bootstrap.ts`): durable
- * history first, then `watchSession` with `attachRuntime`, which replays the
- * turn in flight to this client alone. Events that arrive before history is in
+ * Order (docs/plans/running-turn-open.md): one opening read watches the
+ * session, replaying the turn in flight to this client alone, and then reads a
+ * history page of the settled turns. Events that arrive before history is in
  * memory are held and applied after it. A reconnect that did not recover the
  * server session rebuilds from a fresh history page and a fresh watch; a
  * recovered socket continues as it was. Prompts carry a client-made id from
@@ -277,8 +276,6 @@ export class ConversationController {
   private held: WireNormalizedEvent[] | null = null
   private bufferedCursor?: string
   private appliedCursor?: string
-  private watchReplay: WireNormalizedEvent[] | null = null
-  private replayTimeout?: ReturnType<typeof setTimeout>
   /** The prompt that started a new session, until the host names the session from it. */
   private openingPrompt: string | null = null
   private watching = false
@@ -331,7 +328,7 @@ export class ConversationController {
       if (payload.sessionId !== this.run.sessionId) return
       this.receive(payload.event)
       if (payload.cursor) {
-        if (this.held || this.watchReplay) this.bufferedCursor = payload.cursor
+        if (this.held) this.bufferedCursor = payload.cursor
         else this.appliedCursor = payload.cursor
       }
     }))
@@ -608,7 +605,7 @@ export class ConversationController {
     this.openingRead = null
     this.openingPage = null
     const generation = ++this.loadGeneration
-    const afterEvent = resume && this.phase.kind === 'ready' && !this.watchReplay ? this.appliedCursor : undefined
+    const afterEvent = resume && this.phase.kind === 'ready' ? this.appliedCursor : undefined
     this.appliedCursor = undefined
     this.bufferedCursor = undefined
     if (afterEvent) {
@@ -661,8 +658,6 @@ export class ConversationController {
       if (page) preview.timing?.savedPageRead(prefetched)
       if (!preview.shown && page && preview.acceptsCachedPage?.(page) !== false) preview.paint(page, prefetched ? 'prefetch' : 'saved')
     })
-    this.watchReplay = null
-    clearTimeout(this.replayTimeout)
     this.held = []
     this.watching = false
     this.setPhase({ kind: 'loading' })
@@ -688,7 +683,8 @@ export class ConversationController {
       }
       const held = this.held ?? []
       this.held = null
-      for (const event of preview.resumedWatch ? reconcileWatchReplay(model, held) : held) this.receive(event)
+      // The page leaves out the running turn; the watch replayed it into `held`.
+      for (const event of held) this.receive(event)
       this.appliedCursor = this.bufferedCursor
       this.bufferedCursor = undefined
       preview.timing?.shown('host')
@@ -697,17 +693,8 @@ export class ConversationController {
       // network round trip and must not hold back rows already read.
       this.flush(this.openingTurnsLeft > 0)
       if (generation !== this.loadGeneration || this.closed) return
-      const replay: WireNormalizedEvent[] = []
-      this.watchReplay = replay
       const [watched] = await Promise.all([preview.resumedWatch ?? this.watch(), settings])
       if (generation !== this.loadGeneration) return
-      if (this.watchReplay === replay) {
-        if (!watched.runtime || !this.model.order.some(id => this.model.items.get(id)?.kind === 'tool')) this.finishWatchReplay()
-        // Room delivery may reach this socket after the RPC reply. The host
-        // ends a live replay with pending_input_sync. Release buffered events
-        // on older hosts that do not send that boundary.
-        else this.replayTimeout = setTimeout(() => this.finishWatchReplay(), 3000)
-      }
       this.applyWatch(watched)
       this.setPhase({ kind: 'ready' })
       void this.deps.connection.api.setSessionReadState(this.run.sessionId, Date.now()).catch(() => undefined)
@@ -727,7 +714,6 @@ export class ConversationController {
     } catch (error) {
       if (generation !== this.loadGeneration) return
       this.held = null
-      this.finishWatchReplay()
       if (error instanceof Error && ['FORBIDDEN', 'NOT_FOUND', 'UNAUTHORIZED'].includes(rpcErrorCode(error) ?? '')) {
         void this.deps.sessionCache?.saveHistory(this.run.sessionId, null)
         this.model = TranscriptModel.fromHistory(this.run.sessionId, { messages: [], before: null })
@@ -858,9 +844,11 @@ export class ConversationController {
         preview.resumedWatch = watched
       }
     }
-    // Every first open is one request: the page, the description, and the watch.
-    // A saved page paints at once; its blocks make the answer that confirms it small.
-    const opens = generation === 1 && !this.target.movedFrom && !this.target.fromCloud
+    // Every open is one request: the page, the description, and the watch. A
+    // reload after a reset is one too, so its page and its replay describe one
+    // moment (docs/plans/running-turn-open.md). A saved page paints at once; its
+    // blocks make the answer that confirms it small.
+    const opens = !this.target.movedFrom && !this.target.fromCloud
     let openingDescription: SessionDescription | undefined
     const cacheWaitMs = largeOpening ? SAVED_OPENING_CACHE_WAIT_MS
       : this.deps.sessionCache?.prefetching(this.run.sessionId) ? PREFETCH_WAIT_MS : HISTORY_CACHE_WAIT_MS
@@ -1685,8 +1673,6 @@ export class ConversationController {
     for (const upload of this.uploads) upload.abort?.abort()
     for (const file of this.attachments) void file.pending?.discard().catch(() => {})
     this.failedUploads.clear()
-    clearTimeout(this.replayTimeout)
-    this.watchReplay = null
     this.loadGeneration += 1
     for (const cleanup of this.cleanups.splice(0)) cleanup()
     if (this.watching) void this.deps.connection.api.unwatchSession(this.run.sessionId).catch(() => undefined)
@@ -1694,23 +1680,7 @@ export class ConversationController {
 
   // ─── Internals ───
 
-  private finishWatchReplay(): void {
-    const replay = this.watchReplay
-    this.watchReplay = null
-    clearTimeout(this.replayTimeout)
-    if (replay) {
-      for (const event of reconcileWatchReplay(this.model, replay)) this.receive(event)
-      if (this.bufferedCursor) this.appliedCursor = this.bufferedCursor
-      this.bufferedCursor = undefined
-    }
-  }
-
   private receive(event: WireNormalizedEvent): void {
-    if (this.watchReplay) {
-      this.watchReplay.push(event)
-      if (event.type === 'pending_input_sync') this.finishWatchReplay()
-      return
-    }
     this.liveEvents += 1
     if (this.held) {
       this.held.push(event)

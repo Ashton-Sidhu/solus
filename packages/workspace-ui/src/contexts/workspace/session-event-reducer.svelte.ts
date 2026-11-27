@@ -96,7 +96,34 @@ export class SessionEventReducer {
   /** One card per agent conversation per turn; exchanges keyed for late settles. */
   private agentConversations = new AgentConversationCards()
 
+  /** The events of a session that opens: they apply after its history page (docs/plans/running-turn-open.md). */
+  private heldEvents = new Map<string, Array<{ event: WireNormalizedEvent; cursor?: string }>>()
+  /** The host's cursor of the last turn event applied to each session: a new watch resumes after it. */
+  private appliedCursors = new Map<string, string>()
+
   constructor(private deps: SessionEventReducerDeps) {}
+
+  /** Keep the session's events until `releaseEvents`: a watch replays the running turn before its page is on screen. */
+  holdEvents(sessionId: string): void {
+    this.heldEvents.set(sessionId, [])
+  }
+
+  /** Forget the held events: a new open replays the running turn again. */
+  dropHeldEvents(sessionId: string): void {
+    if (this.heldEvents.has(sessionId)) this.heldEvents.set(sessionId, [])
+  }
+
+  /** Apply the held events in order, after the page, and stop holding. */
+  releaseEvents(sessionId: string): void {
+    const held = this.heldEvents.get(sessionId)
+    this.heldEvents.delete(sessionId)
+    for (const { event, cursor } of held ?? []) this.apply(sessionId, event, cursor)
+  }
+
+  /** Where a new watch of the session can resume: after the last turn event applied. */
+  cursorOf(sessionId: string): string | undefined {
+    return this.appliedCursors.get(sessionId)
+  }
 
   private thinkingSpan(session: Session): ThinkingSpan {
     let span = this.thinkingSpans.get(session)
@@ -270,7 +297,13 @@ export class SessionEventReducer {
     if (card.status === 'done' && isWorktreeSetupCard(card)) this.deps.onWorktreeSetupDone?.(sessionId)
   }
 
-  apply(sessionId: string, event: WireNormalizedEvent): void {
+  apply(sessionId: string, event: WireNormalizedEvent, cursor?: string): void {
+    const held = this.heldEvents.get(sessionId)
+    if (held) {
+      held.push({ event, cursor })
+      return
+    }
+    if (cursor) this.appliedCursors.set(sessionId, cursor)
     const session = this.deps.sessions.byId[sessionId]
     if (!session) return
 
@@ -460,9 +493,10 @@ export class SessionEventReducer {
 
       case 'tool_call': {
         session.currentActivity = ''
-        // A client that joins a running turn loads its history, then the host
-        // replays the turn: a call history holds is the same card, live again.
-        // Its result, if it has one, is replayed after it.
+        // A watch that cannot resume replays the turn from its prompt over the
+        // rows this client already applied: a call of this turn is the same
+        // card, live again. Its result, if it has one, is replayed after it.
+        // History never holds the running turn (docs/plans/running-turn-open.md).
         const loaded = event.toolId ? this.findToolMsgInTurn(session.messages, event.toolId) : undefined
         if (loaded) {
           loaded.toolStatus = 'running'

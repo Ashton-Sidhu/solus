@@ -2,10 +2,11 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import type { Message, Session, Tab } from '@solus/contracts/types'
 
 /**
- * A client that reloads while a turn runs loads the session's history from disk,
- * then the host replays the turn so far to that client alone. A call that
- * history already holds is the same call: it must stay one card, not become a
- * finished copy above a running one.
+ * A watch that cannot resume after a lost connection replays the running turn
+ * from its prompt, over the rows this client already applied. A call the client
+ * already holds is the same call: it must stay one card, not become a finished
+ * copy above a running one. (History itself never holds the running turn:
+ * docs/plans/running-turn-open.md.)
  */
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state

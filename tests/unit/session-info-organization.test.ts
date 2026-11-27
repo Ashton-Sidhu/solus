@@ -81,7 +81,7 @@ test('a restarted host joins a watch only for a current settled page and the req
     const server = new serverModule.SolusServer()
     historyHandlers.registerHistoryHandlers(server, {
       // This fixture supplies the provider page and the host's active-session lookup.
-      sessionRuntime: { activeSessions, activeRunRequests: new Set(), launcher: { pendingSetupControllers: new Set() }, history: { loadSessionPage: async () => source, describeSession: async () => ({ lineage: null, meta: null }) } } as never as SessionRuntime,
+      sessionRuntime: { hasRun: (sessionId: string) => activeSessions.has(sessionId), runningTurnStartedAt: () => undefined, history: { loadSessionPage: async () => source, describeSession: async () => ({ lineage: null, meta: null }) } } as never as SessionRuntime,
       events: {} as HostEventPublisher,
       agentIdFromContext: () => 'codex',
       exchangeProgress: () => undefined,
@@ -103,13 +103,14 @@ test('a restarted host joins a watch only for a current settled page and the req
   expect(await restarted.handle('loadSessionPage', [resume], ctx)).toMatchObject({ messages: [], resumedWatch: { runtime: null } })
   activeSessions.add(request.sessionId)
   expect((await restarted.handle('loadSessionPage', [resume], ctx)).resumedWatch).toBeUndefined()
+  // An open joins a running session's watch too: the page leaves out the turn it replays.
   const running = await restarted.handle('loadSessionPage', [cold], ctx)
   expect(running.openingDescription).toEqual({ meta: null, lineage: null })
-  expect(running.resumedWatch).toBeUndefined()
+  expect(running.resumedWatch).toEqual({ runtime: null })
   activeSessions.clear()
   source.messages[0]!.content = 'edited reply'
   const changed = await restarted.handle('loadSessionPage', [resume], ctx)
   expect(changed.messages[0]?.content).toBe('edited reply')
   expect(changed.resumedWatch).toBeUndefined()
-  expect(watch).toHaveBeenCalledTimes(2)
+  expect(watch).toHaveBeenCalledTimes(3)
 })

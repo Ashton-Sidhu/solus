@@ -214,31 +214,36 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  /** A run holds the session: its provider turn, its request, or its setup. */
-  const hasRun = (sessionId: string) => sessionRuntime.activeSessions.has(sessionId) || sessionRuntime.activeRunRequests.has(sessionId) ||
-    sessionRuntime.launcher.pendingSetupControllers.has(sessionId)
   /**
-   * Opening a session describes and watches it while its page is read; the
-   * answer adds both to the page. The watch joins before the read ends, so an
-   * event after the read reaches this client live, as on desktop, which watches
-   * beside its transcript read. A run that is active now is joined by the
-   * client's own watch, which replays it.
+   * Opening a session describes it, watches it, and reads its page in one
+   * answer. The watch joins first and replays the running turn from its prompt;
+   * the page is read after it and leaves out that same turn. The client applies
+   * the page, then the events, and has every row once
+   * (docs/plans/running-turn-open.md).
    */
   const openSessionBesidePage = (request: OpeningRequest, mirrored: boolean, handlerCtx: HandlerCtx) => {
     if (!request.openSession || request.before || request.throughEntryId || mirrored) return null
     const { sessionId } = request
     const description = server.handle('describeSession', [sessionId], handlerCtx)
-    const watch = hasRun(sessionId) ? null : server.handle('watchSession', [{ sessionId, attachRuntime: true }], handlerCtx)
+    const watchedAt = Date.now()
+    const watch = server.handle('watchSession', [{ sessionId, attachRuntime: true }], handlerCtx)
     // A failed page read leaves these unread; `abandon` removes the watch.
     void description.catch(() => {})
-    void watch?.catch(() => {})
+    void watch.catch(() => {})
     return {
+      /** The turn the page leaves out, null for none: the one the watch replayed, or one that started after it, which reached the client live. */
+      runningTurnStartedAt: async (): Promise<number | null> => {
+        const watched = await watch
+        if (watched.runningTurnStartedAt !== undefined) return watched.runningTurnStartedAt
+        const startedAt = sessionRuntime.runningTurnStartedAt(sessionId)
+        return startedAt !== undefined && startedAt >= watchedAt ? startedAt : null
+      },
       complete: async (page: SessionHistoryPage): Promise<SessionHistoryPage> => {
         const [openingDescription, resumedWatch] = await Promise.all([description, watch])
-        return resumedWatch ? { ...page, openingDescription, resumedWatch } : { ...page, openingDescription }
+        return { ...page, openingDescription, resumedWatch }
       },
       abandon: async (): Promise<void> => {
-        if (!watch || !await watch.then(() => true, () => false)) return
+        if (!await watch.then(() => true, () => false)) return
         await server.handle('unwatchSession', [sessionId], handlerCtx).catch(() => {})
       },
     }
@@ -251,7 +256,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   ): Promise<SessionHistoryPage> => {
     if (request.before || request.throughEntryId || mirrored || request.openSession) return page
     if (!request.watchIfHistoryRevision || request.watchIfHistoryRevision !== page.historyRevision || page.messages.length) return page
-    if (hasRun(request.sessionId)) return page
+    if (sessionRuntime.hasRun(request.sessionId)) return page
     const resumedWatch = await server.handle('watchSession', [{ sessionId: request.sessionId, attachRuntime: true }], handlerCtx)
     return { ...page, resumedWatch }
   }
@@ -275,15 +280,22 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const mirrored = isApiMode()
     const opening = openSessionBesidePage(request, mirrored, handlerCtx)
     const resumeWatch = (page: SessionHistoryPage) => opening ? opening.complete(page) : watchIfCurrent(request, mirrored, page, handlerCtx)
+    // An open's page leaves out the turn its watch replays; any other read, the turn running when it reads.
+    const turnLeftOut = opening ? opening.runningTurnStartedAt() : Promise.resolve(undefined)
+    void turnLeftOut.catch(() => {})
     const readPage = async (): Promise<SessionHistoryPage> => {
       const profileStartedAt = performance.now()
       const cursor = readActivityPageCursor(request.before)
       const readProfile: HistoryReadProfile = { lineageMs: 0, providerMs: 0, sendersMs: 0 }
+      let runningTurnStartedAt: number | undefined
       const source = await readHistoryThroughEntry(async before => {
         if (mirrored) return readTranscriptPage(recordScopeOf(handlerCtx.principal), request.sessionId, request.turnLimit, before)
-        return await forkHistory(handlerCtx, request.sessionId, request.turnLimit, before)
-          ?? sessionRuntime.history.loadSessionPage({ ...request, before }, readProfile)
+        const page = await forkHistory(handlerCtx, request.sessionId, request.turnLimit, before)
+          ?? await sessionRuntime.history.loadSessionPage({ ...request, before }, readProfile, await turnLeftOut)
+        runningTurnStartedAt ??= page.runningTurnStartedAt
+        return page
       }, cursor.before, request.throughEntryId)
+      const withRunningTurn = (page: SessionHistoryPage): SessionHistoryPage => runningTurnStartedAt === undefined ? page : { ...page, runningTurnStartedAt }
       const historyReadyAt = performance.now()
       const activity = await sessionActivityOf(handlerCtx, request.sessionId, pageWindow(source, cursor.at))
       const activityReadAt = performance.now()
@@ -295,7 +307,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
         const resumed = manifests.resume(key, request.knownHistoryBlocks)
         if (resumed) {
           recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: 0 })
-          return resumeWatch(resumed)
+          return resumeWatch(withRunningTurn(resumed))
         }
       }
       const blocksCheckedAt = performance.now()
@@ -335,7 +347,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
         sizeMeasurementMs: performance.now() - preparedAt,
         durationMs: preparedAt - profileStartedAt,
       })
-      return resumeWatch(result)
+      return resumeWatch(withRunningTurn(result))
     }
     try {
       return await readPage()

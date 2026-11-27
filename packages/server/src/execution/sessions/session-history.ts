@@ -33,6 +33,27 @@ function historySegments(lineage: SessionLineageResolution | null, provider: Age
   })
 }
 
+/**
+ * The rows of a newest page before the running turn: the trailing turns that
+ * started at or after its prompt are its own, written by a provider that keeps
+ * its history as it goes (Claude, Codex). A provider that writes at the end
+ * (ACP) has none of them. Codex dates every row of a turn by the turn's start in
+ * whole seconds, so the bound is the second the prompt was recorded. A row dated
+ * after the read began has no date of its own (Codex gives such a row the time
+ * it was read) and is not taken for the running turn.
+ */
+export function settledHistory(messages: SessionLoadMessage[], runningTurnStartedAt: number, readAt: number): SessionLoadMessage[] {
+  const from = Math.floor(runningTurnStartedAt / 1000) * 1000
+  let cut = messages.length
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (!startsHistoryTurn(message)) continue
+    if (message.timestamp < from || message.timestamp > readAt) break
+    cut = index
+  }
+  return cut === messages.length ? messages : messages.slice(0, cut)
+}
+
 /** Milliseconds a history read spent in each step, summed over the pages it read. */
 export interface HistoryReadProfile {
   lineageMs: number
@@ -87,9 +108,16 @@ export class SessionHistory {
     )
   }
 
-  /** One page of a session's history. A `profile` adds the time of each step to its fields. */
-  async loadSessionPage(request: SessionHistoryPageRequest, profile?: HistoryReadProfile): Promise<ProviderHistoryPage> {
+  /**
+   * One page of a session's history, of settled turns only: the newest page
+   * leaves out the running turn, which the turn log replays
+   * (docs/plans/running-turn-open.md). `runningTurnStartedAt` names the turn
+   * that the caller's watch replays, null for none; without it, the page leaves
+   * out the turn running now. A `profile` adds the time of each step to its fields.
+   */
+  async loadSessionPage(request: SessionHistoryPageRequest, profile?: HistoryReadProfile, runningTurnStartedAt: number | null | undefined = this.rt.runningTurnStartedAt(request.sessionId)): Promise<ProviderHistoryPage> {
     const { provider, sessionId, projectPath } = request
+    const readAt = Date.now()
     const startedAt = performance.now()
     const lineage = resolveSessionLineageById(sessionId)
     const segments = historySegments(lineage, provider, sessionId, projectPath)
@@ -110,8 +138,10 @@ export class SessionHistory {
         }
       },
     )
-    const starting = request.before ? null : this.startingPrompt(sessionId, page.messages)
-    if (starting) page.messages.push(starting)
+    if (!request.before && runningTurnStartedAt != null) {
+      page.messages = settledHistory(page.messages, runningTurnStartedAt, readAt)
+      page.runningTurnStartedAt = runningTurnStartedAt
+    }
     const providerAt = performance.now()
     // The session's id, not a lineage member's, names its records.
     await withPromptSenders(ANY_ORGANIZATION, lineage?.sessionId ?? sessionId, page.messages)
@@ -177,24 +207,6 @@ export class SessionHistory {
       })
       return []
     }
-  }
-
-  /**
-   * The prompt of a run the provider has not started yet. Its echo went to the
-   * clients watching when the run launched, and the provider has not written it
-   * to disk, so a client that opens the session now finds it nowhere else.
-   */
-  private startingPrompt(sessionId: string, messages: SessionLoadMessage[]): SessionLoadMessage | null {
-    const run = this.rt.activeRunRequests.get(sessionId)
-    if (!run || this.rt.activeSessions.has(sessionId)) return null
-    const text = run.options.displayPrompt ?? run.options.prompt
-    const lastPrompt = messages.findLast(startsHistoryTurn)
-    if (lastPrompt?.content.trim() === text.trim()) return null
-    const prompt: SessionLoadMessage = { role: 'user', content: text, timestamp: Date.now() }
-    if (run.options.sender) prompt.sender = run.options.sender
-    if (run.options.imageAttachmentRefs?.length) prompt.imageAttachmentRefs = run.options.imageAttachmentRefs
-    else if (run.options.imageAttachments?.length) prompt.imageAttachments = run.options.imageAttachments
-    return prompt
   }
 
   private async readProviderPage(segment: HistorySegment, turnLimit: number, before?: string, cachePage?: boolean): Promise<ProviderHistoryPage> {

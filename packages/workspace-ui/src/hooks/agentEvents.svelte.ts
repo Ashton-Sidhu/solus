@@ -18,13 +18,13 @@ export function bindAgentEventSubscriptions(session: WorkspaceContext): () => vo
     return !!sessionServerId && serverConnections.resolveId(sessionServerId) === serverId
   }
 
-  const unsubEvent = subscribeAllHosts('session.eventReceived', (serverId, { sessionId, event }) => {
+  const unsubEvent = subscribeAllHosts('session.eventReceived', (serverId, { sessionId, event, cursor }) => {
     if (!isOwnHost(serverId, sessionId)) return
     const opened = session.sessions.byId[sessionId]
     // A sync card speaks in the hosts' and agent's names, as every reader shows it.
     session.eventReducer.apply(sessionId, event.type === 'status_card' && opened
       ? { ...event, card: presentedStatusCard(opened, event.card) }
-      : event)
+      : event, cursor)
     // The run host has this session's newest turn now (portable-sessions §9),
     // and a sync that ends there makes it current.
     if (event.type === 'turn_settled') sessionListStore.noteTurnSettled(serverId, sessionId)

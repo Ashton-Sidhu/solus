@@ -87,6 +87,8 @@ describe('native thread records feed', () => {
     expect(controller.mcpTasks.list).toEqual([task('working', 2)])
     hostTask = task('completed', 3)
     await transport.accept(false)
+    // The reload is one opening read, then the list: let it finish.
+    for (let step = 0; step < 10 && api.callsOf('mcpTaskList').length < 2; step++) await flushPromises()
     await flushPromises()
     expect(controller.mcpTasks.list).toEqual([task('completed', 3)])
     controller.close()

@@ -113,6 +113,7 @@ function historyOver(reader: Reader) {
   const runtime = {
     activeRunRequests: new Map(),
     activeSessions: new Map(),
+    runningTurnStartedAt: () => undefined,
     handoffs: { handoffCarry: new HandoffCarryStore() },
     backendFor: (_provider: AgentId) => ({
       loadSessionPage: (threadId: string, _projectPath: string | undefined, turnLimit: number, before?: string) => providerPage(reader, threadId, turnLimit, before),

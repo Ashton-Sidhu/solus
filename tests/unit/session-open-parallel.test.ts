@@ -9,9 +9,11 @@ import type { HostEventPublisher } from '@solus/server/transport/events/host-eve
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
-// docs/plans/session-open-latency.md: an opening read describes and watches the
-// session while its page is read, so the open costs the slowest step, not the
-// sum. The watch keeps its rules: none for a session with a run.
+// docs/plans/session-open-latency.md: an opening read describes the session
+// while its page is read, so the open costs the slowest step, not the sum.
+// docs/plans/running-turn-open.md: the watch joins first and the page is read
+// after it, leaving out the turn the watch replays, so a running session opens
+// with each row once.
 
 type Principal = import('@solus/server/admission/principal').Principal
 
@@ -44,15 +46,19 @@ function hostWithSlowPage() {
   let releasePage!: (page: ProviderHistoryPage) => void
   let failPage!: (error: Error) => void
   const unwatched: string[] = []
+  const pageTurns: Array<number | null | undefined> = []
   const activeRunRequests = new Map<string, unknown>()
+  let replayedTurn: number | undefined
   const server = new serverModule.SolusServer()
   historyHandlers.registerHistoryHandlers(server, {
     // The fixture supplies the page read, the description, and the run lookups the open checks.
     sessionRuntime: {
-      activeSessions: new Map(), activeRunRequests, launcher: { pendingSetupControllers: new Map() },
+      hasRun: (sessionId: string) => activeRunRequests.has(sessionId),
+      runningTurnStartedAt: () => undefined,
       history: {
-        loadSessionPage: () => {
+        loadSessionPage: (_request: unknown, _profile: unknown, runningTurnStartedAt?: number | null) => {
           started.push('page')
+          pageTurns.push(runningTurnStartedAt)
           return new Promise<ProviderHistoryPage>((resolve, reject) => { releasePage = resolve; failPage = reject })
         },
         describeSession: async () => {
@@ -69,7 +75,7 @@ function hostWithSlowPage() {
     expect(caller.clientId).toBe(ctx.clientId)
     expect(input).toEqual({ sessionId: 'resting', attachRuntime: true })
     started.push('watch')
-    return { runtime: null }
+    return replayedTurn === undefined ? { runtime: null } : { runtime: null, runningTurnStartedAt: replayedTurn }
   })
   server.register('unwatchSession', ([sessionId], caller) => {
     expect(caller.clientId).toBe(ctx.clientId)
@@ -80,13 +86,16 @@ function hostWithSlowPage() {
     for (let tick = 0; tick < 20; tick++) await new Promise((resolve) => setImmediate(resolve))
     return [...started].sort()
   }
-  return { server, started, unwatched, steps, activeRunRequests, release: (page: ProviderHistoryPage) => releasePage(page), fail: (error: Error) => failPage(error) }
+  return { server, started, unwatched, pageTurns, steps, activeRunRequests, replays: (startedAt: number) => { replayedTurn = startedAt }, release: (page: ProviderHistoryPage) => releasePage(page), fail: (error: Error) => failPage(error) }
 }
 
-test('an opening read describes and watches the session while its page is read', async () => {
+test('an opening read describes the session while its page is read, and watches it first', async () => {
   const host = hostWithSlowPage()
   const opened = host.server.handle('loadSessionPage', [opening], ctx)
   expect(await host.steps()).toEqual(['describe', 'page', 'watch'])
+  expect(host.started.indexOf('watch')).toBeLessThan(host.started.indexOf('page'))
+  // No turn was replayed: the page leaves nothing out.
+  expect(host.pageTurns).toEqual([null])
   host.release({ messages: [{ role: 'user', content: 'hello', timestamp: 1 }], before: null })
   expect(await opened).toMatchObject({
     messages: [{ role: 'user', content: 'hello' }],
@@ -95,15 +104,18 @@ test('an opening read describes and watches the session while its page is read',
   })
 })
 
-test('an opening read of a session with a run describes it and leaves the watch to the client', async () => {
+test('an opening read of a running session leaves out the very turn its watch replayed', async () => {
   const host = hostWithSlowPage()
   host.activeRunRequests.set('resting', {})
+  host.replays(1_000)
   const opened = host.server.handle('loadSessionPage', [opening], ctx)
-  expect(await host.steps()).toEqual(['describe', 'page'])
-  host.release({ messages: [], before: null })
+  expect(await host.steps()).toEqual(['describe', 'page', 'watch'])
+  expect(host.pageTurns).toEqual([1_000])
+  host.release({ messages: [], before: null, runningTurnStartedAt: 1_000 })
   const page = await opened
   expect(page.openingDescription).toEqual({ lineage: null, meta: null })
-  expect(page.resumedWatch).toBeUndefined()
+  expect(page.resumedWatch).toEqual({ runtime: null, runningTurnStartedAt: 1_000 })
+  expect(page.runningTurnStartedAt).toBe(1_000)
 })
 
 test('a jump of an opening read to an entry neither describes nor watches', async () => {

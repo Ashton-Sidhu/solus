@@ -105,11 +105,16 @@ export interface SessionHistoryPage {
   before: string | null
   /** The turn diffs of the turns on this page. Only a page that the Solus API reads from the mirror has them. */
   turnDiffs?: SessionTurnDiffRef[]
+  /** The running turn this page leaves out, by the time its prompt was recorded: the watch replays it
+   *  (docs/plans/running-turn-open.md). A watch that names another turn needs the page again. */
+  runningTurnStartedAt?: number
 }
 
 export interface ProviderHistoryPage {
   messages: SessionLoadMessage[]
   before: string | null
+  /** The running turn the page leaves out (`SessionHistoryPage.runningTurnStartedAt`). */
+  runningTurnStartedAt?: number
 }
 
 export interface SessionLoadMessage {

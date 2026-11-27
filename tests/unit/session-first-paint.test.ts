@@ -26,7 +26,7 @@ test('messages display while git identity and task binding are still pending', a
     apiFor: () => ({ gitIdentity: () => identity, sessionFolders: async () => [] }),
     ctxFor: () => ({}), runFor: () => first.run,
     issuesStore: { ensureSessionBinding: () => new Promise(() => {}) },
-    eventReducer: { rebuildAgentConversations() {} },
+    eventReducer: { rebuildAgentConversations() {}, holdEvents() {}, releaseEvents() {}, dropHeldEvents() {} },
     environment: {
       async registerEnvironment() { registered = true },
       async refreshEnvironment() { return null },
@@ -41,7 +41,8 @@ test('messages display while git identity and task binding are still pending', a
       resumedSessionId = 'session', provider = 'codex', meta = {}, background = false, intoTabId = undefined;
     const runtimeAttach = Promise.resolve(null), INITIAL_HISTORY_TURNS = 10, firstPage = { projectPath: '/repo' };
     const isSolusWorktreePath = () => false, isTaskFolderPath = () => false, gitCheckoutFromState = () => null;
-    const isGuessed = false, requestSessionHistoryPage = () => Promise.resolve(null);
+    const isGuessed = false, requestSessionHistoryPage = () => Promise.resolve({ messages: [], before: null });
+    const watchedTurn = undefined, fitTranscriptToWatch = async () => {};
     const measureOpenStep = () => {}, openedAt = 0;
     const loadSessionTranscript = async () => transcript;
     const requestConversationScrollToBottom = () => {}, track = () => {};

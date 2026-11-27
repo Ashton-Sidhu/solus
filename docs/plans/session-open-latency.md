@@ -83,14 +83,14 @@ step (up to 500 ms).
 
 ## Opening a session
 
-With `openSession`, the host now starts the page read, `describeSession`, and
-`watchSession` at the same time. The open costs the slowest step, not the sum.
+With `openSession`, the host starts `describeSession` and `watchSession` at
+the same time, and reads the page as soon as the watch has joined. The open
+costs the slowest step, not the sum.
 
-- No watch starts for a session with a run (its turn, its request, or its
-  setup). The client's own watch joins that run and replays it.
-- The watch joins before the page read ends. An event after the read reaches
-  the client live. This is the order that desktop already uses: it watches
-  beside its transcript read.
+- Every open watches, a session with a run too. The watch joins first and
+  replays the running turn; the page is read after it and leaves out that same
+  turn (`running-turn-open.md`). An event after the watch reaches the client
+  live.
 - An older page or a jump to an entry does not describe or watch.
 - `watchIfHistoryRevision` still waits for the page, because it compares the
   page revision.

@@ -77,6 +77,7 @@ function hostOf(person: keyof typeof homes) {
   const backend = new ClaudeBackend()
   const runtime = {
     activeSessions: new Map(), activeRunRequests: new Map(), launcher: { pendingSetupControllers: new Map() },
+    runningTurnStartedAt: () => undefined,
     backendFor: () => backend,
   } as unknown as SessionRuntime
   const history = new SessionHistory(runtime)

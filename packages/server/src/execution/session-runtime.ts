@@ -62,6 +62,11 @@ const log = createLogger('SessionRuntime', 'session-runtime.ts')
  *  bound keeps one runaway session from growing the process without limit. */
 const TURN_LOG_MAX_EVENTS = 2000
 
+/** The prompt that starts a turn; a steer joins the turn already running. */
+function isTurnPrompt(event: NormalizedEvent): boolean {
+  return event.type === 'user_message' && event.delivery !== 'steer'
+}
+
 /** The hooks the session orchestrator takes run facts through. */
 type OrchestrationHooks = Pick<SessionOrchestrator,
   | 'runQueued' | 'runStarted' | 'runRateLimited' | 'runSettled' | 'runCancelled' | 'sessionStarted'
@@ -178,16 +183,41 @@ export class SessionRuntime extends EventEmitter {
     return this.activeRunRequests.get(sessionId)?.actor ?? this.sessionActors.get(sessionId)
   }
   /**
-   * Every event the in-flight turn has broadcast, in order, per session. Replayed
-   * by bindRuntimeSession so a client that opens a running session mid-turn is
-   * level with the clients that were already watching — the same tool calls, not
-   * just the text. Durable transcripts on disk never contain an unsettled turn, so
-   * this is the only place that history exists. Cleared when the turn settles.
+   * Every event the in-flight turn has broadcast, in order, per session, from
+   * its prompt on. Replayed by the watch so a client that opens a running
+   * session mid-turn is level with the clients that were already watching — the
+   * same prompt and tool calls, not just the text. This is the one source of the
+   * running turn: a provider's own history may hold some of its rows already
+   * (Claude, Codex) or none (ACP), so a history read leaves the turn out
+   * (`runningTurnStartedAt`, docs/plans/running-turn-open.md). Cleared when the
+   * turn settles.
    */
   turnLog = new Map<string, NormalizedEvent[]>()
   private readonly turnEpochs = new WeakMap<NormalizedEvent[], string>()
   private readonly eventCursors = new WeakMap<NormalizedEvent, string>()
+  /** When each prompt in a turn log was recorded. */
+  private readonly promptTimes = new WeakMap<NormalizedEvent, number>()
   private nextEvent = 0
+
+  /** A run holds the session: its provider turn, its request, or its setup. */
+  hasRun(sessionId: string): boolean {
+    return this.activeSessions.has(sessionId) || this.activeRunRequests.has(sessionId) || this.launcher.pendingSetupControllers.has(sessionId)
+  }
+
+  /** When the prompt of the session's running turn was recorded; undefined while
+   *  no run holds the session or its prompt is not in the turn log yet. A history
+   *  read leaves out the rows from then on: the turn log replays them. */
+  runningTurnStartedAt(sessionId: string): number | undefined {
+    if (!this.hasRun(sessionId)) return undefined
+    const prompt = this.turnLog.get(sessionId)?.findLast(isTurnPrompt)
+    return prompt && this.promptTimes.get(prompt)
+  }
+
+  /** When the newest prompt among replayed events was recorded. */
+  promptTimeIn(events: readonly NormalizedEvent[]): number | undefined {
+    const prompt = events.findLast(isTurnPrompt)
+    return prompt && this.promptTimes.get(prompt)
+  }
 
   eventCursor(event: NormalizedEvent): string | undefined {
     return this.eventCursors.get(event)
@@ -917,11 +947,13 @@ export class SessionRuntime extends EventEmitter {
     if (!to) {
       for (const chunk of this.responseText.beforeEvent(sessionId, event)) this.publish(sessionId, chunk)
     }
-    // A targeted emit is a replay or an echo to one client; logging it would
-    // duplicate it for the next joiner. Only the broadcast stream is the turn.
+    // An emit to one client is a replay or a private echo; logging it would
+    // duplicate it for the next joiner. Everything else is the turn — a prompt
+    // that skips its sender's optimistic bubble included.
     // Progress is live only (docs/plans/mcp-first-class.md §5): a client that joins sees the call running, with no old number.
-    if (!to && event.type !== 'tool_progress') this._recordTurnEvent(sessionId, event)
-    if (to && (!to.only || (event.type === 'user_message' && !this.eventCursors.has(event)))) {
+    if (!to?.only && event.type !== 'tool_progress') this._recordTurnEvent(sessionId, event)
+    // The client a prompt skipped holds its own copy: a resume would replay it a second time.
+    if (to?.except || (to?.only && event.type === 'user_message' && !this.eventCursors.has(event))) {
       const log = this.turnLog.get(sessionId)
       if (log) this.turnEpochs.delete(log)
     }
@@ -939,12 +971,20 @@ export class SessionRuntime extends EventEmitter {
     let epoch = this.turnEpochs.get(turnEvents)
     if (!epoch) this.turnEpochs.set(turnEvents, epoch = crypto.randomUUID())
     this.eventCursors.set(event, epoch + '.' + ++this.nextEvent)
+    if (isTurnPrompt(event)) this.promptTimes.set(event, Date.now())
     turnEvents.push(event)
     if (turnEvents.length > TURN_LOG_MAX_EVENTS) {
       // Drop the oldest rather than the newest: a joiner seeing the turn's tail is
       // closer to level than one seeing its head. Never silently — a turn this long
-      // means a mid-turn joiner gets an incomplete picture.
+      // means a mid-turn joiner gets an incomplete picture. The prompt stays: the
+      // history leaves the turn out, so the log is the prompt's only copy.
+      const prompt = turnEvents.findLast(isTurnPrompt)
       const dropped = turnEvents.splice(0, turnEvents.length - TURN_LOG_MAX_EVENTS)
+      if (prompt && dropped.includes(prompt)) {
+        turnEvents.unshift(prompt)
+        // The kept prompt is no exact prefix any more: a resume after it would skip the gap.
+        this.turnEpochs.delete(turnEvents)
+      }
       log.warn('turn_log_truncated', { sessionId, dropped: dropped.length, kept: turnEvents.length })
     }
   }
