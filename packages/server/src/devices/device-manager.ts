@@ -296,12 +296,15 @@ export class DeviceManager {
   private async refreshHost(ready: DeviceReadiness): Promise<DeviceSummary[]> {
     const entry = this.hosts.get(ready.deviceHostId)
     if (ready.devices) return this.refreshCloudHost(ready, entry)
-    const iosAvailable = !!entry && (await entry.host.platformAvailability('ios')).available
-    const androidAvailable = !!entry && (await entry.host.platformAvailability('android')).available
+    if (!entry) return this.devices
+    const iosAvailable = (await entry.host.platformAvailability('ios')).available
+    const androidAvailable = (await entry.host.platformAvailability('android')).available
+    const androidEmulatorsAvailable = androidAvailable && entry.host.androidEmulatorsAvailable?.() !== false
     const unavailable: DevicePlatform[] = []
     if (!iosAvailable) unavailable.push('ios')
-    if (!androidAvailable) unavailable.push('android')
-    const { devices, detail } = await this.hub.listDevices(ready.hubOrigin, ready.deviceHostId, unavailable)
+    if (!androidEmulatorsAvailable) unavailable.push('android')
+    const { devices: hubDevices, detail } = await this.hub.listDevices(ready.hubOrigin, ready.deviceHostId, unavailable)
+    const devices = androidEmulatorsAvailable ? hubDevices : hubDevices.filter((device) => device.platform !== 'android')
     // The hub lists only simulators that have booted before; a fresh install
     // would show none. Every available simulator is added, stopped.
     if (iosAvailable) {
@@ -312,27 +315,31 @@ export class DeviceManager {
         }
       }
     }
-    if (androidAvailable) {
-      const avds = await ready.run('emulator', ['-list-avds'], { timeoutMs: 15_000 })
-      if (avds.code === 0) {
-        for (const name of avds.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 100)) {
-          if (!devices.some((device) => device.platform === 'android' && device.name === name)) {
-            devices.push({ deviceHostId: ready.deviceHostId, deviceId: name, name, platform: 'android', version: 'Android', booted: false, physical: false })
-          }
-        }
-      }
-    }
+    if (androidEmulatorsAvailable) await this.addUnbootedAndroidDevices(ready, devices)
     // Connected phones replace any hub entry for them: only Solus reads why one cannot take an install.
-    const physical = await discoverPhysicalDevices(ready.run, ready.deviceHostId, { ios: iosAvailable, android: androidAvailable })
+    const { devices: physical, androidDiscoveryFailed } = await discoverPhysicalDevices(
+      ready.run, ready.deviceHostId, { ios: iosAvailable, android: androidAvailable },
+    )
     for (let index = devices.length - 1; index >= 0; index--) {
       if (devices[index]!.physical || physical.some((device) => device.deviceId === devices[index]!.deviceId)) devices.splice(index, 1)
     }
     devices.push(...physical)
-    if (!this.settings().enabled || !entry || this.hosts.get(ready.deviceHostId) !== entry) return this.devices
+    if (!this.settings().enabled || this.hosts.get(ready.deviceHostId) !== entry) return this.devices
     this.devices = [...this.devices.filter((device) => device.deviceHostId !== ready.deviceHostId), ...devices]
-    this.hostStatuses.set(ready.deviceHostId, statusEntry(ready.deviceHostId, 'ready', detail))
+    const discoveryDetail = [detail, androidDiscoveryFailed ? 'Could not list connected Android devices with adb.' : undefined].filter(Boolean).join('\n')
+    this.hostStatuses.set(ready.deviceHostId, statusEntry(ready.deviceHostId, 'ready', discoveryDetail || undefined))
     this.publish()
     return this.devices
+  }
+
+  private async addUnbootedAndroidDevices(ready: DeviceReadiness, devices: DeviceSummary[]): Promise<void> {
+    const avds = await ready.run('emulator', ['-list-avds'], { timeoutMs: 15_000 })
+    if (avds.code !== 0) return
+    for (const name of avds.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 100)) {
+      if (!devices.some((device) => device.platform === 'android' && device.name === name)) {
+        devices.push({ deviceHostId: ready.deviceHostId, deviceId: name, name, platform: 'android', version: 'Android', booted: false, physical: false })
+      }
+    }
   }
 
   /** Discover devices on every host. Starts helpers only once setup has enabled them. */
@@ -344,7 +351,7 @@ export class DeviceManager {
         const summary = await entry.host.summary()
         if (this.hosts.get(deviceHostId) === entry) this.hostSummaries.set(deviceHostId, summary)
         if (summary.kind === 'local' && !summary.platforms.some((platform) => platform.available)) {
-          this.setHostStatus(deviceHostId, 'idle', 'No simulator platform is available on this host.')
+          this.setHostStatus(deviceHostId, 'idle', 'No device platform is available on this host.')
           return
         }
         await this.refreshHost(await this.readiness(deviceHostId))
@@ -555,6 +562,7 @@ export class DeviceManager {
     this.control.authorize(target, holder)
     const { ready, device } = await this.resolveDevice(target.deviceHostId, target.deviceId)
     if (device.physical || device.booted) return device
+    if (device.platform === 'android' && !ready.devices) await this.requireAndroidEmulators(target.deviceHostId)
     const result = ready.devices ? { ok: true as const, deviceId: await ready.devices.boot(device) } : await this.hub.boot(ready.hubOrigin, device)
     if (!result.ok) throw new DeviceDomainError('boot_failed', `${device.name} did not start (${result.reason}).`)
     await this.refreshHost(ready)
@@ -659,6 +667,7 @@ export class DeviceManager {
   /** Power a device off. Every session's preview of it ends. */
   async shutdown(target: { deviceHostId: string; deviceId: string; platform: DevicePlatform }): Promise<void> {
     const ready = await this.readiness(target.deviceHostId)
+    if (target.platform === 'android' && !ready.devices) await this.requireAndroidEmulators(target.deviceHostId)
     let accepted = false
     try {
       if (ready.devices) { await ready.devices.shutdown(target.deviceId); accepted = true }
@@ -679,6 +688,14 @@ export class DeviceManager {
     this.control.forget(sameDevice)
     this.publish()
     await this.refreshHost(ready).catch((error) => log.warn('device_refresh_after_shutdown_failed', { error: deviceErrorDetail(error) }))
+  }
+
+  private async requireAndroidEmulators(deviceHostId: string): Promise<void> {
+    const host = this.entry(deviceHostId).host
+    const android = await host.platformAvailability('android')
+    if (!android.available || host.androidEmulatorsAvailable?.() === false) {
+      throw new DeviceDomainError('platform_unavailable', android.reason ?? 'Android emulators need Android Emulator and Android SDK Command-line Tools on the device host.')
+    }
   }
 
   async screenshot(deviceHostId: string, deviceId: string): Promise<DeviceScreenshotResult & { png: Uint8Array }> {

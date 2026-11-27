@@ -1,11 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { AGENT_DEVICE_VERSION, DEVICE_HUB_VERSION } from '@solus/contracts/device-types'
 import { LocalDeviceHost } from '@solus/server/devices/local-device-host'
+import { DeviceBuildStore } from '@solus/server/devices/device-builds'
+import { DeviceHubClient } from '@solus/server/devices/device-hub-client'
+import { DeviceManager } from '@solus/server/devices/device-manager'
+import { DeviceSettingsStore } from '@solus/server/devices/device-settings-store'
 import { DeviceToolchain } from '@solus/server/devices/device-toolchain'
-import { androidUnavailableReason, findAndroidSdk, iosUnavailableReason } from '@solus/server/devices/device-platform-probe'
+import { findAndroidSdk, iosUnavailableReason, probePlatform } from '@solus/server/devices/device-platform-probe'
 import type { DeviceCommandRunner } from '@solus/server/devices/device-process'
 import type { HelperProcess } from '@solus/server/devices/device-helpers'
 
@@ -65,17 +69,106 @@ describe('platform probes', () => {
     expect(await iosUnavailableReason({ env: {}, hostPlatform: 'linux', run: nodeRun })).toContain('macOS')
   })
 
-  test('the Android SDK is found from ANDROID_HOME and each missing tool is named', () => {
+  test('Android tools in ANDROID_HOME can be checked separately', () => {
     // The probe joins with the host's separator; the tool names follow hostPlatform.
     const present = new Set([join('/sdk', 'platform-tools', 'adb'), join('/sdk', 'emulator', 'emulator')])
     const sdk = findAndroidSdk({ env: { ANDROID_HOME: '/sdk' }, hostPlatform: 'darwin', exists: (path) => present.has(path) })
-    expect(sdk.root).toBe('/sdk')
-    expect(androidUnavailableReason(sdk)).toContain('Command-line Tools (latest)')
-    expect(androidUnavailableReason({ ...sdk, root: null })).toContain('ANDROID_HOME')
+    expect(sdk).toEqual({ root: '/sdk', adb: true, emulator: true, avdmanager: false })
+  })
+
+  test('standalone adb on PATH can provide Android support', async () => {
+    const deps = { env: {}, hostPlatform: 'linux' as const, exists: () => false }
+    const run: DeviceCommandRunner = async (command, args) => ({
+      code: command === 'adb' && args[0] === 'version' ? 0 : 1, stdout: '', stderr: '',
+    })
+    expect(await probePlatform('android', { ...deps, run })).toEqual({ platform: 'android', available: true })
+    expect(await probePlatform('android', {
+      ...deps, run: async () => ({ code: 127, stdout: '', stderr: '' }),
+    })).toMatchObject({ available: false, reason: expect.stringContaining('Platform-Tools') })
   })
 })
 
 describe('local device host', () => {
+  test('Platform-Tools alone discover a USB phone and install an APK by serial', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'solus-local-host-'))
+    const sdk = join(dir, 'sdk')
+    mkdirSync(join(sdk, 'platform-tools'), { recursive: true })
+    writeFileSync(join(sdk, 'platform-tools', 'adb'), '')
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ enabled: true }))
+    const apk = join(dir, 'app.apk')
+    writeFileSync(apk, 'APK fixture')
+    const commands: string[][] = []
+    let adbFails = false
+    const run: DeviceCommandRunner = async (command, args, options) => {
+      commands.push([command, ...args])
+      if (command === 'adb') expect(options?.env?.PATH?.split(delimiter)[0]).toBe(join(sdk, 'platform-tools'))
+      if (command === 'adb' && args[0] === 'devices') {
+        if (adbFails) return { code: 1, stdout: '', stderr: 'adb server failed' }
+        return { code: 0, stdout: 'List of devices attached\nUSB123 device usb:1-1 model:Pixel_9\nLOCKED unauthorized usb:1-2\nemulator-5554 device\n', stderr: '' }
+      }
+      return nodeRun(command, args)
+    }
+    const host = new LocalDeviceHost({
+      stateDir: join(dir, 'state'),
+      toolchain: installedToolchain(dir),
+      run,
+      spawn: () => fakeProcess(4242),
+      env: { ANDROID_HOME: sdk, PATH: '' },
+      hostPlatform: 'linux',
+      resolveNode: async () => ({ nodePath: '/fake/node' }),
+      fetch: async () => new Response('ok'),
+      reservePort: async () => 45123,
+    })
+    const hubRequests: string[] = []
+    const manager = new DeviceManager({
+      settings: new DeviceSettingsStore(join(dir, 'settings.json')),
+      localHost: host,
+      hub: new DeviceHubClient(async (input) => {
+        hubRequests.push(new URL(String(input)).pathname)
+        return Response.json({
+          simulators: [],
+          emulators: [{ id: 'emulator-5554', name: 'Pixel AVD', version: 'Android', platform: 'android', booted: true, physical: false }],
+          errors: [{ message: '[android-utils] Failed to run avdmanager' }],
+        })
+      }),
+      builds: new DeviceBuildStore({ path: join(dir, 'builds.json'), assetsDir: join(dir, 'assets'), run }),
+      publish: () => {},
+      surfaceRequested: () => {},
+      storeImage: async () => ({ assetId: 'fixture.png' }),
+    })
+    try {
+      const state = await manager.list()
+      expect(state.hosts[0]?.platforms).toContainEqual({ platform: 'android', available: true })
+      expect(state.devices.map((device) => device.deviceId)).toEqual(['USB123', 'LOCKED'])
+      expect(state.devices[1]?.unavailableReason).toContain('USB debugging')
+      expect(state.hostStatuses[0]?.detail).toBeUndefined()
+
+      const build = await manager.addBuild(apk, 'session', 'dev.solus.fixture')
+      const user = { kind: 'user' as const, clientId: 'client', label: 'User' }
+      const target = { deviceHostId: 'local', deviceId: 'USB123' }
+      manager.control.acquireForUser(target, user)
+      const installed = await manager.installBuild(target, build.buildId, user, false)
+      expect(installed.build.lastInstall?.deviceId).toBe('USB123')
+      expect(installed.device).toMatchObject({ physical: true, platform: 'android', booted: true })
+      expect(commands).toEqual([
+        ['adb', 'devices', '-l'],
+        ['adb', '-s', 'USB123', 'install', '-r', build.path],
+      ])
+      expect(hubRequests).toEqual(['/api/devices'])
+      await expect(manager.shutdown({ deviceHostId: 'local', deviceId: 'emulator-5554', platform: 'android' }))
+        .rejects.toMatchObject({ code: 'platform_unavailable' })
+      expect(hubRequests).toEqual(['/api/devices'])
+
+      adbFails = true
+      const failed = await manager.list()
+      expect(failed.devices).toEqual([])
+      expect(failed.hostStatuses[0]?.detail).toBe('Could not list connected Android devices with adb.')
+    } finally {
+      await host.stop()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   test('summary installs and starts nothing', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'solus-local-host-'))
     let spawned = 0
