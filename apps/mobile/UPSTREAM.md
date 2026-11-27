@@ -361,7 +361,7 @@ Sync settings (`docs/plans/settings-sync-hosts.md`) adds rows that T3 Code does 
 - The environment page (`SettingsEnvironmentDetailRouteScreen`) has a **Settings** section with the host's **Sync settings** switch, below **Connection**.
 - T3's Settings environment picker is unchanged. When it shows one environment, the personal settings on screen are that host's copy (`settings-environment-filter.tsx`); otherwise they are the home host's.
 
-The native voice recorder stays with the draft that started it when the user opens another session. Solus cancels its draft operation if that draft is discarded or its session is archived. A chat table’s native context menu copies the table as HTML and tab-separated text. Dragging a file pill to Finder or File Explorer is a desktop shell action. Mobile uses its existing file actions.
+The native voice recorder stays with the draft that started it when the user opens another session. Solus cancels its draft operation if that draft is discarded or its session is archived. A chat table’s native context menu copies the table as HTML and tab-separated text, Markdown, or PNG. PNG copy includes the full native grid, even when columns are outside the scroll area. The upstream PNG change covers its web table. The approved iOS and Android addition is recorded in [the dependency notes](deps/README.md). Dragging a file pill to Finder or File Explorer is a desktop shell action. Mobile uses its existing file actions.
 
 Queued message edits use T3's queue sheet, composer, and model picker. Solus
 loads the queued message's saved options and submits explicit picks with the

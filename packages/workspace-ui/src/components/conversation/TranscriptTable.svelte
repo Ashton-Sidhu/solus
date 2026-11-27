@@ -7,9 +7,9 @@
     Minimize2 as CollapseIcon,
   } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { copyText, toasts } from "../../lib/toasts";
+  import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { copyMarkdownTable } from "./lib/table-clipboard";
+  import { canCopyTablePng, copyMarkdownTable, copyTablePng, copyTableText } from "./lib/table-clipboard";
   import { rowsToCsv, rowsToMarkdown, tableRows } from "./lib/table-copy";
 
   /** A reply's table scrolls sideways in its own box, so a wide table never
@@ -20,23 +20,42 @@
   let table = $state<HTMLTableElement>();
   let expanded = $state(true);
   let copied = $state(false);
+  let isCopying = $state(false);
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+  let shouldRefocusInput = false;
 
-  async function copyAs(format: "html" | "markdown" | "csv") {
-    if (!table) return;
+  async function copyAs(format: "html" | "markdown" | "csv" | "png") {
+    const source = table;
+    if (!source || isCopying) return;
+    shouldRefocusInput = true;
+    isCopying = true;
+    copied = false;
+    clearTimeout(copiedTimer);
     try {
-      if (format === "html") await copyMarkdownTable(table);
-      else {
-        const rows = tableRows(table);
-        await copyText(format === "markdown" ? rowsToMarkdown(rows) : rowsToCsv(rows));
+      if (format === "html") await copyMarkdownTable(source);
+      else if (format === "png") {
+        await copyTablePng(async () => {
+          const { renderTablePng } = await import("./lib/table-png");
+          return renderTablePng(source);
+        });
+      } else {
+        const rows = tableRows(source);
+        await copyTableText(format === "markdown" ? rowsToMarkdown(rows) : rowsToCsv(rows), source.ownerDocument);
       }
     } catch {
       toasts.error("Could not copy the table.");
       return;
+    } finally {
+      isCopying = false;
     }
     copied = true;
-    clearTimeout(copiedTimer);
     copiedTimer = setTimeout(() => (copied = false), 1200);
+  }
+
+  function handleMenuCloseAutoFocus(event: Event) {
+    if (!shouldRefocusInput) return;
+    shouldRefocusInput = false;
+    event.preventDefault();
     requestInputFocus();
   }
 
@@ -87,10 +106,13 @@
           </button>
         {/snippet}
       </DropdownMenu.Trigger>
-      <DropdownMenu.Content align="end" class="min-w-40">
-        <DropdownMenu.Item onSelect={() => copyAs("html")}>Copy as HTML</DropdownMenu.Item>
-        <DropdownMenu.Item onSelect={() => copyAs("markdown")}>Copy as Markdown</DropdownMenu.Item>
-        <DropdownMenu.Item onSelect={() => copyAs("csv")}>Copy as CSV</DropdownMenu.Item>
+      <DropdownMenu.Content align="end" class="min-w-40" onCloseAutoFocus={handleMenuCloseAutoFocus}>
+        <DropdownMenu.Item disabled={isCopying} onSelect={() => copyAs("html")}>Copy as HTML</DropdownMenu.Item>
+        <DropdownMenu.Item disabled={isCopying} onSelect={() => copyAs("markdown")}>Copy as Markdown</DropdownMenu.Item>
+        <DropdownMenu.Item disabled={isCopying} onSelect={() => copyAs("csv")}>Copy as CSV</DropdownMenu.Item>
+        {#if canCopyTablePng()}
+          <DropdownMenu.Item disabled={isCopying} onSelect={() => copyAs("png")}>Copy as PNG</DropdownMenu.Item>
+        {/if}
       </DropdownMenu.Content>
     </DropdownMenu.Root>
   </div>
