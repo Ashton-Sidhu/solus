@@ -1864,7 +1864,11 @@ export interface NativeSolusAPI {
   /** The apps with an answer for their desktop capabilities on this device (Settings → General → App permissions). */
   appPermissions(): Promise<import('./app-desktop').AppPermissionsView[]>
   setAppPermission(change: import('./app-desktop').AppPermissionChange): Promise<void>
-  /** A deleted app keeps no answer on this device. */
-  forgetAppPermissions(target: import('./app-shortcuts').AppShortcutTarget): Promise<void>
+  /**
+   * A deleted app keeps nothing on this device: its permission answers, its
+   * shortcut (the launcher goes to the Trash where the system has one), and
+   * the place of its window. A delete from any client of its host calls it.
+   */
+  forgetApp(target: import('./app-shortcuts').AppShortcutTarget): Promise<void>
   onAppPermissionsChanged(callback: () => void): () => void
 }

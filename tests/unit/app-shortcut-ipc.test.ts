@@ -16,7 +16,7 @@ mock.module('electron', () => ({
   nativeImage: {},
 }))
 
-const { registerAppShortcutIpc } = await import('@solus/desktop-main/app-shortcuts/ipc')
+const { forgetApp, registerAppShortcutIpc } = await import('@solus/desktop-main/app-shortcuts/ipc')
 const { AppShortcutRecords } = await import('@solus/desktop-main/app-shortcuts/app-shortcut-records')
 
 const notes = { host: '0123456789abcdef0123456789abcdef', appId: '6f1c2a34-5b6d-4e7f-8a9b-0c1d2e3f4a5b' }
@@ -65,5 +65,42 @@ describe('the remove command', () => {
     const { removed, remove } = register({ launcher: 'trashed' })
     expect(await remove({ ...notes, appId: '11111111-2222-4333-8444-555555555555' })).toEqual({ launcher: 'removed' })
     expect(removed).toEqual([])
+  })
+})
+
+describe('a deleted app', () => {
+  // WHY: a delete from any client must leave nothing of the app on this computer: no launcher, no window place, no permission answer.
+  test('loses its shortcut, the files its launcher keeps, its window place, and its answers', async () => {
+    const records = new AppShortcutRecords(join(dir, 'app-shortcut-records.json'))
+    records.save({ ...notes, name: 'Notes', launcherPath: '/Users/sam/Applications/Solus Apps/Notes.app', iconKey: '', launcherFormat: 1 })
+    records.saveWindowBounds(notes, { x: 0, y: 0, width: 800, height: 600 })
+    records.setGrant(notes, 'Notes', 'camera', 'granted')
+    const removed: string[] = []
+    const forgotten: string[] = []
+    let changes = 0
+    const launchers: AppLaunchers = {
+      write: async () => '',
+      remove: async (_target, path) => {
+        removed.push(path)
+        return { launcher: 'trashed' }
+      },
+      forget: async (target) => { forgotten.push(target.appId) },
+      windowIdentity: () => ({ iconPath: null, taskbar: null }),
+    }
+    await forgetApp({
+      records,
+      launchers,
+      forgetAnswers: async (target) => records.forgetGrants(target),
+      shortcutsChanged: () => { changes += 1 },
+    }, notes)
+    expect(removed).toEqual(['/Users/sam/Applications/Solus Apps/Notes.app'])
+    expect(forgotten).toEqual([notes.appId])
+    expect(records.find(notes)).toBeNull()
+    expect(records.windowBounds(notes)).toBeNull()
+    expect(records.grantOf(notes, 'camera')).toBeNull()
+    expect(changes).toBe(1)
+    // A second delete event finds nothing and tells no list.
+    await forgetApp({ records, launchers, forgetAnswers: async () => {}, shortcutsChanged: () => { changes += 1 } }, notes)
+    expect(changes).toBe(1)
   })
 })

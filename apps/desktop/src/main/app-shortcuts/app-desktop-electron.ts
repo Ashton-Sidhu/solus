@@ -9,7 +9,7 @@ import { AppDesktop, requestedAppPermissions, systemMediaSettingsUrl, systemMedi
 import { permissionDetail, permissionQuestion } from './app-permission-text'
 import type { AppShortcutRecords } from './app-shortcut-records'
 import { AppWindows, type AppWindowLifecycle, type AppWindowsOptions } from './app-windows'
-import { registerAppShortcutIpc, removeAppShortcut } from './ipc'
+import { forgetApp, registerAppShortcutIpc, removeAppShortcut } from './ipc'
 import type { AppWindowPermissionRequest } from '@solus/desktop-main/mac-permissions'
 import type { AppLaunchers } from './launchers'
 
@@ -57,6 +57,11 @@ export interface AppWindowsRuntime {
   openAppsThatStartAtLogin(): void
 }
 
+/** Tells every window of Solus that a list it shows changed. */
+function broadcastToWindows(channel: string): void {
+  for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send(channel)
+}
+
 /** Where a removed launcher goes on this system (docs/app-shortcuts.md §4). */
 function launcherGoesTo(): string {
   if (process.platform === 'darwin') return 'Its launcher goes to the Trash.'
@@ -84,6 +89,12 @@ export function createAppWindowsRuntime(deps: AppWindowsRuntimeDeps): AppWindows
   windows = created
   registerAppShortcutIpc({ records, launchers, windows: created })
   registerAppDesktopIpc(parts.desktop, created)
+  ipcMain.handle('solus:app-forget', (_event, rawTarget) => forgetApp({
+    records,
+    launchers,
+    forgetAnswers: (target) => parts.desktop.forget(target),
+    shortcutsChanged: () => broadcastToWindows('solus:app-shortcuts-changed'),
+  }, targetSchema.parse(rawTarget)))
   return {
     windows: created,
     desktop: parts.desktop,
@@ -139,9 +150,7 @@ function createAppDesktop(deps: AppDesktopElectronDeps): AppDesktopParts {
     return isMac ? nativeImage.createEmpty() : deps.solusTrayIcon()
   }
 
-  function broadcast(channel: string): void {
-    for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send(channel)
-  }
+  const broadcast = broadcastToWindows
 
   const desktop = new AppDesktop({
     os: platform.id,
@@ -331,7 +340,6 @@ function registerAppDesktopIpc(desktop: AppDesktop, windows: AppWindows): void {
   })
   ipcMain.handle('solus:app-permissions', () => desktop.list())
   ipcMain.handle('solus:app-permission-set', (_event, rawChange) => desktop.change(changeSchema.parse(rawChange)))
-  ipcMain.handle('solus:app-permissions-forget', (_event, rawTarget) => desktop.forget(targetSchema.parse(rawTarget)))
 }
 
 /**

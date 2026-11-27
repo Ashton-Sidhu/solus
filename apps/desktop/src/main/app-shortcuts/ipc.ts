@@ -75,3 +75,27 @@ export async function removeAppShortcut(
   log.info('app_shortcut_removed', { appId: target.appId, host: target.host, launcher: removal.launcher })
   return removal
 }
+
+/**
+ * A deleted app keeps nothing on this device (docs/app-shortcuts.md §3): its
+ * shortcut, whose launcher goes to the Trash as a removal sends it, the icon
+ * file that a launcher in the Trash keeps, the place of its window, and its
+ * permission answers with what its open window holds. An app window that is
+ * open stays and says that the app is no longer available.
+ */
+export async function forgetApp(
+  deps: Pick<AppShortcutIpcDeps, 'records' | 'launchers'> & {
+    forgetAnswers(target: AppShortcutTarget): Promise<void>
+    shortcutsChanged(): void
+  },
+  target: AppShortcutTarget,
+): Promise<void> {
+  const { records, launchers } = deps
+  const hadShortcut = records.find(target) !== null
+  if (hadShortcut) await removeAppShortcut({ records, launchers }, target)
+  await launchers.forget(target)
+  records.forgetWindowBounds(target)
+  await deps.forgetAnswers(target)
+  if (hadShortcut) deps.shortcutsChanged()
+  log.info('app_forgotten', { appId: target.appId, host: target.host, hadShortcut })
+}

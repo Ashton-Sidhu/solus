@@ -82,7 +82,7 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'onAppDesktopEvent',
   'appPermissions',
   'setAppPermission',
-  'forgetAppPermissions',
+  'forgetApp',
   'onAppPermissionsChanged',
 ] as const
 

@@ -1,9 +1,8 @@
 import { localApi } from '@solus/client-core/local-api'
 import type { NativeSolusAPI } from '@solus/contracts/host-api'
 import type { AppPermissionChange, AppPermissionsView } from '@solus/contracts/app-desktop'
-import type { AppShortcutTarget } from '@solus/contracts/app-shortcuts'
 
-type AppPermissionsApi = Pick<NativeSolusAPI, 'appPermissions' | 'setAppPermission' | 'forgetAppPermissions' | 'onAppPermissionsChanged'>
+type AppPermissionsApi = Pick<NativeSolusAPI, 'appPermissions' | 'setAppPermission' | 'onAppPermissionsChanged'>
 
 /**
  * The answers of this device for the desktop capabilities of each app
@@ -39,12 +38,6 @@ export class AppPermissionsStore {
 
   async change(change: AppPermissionChange): Promise<void> {
     await this.api.setAppPermission?.(change)
-    await this.reload()
-  }
-
-  /** A deleted app keeps no answer on this device. */
-  async forget(target: AppShortcutTarget): Promise<void> {
-    await this.api.forgetAppPermissions?.(target)
     await this.reload()
   }
 }

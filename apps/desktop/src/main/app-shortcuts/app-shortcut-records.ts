@@ -118,6 +118,13 @@ export class AppShortcutRecords {
     this.write()
   }
 
+  forgetWindowBounds(target: AppShortcutTarget): void {
+    const key = appShortcutId(target)
+    if (!(key in this.file.windowBounds)) return
+    delete this.file.windowBounds[key]
+    this.write()
+  }
+
   /** Every app with an answer on this device. */
   grantsList(): readonly AppGrantsRecord[] {
     return this.file.permissions

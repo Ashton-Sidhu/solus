@@ -169,7 +169,7 @@ const nativeApi: NativeSolusAPI = {
   onAppDesktopEvent: channelFanOut<[event: AppDesktopEvent]>('solus:app-desktop-event'),
   appPermissions: () => ipcRenderer.invoke('solus:app-permissions'),
   setAppPermission: (change: AppPermissionChange) => ipcRenderer.invoke('solus:app-permission-set', change),
-  forgetAppPermissions: (target: AppShortcutTarget) => ipcRenderer.invoke('solus:app-permissions-forget', target),
+  forgetApp: (target: AppShortcutTarget) => ipcRenderer.invoke('solus:app-forget', target),
   onAppPermissionsChanged: channelFanOut<[]>('solus:app-permissions-changed'),
 }
 

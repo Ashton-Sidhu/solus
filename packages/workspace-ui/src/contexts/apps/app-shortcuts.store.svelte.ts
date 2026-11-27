@@ -13,7 +13,7 @@ import {
 import { appIconsStore, type AppIconsStore } from './app-icons.store.svelte'
 import { appShortcutIconPng, type AppShortcutIconSource } from './app-shortcut-icon'
 
-type AppShortcutsApi = Pick<NativeSolusAPI, 'appShortcuts' | 'addAppShortcut' | 'removeAppShortcut' | 'openAppWindow' | 'onAppShortcutsChanged'>
+type AppShortcutsApi = Pick<NativeSolusAPI, 'appShortcuts' | 'addAppShortcut' | 'removeAppShortcut' | 'openAppWindow' | 'onAppShortcutsChanged' | 'forgetApp'>
 type ShortcutApp = Pick<AppSummary, 'id' | 'name' | 'colorHue' | 'iconHash'>
 
 /** What the launcher's icon of an app is drawn from now (`appShortcutIconKey`). */
@@ -197,6 +197,17 @@ export class AppShortcutsStore {
     if (shortcut.name !== app.name || shortcut.iconKey !== iconKeyOf(app) || shortcut.isOutdated) {
       await this.change(target, 'updating', () => this.write(target, serverId, app))
     }
+  }
+
+  /**
+   * A deleted app keeps nothing on this computer: its shortcut, its
+   * permission answers, and the place of its window. The desktop app's main
+   * process owns all three.
+   */
+  async forgetApp(target: AppShortcutTarget): Promise<void> {
+    if (!this.isAvailable) return
+    await this.api.forgetApp?.(target)
+    await this.reload()
   }
 
   async openWindow(target: AppShortcutTarget, name: string): Promise<void> {
