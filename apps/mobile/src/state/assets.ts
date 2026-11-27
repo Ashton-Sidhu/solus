@@ -4,6 +4,7 @@ import { checkoutMediaAsset, signCheckoutAsset, type CheckoutAsset } from "../so
 import { mobileHost, fileAccountScope } from "./mobile-host";
 import { mediaTypeFor } from "@solus/contracts/media-types";
 import { readArtifactPageAttachmentId } from "@solus/contracts/artifact-page";
+import { HostRpcError } from "@solus/client-core/rpc-error";
 import { useAtomMount, useAtomSubscribe, useAtomValue } from "@effect/atom-react";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
@@ -17,7 +18,11 @@ import {
 import { executeAtomQuery, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { msg, useMessages } from "gt-react-native";
 import { m } from "../i18n/messages";
-import type { AssetResource, EnvironmentId } from "@t3tools/contracts";
+import {
+  AssetWorkspaceAssetNotFoundError,
+  type AssetResource,
+  type EnvironmentId,
+} from "@t3tools/contracts";
 import { solus } from "../solus/runtime";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -211,13 +216,21 @@ export async function refreshAssetUrl(
       const host = appAtomRegistry.get(hostAtom);
       const scope = appAtomRegistry.get(fileAccountScope);
       if (!host?.canReadFiles || signal?.aborted) return null;
-      const signed = await signCheckoutAsset(host.api, media, scope.organizationId, host.httpBaseUrl);
-      if (
-        signal?.aborted ||
-        appAtomRegistry.get(hostAtom) !== host ||
-        appAtomRegistry.get(fileAccountScope) !== scope
-      ) return null;
-      return signed.url;
+      const isCurrent = () =>
+        !signal?.aborted &&
+        appAtomRegistry.get(hostAtom) === host &&
+        appAtomRegistry.get(fileAccountScope) === scope;
+      try {
+        const signed = await signCheckoutAsset(host.api, media, scope.organizationId, host.httpBaseUrl);
+        return isCurrent() ? signed.url : null;
+      } catch (error) {
+        if (!isCurrent()) return null;
+        // Solus asset signing sends filesystem errors as RPC messages.
+        if (error instanceof HostRpcError && error.message.startsWith("ENOENT: ")) {
+          throw new AssetWorkspaceAssetNotFoundError({ resource });
+        }
+        throw error;
+      }
     } finally {
       release();
     }

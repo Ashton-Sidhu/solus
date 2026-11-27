@@ -7,6 +7,7 @@ import {
   type AuthSessionState,
 } from "@t3tools/contracts";
 import type { HostApi } from "@solus/client-core/host-api";
+import { HostRpcError, TransportDisconnectedError } from "@solus/client-core/rpc-error";
 import * as Cause from "effect/Cause";
 import { Atom, AsyncResult } from "effect/reactivity";
 import { beforeEach, expect, it, vi } from "vite-plus/test";
@@ -175,6 +176,27 @@ it("rejects with the server's error and resolves null only without a connection"
 
   state.preparedConnectionAtom = Atom.make({ _tag: "None" });
   await expect(refreshAssetUrl(environmentId, resource)).resolves.toBeNull();
+});
+
+it("maps a Solus host's missing file reply to the native asset error", async () => {
+  const image = { _tag: "media-file", threadId, path: "/repo/missing.png" } as const;
+  state.sign.mockRejectedValueOnce(new HostRpcError("ENOENT: no such file or directory"));
+  await expect(refreshAssetUrl(environmentId, image)).rejects.toBeInstanceOf(
+    AssetWorkspaceAssetNotFoundError,
+  );
+
+  const disconnected = new TransportDisconnectedError();
+  state.sign.mockRejectedValueOnce(disconnected);
+  await expect(refreshAssetUrl(environmentId, image)).rejects.toBe(disconnected);
+});
+
+it("discards a missing file reply if the account changes during authorization", async () => {
+  const image = { _tag: "media-file", threadId, path: "/repo/missing.png" } as const;
+  state.sign.mockImplementationOnce(async () => {
+    appAtomRegistry.set(fileAccountScope, { key: "other", organizationId: null });
+    throw new HostRpcError("ENOENT: no such file or directory");
+  });
+  await expect(refreshAssetUrl(environmentId, image)).resolves.toBeNull();
 });
 
 it.each([
