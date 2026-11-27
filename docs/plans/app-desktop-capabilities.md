@@ -147,7 +147,11 @@ an app with a popover shows the menu on a right click.
 
 Decision of 2026-11-27: the capabilities are at parity on macOS, Windows, and
 Linux. Where a system cannot do a part, the row says why, and Solus does the
-nearest thing.
+nearest thing. The maintainer accepted the remaining gaps on 2026-11-27:
+the tray title on Windows and Linux, the Linux tray click, keep on top and the
+popover's place on native Wayland, the Linux badge, system audio before
+macOS 13, and Linux system audio, which no real machine has run yet
+(`docs/app-shortcuts.md` §7).
 
 | | macOS | Windows | Linux |
 |---|---|---|---|
