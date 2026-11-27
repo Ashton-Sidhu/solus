@@ -115,7 +115,7 @@ void SplashScreen.preventAutoHideAsync().catch(() => {});
 markStart("app_module");
 // The splash fades into the list it held for, so the first screen does not cut in. The
 // setting is read long before the splash hides; Reduce Motion keeps the cut.
-const SPLASH_FADE_MS = 150;
+const SPLASH_FADE_MS = 300;
 SplashScreen.setOptions({ fade: true, duration: SPLASH_FADE_MS });
 void AccessibilityInfo.isReduceMotionEnabled().then(
   (reduceMotion) => { if (reduceMotion) SplashScreen.setOptions({ fade: false }); },
