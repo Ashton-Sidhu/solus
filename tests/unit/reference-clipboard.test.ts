@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { EditorState } from "@codemirror/state";
+import { EditorState, Prec } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { richTextInput } from "@solus/workspace-ui/components/ui/plain-text-editor/lib/rich-text-input";
 import { JSDOM } from "jsdom";
 import { createReferenceDecorations } from "@solus/workspace-ui/components/ui/plain-text-editor/lib/reference-decorations";
 import {
@@ -38,11 +39,15 @@ afterEach(() => {
   document.body.innerHTML = "<div id=\"editor\"></div>";
 });
 
-function mountComposer(doc: string, onLinkRefClick?: (href: string, title: string) => void): EditorView {
+function mountComposer(
+  doc: string,
+  onLinkRefClick?: (href: string, title: string) => void,
+  onPaste?: Parameters<typeof richTextInput>[2],
+): EditorView {
   const references = createReferenceDecorations(() => ({ onLinkRefClick }));
   const parent = document.createElement("div");
   document.body.appendChild(parent);
-  const view = new EditorView({ parent, state: EditorState.create({ doc, extensions: references.extension }) });
+  const view = new EditorView({ parent, state: EditorState.create({ doc, extensions: [Prec.highest(richTextInput(() => true, () => ({}), onPaste ?? (() => {}), () => {})), references.extension] }) });
   views.push(view);
   return view;
 }
@@ -122,4 +127,61 @@ test("a session, task, automation, or host chip in the composer opens what it na
   mountComposer(`run ${AUTOMATION}`, (href, title) => opened.push([href, title]));
   (document.querySelector(".solus-token--automation") as HTMLElement).click();
   expect(opened).toEqual([["automation://ref?automationId=a1", "Daily digest"]]);
+});
+
+test("pastes an external anchor beside a copied chip with the same label", () => {
+  const target = mountComposer("");
+  const clipboard = new Map([
+    ["text/plain", "src/app.ts and src/app.ts"],
+    ["text/html", '<a href="https://example.com/setup">src/app.ts</a> and <span data-solus-reference="@src/app.ts">src/app.ts</span>'],
+  ]);
+  target.contentDOM.dispatchEvent(clipboardEvent("paste", clipboard));
+  expect(target.state.doc.toString()).toBe("[src/app.ts](https://example.com/setup) and @src/app.ts");
+});
+
+test("Paste as Text and pasting into code insert the literal label", () => {
+  const clipboard = new Map([
+    ["text/plain", "Guide"],
+    ["text/html", '<a href="https://example.com/setup">Guide</a>'],
+  ]);
+  const plain = mountComposer("before ");
+  plain.dispatch({ selection: { anchor: 7 } });
+  plain.contentDOM.dispatchEvent(new dom.window.KeyboardEvent("keydown", {
+    key: "V", shiftKey: true, ctrlKey: true, bubbles: true,
+  }));
+  plain.contentDOM.dispatchEvent(clipboardEvent("paste", clipboard));
+  expect(plain.state.doc.toString()).toBe("before Guide");
+
+  const code = mountComposer("```\n\n```");
+  code.dispatch({ selection: { anchor: 4 } });
+  code.contentDOM.dispatchEvent(clipboardEvent("paste", clipboard));
+  expect(code.state.doc.toString()).toBe("```\nGuide\n```");
+});
+
+test("lets the attachment handler consume a paste after it sees restored Markdown", () => {
+  const target = mountComposer("", undefined, (event, paste) => {
+    expect(paste.text).toBe("[Guide](https://example.com/setup)");
+    event.preventDefault();
+  });
+  target.contentDOM.dispatchEvent(clipboardEvent("paste", new Map([
+    ["text/plain", "Guide"],
+    ["text/html", '<a href="https://example.com/setup">Guide</a>'],
+  ])));
+  expect(target.state.doc.toString()).toBe("");
+});
+
+test("inserts rich text at the drop position instead of the selected text", () => {
+  const view = mountComposer("Read the docs");
+  const event = new dom.window.MouseEvent("drop", { bubbles: true, cancelable: true });
+  const clipboard = new Map([
+    ["text/plain", "Guide"],
+    ["text/html", '<a href="https://example.com/setup">Guide</a>'],
+  ]);
+  Object.defineProperty(event, "dataTransfer", {
+    value: { getData: (kind: string) => clipboard.get(kind) ?? "", files: [] },
+  });
+  view.posAtCoords = () => 5;
+  view.contentDOM.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(true);
+  expect(view.state.doc.toString()).toBe("Read [Guide](https://example.com/setup)the docs");
 });

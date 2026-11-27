@@ -360,6 +360,10 @@ class T3ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
     updateInputFlags()
   }
 
+  fun setPreservePastedLinks(enabled: Boolean) {
+    editor.preservePastedLinks = enabled
+  }
+
   fun setTextPasteThresholdBytes(threshold: Int) {
     editor.textPasteThresholdBytes = threshold
   }
@@ -638,6 +642,7 @@ internal class SelectionAwareEditText(
   var submitEnabled = false
   var returnSends = true
   var textPasteThresholdBytes = 0
+  var preservePastedLinks = false
   var maxInputChars = Int.MAX_VALUE
   var clipboardFragment = ""
   private var touchDownScrollX = 0
@@ -850,7 +855,20 @@ internal class SelectionAwareEditText(
       "image/*"
     ) == true ->
       dropImages(event)
+    preservePastedLinks && event.action == DragEvent.ACTION_DROP && event.localState == null ->
+      dropRichText(event) || super.onDragEvent(event)
     else -> super.onDragEvent(event)
+  }
+
+  private fun dropRichText(event: DragEvent): Boolean {
+    val clip = event.clipData ?: return false
+    if (clip.itemCount != 1 || pasteContextListener == null) return false
+    val item = clip.getItemAt(0)
+    val text = item.text?.toString() ?: return false
+    val html = item.htmlText ?: return false
+    if (item.uri != null || !hasHtmlAnchor.containsMatchIn(html)) return false
+    setSelection(getOffsetForPosition(event.x, event.y).coerceIn(0, length()))
+    return pasteContext(mapOf("text" to text, "html" to html, "fragment" to "", "kind" to "richDrop"))
   }
 
   private fun dropImages(event: DragEvent): Boolean {
@@ -903,22 +921,24 @@ internal class SelectionAwareEditText(
     return true
   }
 
+  private val hasHtmlAnchor = Regex("<a[\\s>]", RegexOption.IGNORE_CASE)
+
   private fun pasteContextOrImages(): Boolean {
-    val payload = T3ComposerClipboard.read(context)
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+    val clip = clipboard?.primaryClip
+    val payload = T3ComposerClipboard.read(clip)
     return when {
       !payload["fragment"].isNullOrEmpty() ||
         payload["html"]?.contains("data-t3-context-fragment=") == true -> pasteContext(payload)
-      pasteImagesOrInterceptedText() -> true
-      isSingleItemClip() && T3ComposerClipboard.hasThreadLink(payload["text"].orEmpty()) ->
+      pasteImages(clip) -> true
+      preservePastedLinks && clip?.itemCount == 1 && clip.getItemAt(0).uri == null &&
+        pasteContextListener != null && payload["text"].orEmpty().isNotEmpty() &&
+        hasHtmlAnchor.containsMatchIn(payload["html"].orEmpty()) -> pasteContext(payload)
+      pasteInterceptedText(clip) -> true
+      clip?.itemCount == 1 && T3ComposerClipboard.hasThreadLink(payload["text"].orEmpty()) ->
         pasteContext(payload)
       else -> false
     }
-  }
-
-  // read() sees only the first item; native paste keeps every item of a longer clip.
-  private fun isSingleItemClip(): Boolean {
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-    return clipboard?.primaryClip?.itemCount == 1
   }
 
   private fun pasteContext(payload: Map<String, String>): Boolean {
@@ -926,9 +946,7 @@ internal class SelectionAwareEditText(
     return true
   }
 
-  private fun pasteImagesOrInterceptedText(): Boolean {
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-    val clip = clipboard?.primaryClip
+  private fun pasteImages(clip: ClipData?): Boolean {
     val imageUris = buildList {
       if (clip != null) {
         for (index in 0 until clip.itemCount) {
@@ -939,13 +957,9 @@ internal class SelectionAwareEditText(
         }
       }
     }
-    return when {
-      imageUris.isNotEmpty() -> {
-        pasteImagesListener?.invoke(imageUris)
-        true
-      }
-      else -> pasteInterceptedText(clip)
-    }
+    if (imageUris.isEmpty()) return false
+    pasteImagesListener?.invoke(imageUris)
+    return true
   }
 
   private fun pasteInterceptedText(clip: ClipData?, foldLargeText: Boolean = true): Boolean {

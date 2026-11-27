@@ -103,6 +103,9 @@ public class T3ComposerEditorModule: Module {
       Prop("enterBehavior") { (view: T3ComposerEditorView, behavior: String) in
         view.setEnterBehavior(behavior)
       }
+      Prop("preservePastedLinks") { (view: T3ComposerEditorView, enabled: Bool) in
+        view.setPreservePastedLinks(enabled)
+      }
       Prop("textPasteThresholdBytes") { (view: T3ComposerEditorView, threshold: Int) in
         view.setTextPasteThresholdBytes(threshold)
       }

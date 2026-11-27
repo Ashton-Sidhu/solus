@@ -36,6 +36,7 @@ export interface ComposerEditorProps {
     clipboard: ComposerTextPaste & {
       readonly fragment: string;
       readonly html: string;
+      readonly kind?: "richPaste" | "richDrop";
     },
   ) => void;
   readonly skills?: ReadonlyArray<

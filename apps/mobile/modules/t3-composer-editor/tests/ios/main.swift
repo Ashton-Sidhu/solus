@@ -241,6 +241,26 @@ for readOnly in [true, false] {
   check(provider.loadCount == 0, "Locked inputs must not load pasted image providers")
 }
 
+do {
+  let editor = ComposerTextView()
+  editor.text = "Read this"
+  editor.selectedRange = NSRange(location: 5, length: 4)
+  editor.preservePastedLinks = true
+  let provider = NSItemProvider(object: "Guide" as NSString)
+  provider.registerDataRepresentation(forTypeIdentifier: UTType.html.identifier, visibility: .all) { completion in
+    completion(Data(#"<a href="https://example.com/setup">Guide</a>"#.utf8), nil)
+    return nil
+  }
+  var range: NSRange?
+  editor.onPasteRichTextProvider = { received, selection in
+    check(received === provider, "Rich paste must keep the provider with both text formats")
+    range = selection
+  }
+  editor.paste(itemProviders: [provider])
+  check(range == NSRange(location: 5, length: 4), "Rich paste must retain the replacement range")
+  check(editor.text == "Read this", "Native paste must wait for the Markdown conversion")
+}
+
 func interceptedPaste(_ items: [String]) -> String? {
   let savedItems = UIPasteboard.general.items
   defer { UIPasteboard.general.items = savedItems }

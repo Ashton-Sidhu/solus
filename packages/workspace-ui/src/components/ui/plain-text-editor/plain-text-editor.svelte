@@ -51,6 +51,9 @@
     sessionDropInsertion,
   } from "../../../lib/session-drag";
 
+  import { richTextInput } from "./lib/rich-text-input";
+  import type { ComposerPaste } from "../../input/lib/composer-clipboard";
+
   interface Props extends ReferenceDecorationCallbacks {
     value: string;
     onValueChange: (value: string) => void;
@@ -58,6 +61,7 @@
     onEmptyChange?: (empty: boolean) => void;
     onKeyDown?: (event: KeyboardEvent) => void;
     onPaste?: (event: ClipboardEvent) => void;
+    onComposerPaste?: (event: ClipboardEvent, paste: ComposerPaste) => void;
     onDrop?: (event: DragEvent) => void;
     onFocus?: () => void;
     onBlur?: () => void;
@@ -90,6 +94,7 @@
     onEmptyChange,
     onKeyDown,
     onPaste,
+    onComposerPaste,
     onDrop,
     onFocus,
     onBlur,
@@ -349,6 +354,14 @@
           spellcheck: "false",
         }),
       ),
+      Prec.highest(richTextInput(
+        () => !!onComposerPaste,
+        () => referenceChips ? referenceConfig : undefined,
+        (event, paste) => onComposerPaste?.(event, paste),
+        (event) => {
+          if (!dropSessions(event)) onDrop?.(event);
+        },
+      )),
       Prec.highest(
         EditorView.domEventHandlers({
           keydown(event) {
@@ -358,11 +371,6 @@
           },
           paste(event) {
             onPaste?.(event);
-            return event.defaultPrevented;
-          },
-          drop(event) {
-            if (dropSessions(event)) return true;
-            onDrop?.(event);
             return event.defaultPrevented;
           },
           focus() {

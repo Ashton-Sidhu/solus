@@ -21,6 +21,9 @@ interface NativeEvent {
 interface NativeProps {
   readonly ref?: Ref<unknown>;
   readonly controlledDocumentJson: string;
+  readonly onComposerPasteContext: (
+    event: { readonly nativeEvent: NativeEvent & { text: string; html: string; fragment: string } },
+  ) => void;
   readonly onComposerChange: (event: { readonly nativeEvent: NativeEvent }) => void;
 }
 
@@ -278,4 +281,28 @@ it("does not flush past a paste whose event has not reached JS", async () => {
   expect(getComposerDraftSnapshot(DRAFT_KEY).text).toBe("Before pasted");
   await act(async () => native.deliver!(caretMove));
   expect(getComposerDraftSnapshot(DRAFT_KEY).text).toBe("Before pasted");
+});
+
+it("inserts Markdown from a native rich paste and keeps code literal", async () => {
+  await using _screen = await renderFlushableComposer();
+  const pasteGuide = (start: number, end = start) => {
+    const paste = pend(native.text);
+    native.props!.onComposerPasteContext({
+      nativeEvent: {
+        ...paste,
+        selection: { start, end },
+        text: "Guide",
+        html: '<a href="https://example.com/setup">Guide</a>',
+        fragment: "",
+      },
+    });
+  };
+
+  await act(async () => emit("Read this"));
+  await act(async () => pasteGuide(5, 9));
+  expect(getComposerDraftSnapshot(DRAFT_KEY).text).toBe("Read [Guide](https://example.com/setup)");
+
+  await act(async () => emit("```\nvalue = \n```"));
+  await act(async () => pasteGuide(12));
+  expect(getComposerDraftSnapshot(DRAFT_KEY).text).toBe("```\nvalue = Guide\n```");
 });

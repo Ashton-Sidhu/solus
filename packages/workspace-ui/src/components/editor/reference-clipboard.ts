@@ -60,7 +60,7 @@ function copiedText(chip: Element): string {
   return text;
 }
 
-function isOneReference(source: string, options: ReferenceParseOptions): boolean {
+export function isOneReference(source: string, options: ReferenceParseOptions): boolean {
   const ranges = parseReferenceTokens(source, options);
   return ranges.length === 1 && ranges[0].from === 0 && ranges[0].to === source.length;
 }

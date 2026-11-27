@@ -11,8 +11,8 @@ const HOSTED_PREFIX = `${DEFAULT_HOSTED_APP_URL}/threads/`;
 const HOSTED_SEGMENT = "[A-Za-z0-9_%-]+";
 const HOSTED_LINK = `${HOSTED_PREFIX.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}${HOSTED_SEGMENT}/${HOSTED_SEGMENT}`;
 const THREAD_HREF = String.raw`t3-thread:\/\/v[12]\/`;
-// A label stops at any bracket, so a run of unclosed brackets is scanned once, not once per bracket.
-const LABEL = String.raw`[^[\]\n]*`;
+// Unescaped brackets end a label so a run of unclosed brackets cannot restart a long scan.
+const LABEL = String.raw`(?:\\[^\n]|[^\\[\]\n])*`;
 const LIST_MARKERS = String.raw`(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)*`;
 // CommonMark fences start on their own line (optional blockquotes, indentation, or list markers)
 // and close on a line with at least as many of the same marker; backtick info strings hold no `.
@@ -206,6 +206,7 @@ export function replaceThreadLinks(
     >;
     const href = groups.angleHref ?? groups.href ?? groups.autolink ?? groups.bare;
     const link = href === undefined ? null : parseThreadLinkHref(href);
-    return (link && replace(link, groups.label)) ?? source;
+    const label = groups.label?.replace(/\\([!-/:-@[-`{-~])/g, "$1");
+    return (link && replace(link, label)) ?? source;
   });
 }
