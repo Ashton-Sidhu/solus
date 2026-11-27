@@ -65,6 +65,13 @@ export interface AppDesktopPorts {
   notify(notification: { title: string; body: string; onClick: () => void }): void
   readClipboard(): Promise<string>
   setOpenAtLogin(isOn: boolean): Promise<void>
+  /**
+   * The person made a login item of Solus themselves: Solus then does not
+   * take it, so a start at login shows the workspace as they asked. Only
+   * macOS has one login item for both; elsewhere Solus's own item carries an
+   * argument of its own.
+   */
+  personOpensAtLogin(): boolean
   /** The menu of the app's window: the macOS menu bar while it has focus, the window's own menu bar elsewhere. */
   applyWindowMenu(target: AppShortcutTarget, template: MenuItemConstructorOptions[]): void
   /** Asks the person, then removes the app's shortcut. */
@@ -99,6 +106,47 @@ export function requestedAppPermissions(permission: string, mediaTypes: readonly
   const types = mediaTypes ?? []
   const devices = types.flatMap((type): AppDesktopPermission[] => (type === 'audio' ? ['microphone'] : type === 'video' ? ['camera'] : []))
   return types.length > 0 && devices.length === types.length ? devices : []
+}
+
+/**
+ * Solus's own login item started this run, for the apps that start at login:
+ * the workspace window then stays hidden, as on every operating system.
+ * Windows and Linux tell it by the argument of the item. macOS has no
+ * arguments for a login item: it tells a start at login by the launch itself
+ * (`wasOpenedAtLogin`), and the item is Solus's own only while Solus turned it
+ * on for the apps.
+ */
+export function startedByOwnLoginItem(start: {
+  os: DesktopOs
+  argv: readonly string[]
+  loginArgument: string
+  wasOpenedAtLogin: boolean
+  loginItemForApps: boolean
+}): boolean {
+  if (!start.loginItemForApps) return false
+  return start.os === 'darwin' ? start.wasOpenedAtLogin : start.argv.includes(start.loginArgument)
+}
+
+/** The operating system's privacy status of a device, as Electron reads it (macOS and Windows). */
+export type SystemMediaStatus = 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown'
+
+/**
+ * What Solus does for a device of an app that has its grant: the system has
+ * its own switch for Solus on macOS and Windows. `ask` shows the system
+ * question (macOS); `settings` offers the system's privacy settings, because a
+ * refusal there is one for every app of Solus. Linux has no such switch for a
+ * desktop program.
+ */
+export function systemMediaStep(os: DesktopOs, status: SystemMediaStatus): 'allowed' | 'ask' | 'settings' {
+  if (os === 'linux' || status === 'granted') return 'allowed'
+  if (os === 'darwin') return status === 'not-determined' ? 'ask' : 'settings'
+  return status === 'denied' ? 'settings' : 'allowed'
+}
+
+/** The privacy page of the system for a device. */
+export function systemMediaSettingsUrl(os: 'darwin' | 'win32', device: 'microphone' | 'camera'): string {
+  if (os === 'win32') return device === 'microphone' ? 'ms-settings:privacy-microphone' : 'ms-settings:privacy-webcam'
+  return `x-apple.systempreferences:com.apple.preference.security?${device === 'microphone' ? 'Privacy_Microphone' : 'Privacy_Camera'}`
 }
 
 /** `toggle` hides a window that shows and has focus, and shows and focuses any other. */
@@ -253,6 +301,8 @@ export class AppDesktop {
     const isWanted = this.appsThatStartAtLogin().length > 0
     const records = this.ports.records
     if (isWanted === records.loginItemForApps) return
+    // The person's own login item already opens Solus at login, and the apps open with it.
+    if (isWanted && this.ports.personOpensAtLogin()) return
     await this.ports.setOpenAtLogin(isWanted)
     records.loginItemForApps = isWanted
   }

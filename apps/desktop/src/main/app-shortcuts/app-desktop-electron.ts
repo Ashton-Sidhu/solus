@@ -5,7 +5,7 @@ import { createLogger } from '@solus/server/logger'
 import { appDesktopPermissionSchema, desktopUnavailable, parseAppDesktopCall, type AppDesktopResult } from '@solus/contracts/app-desktop'
 import { isAppShortcutTarget, type AppShortcutTarget } from '@solus/contracts/app-shortcuts'
 import type { DesktopPlatform, LoginItemInstall } from '@solus/desktop-main/platform/desktop-platform'
-import { AppDesktop, requestedAppPermissions, type AppWindowHandle } from './app-desktop'
+import { AppDesktop, requestedAppPermissions, systemMediaSettingsUrl, systemMediaStep, type AppWindowHandle } from './app-desktop'
 import { permissionDetail, permissionQuestion } from './app-permission-text'
 import type { AppShortcutRecords } from './app-shortcut-records'
 import { AppWindows, type AppWindowLifecycle, type AppWindowsOptions } from './app-windows'
@@ -166,8 +166,24 @@ function createAppDesktop(deps: AppDesktopElectronDeps): AppDesktopParts {
       return response === 0
     },
     async mediaAccess(permission) {
-      // macOS asks once for Solus as a whole; a refusal there is a refusal for every app.
-      return isMac ? systemPreferences.askForMediaAccess(permission) : true
+      // macOS and Windows have one switch for Solus as a whole; a refusal there is one for every app.
+      if (platform.id === 'linux') return true
+      const step = systemMediaStep(platform.id, systemPreferences.getMediaAccessStatus(permission))
+      if (step === 'allowed') return true
+      if (step === 'ask') return systemPreferences.askForMediaAccess(permission)
+      const device = permission === 'microphone' ? 'Microphone' : 'Camera'
+      const place = isMac ? 'System Settings > Privacy & Security' : 'Settings > Privacy & security'
+      const { response } = await dialog.showMessageBox({
+        type: 'none',
+        message: `Turn on ${device} access for Solus.`,
+        detail: `An app asked for the ${device.toLowerCase()}. In ${place} > ${device}, turn on access for Solus, then try again.`,
+        buttons: [isMac ? 'Open System Settings' : 'Open Settings', 'Not Now'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      })
+      if (response === 0) await shell.openExternal(systemMediaSettingsUrl(platform.id, permission))
+      return false
     },
     globalShortcuts: {
       isRegistered: (accelerator) => globalShortcut.isRegistered(accelerator),
@@ -211,6 +227,7 @@ function createAppDesktop(deps: AppDesktopElectronDeps): AppDesktopParts {
       })
       if (response === 0) await shell.openExternal(LOGIN_ITEMS_SETTINGS_URL)
     },
+    personOpensAtLogin: () => isMac && app.getLoginItemSettings().openAtLogin,
     applyWindowMenu(target, template) {
       const window = deps.windows().windowOf(target)
       if (!window) return

@@ -57,6 +57,7 @@ import { parseAppLinkAction, type AppLinkAction } from '@solus/contracts/app-sho
 import { appLinkActionIn, appWindowRequestFor, queueAppLink } from '@solus/desktop-main/app-shortcuts/app-links'
 import { openAppShortcutRecords } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
 import { createAppWindowsRuntime, SOLUS_LOGIN_ARGUMENT } from '@solus/desktop-main/app-shortcuts/app-desktop-electron'
+import { startedByOwnLoginItem } from '@solus/desktop-main/app-shortcuts/app-desktop'
 
 // Every static import above has now evaluated, so this is the main bundle's
 // module-graph cost — the first item on the startup critical path.
@@ -806,8 +807,14 @@ const appRuntime = isHeadless ? null : createAppWindowsRuntime({
   badgesChanged: () => setActivityBadge(activityCount),
 })
 const appWindows = appRuntime?.windows ?? null
-// The login item that an app asked for opens the apps, not the workspace (Windows and Linux).
-if (appWindows && process.argv.includes(SOLUS_LOGIN_ARGUMENT)) startedByAppShortcut = true
+// The login item that an app asked for opens the apps, not the workspace.
+if (appWindows && startedByOwnLoginItem({
+  os: desktopPlatform.id,
+  argv: process.argv,
+  loginArgument: SOLUS_LOGIN_ARGUMENT,
+  wasOpenedAtLogin: process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin,
+  loginItemForApps: appShortcutRecords.loginItemForApps,
+})) startedByAppShortcut = true
 
 /** Opens the app of an app link or a shortcut link. Before the app is ready, the link waits. */
 function openAppLink(action: AppLinkAction): void {

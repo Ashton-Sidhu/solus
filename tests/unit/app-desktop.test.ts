@@ -5,7 +5,7 @@ import { join } from 'path'
 import type { MenuItemConstructorOptions } from 'electron'
 import { parseAppDesktopCall, type AppDesktopEvent, type AppDesktopPermission, type AppDesktopResult, type AppDesktopValue } from '@solus/contracts/app-desktop'
 import { parseAppCallName } from '@solus/contracts/apps'
-import { AppDesktop, requestedAppPermissions, type AppDesktopPorts, type AppWindowHandle } from '@solus/desktop-main/app-shortcuts/app-desktop'
+import { AppDesktop, requestedAppPermissions, startedByOwnLoginItem, systemMediaSettingsUrl, systemMediaStep, type AppDesktopPorts, type AppWindowHandle } from '@solus/desktop-main/app-shortcuts/app-desktop'
 import { AppShortcutRecords } from '@solus/desktop-main/app-shortcuts/app-shortcut-records'
 import { shortcutProblem } from '@solus/desktop-main/app-shortcuts/app-permission-text'
 
@@ -56,7 +56,8 @@ let dir: string
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'solus-app-desktop-')) })
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-function harness(os: 'darwin' | 'win32' | 'linux' = 'darwin'): Harness {
+/** `personLoginItem`: the person made a login item of Solus themselves (macOS). */
+function harness(os: 'darwin' | 'win32' | 'linux' = 'darwin', { personLoginItem = false } = {}): Harness {
   const records = new AppShortcutRecords(join(dir, 'app-shortcuts.json'))
   const h: Omit<Harness, 'desktop'> = {
     records,
@@ -104,6 +105,7 @@ function harness(os: 'darwin' | 'win32' | 'linux' = 'darwin'): Harness {
     notify: (notification) => { h.notifications.push(notification) },
     readClipboard: async () => 'copied text',
     setOpenAtLogin: async (isOn) => { h.loginItem.push(isOn) },
+    personOpensAtLogin: () => personLoginItem,
     applyWindowMenu: (_target, template) => { h.menus.push(template) },
     removeShortcut: async () => {},
     badgeChanged: (_target, count) => { h.badges.push(count) },
@@ -358,6 +360,21 @@ describe('a request of the page to Chromium', () => {
   })
 })
 
+describe('the system switch for a device', () => {
+  // WHY: parity. macOS and Windows each have a privacy switch for Solus; a refusal there must lead the person to it, not fail without a word.
+  test('macOS asks once and then offers System Settings; Windows offers Settings when it refuses; Linux has no switch', () => {
+    expect(systemMediaStep('darwin', 'not-determined')).toBe('ask')
+    expect(systemMediaStep('darwin', 'denied')).toBe('settings')
+    expect(systemMediaStep('darwin', 'restricted')).toBe('settings')
+    expect(systemMediaStep('darwin', 'granted')).toBe('allowed')
+    expect(systemMediaStep('win32', 'denied')).toBe('settings')
+    expect(systemMediaStep('win32', 'unknown')).toBe('allowed')
+    expect(systemMediaStep('linux', 'denied')).toBe('allowed')
+    expect(systemMediaSettingsUrl('win32', 'camera')).toBe('ms-settings:privacy-webcam')
+    expect(systemMediaSettingsUrl('darwin', 'microphone')).toContain('Privacy_Microphone')
+  })
+})
+
 describe('start at login', () => {
   test('Solus turns its login item on for the first app and off after the last, never one it did not turn on', async () => {
     const h = harness()
@@ -372,6 +389,27 @@ describe('start at login', () => {
     // With no app that starts at login, a revoke changes nothing of the person's own login item.
     await h.desktop.change({ ...notes, permission: 'startAtLogin', state: 'prompt' })
     expect(h.loginItem).toEqual([true, false])
+  })
+
+  // WHY: on macOS Solus has one login item. When the person made it, it is theirs: Solus must not turn it off later, and a start by it must show the workspace.
+  test('a login item the person made stays theirs', async () => {
+    const h = harness('darwin', { personLoginItem: true })
+    await h.desktop.change({ ...notes, permission: 'startAtLogin', state: 'granted' })
+    await h.desktop.change({ ...notes, permission: 'startAtLogin', state: 'denied' })
+    expect(h.loginItem).toEqual([])
+    expect(h.records.loginItemForApps).toBe(false)
+  })
+
+  // WHY: parity (docs/plans/app-desktop-capabilities.md §6). A start by Solus's own login item opens the apps with no workspace window on every system.
+  test('a start by Solus\'s own login item keeps the workspace hidden on each system', () => {
+    const start = { argv: ['/Applications/Solus.app/Contents/MacOS/Solus'], loginArgument: '--solus-login', wasOpenedAtLogin: false, loginItemForApps: true }
+    expect(startedByOwnLoginItem({ ...start, os: 'darwin', wasOpenedAtLogin: true })).toBe(true)
+    expect(startedByOwnLoginItem({ ...start, os: 'darwin' })).toBe(false)
+    expect(startedByOwnLoginItem({ ...start, os: 'win32', argv: ['C:\\Solus\\Solus.exe', '--solus-login'] })).toBe(true)
+    expect(startedByOwnLoginItem({ ...start, os: 'linux', argv: ['/opt/Solus/solus', '--solus-login'] })).toBe(true)
+    expect(startedByOwnLoginItem({ ...start, os: 'linux' })).toBe(false)
+    // The person's own login item of Solus (macOS): Solus did not turn one on for the apps.
+    expect(startedByOwnLoginItem({ ...start, os: 'darwin', wasOpenedAtLogin: true, loginItemForApps: false })).toBe(false)
   })
 })
 
