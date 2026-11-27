@@ -9,6 +9,7 @@ import {
   guessThreadLinkRef,
   hostedThreadLink,
   parseThreadLinkHref,
+  replaceThreadLinks,
   threadLinkCandidates,
   threadLinkRefs,
 } from "./threadLinks.ts";
@@ -294,6 +295,14 @@ describe("hosted thread links", () => {
     expect(threadLinkRefs("Open https://app.t3.codes/threads/there/t%3A1", local)).toEqual([
       ref("there", "t:1"),
     ]);
+  });
+
+  it("reads a hosted link with escaped brackets as one link", () => {
+    const hosted = "https://app.t3.codes/threads/there/t1";
+    const markdown = String.raw`Open [Fix \[login\]](${hosted}).`;
+    expect(replaceThreadLinks(markdown, (_link, label) => `chip(${label})`)).toBe(
+      "Open chip(Fix [login]).",
+    );
   });
 
   it("leaves a hosted link that is part of another link as written", () => {

@@ -61,9 +61,7 @@ internal object T3ComposerClipboard {
   }
 
   @Synchronized
-  fun read(context: Context): Map<String, String> {
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    val clip = clipboard.primaryClip
+  fun read(clip: ClipData?): Map<String, String> {
     val item = if (clip != null && clip.itemCount > 0) clip.getItemAt(0) else null
     val text = item?.text?.toString() ?: ""
     val html = item?.htmlText ?: ""
@@ -141,6 +139,9 @@ class T3ComposerEditorModule : Module() {
       }
       Prop("spellCheck") { view: T3ComposerEditorView, spellCheck: Boolean ->
         view.setSpellCheck(spellCheck)
+      }
+      Prop("preservePastedLinks") { view: T3ComposerEditorView, enabled: Boolean ->
+        view.setPreservePastedLinks(enabled)
       }
       Prop("textPasteThresholdBytes") { view: T3ComposerEditorView, threshold: Int ->
         view.setTextPasteThresholdBytes(threshold)

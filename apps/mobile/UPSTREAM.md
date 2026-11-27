@@ -24,6 +24,12 @@ The fork import through T3 Code revision `620cf4770d992d642f822a13dc2539c2605a35
 
 Mobile extends T3's image paragraph rule to screenshots on a separate line beside a caption. The native image view draws a cached bitmap as soon as it is ready. The loading label sits behind the bitmap while the load event is in flight.
 
+The Solus chat composer keeps external links from native rich text transfers.
+T3 Code PR #42469 implements this behavior in its web composer. Solus reuses
+its native paste context event for rich paste and text drop. The iOS and Android
+editors continue to handle images and copied context through their existing
+paths. Rich link recovery needs one native item with both HTML and plain text.
+
 ## Public T3 Code partial import through 2026-11-27
 
 This import compares public main at `c92d75e4867add69ded93ca37616a731d907669c`

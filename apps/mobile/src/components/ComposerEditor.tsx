@@ -1,3 +1,4 @@
+import { HTML_ANCHOR, isComposerCode, restoreComposerLinks } from "@solus/client-core/composer-rich-text";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import * as Dialog from "./ui/Dialog";
 import { ComposerContextId } from "@t3tools/contracts";
@@ -8,6 +9,7 @@ import { T, useGT } from "gt-react-native";
 import { useEffect, useState } from "react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
+import { hasThreadLinks } from "@t3tools/shared/threadLinks";
 import { collectComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import {
   collectAssistantCitations,
@@ -108,6 +110,20 @@ export function ComposerEditor({
     )
       return;
     const insertion = { text: clipboard.value, ...clipboard.selection };
+    const isRichText =
+      !clipboard.fragment &&
+      !clipboard.html.includes("data-t3-context-fragment=") &&
+      (clipboard.kind !== undefined || HTML_ANCHOR.test(clipboard.html));
+    if (isRichText) {
+      const inCode = isComposerCode(clipboard.value, clipboard.selection.start, clipboard.selection.end);
+      const text = (inCode ? null : restoreComposerLinks(clipboard.text, clipboard.html)) ?? clipboard.text;
+      if (inCode || !hasThreadLinks(text)) {
+        if (props.onPasteText && clipboard.kind !== "richDrop") props.onPasteText({ ...clipboard, text });
+        else insertComposerDraftText(draftKey, text, insertion);
+        return;
+      }
+      clipboard = { ...clipboard, text };
+    }
     const operation = startComposerDraftOperation(draftKey);
     const { signal } = operation;
     setComposerContextImporting(draftKey, true);
@@ -123,7 +139,8 @@ export function ComposerEditor({
       );
       if (signal.aborted) return;
       if (!result) {
-        insertComposerDraftText(draftKey, clipboard.text, insertion);
+        if (isRichText && props.onPasteText && clipboard.kind !== "richDrop") props.onPasteText(clipboard);
+        else insertComposerDraftText(draftKey, clipboard.text, insertion);
         return;
       }
       if (!insertComposerDraftContext(draftKey, result, insertion)) {
@@ -248,7 +265,7 @@ export function ComposerEditor({
         readOnly={props.readOnly || importing}
         onSubmit={importing ? undefined : props.onSubmit}
         clipboardFragment={clipboardFragment ?? undefined}
-        onPasteContext={(clipboard) => void pasteContext(clipboard)}
+        onPasteContext={draftKey ? (clipboard) => void pasteContext(clipboard) : undefined}
         context={draft.context}
         onContextPress={(selection) => {
           if (chipsInert) {

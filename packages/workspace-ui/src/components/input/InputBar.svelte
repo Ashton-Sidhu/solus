@@ -908,7 +908,7 @@
         onMcpPrompt={commands.mcpPrompts?.choose}
         onResource={attachResource}
         onKeyDown={handleKeyDown}
-        onPaste={(event) => attachmentUploads.prepare(attachmentHost.serverId, attachmentHost.ctx, () => handlePaste(event))}
+        onPaste={(event, paste) => attachmentUploads.prepare(attachmentHost.serverId, attachmentHost.ctx, () => handlePaste(event, paste))}
         {placeholder}
         ariaLabel={composerLabel}
         readOnly={isReadOnly}

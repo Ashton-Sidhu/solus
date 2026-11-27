@@ -105,10 +105,11 @@ interface NativeComposerEditorProps extends ViewProps {
     event: NativeSyntheticEvent<{ source: string; start: number; end: number }>,
   ) => void;
   readonly onComposerPasteContext?: (
-    event: NativePasteTextEvent & NativeSyntheticEvent<{ fragment: string; html: string }>,
+    event: NativePasteTextEvent & NativeSyntheticEvent<{ fragment: string; html: string; kind?: "richPaste" | "richDrop" }>,
   ) => void;
   readonly textPasteThresholdBytes: number;
   readonly textPasteThresholdLineBreaks: number;
+  readonly preservePastedLinks: boolean;
   readonly maxInputChars: number;
   readonly onComposerPasteText?: (event: NativePasteTextEvent) => void;
   readonly onComposerFocus?: () => void;
@@ -357,6 +358,7 @@ export function ComposerEditor({
         submitEnabled={onSubmit !== undefined}
         textPasteThresholdBytes={onPasteText ? PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES : 0}
         textPasteThresholdLineBreaks={onPasteText ? PASTED_TEXT_ATTACHMENT_THRESHOLD_LINE_BREAKS : 0}
+        preservePastedLinks={props.onPasteContext !== undefined}
         maxInputChars={PROVIDER_SEND_TURN_MAX_INPUT_CHARS}
         style={{ flex: 1, minHeight: 0 }}
         onComposerChange={(event) => {

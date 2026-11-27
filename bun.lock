@@ -219,8 +219,10 @@
     "packages/client-core": {
       "name": "@solus/client-core",
       "dependencies": {
+        "@lezer/markdown": "^1.7.2",
         "@pierre/trees": "^1.0.0-beta.6",
         "@solus/contracts": "workspace:*",
+        "parse5": "^8.0.1",
         "remark-parse": "^11.0.0",
         "unified": "^11.0.5",
       },

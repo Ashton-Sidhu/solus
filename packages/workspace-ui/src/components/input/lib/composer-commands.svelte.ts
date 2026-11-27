@@ -34,6 +34,8 @@ import { suggestionsStore } from '../../../contexts/sharing/suggestions.store.sv
 import { connectRequestStore } from '../../../contexts/connections/connect-request.store.svelte';
 import type { McpPromptComposer } from './mcp-prompt-composer.svelte';
 
+import type { ComposerPaste } from "./composer-clipboard";
+
 interface ComposerCommandOptions {
   isReadOnly: boolean;
   /** The session's link lets this client suggest, not prompt: Send makes a suggestion (docs/plans/custom-roles.md §7). */
@@ -54,17 +56,6 @@ interface ComposerCommandOptions {
   refocusComposer: () => void;
 }
 
-/**
- * The "paste this literally" chord. A ClipboardEvent carries no modifier
- * state, so a paste large enough to be filed can only learn the user meant it
- * from the keydown that produced it.
- */
-function isPasteAsTextChord(e: KeyboardEvent): boolean {
-  if (!e.shiftKey) return false
-  if (!(e.metaKey || e.ctrlKey)) return false
-  return e.key.toLowerCase() === "v"
-}
-
 /** Owns send, slash commands, history recall, and paste for one prompt target. */
 export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
   const session = getWorkspaceContext();
@@ -75,10 +66,6 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
   let promptHistory = $state<string[]>(loadPromptHistory(localStorage));
   let historyIndex = $state(-1);
   let savedInput = "";
-  // Set by the paste-as-text shortcut on the keydown that precedes the paste.
-  // A ClipboardEvent carries no modifier state, so the intent has to be caught
-  // on the way in and read by the paste that follows it in the same gesture.
-  let pasteAsTextRequested = false;
   // Permission requests whose feedback answer has not come back yet.
   const feedbackInFlight = new Set<string>();
 
@@ -494,9 +481,6 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
   // Fired by the composer only when no autocomplete menu consumed the event.
   function handleKeyDown(e: KeyboardEvent) {
     const { isTouch, run, onDispatchInBackground, editor: composerEl } = getOptions();
-    // Not preventDefault'd: the browser still performs the paste, this only
-    // tells the paste handler to leave it inline.
-    if (isPasteAsTextChord(e)) pasteAsTextRequested = true;
     if (
       e.key === "ArrowUp" &&
       !e.shiftKey &&
@@ -548,24 +532,6 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     if (isReadOnly) return;
     prompt.text = md;
     if (historyIndex !== -1) resetHistoryNavigation();
-  }
-
-  /**
-   * The pasted text when it should be filed rather than typed, else "".
-   *
-   * Always consumes the paste-as-text request, whether or not this paste turns
-   * out to be foldable — the shortcut answers for the gesture that followed it
-   * and must not carry into the next ordinary paste.
-   */
-  function foldableText(clipboard: DataTransfer, hasImages: boolean): string {
-    const wasAskedForText = pasteAsTextRequested;
-    pasteAsTextRequested = false;
-    // An image paste is already an attachment, and a clipboard carrying both is
-    // the image's paste — its text half is a fallback rendering of the same
-    // thing, so filing it too would attach the same content twice.
-    if (hasImages || wasAskedForText) return "";
-    const text = clipboard.getData("text/plain");
-    return isLargePaste(text) ? text : "";
   }
 
   /**
@@ -646,7 +612,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     getOptions().refocusComposer();
   }
 
-  async function handlePaste(e: ClipboardEvent) {
+  async function handlePaste(e: ClipboardEvent, paste: ComposerPaste) {
     const { isReadOnly, run, prompt, targetTabId, draftId } = getOptions();
     if (isReadOnly) return;
     const clipboard = e.clipboardData;
@@ -660,7 +626,6 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
       const runHostIds = { serverId: runServerId, installationId: serverConnections.diagnosticsFor(runServerId).installationId };
       if (refsMatchHost(refs, runHostIds)) {
         e.preventDefault();
-        pasteAsTextRequested = false;
         prompt.attachments.push(...refs.map((ref) => reattachedAttachment(ref, uuid())));
         return;
       }
@@ -672,10 +637,10 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
         return;
       }
     }
-    const foldable = foldableText(clipboard, blobs.length > 0);
-    if (foldable) {
+    // A clipboard with media already has an attachment. Do not file its text fallback too.
+    if (blobs.length === 0 && !paste.literal && isLargePaste(paste.text)) {
       e.preventDefault();
-      await foldPasteIntoAttachment(foldable);
+      await foldPasteIntoAttachment(paste.text);
       return;
     }
     if (blobs.length === 0) return;

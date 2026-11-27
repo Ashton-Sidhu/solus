@@ -87,9 +87,9 @@ class ComposerPasteTest {
     assertEquals(copiedText, editor.text.toString())
 
     clipboard.setPrimaryClip(ClipData.newPlainText("other app", "Different text"))
-    assertEquals("", T3ComposerClipboard.read(context)["fragment"])
+    assertEquals("", T3ComposerClipboard.read(clipboard.primaryClip)["fragment"])
     clipboard.setPrimaryClip(ClipData.newPlainText("other app", copiedText))
-    assertEquals("", T3ComposerClipboard.read(context)["fragment"])
+    assertEquals("", T3ComposerClipboard.read(clipboard.primaryClip)["fragment"])
   }
 
   @Test
@@ -303,6 +303,26 @@ class ComposerPasteTest {
   }
 
   @Test
+  fun richClipboardSendsBothFormatsButPlainPasteKeepsOnlyItsText() {
+    val html = "Read <a href=\"https://example.com/setup\">the guide</a>"
+    clipboard.setPrimaryClip(ClipData.newHtmlText("test", "Read the guide", html))
+    editor.preservePastedLinks = true
+    editor.setSelection(0)
+    var pasted: Map<String, String>? = null
+    editor.pasteContextListener = { pasted = it }
+
+    assertTrue(editor.onTextContextMenuItem(android.R.id.paste))
+    assertEquals("Read the guide", pasted?.get("text"))
+    assertEquals(html, pasted?.get("html"))
+    assertEquals("", editor.text.toString())
+
+    pasted = null
+    assertTrue(pasteAsText())
+    assertNull(pasted)
+    assertEquals("Read the guide", editor.text.toString())
+  }
+
+  @Test
   fun shortcutPastesStructuredClipboardAsText() {
     clipboard.setPrimaryClip(
       ClipData.newHtmlText(
@@ -379,6 +399,25 @@ class ComposerPasteTest {
       .setClipDescription(clip.description)
       .setClipData(if (action == DragEvent.ACTION_DROP) clip else null)
       .build()
+
+  @Test
+  fun richDropSendsBothFormatsAtTheDropPosition() {
+    val target = dropEditor()
+    target.preservePastedLinks = true
+    target.setSelection(0)
+    var pasted: Map<String, String>? = null
+    target.pasteContextListener = { pasted = it }
+    val html = "<a href=\"https://example.com/setup\">Guide</a>"
+    val clip = ClipData.newHtmlText("test", "Guide", html)
+
+    assertTrue(target.onDragEvent(dragEvent(clip, DragEvent.ACTION_DRAG_STARTED)))
+    assertTrue(target.onDragEvent(dragEvent(clip)))
+    assertEquals("Guide", pasted?.get("text"))
+    assertEquals(html, pasted?.get("html"))
+    assertEquals("richDrop", pasted?.get("kind"))
+    assertEquals("before", target.text.toString())
+    assertEquals(target.length(), target.selectionStart)
+  }
 
   @Test
   @Config(sdk = [24, 36])

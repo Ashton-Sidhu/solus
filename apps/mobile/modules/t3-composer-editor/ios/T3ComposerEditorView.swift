@@ -88,13 +88,15 @@ private final class ComposerTextView: UITextView {
   var onPasteImages: (([String], Int) -> Void)?
   /// Change in how many pasted images are still loading: +n when a paste is accepted, -n once it settles.
   var onPasteImagesPending: ((Int) -> Void)?
-  var onPasteContext: (([String: String]) -> Void)?
+  var onPasteContext: (([String: String], NSRange) -> Void)?
+  var onPasteRichTextProvider: ((NSItemProvider, NSRange) -> Void)?
   var onPasteText: ((String, NSRange) -> Void)?
   var clipboardFragment = ""
   var onSubmit: ((Bool) -> Void)?
   var isReadOnly = false
   var textPasteThresholdBytes = 0
   var textPasteThresholdLineBreaks = 0
+  var preservePastedLinks = false
   var maxInputChars = Int.max
   var enterBehavior: ComposerEnterBehavior = .send
   /// JS supplies the actual send outcomes so the iPad Command-hold HUD names the configured actions.
@@ -224,7 +226,21 @@ private final class ComposerTextView: UITextView {
       loadImages(from: itemProviders)
       return
     }
+    if preservePastedLinks, !bypassTextPasteInterception,
+       let provider = Self.richTextProvider(in: itemProviders),
+       let onPasteRichTextProvider {
+      onPasteRichTextProvider(provider, selectedRange)
+      return
+    }
     super.paste(itemProviders: itemProviders)
+  }
+
+  static func richTextProvider(in providers: [NSItemProvider]) -> NSItemProvider? {
+    guard providers.count == 1, let provider = providers.first,
+          provider.hasItemConformingToTypeIdentifier(UTType.html.identifier),
+          provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier),
+          provider.canLoadObject(ofClass: NSString.self) else { return nil }
+    return provider
   }
 
   override func paste(_ sender: Any?) {
@@ -233,8 +249,9 @@ private final class ComposerTextView: UITextView {
     }
     let pasteboard = UIPasteboard.general
     let context = T3ComposerClipboard.read()
-    if !context["fragment", default: ""].isEmpty || context["html", default: ""].contains("data-t3-context-fragment=") {
-      onPasteContext?(context)
+    if !bypassTextPasteInterception,
+       !context["fragment", default: ""].isEmpty || context["html", default: ""].contains("data-t3-context-fragment=") {
+      onPasteContext?(context, selectedRange)
       return
     }
     let imageProviders = pasteboard.itemProviders.filter {
@@ -253,6 +270,14 @@ private final class ComposerTextView: UITextView {
         return
       }
     }
+    if preservePastedLinks, !bypassTextPasteInterception, pasteboard.numberOfItems == 1,
+       !context["text", default: ""].isEmpty,
+       context["html", default: ""].range(of: #"<a[\s>]"#, options: [.regularExpression, .caseInsensitive]) != nil,
+       let onPasteContext {
+      onPasteContext(context, selectedRange)
+      return
+    }
+
     // pasteboard.string is only the first item; super.paste inserts every text item.
     if !bypassTextPasteInterception,
        let text = pasteboard.strings?.joined(), shouldInterceptTextPaste(text) {
@@ -262,7 +287,7 @@ private final class ComposerTextView: UITextView {
     // read() sees only the first item; native paste keeps every item of a longer pasteboard.
     if !bypassTextPasteInterception, pasteboard.numberOfItems == 1,
        T3ComposerClipboard.hasThreadLink(context["text", default: ""]) {
-      onPasteContext?(context)
+      onPasteContext?(context, selectedRange)
       return
     }
     super.paste(sender)
@@ -584,17 +609,11 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     textView.onPasteImagesPending = { [weak self] delta in
       self?.onComposerPasteImagesPending(["delta": delta])
     }
-    textView.onPasteContext = { [weak self] context in
-      guard let self else { return }
-      let selection = self.sourceSelection()
-      self.nativeEventCount += 1
-      self.lastPasteEventCount = self.nativeEventCount
-      var payload: [String: Any] = context
-      payload["value"] = self.textView.serializedText()
-      payload["eventCount"] = self.nativeEventCount
-      payload["resetGeneration"] = self.resetGeneration
-      payload["selection"] = ["start": selection.start, "end": selection.end]
-      self.onComposerPasteContext(payload)
+    textView.onPasteContext = { [weak self] context, range in
+      self?.emitPasteContext(context, at: range)
+    }
+    textView.onPasteRichTextProvider = { [weak self] provider, range in
+      self?.loadRichText(from: provider, at: range, isDrop: false)
     }
     textView.onPasteText = { [weak self] text, _ in
       guard let self else { return }
@@ -886,6 +905,10 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     textView.alternateSubmitTitle = title
   }
 
+  func setPreservePastedLinks(_ enabled: Bool) {
+    textView.preservePastedLinks = enabled
+  }
+
   func setTextPasteThresholdBytes(_ threshold: Int) {
     textView.textPasteThresholdBytes = threshold
   }
@@ -958,12 +981,11 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     guard !isReadOnly else {
       return UITextDropProposal(operation: .cancel)
     }
-    guard droppedImageProviders(in: drop) != nil else {
+    guard droppedImageProviders(in: drop) != nil || droppedRichTextProvider(in: drop) != nil else {
       return drop.suggestedProposal
     }
 
-    // The composer owns image drops so UIKit does not insert NSTextAttachments
-    // that the controlled plain-text value cannot represent.
+    // The composer attaches images and reads rich text at the actual drop position.
     let proposal = UITextDropProposal(operation: .copy)
     proposal.dropAction = .insert
     proposal.dropPerformer = .delegate
@@ -977,10 +999,49 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     guard !isReadOnly else {
       return
     }
-    guard let imageProviders = droppedImageProviders(in: drop) else {
-      return
+    if let imageProviders = droppedImageProviders(in: drop) {
+      textView.loadImages(from: imageProviders)
+    } else if let provider = droppedRichTextProvider(in: drop) {
+      let offset = textView.offset(from: textView.beginningOfDocument, to: drop.dropPosition)
+      loadRichText(from: provider, at: NSRange(location: offset, length: 0), isDrop: true)
     }
-    textView.loadImages(from: imageProviders)
+  }
+
+  private func droppedRichTextProvider(in drop: UITextDropRequest) -> NSItemProvider? {
+    guard textView.preservePastedLinks, !drop.isSameView else { return nil }
+    return ComposerTextView.richTextProvider(in: drop.dropSession.items.map(\.itemProvider))
+  }
+
+  private func loadRichText(from provider: NSItemProvider, at range: NSRange, isDrop: Bool) {
+    let generation = resetGeneration
+    let source = textView.serializedText()
+    provider.loadDataRepresentation(forTypeIdentifier: UTType.html.identifier) { [weak self] data, _ in
+      let html = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+      _ = provider.loadObject(ofClass: NSString.self) { [weak self] object, _ in
+        guard let text = object as? String, !text.isEmpty else { return }
+        DispatchQueue.main.async { [weak self] in
+          guard let self, !self.isReadOnly,
+                self.resetGeneration == generation, self.textView.serializedText() == source else { return }
+          self.emitPasteContext([
+            "text": text, "html": html, "fragment": "", "kind": isDrop ? "richDrop" : "richPaste",
+          ], at: range)
+        }
+      }
+    }
+  }
+
+  private func emitPasteContext(_ context: [String: String], at range: NSRange) {
+    nativeEventCount += 1
+    lastPasteEventCount = nativeEventCount
+    var payload: [String: Any] = context
+    payload["value"] = textView.serializedText()
+    payload["eventCount"] = nativeEventCount
+    payload["resetGeneration"] = resetGeneration
+    payload["selection"] = [
+      "start": textView.sourceOffset(forDisplayOffset: range.location),
+      "end": textView.sourceOffset(forDisplayOffset: NSMaxRange(range)),
+    ]
+    onComposerPasteContext(payload)
   }
 
   private func droppedImageProviders(in drop: UITextDropRequest) -> [NSItemProvider]? {

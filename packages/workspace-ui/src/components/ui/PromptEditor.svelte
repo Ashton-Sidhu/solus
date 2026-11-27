@@ -20,6 +20,8 @@
   import { resolveAutocompleteScope } from "../editor/autocomplete-scope";
   import { createReferenceNavigation } from "../editor/reference-navigation";
 
+  import type { ComposerPaste } from "../input/lib/composer-clipboard";
+
   interface Props {
     value: string;
     onValueChange: (md: string) => void;
@@ -61,7 +63,7 @@
     /** When true, plain Enter inserts a newline instead of being swallowed for a
      *  send action. Used by editors with no "send" (e.g. the automation prompt). */
     enterInsertsNewline?: boolean;
-    onPaste?: (e: ClipboardEvent) => void;
+    onPaste?: (e: ClipboardEvent, paste: ComposerPaste) => void;
     onFocus?: () => void;
     onBlur?: () => void;
     onPlanRefClick?: (planId: string) => void;
@@ -292,7 +294,7 @@
   {onEmptyChange}
   onKeyDown={handleKeyDown}
   {enterInsertsNewline}
-  {onPaste}
+  onComposerPaste={onPaste}
   onFocus={() => {
     // Only an open menu sits at the caret. Reading the caret's box on every
     // focus forced a layout each time a session opened; typing a trigger reads

@@ -17,6 +17,7 @@
 
 <script lang="ts">
   import type { ComponentProps } from "svelte";
+  import { isPasteAsTextChord, readComposerPaste } from "../input/lib/composer-clipboard";
   import type { SessionReference } from "@solus/contracts/types";
 
   /**
@@ -33,6 +34,47 @@
   let isFocusRequested = false;
   /** Read while the stand-in is still in the document, before it is removed. */
   let standInHadFocus = false;
+  let pasteAsText = false;
+  let droppedText: Pick<DataTransfer, "getData"> | null = null;
+
+  function pasteIntoStandIn(event: ClipboardEvent) {
+    const literal = pasteAsText;
+    pasteAsText = false;
+    const field = standIn;
+    if (!field || !props.onPaste || !event.clipboardData) return;
+    const { selectionStart, selectionEnd } = field;
+    const paste = readComposerPaste(
+      event.clipboardData, field.value, selectionStart, selectionEnd, literal, {},
+    );
+    props.onPaste(event, paste);
+    if (event.defaultPrevented || !paste.restored) return;
+    event.preventDefault();
+    field.setRangeText(paste.text, selectionStart, selectionEnd, "end");
+    publishStandIn(field);
+  }
+
+  function publishStandIn(field: HTMLTextAreaElement) {
+    props.onValueChange(field.value);
+    props.onEmptyChange?.(field.value.length === 0);
+  }
+
+  function readStandInInput(event: Event & { currentTarget: HTMLTextAreaElement }) {
+    const field = event.currentTarget;
+    const data = droppedText;
+    droppedText = null;
+    if (data && event instanceof InputEvent && event.inputType === "insertFromDrop") {
+      // The native drop chooses the caret. Replace only the text it inserted.
+      const plain = data.getData("text/plain").replace(/\r\n?/g, "\n");
+      const end = field.selectionEnd;
+      const from = end - plain.length;
+      if (from >= 0 && field.value.slice(from, end) === plain) {
+        const beforeDrop = field.value.slice(0, from) + field.value.slice(end);
+        const paste = readComposerPaste(data, beforeDrop, from, from, false, {});
+        if (paste.restored) field.setRangeText(paste.text, from, end, "end");
+      }
+    }
+    publishStandIn(field);
+  }
 
   $effect.pre(() => {
     if (LoadedEditor && standIn && document.activeElement === standIn) standInHadFocus = true;
@@ -87,14 +129,28 @@
     disabled={props.disabled}
     spellcheck="false"
     autocomplete="off"
-    oninput={(event) => {
-      props.onValueChange(event.currentTarget.value);
-      props.onEmptyChange?.(event.currentTarget.value.length === 0);
+    oninput={readStandInInput}
+    onkeydown={(event) => {
+      pasteAsText = isPasteAsTextChord(event);
+      props.onKeyDown?.(event);
     }}
-    onkeydown={(event) => props.onKeyDown?.(event)}
-    onpaste={(event) => props.onPaste?.(event)}
+    onpaste={pasteIntoStandIn}
+    ondrop={(event) => {
+      droppedText = null;
+      const data = event.dataTransfer;
+      if (!props.onPaste || event.defaultPrevented || !data || data.files.length) return;
+      const plain = data.getData("text/plain");
+      const html = data.getData("text/html");
+      if (plain && html) {
+        droppedText = { getData: (type) => type === "text/html" ? html : plain };
+      }
+    }}
     onfocus={() => props.onFocus?.()}
-    onblur={() => props.onBlur?.()}
+    onblur={() => {
+      pasteAsText = false;
+      droppedText = null;
+      props.onBlur?.();
+    }}
     style:max-height="{props.maxHeight ?? 140}px"
     class="block min-h-5 w-full resize-none overflow-y-auto border-0 bg-transparent py-[0.9375rem] pr-0 pl-1 font-[inherit] text-(length:--plain-editor-font-size,var(--text-body)) leading-(--plain-editor-line-height,normal) text-(--solus-text-primary) outline-none [field-sizing:content] placeholder:text-(--solus-placeholder) {props.class ?? ''}"
   ></textarea>
