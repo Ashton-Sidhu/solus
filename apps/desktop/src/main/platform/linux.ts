@@ -11,7 +11,7 @@ import { TERMINAL_APPS } from '@solus/desktop-main/terminal-apps'
 import { loginShellCommand, tmuxTerminal } from '@solus/desktop-main/terminal-launcher'
 import type { DesktopPlatform } from './desktop-platform'
 import { linuxTerminalApps } from './linux-terminal'
-import { linuxAppLaunchers } from './linux-app-launchers'
+import { LINUX_LINK_MIME_TYPE, linuxAppLaunchers, writeLinuxLinkHandler } from './linux-app-launchers'
 
 const log = createLogger('main', 'platform-linux')
 const tmux = tmuxTerminal(linuxTerminalApps)
@@ -74,6 +74,17 @@ export const linuxPlatform: DesktopPlatform = {
   },
 
   appLaunchers: linuxAppLaunchers,
+  async registerLinkScheme(_app, install) {
+    if (!install.isPackaged) return
+    const entryName = await writeLinuxLinkHandler(install)
+    // xdg-mime writes the choice to the person's `mimeapps.list`; a desktop without it keeps the entry, which names the scheme.
+    await new Promise<void>((resolve) => {
+      execFile('xdg-mime', ['default', entryName, LINUX_LINK_MIME_TYPE], { timeout: 5_000 }, (error) => {
+        if (error) log.warn('link_scheme_register_failed', { error: error.message })
+        resolve()
+      })
+    })
+  },
 
   async captureScreen(path, signal) {
     // The desktop's Screenshot portal asks the user for a region and writes a file.

@@ -49,6 +49,12 @@ export interface DesktopPlatform {
   editors: EditorIntegration
   /** The launchers of app shortcuts, where this operating system lists apps (docs/app-shortcuts.md §4). */
   appLaunchers(install: SolusInstall): AppLaunchers
+  /**
+   * Makes this Solus the program that opens `solus:` links (docs/app-shortcuts.md
+   * §4): an app link of a launcher, and a shortcut link from a browser. A
+   * development run never takes the scheme from the installed app.
+   */
+  registerLinkScheme(app: App, install: SolusInstall): Promise<void>
   /** Write a PNG of the screen, or a region the user picks, to `path`.
    *  False when the user cancelled. */
   captureScreen(path: string, signal?: AbortSignal): Promise<boolean>

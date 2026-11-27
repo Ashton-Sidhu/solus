@@ -102,6 +102,12 @@ export const darwinPlatform: DesktopPlatform = {
   },
 
   appLaunchers: macAppLaunchers,
+  // The bundle's `Info.plist` names the scheme (forge.config.js `protocols`); this
+  // makes the installed copy the one that opens it when the computer has more than one.
+  async registerLinkScheme(app, install) {
+    if (!install.isPackaged) return
+    if (!app.setAsDefaultProtocolClient('solus')) log.warn('link_scheme_register_failed', { scheme: 'solus' })
+  },
 
   captureScreen(path, signal) {
     return new Promise<boolean>((resolve, reject) => {

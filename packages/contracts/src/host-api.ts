@@ -1846,4 +1846,10 @@ export interface NativeSolusAPI {
   removeAppShortcut(target: import('./app-shortcuts').AppShortcutTarget): Promise<void>
   /** Opens the app window of one app, or brings the one it has to the front. */
   openAppWindow(request: import('./app-shortcuts').AppWindowRequest): Promise<void>
+  /** An app window whose window is open got a shortcut link: it asks again to add the shortcut. */
+  onAppShortcutOffer(callback: (offer: import('./app-shortcuts').AppShortcutOffer) => void): () => void
+  /** From an app window: shows the workspace window with the Add host dialog or the account settings. */
+  requestWorkspace(request: import('./app-shortcuts').AppWindowWorkspaceRequest): void
+  /** In the workspace window: what an app window asked of it. */
+  onWorkspaceRequest(callback: (request: import('./app-shortcuts').AppWindowWorkspaceRequest) => void): () => void
 }

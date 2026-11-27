@@ -243,6 +243,14 @@ export function installDesktopRuntime(core: DesktopAppCore) {
     return () => unsubscribe?.();
   });
 
+  // An app window whose host this computer does not know (docs/app-shortcuts.md §5).
+  onMount(() =>
+    localApi.onWorkspaceRequest?.((request) => {
+      if (request.kind === "add-host") serversStore.openAddServer(request.address ?? "", "address");
+      else session.openRoute({ name: "settings", params: { tab: "account" } });
+    }),
+  );
+
   // The notifications hub reads every source once for the page and the badge (plan 015).
   onMount(() => notificationHubStore.start());
 

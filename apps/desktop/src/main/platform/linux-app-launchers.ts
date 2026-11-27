@@ -2,11 +2,37 @@ import { existsSync } from 'fs'
 import { mkdir, rename, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { appLinkOf, type AppShortcutTarget } from '@solus/contracts/app-shortcuts'
-import { appShortcutId, linuxDesktopEntry } from '@solus/desktop-main/app-shortcuts/launcher-files'
+import { appShortcutId, linuxDesktopEntry, linuxLinkHandlerEntry } from '@solus/desktop-main/app-shortcuts/launcher-files'
 import type { AppLaunchers, SolusInstall } from '@solus/desktop-main/app-shortcuts/launchers'
 
 /** The largest size a desktop draws a launcher at; it scales the image down for the smaller ones. */
 const ICON_SIZE = 256
+
+/** The MIME type through which a Linux desktop names the program of a URL scheme. */
+export const LINUX_LINK_MIME_TYPE = 'x-scheme-handler/solus'
+
+function applicationsDirectory(install: Pick<SolusInstall, 'homeDirectory' | 'env'>): string {
+  return join(install.env.XDG_DATA_HOME || join(install.homeDirectory, '.local', 'share'), 'applications')
+}
+
+/**
+ * Writes the desktop entry that opens `solus:` links (docs/app-shortcuts.md
+ * §4) and gives its file name. A desktop starts it with the link as the last
+ * argument, so a Solus that runs gets the link as a second launch. The entry
+ * does not show in the list of apps.
+ */
+export async function writeLinuxLinkHandler(
+  install: Pick<SolusInstall, 'executablePath' | 'launchArguments' | 'homeDirectory' | 'env'>,
+): Promise<string> {
+  const directory = applicationsDirectory(install)
+  const name = 'solus-link-handler.desktop'
+  const entry = join(directory, name)
+  await mkdir(directory, { recursive: true })
+  const staging = `${entry}.staging`
+  await writeFile(staging, linuxLinkHandlerEntry([install.env.APPIMAGE || install.executablePath, ...install.launchArguments]), { mode: 0o644 })
+  await rename(staging, entry)
+  return name
+}
 
 /**
  * Linux desktops list the desktop entries in `$XDG_DATA_HOME/applications`
@@ -17,7 +43,7 @@ const ICON_SIZE = 256
 export function linuxAppLaunchers(
   install: Pick<SolusInstall, 'isPackaged' | 'executablePath' | 'launchArguments' | 'filesDirectory' | 'homeDirectory' | 'env'>,
 ): AppLaunchers {
-  const directory = join(install.env.XDG_DATA_HOME || join(install.homeDirectory, '.local', 'share'), 'applications')
+  const directory = applicationsDirectory(install)
   const entryPath = (target: AppShortcutTarget) =>
     join(directory, `${install.isPackaged ? 'solus-app' : 'solus-dev-app'}-${appShortcutId(target)}.desktop`)
   const iconPath = (target: AppShortcutTarget) => join(install.filesDirectory, `${appShortcutId(target)}.png`)

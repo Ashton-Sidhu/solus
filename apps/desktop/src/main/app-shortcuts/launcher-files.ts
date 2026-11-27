@@ -128,6 +128,24 @@ export function linuxDesktopEntry(entry: LinuxDesktopEntry): string {
   ].join('\n')
 }
 
+/**
+ * The desktop entry that opens `solus:` links: `%u` is the link, which the
+ * desktop adds as the last argument. It is not an app to list.
+ */
+export function linuxLinkHandlerEntry(command: readonly string[]): string {
+  return [
+    '[Desktop Entry]',
+    'Type=Application',
+    'Version=1.0',
+    'Name=Solus',
+    `Exec=${command.map(desktopEntryArgument).join(' ')} %u`,
+    'Terminal=false',
+    'NoDisplay=true',
+    'MimeType=x-scheme-handler/solus;',
+    '',
+  ].join('\n')
+}
+
 /** The arguments of a Windows shortcut as one command line. */
 export function windowsShortcutArguments(values: readonly string[]): string {
   return values.map((value) => `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`).join(' ')
