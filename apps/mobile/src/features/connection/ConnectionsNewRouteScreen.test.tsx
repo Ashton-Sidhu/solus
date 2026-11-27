@@ -48,6 +48,7 @@ vi.mock("expo-haptics", () => ({
   NotificationFeedbackType: { Success: "success", Error: "error" },
 }));
 vi.mock("../../components/ui/ListRow", () => ({ ListRow: () => null }));
+vi.mock("../../solus/SyncSettingsRows", () => ({ SyncSettingsChoice: () => null }));
 vi.mock("../../solus/AddOverSsh", () => ({ AddOverSshRow: () => null }));
 vi.mock("../../components/ui/Dialog", () => ({ alert: vi.fn() }));
 vi.mock("../../components/ui/ScreenScrollView", () => ({ ScreenScrollView: Children }));
@@ -180,7 +181,7 @@ it.each([true, false])(
       );
       expect(container.querySelector('input[aria-label="Code"]')).toBeNull();
       await act(async () => container.querySelector("button")!.click());
-      expect(harness.connectPress).toHaveBeenCalledWith("http://192.0.2.1:3001", undefined, "mac");
+      expect(harness.connectPress).toHaveBeenCalledWith("http://192.0.2.1:3001", undefined, "mac", true);
       expect(Boolean(container.querySelector('input[aria-label="Code"]'))).toBe(needsCode);
     } finally {
       act(() => root.unmount());

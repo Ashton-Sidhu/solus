@@ -15,6 +15,106 @@ The bundled Markdown library uses its native singular and plural image-copy labe
 
 Mobile extends T3's image paragraph rule to screenshots on a separate line beside a caption. The native image view draws a cached bitmap as soon as it is ready. The loading label sits behind the bitmap while the load event is in flight.
 
+## Public T3 Code partial import through 2026-11-27
+
+This import compares public main at `c92d75e4867add69ded93ca37616a731d907669c`
+with the full import at `620cf4770d992d642f822a13dc2539c2605a3500`. It applies
+selected changes to Solus main at `b8d92820aed0a1b7a12f6fef3eb1aa7fa6bc9ffe`.
+The comparison covers all 905 changed paths in `SOURCE_PATHS`, including the
+earlier partial imports. The full import base stays at `620cf4770d992d642f822a13dc2539c2605a3500`.
+
+- **Git.** The phone and tablet use `GitCommitSheet` from the workspace stack.
+  A failed commit keeps its message and its excluded files (#43942). If an
+  excluded file leaves the working tree, the toggle offers **Deselect all**
+  (#44113). The Solus checkout adapter still uses `useCheckoutCommit` and
+  `gitRunAction`, with its account, connection, checkout, and branch checks.
+  A draft from detached HEAD already stays separate from a named branch (#43584).
+- **Pull requests.** The phone and tablet list and filter routes use the shared
+  query parser and list controls for typed checks and review filters (#43679).
+  Label and author searches ignore case. A chosen label keeps its color as
+  search results change (#43839, #43881). The Solus scope includes the project
+  and the account and connection of each host. Old label suggestions and
+  colors expire with that scope. `usePullRequestList` still owns paging over
+  `prListProjects`. The inline-comment sheet waits for the device draft store
+  to save and retries with the same comment ID (#43781). Canceling a new line
+  keeps the outdated draft selected (#43906). The Code route uses the total
+  from `prGetOverview` while `prGetDiff` loads more files (#43986, PR-wide
+  only). The diff picker separates iOS menu sections (#43916), and comment
+  snippets keep added or deleted lines that start with repeated signs (#43867).
+  Attachments show decoded names (#43815). List rows use singular change counts
+  when needed (#43935).
+- **Markdown and files.** The conversation, checkout Markdown preview and PR
+  description keep their rewrites in place when a document starts with a byte
+  order mark (#43473, #43567, #43894, #43972). A preview resolves `~/` file links
+  through T3's shared path resolver (#44080). The selected host still checks
+  `readProjectFile` and signs authorized previews with `assetCreateUrl`.
+  The shared ZIP progress helper uses the singular minute (#43874). The public
+  Markdown archive replaces the older Solus archive. Long thread and GitHub
+  links wrap (#43122), and the Solus image-copy label rule is in the applied
+  archive patch. The conversation cards and HTML previews keep their existing
+  renderer.
+- **Workspace and settings.** The phone stack and the iOS tablet columns set
+  status bar icons from the app theme (#44161). Home's settled list and the
+  conversation subagent control use the singular label for one item (#43976,
+  #44011). They still read the scoped session list and conversation projection.
+  Add Environment keeps the address on one line on iOS (#43963). The shared
+  pairing form still sends a pasted code or trusted discovery selection through
+  `useRemoteConnections`. The Solus scheduled-task editor uses T3's fixed
+  wall-time rule in `WeeklyScheduleFields` (#43610). It saves through
+  `automationCreate` and `automationUpdate`. Its project selection has no
+  editable source branch or checkout fields to reset (#43973).
+
+Remaining route and adapter work:
+
+- The active `CheckoutBranches` uses a full Solus `worktreeBranches` read.
+  T3's unmounted `GitBranchesSheet` pages a typed branch query (#43719).
+  `worktreeBranches` does not return a continuation cursor. Keep the
+  current branch confirmation when the typed read can drive the shared pager.
+- The mounted `Thread` draft still uses Solus session admission and the
+  shared composer submit handler. T3's `NewTaskFlowProvider` machine switch
+  (#43828), attachment-only offline draft title (#43821) and share-to-draft
+  handoff use the T3 draft queue. The Solus `ThreadRouteScreen` needs the
+  handoff and title behavior at its admission and outbox adapter. Its
+  registered draft and sent attachment viewers still share the scoped reader.
+- The mounted PR Code route keeps the loaded count for a single commit.
+  `prListCommits` supplies the SHA, message, date, and author, and needs
+  per-commit `changedFiles` to use the rest of #43986. The existing
+  `prGetDiff` result still needs a withheld-patch indication. For #44042,
+  the PR attachment renderer needs a content type for the signed resource
+  from `usePullRequestMediaUrl`, or a scoped metadata read. It still selects
+  image and video previews from the existing reference data.
+- Issues uses the mounted `IssuesScreen` and its existing issue search and
+  paging adapter. `IssueTrackerCredentialForm` in `IssueTrackerSection`
+  still needs the T3 Jira credential field definitions and typed connection
+  input (#38003) mapped to Solus's Atlassian connection. The existing issue
+  details and comments reads still settle separately.
+- Archive still routes restore through `listActions.unarchiveThread` and
+  `setArchived`. T3's offline settle and snooze commands (#44035) need the
+  scoped replay operation noted below. The idle socket change (#36507) needs
+  to drive the Solus transport's background and reconnect state.
+- Password-protected ZIP and PDF previews, EPUB captions, fonts, and GBK
+  checkout text are pending. They affect `ZipArchiveView`, the PDF preview,
+  `AttachmentDocumentBody`, Text Appearance, and `ThreadFileScreen`.
+  They need the native assets or decoder and dependency changes as well as
+  tests through the mounted routes. The GBK fallback depends on the authorized
+  binary-file and signed asset contract below. LegendList, Reanimated and
+  Clerk remain pending. The browser sign-in prompt (#35046) needs the auth
+  challenge ID and typed reply in the Solus browser preview operation. The
+  Workflows, linked threads, feedback, and voice gaps below also remain.
+
+The frozen root and mobile installs passed. The focused mobile tests passed
+720 cases in the iOS configuration and 110 in the Android configuration.
+After the final filter-scope fix, the affected iOS suites passed 199 cases
+and the Android filter fixture passed. Seven focused host test files and
+the native iOS composer tests passed. The host and route fixtures cover
+cold and saved reads, a scope change, failed saves and commits, and draft
+and signed attachment reads. The mobile type check reports the same 62
+errors as captured main. The host `session-open-rpc.test.ts` suite reported
+four failures on the clean captured revision. Production Expo exports
+contain Hermes bundles for both platforms and configure `sh.solus.mobile`
+for each. Native layout and Android native behavior were not tested on a
+device.
+
 ## Public T3 Code partial import through 2026-11-26
 
 This candidate compares public main at `d8f315a81f5f8244742d98a8aacb02a7668bcd6e`
