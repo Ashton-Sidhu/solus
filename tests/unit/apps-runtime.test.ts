@@ -177,6 +177,7 @@ describeWithNode('an app as a runtime', () => {
     const changed: string[] = []
     const stop = events.onAppsChanged((event) => { if (event.kind === 'saved') changed.push(event.app.id) })
     expect((await workflows.dismiss(owner, app.id, started.id)).dismissedAt).not.toBeNull()
+    await eventually(async () => (changed.includes(app.id) ? true : null), 'dismiss announced the app change')
     stop()
     expect(await attentionOf()).toEqual([])
     expect(changed).toContain(app.id)
@@ -193,24 +194,30 @@ describeWithNode('an app as a runtime', () => {
     await expect(workflows.dismiss(owner, app.id, 'no-such-run')).rejects.toThrow('This app has no run with this id.')
   })
 
-  test('a run that sleeps leaves the runner, and wakes when its time comes: also after a deploy', async () => {
-    // WHY (§8.3): a run is durable by replay. Its function runs again from
-    // the top on the version that is active then, and each finished step
-    // answers from its receipt: the mutation before the sleep must not run twice.
+  test('a run that sleeps stays pinned to its version after a deploy, and finishes on that version', async () => {
+    // WHY: a deploy can rename steps or change workflow code. Pinning each run
+    // to the version that started it lets sleeping runs resume safely without
+    // breaking on the new active version.
     const { apps, workflows, clock } = await host()
-    const folder = project({ ...REPORTS, app: REPORTS.app.replace("request: mutation(", "later: mutation({}, (ctx) => ctx.workflows.start('later', {})),\n    request: mutation(") })
+    const baseApp = REPORTS.app.replace("request: mutation(", "later: mutation({}, (ctx) => ctx.workflows.start('later', {})),\n    request: mutation(")
+    const folder = project({ ...REPORTS, app: baseApp })
     const { app } = await ship(apps, folder)
     const started = await call(apps, app.id, appOperationCallName('later'))
     const sleeping = await eventually(async () => {
       const detail = await workflows.read(owner, app.id, started.id)
       return detail?.state === 'sleeping' ? detail : null
     }, 'the run sleeps')
+    expect(sleeping.version).toBe(1)
     expect(sleeping.wakeAt).toBeGreaterThanOrEqual(clock.now + 2 * 60 * 60_000 - 5000)
     expect(sleeping.steps.map((step) => [step.name, step.state])).toEqual([['before', 'done'], ['wait', 'sleeping']])
     expect((await apps.read(owner, app.id)).runtime.inFlight).toBe(0)
 
-    // A deploy starts the runner again. The run still sleeps: its time did not come.
-    await apps.deploy(owner, { app: app.id, createdBy: by })
+    // Deploy v2 with incompatible workflow step names and different output. The sleeping v1 run stays pinned to v1.
+    const v2App = baseApp
+      .replace("'before', 'save', { title: 'before the sleep', rows: 1 }", "'before_v2', 'save', { title: 'before v2', rows: 10 }")
+      .replace("'after', 'save', { title: 'after the sleep', rows: 2 }", "'after_v2', 'save', { title: 'after v2', rows: 20 }")
+      .replace("return 'done'", "return 'done-v2'")
+    await change(apps, folder, { ...REPORTS, app: v2App })
     await workflows.tick()
     expect((await workflows.read(owner, app.id, started.id))?.state).toBe('sleeping')
 
@@ -223,9 +230,65 @@ describeWithNode('an app as a runtime', () => {
     const done = await eventually(async () => {
       const detail = await workflows.read(owner, app.id, started.id)
       return detail?.state === 'succeeded' ? detail : null
-    }, 'the run woke and ended')
+    }, 'the run woke and ended on v1')
+    expect(done.version).toBe(1)
+    expect(done.result).toBe('"done"')
     expect(done.steps.map((step) => [step.name, step.state])).toEqual([['before', 'done'], ['wait', 'done'], ['after', 'done']])
     expect(await call(apps, app.id, appOperationCallName('list'))).toEqual([{ title: 'after the sleep', rows: 2 }, { title: 'before the sleep', rows: 1 }])
+  })
+
+  test('retrying a failed run moves it onto the active version so a fix deploy repairs it', async () => {
+    const { apps, workflows } = await host()
+    const folder = project(REPORTS)
+    const { app } = await ship(apps, folder)
+    const started = await call(apps, app.id, appOperationCallName('request'), { title: 'FixMe', fail: true })
+    const failed = await eventually(async () => {
+      const detail = await workflows.read(owner, app.id, started.id)
+      return detail?.state === 'failed' ? detail : null
+    }, 'the run failed on v1')
+    expect(failed.version).toBe(1)
+
+    // Deploy v2 with the bug fixed.
+    await change(apps, folder, { ...REPORTS, app: REPORTS.app.replace("if (input.fail) throw new NonRetryableError('the source is gone')", 'if (input.fail) return 42') })
+    expect((await apps.read(owner, app.id)).app.attention).toContainEqual({
+      kind: 'workflow-stale',
+      detail: 'The last build run failed on v1. v2 has not run it yet.',
+      runId: started.id,
+    })
+
+    // Retrying explicitly moves the failed run onto v2, where the fix succeeds.
+    const retried = await workflows.retry(owner, app.id, started.id)
+    expect(retried).toMatchObject({ state: 'running', version: 2 })
+    const succeeded = await eventually(async () => {
+      const detail = await workflows.read(owner, app.id, started.id)
+      return detail?.state === 'succeeded' ? detail : null
+    }, 'the retried run succeeded on v2')
+    expect(succeeded).toMatchObject({ version: 2, result: '{"rows":42}' })
+    expect((await apps.read(owner, app.id)).app.attention.filter((item) => item.kind.startsWith('workflow'))).toEqual([])
+  })
+
+  test('a sleeping run whose pinned version is missing fails cleanly instead of hanging', async () => {
+    const { apps, workflows, clock } = await host()
+    const baseApp = REPORTS.app.replace("request: mutation(", "later: mutation({}, (ctx) => ctx.workflows.start('later', {})),\n    request: mutation(")
+    const folder = project({ ...REPORTS, app: baseApp })
+    const { app } = await ship(apps, folder)
+    const started = await call(apps, app.id, appOperationCallName('later'))
+    const sleeping = await eventually(async () => {
+      const detail = await workflows.read(owner, app.id, started.id)
+      return detail?.state === 'sleeping' ? detail : null
+    }, 'the run sleeps')
+
+    await apps.deploy(owner, { app: app.id, createdBy: by })
+    const { getDatabase } = await import('@solus/server/db/database')
+    await getDatabase().run(sql`DELETE FROM app_versions WHERE app_id = ${app.id} AND number = 1`)
+
+    clock.now = (sleeping.wakeAt ?? 0) + 1000
+    await workflows.tick()
+    const failed = await eventually(async () => {
+      const detail = await workflows.read(owner, app.id, started.id)
+      return detail?.state === 'failed' ? detail : null
+    }, 'the run failed cleanly for missing version')
+    expect(failed.error).toBe('Version 1 of this app is no longer available.')
   })
 
   test('the Code button of a step reads where the step is in the source of the version', async () => {

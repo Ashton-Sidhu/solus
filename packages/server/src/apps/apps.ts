@@ -97,7 +97,7 @@ import type { AppStorage, StoredValue } from './app-storage'
 import { appIconHash } from './app-icon'
 import { appSummary, appSummaryOf } from './app-summaries'
 import { findStepPlace, readStepSourceFiles } from './app-step-source'
-import type { AppRunnable, AppWorkflowRunFace } from './app-workflows'
+import type { AppRunnableLookup, AppWorkflowRunFace } from './app-workflows'
 
 const log = createLogger('apps', 'apps.ts')
 
@@ -145,7 +145,7 @@ export type AppModelCallsPart = Pick<AppModelCalls, 'hostRequest' | 'uiCall'>
 
 /** What an operation's `ctx.workflows` reaches: the workflows part owns the runs. */
 export interface AppWorkflowControls {
-  startRun(app: AppRecord, descriptor: AppDescriptor, workflow: string, input: StoredValue, key: string | null, startedBy: AppCaller): Promise<AppWorkflowRunFace>
+  startRun(app: AppRecord, version: AppVersionRecord, workflow: string, input: StoredValue, key: string | null, startedBy: AppCaller): Promise<AppWorkflowRunFace>
   getRun(app: AppRecord, runId: string): Promise<AppWorkflowRunFace | null>
   listRunFaces(app: AppRecord, options: { workflow: string | null; limit: number | null }): Promise<AppWorkflowRunFace[]>
   terminateRun(app: AppRecord, runId: string): Promise<AppWorkflowRunFace>
@@ -470,12 +470,19 @@ export class Apps {
     return loadApp(ANY_ORGANIZATION, appId)
   }
 
-  /** The app with what its runner runs, for the host's own work; null when it is stopped, gone, or has no version that runs. */
-  async runnable(appId: string): Promise<AppRunnable | null> {
+  /** The app with what its runner runs, for the host's own work: a pinned version when given, or the active version. */
+  async runnable(appId: string, versionNumber: number | null = null): Promise<AppRunnableLookup> {
     const app = await loadApp(ANY_ORGANIZATION, appId)
-    if (!app || app.stopped) return null
+    if (!app || app.stopped) return { kind: 'waiting' }
+    if (versionNumber !== null) {
+      const version = await loadVersion(app.id, versionNumber)
+      if (!version || !version.buildCommit || !version.hasBackend) return { kind: 'missing', version: versionNumber }
+      const build = await this.build(app, version)
+      if (build.backend === null) return { kind: 'missing', version: versionNumber }
+      return { kind: 'ready', target: { app, version, run: await this.run(app, version, build) } }
+    }
     const version = await this.activeVersion(app)
-    return version?.hasBackend ? { app, version, run: await this.run(app, version) } : null
+    return version?.hasBackend ? { kind: 'ready', target: { app, version, run: await this.run(app, version) } } : { kind: 'waiting' }
   }
 
   // ─── Save, deploy, and versions ───
@@ -720,9 +727,9 @@ export class Apps {
    * schedule, a webhook, or a workflow's step. The host's own work has no
    * authority of its own and acts as the app's owner.
    */
-  async callOperation(appId: string, operation: string, input: StoredValue, caller: AppCaller, authority: AppAuthority | null): Promise<StoredValue> {
+  async callOperation(appId: string, operation: string, input: StoredValue, caller: AppCaller, authority: AppAuthority | null, version?: AppVersionRecord): Promise<StoredValue> {
     const app = authority ? await this.app(authority, appId) : await this.reload(appId)
-    return this.runOperation(app, operation, input, caller, authority)
+    return this.runOperation(app, operation, input, caller, authority, version)
   }
 
   /**
@@ -750,7 +757,7 @@ export class Apps {
         return null
       case 'workflows.start': {
         const request = workflowStartSchema.parse(input)
-        return { ...(await this.requireWorkflows().startRun(app, version.descriptor, request.workflow, request.input, request.key, caller)) }
+        return { ...(await this.requireWorkflows().startRun(app, version, request.workflow, request.input, request.key, caller)) }
       }
       case 'workflows.get': {
         const run = await this.requireWorkflows().getRun(app, workflowRunSchema.parse(input).runId)
@@ -890,12 +897,12 @@ export class Apps {
   private async makeActive(app: AppRecord, version: AppVersionRecord, by: Attribution): Promise<string | null> {
     try {
       if (version.hasBackend) await this.deps.runners.start(await this.run(app, version))
-      else this.deps.runners.stop(app.id, 'The app changed. Call it again.')
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       await failVersion(app.id, version.number, reason)
       return reason
     }
+    this.deps.runners.stopIdle(app.id, version.hasBackend ? version.number : undefined, 'The app changed. Call it again.')
     const current = await this.reload(app.id)
     await activateVersion({ ...current, name: version.descriptor.name, description: version.descriptor.description, updatedAt: Date.now() }, version.number, by)
     const active = await this.reload(app.id)
@@ -939,19 +946,20 @@ export class Apps {
       if (sql) migrations.push({ name: path.slice(MIGRATIONS_FOLDER.length + 1), sql: sql.toString('utf8') })
     }
     const build: LoadedBuild = { version: version.number, backend, migrations, ui: undefined, menuBar: undefined }
-    this.builds.set(app.id, build)
+    if (app.activeVersion === null || version.number === app.activeVersion) this.builds.set(app.id, build)
     return build
   }
 
   /** What the app's runner runs for a version. Its signature changes with the version, the secrets, and the config. */
-  private async run(app: AppRecord, version: AppVersionRecord): Promise<AppRun> {
-    const build = await this.build(app, version)
+  private async run(app: AppRecord, version: AppVersionRecord, loadedBuild?: LoadedBuild): Promise<AppRun> {
+    const build = loadedBuild ?? await this.build(app, version)
     if (build.backend === null) throw new Error('This app has no backend.')
     const secrets = readAppSecrets(app.id)
     const declared = Object.fromEntries(version.descriptor.secrets.flatMap((secret) => (secrets[secret.name] ? [[secret.name, secrets[secret.name]]] : [])))
     const config = await this.configOf(app.id, version.descriptor)
     return {
       appId: app.id,
+      version: version.number,
       signature: `${version.number}:${createHash('sha256').update(JSON.stringify([declared, config])).digest('hex').slice(0, 16)}`,
       code: build.backend,
       protocol: version.descriptor.solusApp,
@@ -966,9 +974,9 @@ export class Apps {
   }
 
   /** Runs one operation for one caller and writes the call log (§5). */
-  private async runOperation(app: AppRecord, operation: string, input: StoredValue, caller: AppCaller, authority: AppAuthority | null): Promise<StoredValue> {
+  private async runOperation(app: AppRecord, operation: string, input: StoredValue, caller: AppCaller, authority: AppAuthority | null, pinnedVersion?: AppVersionRecord): Promise<StoredValue> {
     if (app.stopped) throw new Error('This app is stopped. Start it on its Manage page.')
-    const version = await this.requireActiveVersion(app)
+    const version = pinnedVersion ?? await this.requireActiveVersion(app)
     const declared = version.descriptor.operations.find((entry) => entry.name === operation)
     if (!declared) throw new Error(`This app has no operation named ${operation}.`)
     const recording = await beginCall({ app, version: version.number, operation, operationKind: declared.kind, caller, input, runId: caller.kind === 'workflow' ? caller.runId : null })

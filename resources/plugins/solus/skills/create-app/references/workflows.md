@@ -42,7 +42,8 @@ Solus keeps the result of each step. When a run starts again, the function runs 
 - Give each step of one run its own name. A loop names its steps with the index: `` `save ${index}` ``.
 - Put time, random values, and I/O inside a step, and branch on what the steps returned. Code between steps runs again each time.
 - A step that was in progress when the host stopped runs again. Make a step safe to run twice: pass `step.idempotencyKey` to a service that takes one, and use `INSERT ... ON CONFLICT` in the mutation a step runs.
-- A run continues on the version that is active when it starts again. Do not rename a step of a workflow that has runs in progress.
+- A run is pinned to the version that started it. After a deploy, an in-progress or sleeping run continues on its pinned version rather than switching to the newly active version.
+- Retrying a failed run with `retry_app_run` moves it onto the current active version so a fix deploy can repair it. Finished steps still answer from their receipts, so keep the names of steps that already finished before the failure.
 - Start a run with a `key` when the caller can call twice (a webhook, a double click): the same key and input give the same run. Use a stable ID for the requested job, such as a provider delivery ID. The run key prevents duplicate starts. The step's idempotency key protects an external write if that step runs again.
 
 The user sees each run with its steps on the Manage page, can end one, and can start a failed run again from the failed step. In the UI, show a run's state from `ctx.workflows.get(runId)` through a query, not a spinner that guesses.

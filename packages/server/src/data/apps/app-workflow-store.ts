@@ -31,7 +31,7 @@ export interface AppRunRecord {
   startedAt: number
   updatedAt: number
   finishedAt: number | null
-  /** The version whose code ran the run last; null until a runner takes it. */
+  /** The version pinned to this run; set when the run starts, and updated to the active version on retry. */
   version: number | null
   /** When the owner dismissed the failure of the run. */
   dismissedAt: number | null
