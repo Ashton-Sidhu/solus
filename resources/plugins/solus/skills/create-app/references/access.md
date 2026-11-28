@@ -2,8 +2,8 @@
 
 ## Check service access
 
-1. Search the available tools for the service and the operations the app needs. Check their inputs and limits. See [Integrations](#integrations) for built-in Solus connections.
-2. When the task authorizes a read, make a small read-only call against the relevant data to confirm access. If the connection state is unclear or sign-in is needed, use `connection_status` with the integration slug. It can ask the user to connect. If access still needs setup, continue with the parts you can build and say which live behavior you could not verify.
+1. Search available tools (use `tool_search` for deferred MCP tools) for the service and the operations the app needs. Check their inputs and limits. See [Integrations](#integrations) for built-in Solus connections.
+2. When the task authorizes a read, make a small read-only call against the relevant data to confirm access. If the connection state is unclear or sign-in is needed, call `connection_status` with `integration` for an MCP integration slug (the part before `__`), or with `provider` (`github`, `atlassian`, `google`) for a built-in Solus connection. It can ask the user to connect. If access still needs setup, continue with the parts you can build and say which live behavior you could not verify.
 3. Use the existing connection if it supports the required operations and callers. If no integration meets the app's needs, use a direct API. Declare an app secret only if that API requires a credential.
 
 An account can be signed in and still lack access to a particular repository, database, or workspace. If the read fails, explain whether the caller must connect an account, select a different source, or grant access to that source. Retry a temporary service failure without asking the user to sign in again.

@@ -62,7 +62,7 @@ For an app with no UI, set `ui: false` in `defineApp`. It opens on its Manage pa
 | `ctx.signals` | `emit(name, payload)`, in a mutation ([signals](signals.md)). |
 | `ctx.workflows` | `start(name, input, { key })` and `terminate(runId)` in a mutation; `get(runId)` and `list()` in every operation ([workflows](workflows.md)). |
 | `ctx.models` | `start(setting, request)` and `cancel(id)` in a mutation; `get(id)` and `list()` in every operation ([models](models.md)). |
-| `ctx.caller` | Who called: `{ kind: 'ui' }`, `'agent'`, `'schedule'`, `'webhook'`, `'workflow'`, or `'model'` (an operation a model call used). |
+| `ctx.caller` | Who called: `{ kind: 'ui', user?, role? }`, `'agent'`, `'schedule'`, `'webhook'`, `'workflow'`, or `'model'` (an operation a model call used). Check `ctx.caller.role` (`owner`, `editor`, or `viewer`) in published apps ([deploy](deploy.md#publish)). |
 
 ## Where the backend runs
 

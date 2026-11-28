@@ -20,7 +20,7 @@ export default function App() {
 - `mutate` resolves when the backend answers. Disable the control while it runs, say what it does ("Saving…"), keep what the user typed when it fails, and show the error's message. The queries run again by themselves after a write; do not refresh them by hand.
 - Show a loading state, an empty state, and the error of a failed call with a way to try again.
 - `api.useConfig()` gives the app's config, typed from `app.ts` ([config](config.md)).
-- `storage`, `files`, and `tools` are also in `@solus/app` ([data](data.md), [files](files.md), [access](access.md)), and `desktop` for the app's own window of the desktop app ([desktop](desktop.md)).
+- `storage`, `files`, `tools`, `models` (`useModelCall`, `models.watch`, `models.get`, `models.cancel`), `onDataChanged`, and `desktop` are also in `@solus/app` ([data](data.md), [files](files.md), [access](access.md), [models](models.md), [desktop](desktop.md)).
 
 ## The project
 

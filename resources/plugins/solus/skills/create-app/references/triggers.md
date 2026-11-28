@@ -54,7 +54,7 @@ A deploy makes a webhook for each declaration. Solus checks the signature before
 
 The app's Manage page shows each webhook's URL and its signing secret. Tell the user to copy both into the other service. When the other service gives its own secret, the user sets it in Settings → Webhooks. The verification schemes are the ones of `manage_webhooks`: `hmac`, `public_key`, `token`, `jwt`, `standard_webhooks`, and `none` with a reason.
 
-- Subscribe only to the provider events the app handles. Check that the provider can reach the displayed callback URL. Store the signing secret in the provider's and Solus's setup fields. Keep it out of source and call logs.
+- Subscribe only to the provider events the app handles. Check that the provider can reach the displayed callback URL. On a local host with no public URL, Manage shows no URL until the user links the host to Solus Cloud or sets a public URL in host settings. Store the signing secret in the provider's and Solus's setup fields. Keep it out of source and call logs.
 - Use the provider's test delivery or an authorized fixture to verify signature handling and the handler result. In the webhook delivery log, check that a valid request reached the mutation and that a repeated delivery ID started no second action. Check the app's call log and, if the handler starts a workflow, the run result.
 - A dry run with `read_webhooks` can check a saved webhook's verification or action matching. Check the real delivery separately to verify reachability and execution.
 

@@ -26,7 +26,7 @@ Build whatever the user asked for, at the size they asked for. Do not reduce the
 | Storage | `@solus/app` | Key-value data for a UI that needs no backend. |
 | Icon | `icon.svg` | The app's icon in Solus (the sidebar, its pane, the Apps tab, the command palette) and on its desktop shortcut. Without one, the app shows its first letter on a colour. |
 | Menu-bar page | `menubar.html`, `src/menubar.tsx` | Optional: a small page in a popover under the app's menu-bar item on the desktop ([desktop.md](references/desktop.md#the-menu-bar-page)). |
-| Desktop | `@solus/app` | In the app's own window of the desktop app: a menu-bar item, global shortcuts, notifications, system audio, a badge, and more, each with the person's permission. |
+| Desktop | `@solus/app` | In the app's own window of the desktop app: a menu-bar item, global shortcuts, notifications, clipboard read, system audio, a badge, and more, each with the person's permission. |
 
 Each part is optional. A to-do list needs only a UI and `storage`. A database browser needs operations and access to its data source. A digest that posts each morning needs an operation and a schedule, and no UI. An importer needs an app file and a workflow.
 
@@ -94,7 +94,7 @@ Use `preview_app` for app previews. The host builds the source it runs.
 | Ask a model: a summary, a classification, an analysis | [models.md](references/models.md) |
 | Use a secret, a connected service, the network, or the host's files | [access.md](references/access.md) |
 | Preview, deploy, repair, or update an older app | [deploy.md](references/deploy.md) |
-| Use the desktop app: a menu-bar item and its page, global shortcuts, notifications, a badge, keep on top, start at login, the microphone, the camera, or system audio | [desktop.md](references/desktop.md) |
+| Use the desktop app: a menu-bar item and its page, global shortcuts, notifications, a badge, keep on top, start at login, clipboard read, the microphone, the camera, or system audio | [desktop.md](references/desktop.md) |
 
 ## Done
 
