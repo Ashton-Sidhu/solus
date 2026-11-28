@@ -22,7 +22,7 @@ Try an operation's SQL before you deploy: `sqlite3` or `node:sqlite` in a scratc
 
 ## Writes and retries
 
-- Bind values with `?` parameters. Use a transaction when a read and write must agree, or a single conditional update when it can enforce the same rule. Use a unique constraint for facts that must only be written once, such as a provider event ID.
+- Bind values with `?` parameters. Use a transaction when a read and write must agree, or a single conditional update (such as `UPDATE ... WHERE status = 'pending'`) and check `rowsWritten` when it can enforce the same rule. Use a unique constraint for facts that must only be written once, such as a provider event ID.
 - Keep network calls outside SQLite transactions. A remote action can succeed while saving its response fails. For an action that must be recoverable, record it with a stable ID, use that ID for the remote service's idempotency key when supported, and save the outcome. For longer jobs, use [workflow steps](workflows.md#how-a-run-stays-alive).
 
 ## Storage

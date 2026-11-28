@@ -189,14 +189,17 @@ function issuesText(error) {
 let writeDb = null
 let readDb = null
 
-function sqlFace(db, begin) {
+function sqlFace(db, begin, canWrite) {
+  const changes = canWrite ? db.prepare('SELECT total_changes() AS n') : null
   return Object.freeze({
     exec(text, ...values) {
       const current = scope.getStore()
       const startedAt = Date.now()
       try {
+        const before = changes ? Number(changes.get().n) : 0
         const rows = db.prepare(String(text)).all(...values)
-        return { all: () => rows, one: () => (rows.length > 0 ? rows[0] : null) }
+        const rowsWritten = changes ? Number(changes.get().n) - before : 0
+        return { all: () => rows, one: () => (rows.length > 0 ? rows[0] : null), rowsWritten }
       } finally {
         if (current) { current.sql.count += 1; current.sql.ms += Date.now() - startedAt }
       }
@@ -487,7 +490,7 @@ function sqlSpan(current) {
 function contextFor(kind, caller, current) {
   const db = kind === 'query' ? readDb : writeDb
   const context = {
-    sql: db ? sqlFace(db, kind === 'query' ? 'BEGIN' : 'BEGIN IMMEDIATE') : noDatabase,
+    sql: db ? sqlFace(db, kind === 'query' ? 'BEGIN' : 'BEGIN IMMEDIATE', kind === 'mutation') : noDatabase,
     secrets: base.secrets,
     tools: toolsFace(),
     caller: Object.freeze({ ...caller }),

@@ -54,7 +54,7 @@ For an app with no UI, set `ui: false` in `defineApp`. It opens on its Manage pa
 
 | Field | What it is |
 |---|---|
-| `ctx.sql` | The app's database. `exec(sql, ...values)` runs one statement and gives `.all()` and `.one()`. `transaction(fn)` groups statements; `fn` is synchronous, so do network work before or after it. |
+| `ctx.sql` | The app's database. `exec(sql, ...values)` runs one statement and gives `.all()`, `.one()`, and `rowsWritten` (the count of inserted, updated, or deleted rows; `0` for `SELECT`). `transaction(fn)` groups statements; `fn` is synchronous, so do network work before or after it. |
 | `ctx.secrets` | The values the user gave, by name. One that is not set is `undefined`: throw an error that says which one to set ([access](access.md)). |
 | `ctx.config` | The settings the user chose on the Manage page, by field name, or each field's default ([config](config.md)). |
 | `ctx.tools` | The integrations the app names: `await ctx.tools.linear.list_issues({ team: 'ENG' })` ([access](access.md)). |
