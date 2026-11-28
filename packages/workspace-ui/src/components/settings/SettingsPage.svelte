@@ -2,7 +2,6 @@
   import { GitPullRequestIcon } from "../ui/octicons";
   import { isSolusApiId } from "@solus/contracts/uplink";
   import { onDestroy, untrack, type Component } from "svelte";
-  import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
   import {
     X as XIcon,
     ArrowLeft as ArrowLeftIcon,
@@ -548,7 +547,7 @@
  ? 'bg-background font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
  : 'bg-transparent text-muted-foreground hover:bg-[var(--wash-1)] hover:text-foreground active:bg-[var(--wash-1)]'}"
       >
-        <Icon size={15} strokeWidth={1.5} /><span>{tab.label}</span>{#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="text-xs font-normal tabular-nums opacity-60" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}{#if tab.id === "mcp" && mcpStore.integrations.attentionCount > 0}<span class="text-xs font-normal tabular-nums opacity-60" aria-label="{mcpStore.integrations.attentionCount} MCP servers need attention">{mcpStore.integrations.attentionCount}</span>{/if}
+        <Icon size={15} strokeWidth={1.5} /><span>{tab.label}</span>{#if tab.id === "mcp" && mcpStore.integrations.attentionCount > 0}<span class="text-xs font-normal tabular-nums opacity-60" aria-label="{mcpStore.integrations.attentionCount} MCP servers need attention">{mcpStore.integrations.attentionCount}</span>{/if}
       </button>
     {/each}
   </div>
@@ -690,7 +689,6 @@
                         class="min-w-0 flex-1 overflow-hidden text-left text-workspace-chrome text-ellipsis whitespace-nowrap"
                         >{tab.label}</span
                       >
-                      {#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}
                       {#if tab.id === "mcp" && mcpStore.integrations.attentionCount > 0}<span class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums" aria-label="{mcpStore.integrations.attentionCount} MCP servers need attention">{mcpStore.integrations.attentionCount}</span>{/if}
                     </Sidebar.MenuButton>
                   </Sidebar.MenuItem>

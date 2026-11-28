@@ -153,12 +153,6 @@ export class HostUpdatesStore {
     return status ? Number(status.check.kind === 'available') + status.providers.filter((p) => p.check.kind === 'available').length : 0
   }
 
-  get pendingCount(): number {
-    let count = 0
-    for (const serverId of this.statuses.keys()) count += this.pendingCountFor(serverId)
-    return count
-  }
-
   /**
    * Every release this client can install on the host now, Solus first. A Solus
    * release the host cannot install from here is a fact for the host page, not
