@@ -130,7 +130,14 @@ const gateway = {
     toolCalls.push({ integrationId, tool, input })
     return { content: [], structuredContent: { issues: ['ENG-1'] } }
   },
-  toolsFor: async () => [],
+  toolsFor: async (integrationId: string) => (integrationId === 'int-linear'
+    ? [
+        { name: 'list_issues', description: 'List issues', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } },
+        { name: 'create_issue', description: 'Create an issue', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } },
+        { name: 'delete_issue', description: 'Delete an issue', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true, destructiveHint: true } },
+        { name: 'sync_issues', description: 'Sync issues', inputSchema: { type: 'object' } },
+      ]
+    : []),
   connectionStatus: async () => ({ status: 'connected' as const }),
 }
 /** The built-in connections: GitHub is connected and Atlassian is not. */

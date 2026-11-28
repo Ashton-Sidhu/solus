@@ -1,8 +1,10 @@
 import { expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { appOperationCallName } from '@solus/contracts/apps'
 import { writeAppProject } from './helpers/app-project'
-import { NOTES, REPORTS, call, describeWithNode, host, installAppsHost, owner, project, projects, service, ship, tools } from './helpers/apps-host'
+import { NOTES, REPORTS, call, connectionCalls, describeWithNode, host, installAppsHost, owner, project, projects, service, ship, toolCalls, tools } from './helpers/apps-host'
 import { installTestWorkspaceTools } from './helpers/workspace-tools'
 
 installAppsHost()
@@ -183,5 +185,90 @@ export default defineApp({
     expect(byName.get('vault__reveal')).toBe(true)
     expect(byName.get('vault__purge')).toBe(true)
     expect(byName.get('vault__ping')).toBe(false)
+  })
+
+  test('previewHost allows read-only calls to declared integrations and refuses writes, undeclared integrations, workflows, file writes, and models', async () => {
+    // WHY: preview_app must render integration-backed apps with live read data
+    // without risking side effects from mutating requests or undeclared connectors.
+    const { apps, builder } = await host()
+    const folder = project({
+      app: `import { defineApp, query, mutation, workflow } from '@solus/app/backend'
+export default defineApp({
+  name: 'Preview Hub',
+  secrets: { apiKey: { label: 'API key' } },
+  integrations: ['linear'],
+  appIntegrations: ['github'],
+  operations: {
+    linearRead: query({}, (ctx) => ctx.tools.linear.list_issues({ team: 'ENG' })),
+    linearWrite: mutation({}, (ctx) => ctx.tools.linear.create_issue({ title: 'New' })),
+    githubRead: query({}, (ctx) => ctx.tools.github.request({ path: '/repos/acme/web/pulls' })),
+    githubHead: query({}, (ctx) => ctx.tools.github.request({ method: 'head', path: '/repos/acme/web/pulls' })),
+    githubWrite: mutation({}, (ctx) => ctx.tools.github.request({ method: 'POST', path: '/repos/acme/web/issues', body: { title: 'Nope' } })),
+    undeclared: query({}, (ctx) => ctx.tools.google.request({ path: '/drive/v3/files' })),
+    secretValue: query({}, (ctx) => ctx.secrets.apiKey ?? null),
+    startRun: mutation({}, (ctx) => ctx.workflows.start('sync', {})),
+    writeFile: mutation({}, (ctx) => ctx.files.write('a.txt', 'hi', 'text/plain')),
+  },
+  workflows: {
+    sync: workflow({}, async () => 'done'),
+  },
+})`,
+      ui: '<!doctype html><title>Preview Hub</title><div id="root"></div>',
+    })
+    const { build } = await builder.buildProject(folder)
+    const scratch = mkdtempSync(join(tmpdir(), 'solus-preview-test-'))
+    const filesDir = join(scratch, 'files')
+    mkdirSync(filesDir)
+    const preview = await apps.previewHost(owner, build, { appFolder: scratch, filesDir })
+    try {
+      // Read-only MCP tool succeeds from both backend operations and UI calls.
+      expect(await preview.host.call(appOperationCallName('linearRead'), {})).toEqual({ issues: ['ENG-1'] })
+      expect(await preview.host.call('linear/list_issues', { team: 'OPS' })).toEqual({ issues: ['ENG-1'] })
+      expect(toolCalls).toEqual([
+        { integrationId: 'int-linear', tool: 'list_issues', input: { team: 'ENG' } },
+        { integrationId: 'int-linear', tool: 'list_issues', input: { team: 'OPS' } },
+      ])
+
+      // Built-in REST connections allow default GET, explicit GET, and HEAD (including appIntegrations).
+      expect(await preview.host.call(appOperationCallName('githubRead'), {})).toEqual([{ number: 7 }])
+      expect(await preview.host.call(appOperationCallName('githubHead'), {})).toEqual([{ number: 7 }])
+      expect(await preview.host.call('github/request', { method: 'GET', path: '/user' })).toEqual([{ number: 7 }])
+      expect(connectionCalls).toEqual([
+        { provider: 'github', input: { path: '/repos/acme/web/pulls' } },
+        { provider: 'github', input: { method: 'head', path: '/repos/acme/web/pulls' } },
+        { provider: 'github', input: { method: 'GET', path: '/user' } },
+      ])
+
+      // Mutating, unannotated, destructive, and unknown MCP tools are refused before reaching the gateway.
+      toolCalls.length = 0
+      await expect(preview.host.call(appOperationCallName('linearWrite'), {})).rejects.toThrow('read-only')
+      await expect(preview.host.call('linear/create_issue', { title: 'Nope' })).rejects.toThrow('read-only')
+      await expect(preview.host.call('linear/delete_issue', { id: '1' })).rejects.toThrow('read-only')
+      await expect(preview.host.call('linear/sync_issues', {})).rejects.toThrow('read-only')
+      await expect(preview.host.call('linear/unknown_tool', {})).rejects.toThrow('read-only')
+      expect(toolCalls).toEqual([])
+
+      // Non-GET/HEAD built-in connection requests are refused before reaching the provider.
+      connectionCalls.length = 0
+      await expect(preview.host.call(appOperationCallName('githubWrite'), {})).rejects.toThrow('read-only')
+      await expect(preview.host.call('github/request', { method: 'DELETE', path: '/repos/acme/web/issues/1' })).rejects.toThrow('read-only')
+      await expect(preview.host.call('github/request', { method: 'PATCH', path: '/repos/acme/web/issues/1' })).rejects.toThrow('read-only')
+      await expect(preview.host.call('github/request', { method: 'PUT', path: '/repos/acme/web/issues/1' })).rejects.toThrow('read-only')
+      expect(connectionCalls).toEqual([])
+
+      // Undeclared integrations are refused.
+      await expect(preview.host.call(appOperationCallName('undeclared'), {})).rejects.toThrow('This app does not name the integration google.')
+      await expect(preview.host.call('google/request', { path: '/drive/v3/files' })).rejects.toThrow('This app does not name the integration google.')
+
+      // Secrets, workflows, app file writes, and model calls stay refused or empty in preview.
+      expect(await preview.host.call(appOperationCallName('secretValue'), {})).toBeNull()
+      await expect(preview.host.call(appOperationCallName('startRun'), {})).rejects.toThrow('A preview does not start a workflow.')
+      await expect(preview.host.call(appOperationCallName('writeFile'), {})).rejects.toThrow('A preview does not keep an app file.')
+      await expect(preview.host.call('@files/begin', { name: 'a.txt', type: 'text/plain', size: 2 })).rejects.toThrow('A preview does not keep an app file.')
+      await expect(preview.host.call('@models/get', { id: 'call-1' })).rejects.toThrow('A preview does not call a model.')
+    } finally {
+      preview.dispose()
+      rmSync(scratch, { recursive: true, force: true })
+    }
   })
 })
