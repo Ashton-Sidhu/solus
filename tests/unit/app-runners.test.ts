@@ -234,6 +234,64 @@ describeWithNode('an app\'s runner', () => {
     expect((await runners.call(started, call('rows'))).value).toEqual([{ n: 3 }])
   })
 
+  test('ctx.sql.exec reports rowsWritten for inserts, updates, returning updates, deletes, and 0 for selects', async () => {
+    // WHY: conditional writes such as `UPDATE ... WHERE status = 'pending'` need
+    // to know whether any row matched without a second query or RETURNING clause,
+    // while SELECT statements must report 0 even right after a write.
+    const code = `
+      const pass = { safeParse: (value) => ({ success: true, data: value }) }
+      const op = (handler) => ({ input: pass, handler })
+      exports.default = { operations: {
+        list: op((ctx) => {
+          const res = ctx.sql.exec('SELECT id, status FROM jobs ORDER BY id')
+          return { rows: res.all(), first: res.one(), rowsWritten: res.rowsWritten }
+        }),
+        exercise: op((ctx) => {
+          const inserted = ctx.sql.exec('INSERT INTO jobs (id, status) VALUES (?, ?), (?, ?)', 1, 'pending', 2, 'pending')
+          const selected = ctx.sql.exec('SELECT id, status FROM jobs ORDER BY id')
+          const updatedMatched = ctx.sql.exec('UPDATE jobs SET status = ? WHERE id = ? AND status = ?', 'running', 1, 'pending')
+          const updatedUnmatched = ctx.sql.exec('UPDATE jobs SET status = ? WHERE id = ? AND status = ?', 'running', 1, 'pending')
+          const returningMatched = ctx.sql.exec('UPDATE jobs SET status = ? WHERE id = ? AND status = ? RETURNING id, status', 'done', 2, 'pending')
+          const returningUnmatched = ctx.sql.exec('UPDATE jobs SET status = ? WHERE id = ? AND status = ? RETURNING id, status', 'done', 2, 'pending')
+          const deletedMatched = ctx.sql.exec('DELETE FROM jobs WHERE id = ?', 1)
+          const deletedUnmatched = ctx.sql.exec('DELETE FROM jobs WHERE id = ?', 999)
+          return {
+            inserted: { rowsWritten: inserted.rowsWritten, all: inserted.all(), one: inserted.one() },
+            selected: { rowsWritten: selected.rowsWritten, count: selected.all().length },
+            updatedMatched: { rowsWritten: updatedMatched.rowsWritten, all: updatedMatched.all(), one: updatedMatched.one() },
+            updatedUnmatched: { rowsWritten: updatedUnmatched.rowsWritten },
+            returningMatched: { rowsWritten: returningMatched.rowsWritten, all: returningMatched.all(), one: returningMatched.one() },
+            returningUnmatched: { rowsWritten: returningUnmatched.rowsWritten, all: returningUnmatched.all(), one: returningUnmatched.one() },
+            deletedMatched: { rowsWritten: deletedMatched.rowsWritten },
+            deletedUnmatched: { rowsWritten: deletedUnmatched.rowsWritten },
+          }
+        }),
+      } }
+    `
+    const started = run({
+      code,
+      migrations: [{ name: '0001_jobs.sql', sql: 'CREATE TABLE jobs (id INTEGER PRIMARY KEY, status TEXT NOT NULL);' }],
+      operations: [{ name: 'list', kind: 'query' }, { name: 'exercise', kind: 'mutation' }],
+      workflows: [],
+    })
+    const runners = start()
+    expect((await runners.call(started, call('exercise'))).value).toEqual({
+      inserted: { rowsWritten: 2, all: [], one: null },
+      selected: { rowsWritten: 0, count: 2 },
+      updatedMatched: { rowsWritten: 1, all: [], one: null },
+      updatedUnmatched: { rowsWritten: 0 },
+      returningMatched: { rowsWritten: 1, all: [{ id: 2, status: 'done' }], one: { id: 2, status: 'done' } },
+      returningUnmatched: { rowsWritten: 0, all: [], one: null },
+      deletedMatched: { rowsWritten: 1 },
+      deletedUnmatched: { rowsWritten: 0 },
+    })
+    expect((await runners.call(started, call('list'))).value).toEqual({
+      rows: [{ id: 2, status: 'done' }],
+      first: { id: 2, status: 'done' },
+      rowsWritten: 0,
+    })
+  })
+
   test('the kind in the descriptor decides the database: a mutation declared as a query cannot write', async () => {
     // WHY: an agent's session treats a query as a read. The host holds the code to what the descriptor says.
     const started = run({ operations: OPERATIONS.map((operation) => (operation.name === 'insert' ? { name: 'insert', kind: 'query' as const } : operation)) })

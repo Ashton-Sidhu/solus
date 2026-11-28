@@ -20,6 +20,8 @@ export interface SqlRows<Row> {
   all(): Row[]
   /** The first row, or null. */
   one(): Row | null
+  /** How many rows the statement inserted, updated, or deleted; 0 for a SELECT. */
+  readonly rowsWritten: number
 }
 
 /** The app's own SQLite database. The schema comes from `migrations/`. */
