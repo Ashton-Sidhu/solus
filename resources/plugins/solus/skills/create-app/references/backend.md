@@ -59,7 +59,7 @@ For an app with no UI, set `ui: false` in `defineApp`. It opens on its Manage pa
 | `ctx.config` | The settings the user chose on the Manage page, by field name, or each field's default ([config](config.md)). |
 | `ctx.tools` | The integrations the app names: `await ctx.tools.linear.list_issues({ team: 'ENG' })` ([access](access.md)). |
 | `ctx.files` | The app files: `list()`, `get(id)`, `read(id)` (bytes), `text(id)`, `path(id)`, `write(name, data, type?)`, `remove(id)`. A query cannot write or remove. `ctx.files.dir` is the path of a folder that is the app's own, with no records ([files](files.md)). |
-| `ctx.signals` | `emit(name, payload)`, in a mutation ([triggers](triggers.md#signals)). |
+| `ctx.signals` | `emit(name, payload)`, in a mutation ([signals](signals.md)). |
 | `ctx.workflows` | `start(name, input, { key })` and `terminate(runId)` in a mutation; `get(runId)` and `list()` in every operation ([workflows](workflows.md)). |
 | `ctx.models` | `start(setting, request)` and `cancel(id)` in a mutation; `get(id)` and `list()` in every operation ([models](models.md)). |
 | `ctx.caller` | Who called: `{ kind: 'ui' }`, `'agent'`, `'schedule'`, `'webhook'`, `'workflow'`, or `'model'` (an operation a model call used). |

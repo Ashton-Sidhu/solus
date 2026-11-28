@@ -87,7 +87,8 @@ Use `preview_app` for app previews. The host builds the source it runs.
 | Keep data: migrations, and `storage` for a UI with no backend | [data.md](references/data.md) |
 | Write the UI: the client, pages, the window, the network | [ui.md](references/ui.md) |
 | Take files from the user, or give the user a file | [files.md](references/files.md) |
-| Choose or configure a schedule, webhook, or signal | [triggers.md](references/triggers.md) |
+| Choose a trigger, run on a timer, or receive a provider event | [triggers.md](references/triggers.md) |
+| Report a result, notify the user, or hand work to an agent | [signals.md](references/signals.md) |
 | Run a job with retries, waits, or progress that survives a restart | [workflows.md](references/workflows.md) |
 | Let the user change a setting: config | [config.md](references/config.md) |
 | Ask a model: a summary, a classification, an analysis | [models.md](references/models.md) |

@@ -46,3 +46,9 @@ Solus keeps the result of each step. When a run starts again, the function runs 
 - Start a run with a `key` when the caller can call twice (a webhook, a double click): the same key and input give the same run. Use a stable ID for the requested job, such as a provider delivery ID. The run key prevents duplicate starts. The step's idempotency key protects an external write if that step runs again.
 
 The user sees each run with its steps on the Manage page, can end one, and can start a failed run again from the failed step. In the UI, show a run's state from `ctx.workflows.get(runId)` through a query, not a spinner that guesses.
+
+## Verify a run
+
+Start the job through its real entry point with an authorized test input. Use `inspect_app` with `view: "runs"` to find the run and `view: "run"` with its ID to see step outcomes, attempts, wake times, and the result. Check the saved data or external result that the user asked for. If the job emits a [signal](signals.md), check its action delivery separately.
+
+For a retry fix, use `retry_app_run` on an affected failed run after deploying the fix, when repeating that work is authorized. Check that the failed step succeeds and that previously finished work did not produce a second external change.
