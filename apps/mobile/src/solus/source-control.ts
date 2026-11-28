@@ -600,6 +600,7 @@ export const solusPrActivity = hostQuery(
         oid: c.sha,
         messageHeadline: c.message,
         committedDate: c.committedAt,
+        ...(c.changedFiles === undefined ? {} : { changedFiles: c.changedFiles }),
         authors: [actor(c.author)],
       })),
       reviewThreads: threads.map((t) => ({
@@ -686,6 +687,7 @@ export const solusPrDiff = hostQuery(
       headSha: target.headSha,
       cursor: input.cursor,
       commitSha: input.commit,
+      ...(input.path === undefined ? {} : { path: input.path }),
     });
   },
   {

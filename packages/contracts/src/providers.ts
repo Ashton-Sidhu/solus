@@ -462,6 +462,8 @@ export interface PrDiffRequest extends PrRef {
   /** Provider-owned opaque page cursor. */
   cursor?: string
   commitSha?: string
+  /** Read a single withheld patch instead of a page. */
+  path?: string
 }
 
 export interface PrDiffSlice {
@@ -469,6 +471,8 @@ export interface PrDiffSlice {
   patch: string
   truncated: boolean
   nextCursor: string | null
+  omittedFileStats?: readonly { path: string; additions: number; deletions: number }[]
+  withheldFilesReadable?: boolean
 }
 
 export type PrDiffChangeType = 'change' | 'rename-pure' | 'rename-changed' | 'new' | 'deleted'
@@ -537,6 +541,7 @@ export interface PrCommit {
   /** Author's GitHub login, falling back to the git author name. */
   author: string
   committedAt: string
+  changedFiles?: number
 }
 
 export interface ReviewThread {

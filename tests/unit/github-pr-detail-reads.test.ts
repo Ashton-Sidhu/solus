@@ -241,7 +241,7 @@ describe('GitHub pull request detail', () => {
             headRefOid: 'head-sha',
             commits: {
               pageInfo: { hasNextPage: false, endCursor: null },
-              nodes: [{ commit: { oid: 'c101', message: 'Late commit', committedDate: '2026-08-02T00:00:00Z', author: null } }],
+              nodes: [{ commit: { oid: 'c101', message: 'Late commit', committedDate: '2026-08-02T00:00:00Z', author: null, changedFilesIfAvailable: 104 } }],
             },
           },
         },
@@ -253,7 +253,7 @@ describe('GitHub pull request detail', () => {
 
     expect(client.calls).toEqual(['graphql:PullRequestDetail', 'graphql:PullRequestCommits'])
     expect(overview.commits.map((commit) => commit.sha)).toEqual(['c1', 'c101'])
-    expect(overview.commits[1]).toMatchObject({ author: '', committedAt: '2026-08-02T00:00:00Z' })
+    expect(overview.commits[1]).toMatchObject({ author: '', committedAt: '2026-08-02T00:00:00Z', changedFiles: 104 })
   })
 
   test('header and reviewer reads finish before the remaining commit pages are requested', async () => {

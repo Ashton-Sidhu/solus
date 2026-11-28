@@ -8,7 +8,7 @@ import { expect, it, vi } from "vite-plus/test";
 import { issueIdentity, issueTarget } from "../features/issues/issueParams";
 import { canPerformPullRequestAction } from "../features/pull-requests/pullRequestActions";
 import {
-  prDiffContents, solusIssueActivity, solusIssueDetail, solusIssueList, solusPrDetail, solusPrList, solusPrStack,
+  prDiffContents, solusIssueActivity, solusIssueDetail, solusIssueList, solusPrDetail, solusPrDiff, solusPrList, solusPrStack,
 } from "./source-control";
 
 const host = vi.hoisted(() => ({
@@ -33,6 +33,7 @@ const host = vi.hoisted(() => ({
   prSetLabels: vi.fn(),
   prSubmitReview: vi.fn(),
   prOpenReview: vi.fn(),
+  prGetDiff: vi.fn(),
   prGetDiffFileContents: vi.fn(),
   issuesUpdate: vi.fn(),
   issuesMove: vi.fn(),
@@ -528,6 +529,35 @@ it("does not send a queued write after the host connection changes during its re
     );
     expect(result._tag).toBe("Failure");
     expect(host.prSetLabels).not.toHaveBeenCalled();
+  } finally {
+    registry.dispose();
+  }
+});
+
+it("requests the withheld patch from the host at the revision on screen", async () => {
+  const registry = AtomRegistry.make();
+  try {
+    host.prOpenReview.mockResolvedValueOnce({
+      ...pr.baseRepo,
+      headSha: "reviewed",
+      baseSha: "base",
+    });
+    const patch = { patch: "file patch", truncated: false, nextCursor: null };
+    host.prGetDiff.mockResolvedValueOnce(patch);
+    const result = await executeAtomQuery(
+      registry,
+      solusPrDiff({
+        environmentId,
+        input: { ...pullRequest, expectedHead: "reviewed", path: "large.ts" },
+      }),
+    );
+    expect(result).toMatchObject({ _tag: "Success", value: patch });
+    expect(host.prGetDiff).toHaveBeenLastCalledWith({
+      ...hostPr,
+      baseSha: "base",
+      headSha: "reviewed",
+      path: "large.ts",
+    });
   } finally {
     registry.dispose();
   }

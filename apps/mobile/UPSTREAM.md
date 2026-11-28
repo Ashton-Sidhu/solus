@@ -30,6 +30,33 @@ its native paste context event for rich paste and text drop. The iOS and Android
 editors continue to handle images and copied context through their existing
 paths. Rich link recovery needs one native item with both HTML and plain text.
 
+## Pull request diff sync through 2026-11-28
+
+This partial import compares T3 Code `38aaacd480fe4dba82d71fa7fe565cce15a7858f`
+with the full import at `620cf4770d992d642f822a13dc2539c2605a3500` and the
+previous partial import at `c92d75e4867add69ded93ca37616a731d907669c`.
+The Changed files toolbar action follows T3's overview scroll on phone and
+tablet. Solus keeps the request until the list and section are ready and
+positions the section below the app bar. File rows and commit entries use
+the registered native diff route. Its source is in
+`src/features/pull-requests/PullRequestFileRouteScreen.tsx`.
+
+The view and picker use T3's viewed-file filter and keep a selected file,
+a file just marked viewed, or a file with a draft comment available. The
+diff uses T3's file ordering. The scoped Solus host provides
+the commit's changed-file count when GitHub has it. For patches withheld by
+GitHub, the host supplies file stats and returns only the requested patch
+when the full diff is available. The mobile client uses T3's existing
+per-file loading and retry controls.
+
+The native Viewed hit targets already match this revision. The upstream font
+selection depends on the pending Text Appearance import.
+
+The focused mobile and GitHub host tests passed. The iOS native diff harness
+passed, and the production exports produced Hermes bundles for iOS and
+Android. The mobile type check reported the same errors as before this
+import. Device interaction was outside this verification.
+
 ## Public T3 Code partial import through 2026-11-27
 
 This import compares public main at `c92d75e4867add69ded93ca37616a731d907669c`
@@ -90,10 +117,7 @@ Remaining route and adapter work:
   handoff use the T3 draft queue. The Solus `ThreadRouteScreen` needs the
   handoff and title behavior at its admission and outbox adapter. Its
   registered draft and sent attachment viewers still share the scoped reader.
-- The mounted PR Code route keeps the loaded count for a single commit.
-  `prListCommits` supplies the SHA, message, date, and author, and needs
-  per-commit `changedFiles` to use the rest of #43986. The existing
-  `prGetDiff` result still needs a withheld-patch indication. For #44042,
+- For #44042,
   the PR attachment renderer needs a content type for the signed resource
   from `usePullRequestMediaUrl`, or a scoped metadata read. It still selects
   image and video previews from the existing reference data.

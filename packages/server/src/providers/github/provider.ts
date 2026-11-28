@@ -62,7 +62,7 @@ import { readGithubViewedFiles, writeGithubViewedFiles } from './viewed-files'
 import { canonicalRepoRef } from './canonical-repo'
 import { readGithubPullRequestCommits, readGithubPullRequestDetail } from './pull-request-detail'
 import { GITHUB_REACTION_FIELDS, toPrReactions, type GqlReactionFields } from './pr-social'
-import { readGithubPullRequestDiff } from './pull-request-diff'
+import { readGithubPullRequestDiff, withheldGithubDiffPatch } from './pull-request-diff'
 import { readPriorityNumbers, readPullRequestPages } from './pull-request-search'
 import { checkRows, normalizeChecksResponse, uniquePrNumbers } from './checks'
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
@@ -125,6 +125,8 @@ interface GithubDiffFile {
   status: string
   patch?: string
   changes?: number
+  additions?: number
+  deletions?: number
 }
 
 function diffPath(path: string): string {
@@ -136,13 +138,11 @@ const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,40}$/i
 
 /** Convert complete GitHub file records into a unified patch. Keeping this
  * file-based is what guarantees pagination never cuts through a hunk. */
-interface UnifiedGithubPatch {
-  patch: string
-  truncated: boolean
-}
+type UnifiedGithubPatch = Omit<PrDiffSlice, 'nextCursor' | 'withheldFilesReadable'>
 
 export function githubFilesToUnifiedPatch(files: GithubDiffFile[]): UnifiedGithubPatch {
   let truncated = false
+  const omittedFileStats: NonNullable<PrDiffSlice['omittedFileStats']>[number][] = []
   const patches = files.map((file) => {
     const oldPath = file.previous_filename ?? file.filename
     const oldLabel = file.status === 'added' ? '/dev/null' : `a/${oldPath}`
@@ -158,15 +158,17 @@ export function githubFilesToUnifiedPatch(files: GithubDiffFile[]): UnifiedGithu
     }
     lines.push(`--- ${diffPath(oldLabel)}`, `+++ ${diffPath(newLabel)}`)
     if (file.patch) lines.push(file.patch)
-    else if (file.status !== 'renamed') {
-      // GitHub omits `patch` for binary and oversized files. The file remains
-      // visible, but expanded source context must come from the contents RPC.
-      truncated = true
-      lines.push(`Binary files ${diffPath(oldLabel)} and ${diffPath(newLabel)} differ`)
+    else {
+      const { additions = 0, deletions = 0 } = file
+      if (additions + deletions > 0) omittedFileStats.push({ path: file.filename, additions, deletions })
+      if (file.status !== 'renamed' || file.changes || additions + deletions > 0) {
+        truncated = true
+        lines.push(`Binary files ${diffPath(oldLabel)} and ${diffPath(newLabel)} differ`)
+      }
     }
     return lines.join('\n')
   })
-  return { patch: patches.join('\n'), truncated }
+  return { patch: patches.join('\n'), truncated, ...(omittedFileStats.length && { omittedFileStats }) }
 }
 
 /** GitHub's compare response has no `head_commit` field. The last ahead
@@ -837,15 +839,29 @@ export class GitHubProvider implements ReviewProvider {
     if (detail.headSha !== request.headSha) {
       throw new Error('This pull request changed. Refresh it before reviewing the new diff.')
     }
-    const page = request.cursor === undefined ? 1 : Number(request.cursor)
+    const page = request.path !== undefined || request.cursor === undefined ? 1 : Number(request.cursor)
     if (!Number.isSafeInteger(page) || page < 1) throw new Error('Invalid pull request diff cursor.')
     return this.withClient('get_pull_request_diff', repo.host, async (client) => {
       const { rest } = client
+      if (request.commitSha && !COMMIT_SHA_PATTERN.test(request.commitSha)) {
+        throw new Error('Invalid pull request commit.')
+      }
+      if (request.path !== undefined) {
+        const [baseSha, diff] = await Promise.all([
+          request.commitSha ? request.baseSha : this.getPullRequestDiffBase(repo, detail),
+          readGithubPullRequestDiff(client, repo, request.number, { commitSha: request.commitSha }),
+        ])
+        if (baseSha !== request.baseSha) {
+          throw new Error('This pull request base changed. Refresh it before reviewing the new diff.')
+        }
+        const patch = diff.status === 'loaded' ? await withheldGithubDiffPatch(diff.patch, request.path) : null
+        if (patch === null) throw new Error(`GitHub did not return a patch for ${request.path}.`)
+        return { patch, truncated: false, nextCursor: null }
+      }
       if (request.commitSha) {
         // One commit of the change rather than the whole of it. A commit is
         // content-addressed, so no base staleness check applies: the sha either
         // exists with exactly this diff or the request fails.
-        if (!COMMIT_SHA_PATTERN.test(request.commitSha)) throw new Error('Invalid pull request commit.')
         const response = await rest.repos.getCommit({
           owner: repo.owner,
           repo: repo.repo,
@@ -856,8 +872,8 @@ export class GitHubProvider implements ReviewProvider {
         const converted = githubFilesToUnifiedPatch(response.data.files ?? [])
         const hasNextPage = /<[^>]+>;\s*rel="next"/.test(response.headers.link ?? '')
         return {
-          patch: converted.patch,
-          truncated: converted.truncated,
+          ...converted,
+          ...(page === 1 && { withheldFilesReadable: true }),
           nextCursor: hasNextPage ? String(page + 1) : null,
         }
       }
@@ -871,7 +887,9 @@ export class GitHubProvider implements ReviewProvider {
       if (diffBaseSha !== request.baseSha) {
         throw new Error('This pull request base changed. Refresh it before reviewing the new diff.')
       }
-      if (whole) return { patch: whole.patch, truncated: whole.truncated, nextCursor: null }
+      if (whole?.status === 'loaded') {
+        return { patch: whole.patch, truncated: whole.truncated, nextCursor: null }
+      }
       const response = await rest.pulls.listFiles({
         owner: repo.owner,
         repo: repo.repo,
@@ -882,8 +900,8 @@ export class GitHubProvider implements ReviewProvider {
       const converted = githubFilesToUnifiedPatch(response.data)
       const hasNextPage = /<[^>]+>;\s*rel="next"/.test(response.headers.link ?? '')
       return {
-        patch: converted.patch,
-        truncated: converted.truncated,
+        ...converted,
+        ...(whole?.status === 'too-large' && { withheldFilesReadable: true }),
         nextCursor: hasNextPage ? String(page + 1) : null,
       }
     })

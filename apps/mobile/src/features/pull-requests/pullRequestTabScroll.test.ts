@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vite-plus/test";
-import { pullRequestTabOffset } from "./pullRequestTabScroll";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { pullRequestTabOffset, scrollToPullRequestFiles } from "./pullRequestTabScroll";
 
 describe("pull request tab scroll", () => {
   it("keeps the header fixed while switching, even if the destination was scrolled deeply", () => {
@@ -15,5 +15,19 @@ describe("pull request tab scroll", () => {
     const headerEnd = 213.6666717529297 - 116;
     expect(pullRequestTabOffset(97.66666666666667, 800, headerEnd)).toBe(800);
     expect(pullRequestTabOffset(headerEnd - 1, 800, headerEnd)).toBe(headerEnd - 1);
+  });
+  it("waits for the files section and scrolls it below the app bar", () => {
+    const scrollToKey = vi.fn(async () => {});
+    const overview = { scrollToKey };
+    expect(scrollToPullRequestFiles(null, 400, 60)).toBe(false);
+    expect(scrollToPullRequestFiles(overview, null, 60)).toBe(false);
+    expect(scrollToKey).not.toHaveBeenCalled();
+    expect(scrollToPullRequestFiles(overview, 400, 60)).toBe(true);
+    expect(scrollToKey).toHaveBeenCalledWith({
+      key: "overview:body",
+      viewPosition: 0,
+      viewOffset: -340,
+      animated: true,
+    });
   });
 });

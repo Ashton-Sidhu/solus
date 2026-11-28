@@ -53,10 +53,12 @@ describe('GitHub pull request diff conversion', () => {
     // as an empty diff would silently hide part of the review.
     const result = githubFilesToUnifiedPatch([
       { filename: 'assets/image.png', status: 'modified' },
+      { filename: 'src/large.ts', status: 'modified', additions: 250, deletions: 1 },
     ])
 
     expect(result.truncated).toBe(true)
     expect(result.patch).toContain('Binary files a/assets/image.png and b/assets/image.png differ')
+    expect(result.omittedFileStats).toEqual([{ path: 'src/large.ts', additions: 250, deletions: 1 }])
   })
 
   test('represents a pure rename without marking the diff truncated', () => {
@@ -161,7 +163,15 @@ class ScriptedGitHubProvider extends GitHubProvider {
         },
       },
       repos: {
-        getCommit: async (params: { ref: string; page: number }) => {
+        getCommit: async (params: { ref: string; page: number; mediaType?: { format: string } }) => {
+          if (params.mediaType?.format === 'diff') {
+            return {
+              data: [
+                'diff --git a/other.ts b/other.ts\n--- a/other.ts\n+++ b/other.ts\n@@ -1 +1 @@\n-old\n+other',
+                'diff --git a/large file.ts b/large file.ts\n--- a/large file.ts\n+++ b/large file.ts\n@@ -1 +1 @@\n-old\n+large',
+              ].join('\n'),
+            }
+          }
           this.commitDiffReads.push({ ref: params.ref, page: params.page })
           return {
             data: {
@@ -194,6 +204,24 @@ class ScriptedGitHubProvider extends GitHubProvider {
 }
 
 describe('GitHub commit-scoped pull request diff', () => {
+  test('returns only the requested withheld patch, even when a page cursor is present', async () => {
+    const provider = new ScriptedGitHubProvider()
+    const result = await provider.getPullRequestDiff(repo, detail, {
+      number: 7,
+      baseSha: 'base-sha',
+      headSha: 'head-sha',
+      commitSha,
+      cursor: '2',
+      path: 'large file.ts',
+    })
+    expect(provider.commitDiffReads).toHaveLength(0)
+    expect(result).toEqual({
+      patch: 'diff --git a/large file.ts b/large file.ts\n--- a/large file.ts\n+++ b/large file.ts\n@@ -1 +1 @@\n-old\n+large',
+      truncated: false,
+      nextCursor: null,
+    })
+  })
+
   test('serves a commit sha from the commit endpoint, not the PR file list', async () => {
     // WHY: clicking a commit must show that commit's own changes. The PR files
     // endpoint can only describe the whole change.

@@ -6,7 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { PullRequestDetail } from "@t3tools/contracts";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useGT } from "gt-react-native";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/ui/AppText";
@@ -18,6 +18,7 @@ import { Menu } from "../../components/ui/Menu";
 import type { AppBarMenu, AppBarMenuItem } from "../../components/ui/AppBar.types";
 import { createNativeHeaderMenu } from "../../components/ui/nativeHeaderMenu.ios";
 
+import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { useNativeLayoutMetrics } from "../../native/native-layout-metrics";
 import { type PullRequestParams } from "./usePullRequestDiff";
 import { usePullRequestPermissions } from "./usePullRequestPermissions";
@@ -107,6 +108,11 @@ export function PullRequestCardRow(props: {
       ) : null}
     </Pressable>
   );
+}
+
+export function usePullRequestToolbarHeight(bottomInset: number) {
+  const { buttonSize } = useAndroidControlSizing();
+  return useState(() => (Platform.OS === "android" ? bottomInset + buttonSize + 40 : 0));
 }
 
 /** The Duo's vertical bar, where this toolbar and the screen's bar share one column of buttons. */

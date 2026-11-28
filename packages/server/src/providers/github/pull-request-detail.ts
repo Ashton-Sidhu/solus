@@ -23,7 +23,7 @@ const COMMITS_PER_PAGE = 100
 
 const COMMIT_FIELDS = `
   pageInfo { hasNextPage endCursor }
-  nodes { commit { oid message committedDate author { name date user { login } } } }
+  nodes { commit { oid message committedDate changedFilesIfAvailable author { name date user { login } } } }
 `
 
 const PULL_REQUEST_DETAIL_QUERY = `
@@ -94,6 +94,7 @@ interface GqlCommitPage {
       oid: string
       message: string
       committedDate: string
+      changedFilesIfAvailable?: number | null
       author: { name: string | null; date: string | null; user: { login: string } | null } | null
     }
   } | null>
@@ -307,6 +308,7 @@ function commitsOf(page: GqlCommitPage): PrCommit[] {
         message: node.commit.message.split('\n', 1)[0],
         author: node.commit.author?.user?.login ?? node.commit.author?.name ?? '',
         committedAt: node.commit.author?.date ?? node.commit.committedDate,
+        ...(node.commit.changedFilesIfAvailable != null && { changedFiles: node.commit.changedFilesIfAvailable }),
       }]
     : [])
 }

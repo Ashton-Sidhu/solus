@@ -44,10 +44,8 @@ import {
   recordHomeTransitionStart,
 } from "./features/home/home-route-visibility";
 import { AndroidWorkspaceTabsProvider } from "./features/layout/workspace/AndroidWorkspaceTabsProvider";
-import {
-  PullRequestRouteScreen,
-  PullRequestFileRouteScreen,
-} from "./features/pull-requests/PullRequestRouteScreen";
+import { PullRequestRouteScreen } from "./features/pull-requests/PullRequestRouteScreen";
+import { PullRequestFileRouteScreen } from "./features/pull-requests/PullRequestFileRouteScreen";
 import { PullRequestFilesSheet } from "./features/pull-requests/PullRequestFiles";
 import { PullRequestReviewSheet } from "./features/pull-requests/PullRequestReviewSheet";
 import { PullRequestReviewersScreen } from "./features/pull-requests/PullRequestReviewersScreen";
