@@ -172,6 +172,8 @@ export const appOperationSchema = z.object({
   output: appJsonSchemaSchema.optional(),
   /** How long one call may take; 60 seconds when absent. */
   timeoutSeconds: z.number().int().min(1).max(900).optional(),
+  /** True when an agent must get user approval before calling this operation; false when absent. */
+  requiresApproval: z.boolean().optional(),
 })
 export type AppOperation = z.infer<typeof appOperationSchema>
 

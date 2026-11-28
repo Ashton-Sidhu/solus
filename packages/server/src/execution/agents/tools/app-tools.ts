@@ -620,7 +620,7 @@ export async function appOperationAgentTools(actor: Actor, taken: ReadonlySet<st
         description: operationToolDescription(app.name, operation, descriptor.instructions !== ''),
         inputFields: fields ?? {},
         alwaysLoad: false,
-        requiresApproval: false,
+        requiresApproval: operation.requiresApproval ?? false,
         // As appCall.
         access: { permission: HOST_USE },
         execute: async (input, context) => {

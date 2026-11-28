@@ -104,4 +104,29 @@ describeWithNode('the agent\'s tools for apps', () => {
     expect((await tools.setAppSignalActionAgentTool.execute({ app: 'reports', signal: 'report.ready', type: 'run_automation' }, context)).text).toBe('set_app_signal_action failed: send_to_session needs session_id, and run_automation needs automation_id.')
     expect((await tools.inspectAppAgentTool.execute({ app: 'reports', view: 'signals' }, context)).text).toContain('- report.ready: A report is ready.')
   })
+
+  test('appOperationAgentTools enforces per-operation requiresApproval and defaults to false when omitted', async () => {
+    // WHY: operations marked requiresApproval: true must require user approval before an agent runs them,
+    // while operations that omit the flag keep working without approval for backwards compatibility.
+    const apps = await service()
+    const folder = project({
+      app: `import { defineApp, query, mutation } from '@solus/app/backend'
+export default defineApp({
+  name: 'Vault',
+  operations: {
+    list: query({ description: 'List items.' }, () => []),
+    reveal: query({ description: 'Reveal sensitive item.', requiresApproval: true }, () => 'top-secret'),
+    purge: mutation({ description: 'Delete all items.', requiresApproval: true }, () => null),
+    ping: mutation({ description: 'Ping.', requiresApproval: false }, () => 'pong'),
+  },
+})`,
+    })
+    await ship(apps, folder)
+    const agentTools = await tools.appOperationAgentTools(owner.actor, new Set())
+    const byName = new Map(agentTools.map((tool) => [tool.name, tool.requiresApproval]))
+    expect(byName.get('vault__list')).toBe(false)
+    expect(byName.get('vault__reveal')).toBe(true)
+    expect(byName.get('vault__purge')).toBe(true)
+    expect(byName.get('vault__ping')).toBe(false)
+  })
 })

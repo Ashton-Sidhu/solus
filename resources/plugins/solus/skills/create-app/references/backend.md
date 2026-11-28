@@ -45,7 +45,7 @@ export default defineApp({
 - A handler takes `(ctx, input)` and returns a JSON value, at most 1 MiB. Page large results.
 - A call has 60 seconds. `timeoutSeconds` on an operation gives it up to 900. For longer work, or work that must not be lost, use a [workflow](workflows.md).
 - A thrown error reaches the caller as its message. Write messages a person can act on.
-- An operation runs when called. For an action that needs confirmation, the UI asks before calling it and the app instructions tell agents when to ask. Enforce caller access in the operation where it matters. A hidden button cannot enforce access to a tool.
+- Set `requiresApproval: true` on a `query` or `mutation` when an agent must get user approval before calling it (defaults to `false` when omitted). Solus enforces this before an agent runs `<slug>__<operation>`. For UI confirmation, the UI still asks before calling it. Enforce caller access in the operation where it matters, since a hidden button cannot enforce access to a tool.
 - `console.log`, `console.warn`, and `console.error` write the call's log lines. The user and an agent read them on the app's Manage page and with `inspect_app`. Log what a person needs to repair a call that failed. Never log a secret.
 
 For an app with no UI, set `ui: false` in `defineApp`. It opens on its Manage page, where the user runs its operations.

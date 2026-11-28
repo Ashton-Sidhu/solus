@@ -104,6 +104,25 @@ describe('the app build and the contract', () => {
   test('an app with no operation has an empty descriptor, not an error', () => {
     expect(appDescriptorSchema.parse(defineApp({ name: 'Board' }).descriptor())).toMatchObject({ name: 'Board', operations: [] })
   })
+
+  test('an operation carries requiresApproval in the descriptor when set, and omits it when absent', () => {
+    // WHY: an app author declares per-operation agent approvals on query or mutation;
+    // the descriptor must carry that choice to the contract without breaking older apps.
+    const definition = defineApp({
+      name: 'Vault',
+      operations: {
+        peek: query({ description: 'Read a secret.', requiresApproval: true }, () => 'secret'),
+        purge: mutation({ description: 'Delete everything.', requiresApproval: true }, () => null),
+        ping: query({ description: 'Health check.' }, () => 'ok'),
+        touch: mutation({ description: 'Touch.', requiresApproval: false }, () => null),
+      },
+    })
+    const read = appDescriptorSchema.parse(definition.descriptor())
+    expect(read.operations.find((operation) => operation.name === 'peek')?.requiresApproval).toBe(true)
+    expect(read.operations.find((operation) => operation.name === 'purge')?.requiresApproval).toBe(true)
+    expect(read.operations.find((operation) => operation.name === 'ping')).not.toHaveProperty('requiresApproval')
+    expect(read.operations.find((operation) => operation.name === 'touch')?.requiresApproval).toBe(false)
+  })
 })
 
 describe('the names the project\'s module posts', () => {
