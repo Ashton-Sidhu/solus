@@ -4,7 +4,8 @@ import { providerAvailableForProject } from '../seats/provider-availability'
 import { captureServerEvent } from '../../analytics'
 import { startRun, credentialScopedAgentTools, type PendingStart, type StartedRun } from './run-lifecycle'
 export type { PendingStart } from './run-lifecycle'
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
+import { readCheckout } from '../../git/git-helpers'
 import { basename } from 'node:path'
 import { isTaskFolderPath, type TaskFolder } from '@solus/contracts/codebases'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
@@ -12,7 +13,6 @@ import { splitPromptFiles } from '@solus/contracts/injected-context'
 import { installedRoutingProviders, routeModelPrompt } from '../agents/model-routing'
 import { forkedFrom } from './thread-activity'
 import { createLogger } from '../../logger'
-import { computeGitState } from '../../git/git-helpers'
 import { warmFinder } from '../../files/file-finder'
 import { resolveHomePath } from '../../platform/paths'
 import { recordProjectUse } from '../../project-config/projects-manifest'
@@ -702,9 +702,13 @@ export class RunLauncher {
     if (!repositoryRun && !effectiveGitCtx?.worktreePath && resolvedProjectPath && resolvedProjectPath !== '~') {
       const statusGitCtx = await dispatchStep(
         'git_state',
-        { projectPath: resolvedProjectPath, fn: 'computeGitState', file: 'run-launcher.ts' },
+        { projectPath: resolvedProjectPath, fn: 'readCheckout', file: 'run-launcher.ts' },
         async (annotate) => {
-          const checkout = gitCheckoutFromState(await computeGitState(resolvedProjectPath).catch(() => null))
+          // A turn no client sent (send_session, an automation) after a host
+          // restart has no git context, and its folder can be a linked worktree.
+          const read = await readCheckout(resolvedProjectPath).catch(() => null)
+          const isWorktree = !!read?.checkoutRoot && !isSameRealPath(read.checkoutRoot, read.status.repoRoot)
+          const checkout = gitCheckoutFromState(read?.status, isWorktree ? resolvedProjectPath : undefined, read?.status.repoRoot)
           annotate({ branch: checkout?.branch ?? '', worktreePath: checkout?.worktreePath ?? '' })
           return checkout
         },
@@ -1232,4 +1236,13 @@ async function admitTurnAtHome(sessionId: string): Promise<void> {
   await home.operations.admitSessionTurn(home.context, sessionId).catch((error) => {
     log.warn('session_turn_admission_failed', { sessionId, error: error instanceof Error ? error.message : String(error) })
   })
+}
+
+/** Git names a checkout's top level by its real path and a repository's folder as the caller wrote it. */
+function isSameRealPath(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b)
+  } catch {
+    return a === b
+  }
 }

@@ -25,7 +25,6 @@ const base: FleetMachineInput = {
   sessions: 0,
   load: { cpu: 20, memory: 40, latencyMs: 4 },
   hasUpdate: false,
-  needsSetup: false,
 }
 
 describe('where a session about a host runs', () => {
@@ -52,7 +51,6 @@ describe('what a session about a host is asked', () => {
   test('the most urgent problem of the host, or a check when it has none', () => {
     expect(hostAskOf(fleetMachine({ ...base, readiness: 'unreachable', hasUpdate: true }))).toBe('unreachable')
     expect(hostAskOf(fleetMachine({ ...base, readiness: 'reconnecting' }))).toBe('reconnecting')
-    expect(hostAskOf(fleetMachine({ ...base, needsSetup: true, hasUpdate: true }))).toBe('signin')
     expect(hostAskOf(fleetMachine({ ...base, hasUpdate: true }))).toBe('update')
     expect(hostAskOf(fleetMachine({ ...base, isCloud: true, hasManagedCompute: true, managedState: 'stopped' }))).toBe('stopped')
     expect(hostAskOf(fleetMachine(base))).toBe('check')

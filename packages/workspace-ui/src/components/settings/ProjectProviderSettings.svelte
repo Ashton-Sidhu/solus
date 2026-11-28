@@ -36,7 +36,7 @@
       </SettingsRow>
     {/each}
     <SettingsRow label="Reset provider overrides" description="Use your host's instance choices and enablement for this project.">
-      {#snippet control()}<Button variant="outline" size="sm" disabled={!override || view.saving} onclick={() => save({ kind: "reset" })}>Reset to host settings</Button>{/snippet}
+      {#snippet control()}<Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={!override || view.saving} onclick={() => save({ kind: "reset" })}>Reset to host settings</Button>{/snippet}
     </SettingsRow>
   {/if}
 </SettingsSection>

@@ -62,15 +62,16 @@
           {/if}
         </p>
         <div class="flex flex-wrap gap-2">
+          <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" disabled={localHostStore.isSwitching} onclick={cancel}>Cancel</Button>
           <Button
             variant="destructive"
             size="sm"
+            class="pointer-coarse:min-h-11"
             disabled={localHostStore.isSwitching}
             onclick={() => void localHostStore.setEnabled(false)}
           >
             {localHostStore.isSwitching ? "Restarting…" : "Turn off and restart"}
           </Button>
-          <Button variant="outline" size="sm" disabled={localHostStore.isSwitching} onclick={cancel}>Cancel</Button>
         </div>
       </div>
     {/snippet}

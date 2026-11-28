@@ -4,6 +4,7 @@ import {
   createHostFailureMessage,
   defaultComputeHost,
   defaultSize,
+  machineStepProgress,
   machineTargets,
   newCloudHostLabel,
   newCloudHostRequest,
@@ -112,6 +113,30 @@ describe('Continue on a cloud host', () => {
     expect(managedHostNeedsStart('provisioning')).toBe(false)
     expect(managedHostNeedsStart('starting')).toBe(false)
     expect(managedHostNeedsStart(undefined)).toBe(false)
+  })
+})
+
+describe('step 1 after the person moved on', () => {
+  const idle = { host: null, isBusy: false, hasError: false, isLinking: false }
+  const failedHost: ComputeHost = { ...cloudHost, uplink: { ...cloudHost.uplink!, managedState: 'failed' } }
+
+  test('a cloud host that failed, or a start that ended in an error, is failed and does not spin', () => {
+    // WHY: a host that did not start kept a spinner with no end, and the
+    // person reached a workspace where no agent could run (2026-11-27).
+    expect(machineStepProgress({ ...idle, host: failedHost })).toBe('failed')
+    expect(machineStepProgress({ ...idle, host: cloudHost, hasError: true })).toBe('failed')
+    expect(machineStepProgress({ ...idle, hasError: true })).toBe('failed')
+  })
+
+  test('a host still coming up, a create, or a computer that links is working', () => {
+    expect(machineStepProgress({ ...idle, host: cloudHost })).toBe('working')
+    expect(machineStepProgress({ ...idle, isBusy: true })).toBe('working')
+    expect(machineStepProgress({ ...idle, isLinking: true })).toBe('working')
+  })
+
+  test('a ready host is settled, even after an older error; a skipped step is settled', () => {
+    expect(machineStepProgress({ ...idle, host: adaLaptop, hasError: true })).toBe('settled')
+    expect(machineStepProgress(idle)).toBe('settled')
   })
 })
 

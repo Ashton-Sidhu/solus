@@ -133,7 +133,7 @@
       <p class="text-[0.9375rem] leading-5.5 text-pretty text-(--solus-text-secondary)">Each app signs in once and acts as you on {hostName}.</p>
     </div>
     <div class="flex min-w-0 flex-wrap items-center gap-2 @max-[44rem]/directory:w-full">
-      <Button variant="ghost" size="sm" class="bg-muted" aria-expanded={approval !== null} onclick={() => (approval = approval ? null : { requestId: null })}>
+      <Button variant="outline" size="default" class="pointer-coarse:min-h-11" aria-expanded={approval !== null} onclick={() => (approval = approval ? null : { requestId: null })}>
         Approve a sign-in
       </Button>
       <SearchField bind:value={search} placeholder="Search apps" class="w-52 flex-none basis-auto rounded-[0.625rem] @max-[44rem]/directory:w-auto @max-[44rem]/directory:flex-1" />
@@ -146,7 +146,7 @@
         <OutsideAppsApprove {serverId} {hostName} signInRequestId={approval.requestId} onOtherHost={showApprovalOn} />
       {/key}
       <div class="flex justify-end">
-        <Button variant="ghost" size="sm" class="bg-muted" onclick={() => (approval = null)}>Done</Button>
+        <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => (approval = null)}>Done</Button>
       </div>
     </div>
   {/if}
@@ -227,7 +227,7 @@
             <span class="truncate text-[0.9375rem] leading-4.5 font-semibold text-(--solus-text-primary)">{grant.deviceLabel}</span>
             <span class="truncate text-[0.8125rem] leading-4 text-(--solus-text-tertiary)">{facts.access} · Connected {facts.connected} · Last used: {facts.lastUsed}</span>
           </span>
-          <Button variant="ghost" size="sm" class="shrink-0 text-(--solus-status-error) hover:text-(--solus-status-error)" aria-label={`Disconnect ${grant.deviceLabel}`} onclick={() => void connectionsStore.revokeDevice(serverId, grant.deviceId)}>
+          <Button variant="destructive" size="sm" class="shrink-0 pointer-coarse:min-h-11" aria-label={`Disconnect ${grant.deviceLabel}`} onclick={() => void connectionsStore.revokeDevice(serverId, grant.deviceId)}>
             Disconnect
           </Button>
         </div>
@@ -237,7 +237,7 @@
 
   {#if grants.length > 1}
     <div class="-mt-4 flex justify-end">
-      <Button variant="ghost" size="sm" class="text-(--solus-status-error) hover:text-(--solus-status-error)" disabled={isRevokingAll} onclick={() => void revokeAll()}>
+      <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={isRevokingAll} onclick={() => void revokeAll()}>
         {isRevokingAll ? "Disconnecting…" : "Disconnect all apps"}
       </Button>
     </div>

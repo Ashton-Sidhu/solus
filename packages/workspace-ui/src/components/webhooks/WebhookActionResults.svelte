@@ -31,7 +31,7 @@
           <Button size="xs" variant="link" onclick={() => onOpenSession(sessionId)}>Open session</Button>
         {/if}
         {#if onReplay}
-          <Button size="xs" variant="ghost" class="ml-auto" onclick={() => onReplay(result.actionId)}>
+          <Button size="sm" variant="outline" class="ml-auto pointer-coarse:min-h-11" onclick={() => onReplay(result.actionId)}>
             <ReplayIcon size={14} /> Replay this action
           </Button>
         {/if}

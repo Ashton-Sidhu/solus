@@ -80,17 +80,20 @@ class Transcriber {
     bool probed = false;
     bool stream_available = false;
 
+    static constexpr int32_t stream_chunk_ms = 160;
+    static constexpr int32_t stream_right_ms = 160;
+
     transcribe_status start_stream() {
         transcribe_stream_params params;
         transcribe_stream_params_init(&params);
         transcribe_parakeet_buffered_stream_ext buffered;
         transcribe_parakeet_buffered_stream_ext_init(&buffered);
-        // Use the same trained window for preparation and every recording.
-        // Retain the model's 5.6 s left context and the CPU batch fallback.
+        // Use a low-latency window from the model's trained menu (320 ms lookahead,
+        // 1.64% WER vs 1.60% offline) while retaining the 5.6 s left context.
         if (transcribe_model_accepts_ext_kind(model.get(), TRANSCRIBE_EXT_SLOT_STREAM,
                                               TRANSCRIBE_EXT_KIND_PARAKEET_BUFFERED_STREAM)) {
-            buffered.chunk_ms = 560;
-            buffered.right_ms = 560;
+            buffered.chunk_ms = stream_chunk_ms;
+            buffered.right_ms = stream_right_ms;
             params.family = &buffered.ext;
         }
         auto options = run_params();
@@ -129,7 +132,11 @@ class Transcriber {
                 probed = true;
                 if (gpu) {
                     if (start_stream() == TRANSCRIBE_OK) {
-                        const std::vector<float> silence(8 * 16000, 0.0f);
+                        // Feed one chunk + right context plus one extra frame so the probe
+                        // exercises one real buffered emit and finalize without running
+                        // dozens of redundant encoder passes at cold start.
+                        const size_t probe_samples = size_t(stream_chunk_ms + stream_right_ms + 80) * 16;
+                        const std::vector<float> silence(probe_samples, 0.0f);
                         stream_available = transcribe_stream_feed(session.get(), silence.data(), int(silence.size()), nullptr) == TRANSCRIBE_OK
                             && transcribe_stream_finalize(session.get(), nullptr) == TRANSCRIBE_OK;
                     }
@@ -159,8 +166,10 @@ public:
             prepare();
             if (operation == warm) { reply(id); return; }
             if (operation == begin) {
-                clear();
-                prepare();
+                if (recording || !audio.empty()) {
+                    clear();
+                    prepare();
+                }
                 vocabulary = terms;
                 recording = true;
                 // A model/device that cannot stream still records every sample.

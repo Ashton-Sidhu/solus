@@ -108,15 +108,18 @@ export class HostPairings {
   }
 
   /**
-   * Pairs with the host at `request.url`, with its pairing code or link, or with
-   * a check code: an approval request that the host's owner approves there
-   * (docs/plans/add-machine-card.md). Both are saved the same way.
+   * Pairs with the host at `request.url`, with its pairing code or link, with
+   * no code as a device that its network trusts, or with a check code: an
+   * approval request that the host's owner approves there
+   * (docs/plans/add-machine-card.md). All are saved the same way.
    */
   async pair(input: HostPairRequest, signal?: AbortSignal): Promise<HostListing> {
     const request = hostPairRequestSchema.parse(input)
     const url = pairingUrl(request.url)
     // The shape check comes before any request: a value that is not a code goes nowhere.
-    const way: { pairToken: string } | { checkCode: string } = request.code !== undefined ? { pairToken: pairingSecret(url, request.code) } : { checkCode: approvalCheckCode(request.checkCode) }
+    const way: { pairToken: string | undefined } | { checkCode: string } = request.code !== undefined ? { pairToken: pairingSecret(url, request.code) }
+      : request.checkCode !== undefined ? { checkCode: approvalCheckCode(request.checkCode) }
+      : { pairToken: undefined }
     const target = await this.target(url, signal)
     const result = 'pairToken' in way
       ? await this.pairWithCode(target, way.pairToken, request.label, signal)
@@ -124,7 +127,8 @@ export class HostPairings {
     return this.save(target, result, signal)
   }
 
-  private async pairWithCode(target: PairingTarget, pairToken: string, label: string | undefined, signal?: AbortSignal): Promise<PairServerResult> {
+  /** With no `pairToken`, the target lets this host join only when its network trusts it. */
+  private async pairWithCode(target: PairingTarget, pairToken: string | undefined, label: string | undefined, signal?: AbortSignal): Promise<PairServerResult> {
     // A bounded request, with no redirects: a pairing code must reach only the named address.
     const fetchPair: typeof fetch = async (input, init) => {
       const timeout = AbortSignal.timeout(TIMEOUT_MS)
@@ -140,6 +144,7 @@ export class HostPairings {
       if (response.ok) return response
       // A remote error body can contain the code. Report the HTTP status only.
       void response.body?.cancel().catch(() => {})
+      if (response.status === 401 && !pairToken) throw new Error(`${target.name || 'That host'} does not let this host join without a pairing code.`)
       if (response.status === 401) throw new Error('The host did not accept the pairing code (HTTP 401). Run solus pair on that host for a new code.')
       if (response.status === 429) throw new Error('Too many pairing attempts (HTTP 429). Wait before you try again.')
       throw new Error(`The host returned HTTP ${response.status} for the pairing request.`)

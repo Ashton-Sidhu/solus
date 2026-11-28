@@ -60,9 +60,7 @@ const NEARBY_SHOWN_DISCOVERY_MS = 30_000
 const BACKGROUND_DISCOVERY_MS = 5 * 60_000
 
 /** What the add-host dialog shows: a pairing link, an address and code, SSH, or the add of a WSL distro chosen in the nearby list. */
-/** The ways the Add host dialog adds a machine; `approve` is an approval request to a machine this client found (`approvalRequestStore`). */
-/** A tab of the Add host dialog: an address or pairing link, SSH, a WSL distro, or an approval request. */
-export type AddHostMode = 'address' | 'ssh' | 'wsl' | 'approve'
+export type AddHostMode = 'address' | 'ssh' | 'wsl'
 
 export interface ServerItem {
   id: string
@@ -621,12 +619,14 @@ class ServersStore {
    * host takes the server settings of the home host (else `fromHostId`) when the
    * Sync settings checkbox of the flow is on (docs/plans/settings-sync-hosts.md).
    */
-  async savePairedServer(server: KnownHost, fromHostId: string | null = null): Promise<void> {
+  /** Saves a host this device paired, and returns it as the catalog now knows it. */
+  async savePairedServer(server: KnownHost, fromHostId: string | null = null): Promise<KnownHost> {
     if (server.installationId) this.nearby.delete(server.installationId)
     const { host, listError } = await hostCatalog.pair(server)
     settingsSyncStore.hostAdded(host.id, fromHostId)
     this.justPairedServerId = host.id
     if (listError) toasts.error(`${host.label} is paired here but not yet on your host list`)
+    return host
   }
 
   pairForRunOn(requesterId: string): void {

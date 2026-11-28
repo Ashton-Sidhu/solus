@@ -114,9 +114,13 @@
     isRunOnHostLocked(sess) ||
       (!!sess && sessionComposerMode(runHost(sess.run), sess.id) !== "prompt"),
   );
+  // The activity strip takes the left corner while it shows. The picker also
+  // steps away while the reader is scrolled up from the end: it is a choice
+  // for the next turn, not for the history being read.
+  const showRunOn = $derived(leftReservedWidth === 0 && !isAwayFromEnd);
   // The centered row keeps clear of whichever left-side item is wider.
   let runOnWidth = $state(0);
-  const reservedWidth = $derived(Math.max(leftReservedWidth, runOnWidth));
+  const reservedWidth = $derived(Math.max(leftReservedWidth, showRunOn ? runOnWidth : 0));
 
   // ── Plan progress ──
   const progress = $derived(sess?.progress ?? null);
@@ -344,9 +348,10 @@
     </div>
   {:else}
     <!-- The activity strip takes this corner while it shows; a plan waits then,
-         so the host could not change anyway. The picker hides itself when
-         there is no other host to run on. -->
-    {#if sess && leftReservedWidth === 0}
+         so the host could not change anyway. The picker also hides while the
+         reader is scrolled up, and hides itself when there is no other host
+         to run on. -->
+    {#if sess && showRunOn}
       <div
         bind:clientWidth={runOnWidth}
         class="pointer-events-auto absolute bottom-1.5 left-0 flex min-w-0 max-w-[calc(50%-1rem)] items-center"

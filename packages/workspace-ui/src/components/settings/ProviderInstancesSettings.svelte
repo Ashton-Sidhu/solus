@@ -53,7 +53,7 @@
 <div class="flex flex-col gap-4">
   <div class="flex flex-wrap items-center justify-between gap-3">
     <p class="text-sm text-muted-foreground">Your private provider instances on this host. Each instance has its own login, runtime, and models.</p>
-    <div class="flex items-center gap-2"><Button variant="ghost" size="sm" onclick={() => void client.load()} disabled={view.saving || view.loading}>Refresh</Button><Button variant="outline" size="sm" onclick={() => (adding = !adding)} disabled={!view.snapshot || view.saving}>{adding ? "Cancel" : "Add provider"}</Button></div>
+    <div class="flex items-center gap-2"><Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => void client.load()} disabled={view.saving || view.loading}>Refresh</Button><Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => (adding = !adding)} disabled={!view.snapshot || view.saving}>{adding ? "Cancel" : "Add provider"}</Button></div>
   </div>
   {#if view.error}<p role="alert" class="text-sm text-destructive">{view.error}</p>{/if}
   {#if view.loading}<p role="status" class="text-sm text-muted-foreground">Loading your provider instances…</p>{/if}
@@ -61,7 +61,7 @@
     <form class="flex flex-wrap items-center gap-3 rounded-lg border border-border p-4" onsubmit={(event) => { event.preventDefault(); void add(); }}>
       <SettingsSelect options={[{ value: "codex", label: "Codex" }, { value: "claude-code", label: "Claude Code" }]} value={provider} onSelect={(value) => (provider = value)} ariaLabel="New provider type" />
       <Input aria-label="New provider display name" placeholder="Display name" bind:value={displayName} maxlength={120} class="min-w-0 flex-1" />
-      <Button type="submit" size="sm" disabled={view.saving || !displayName.trim()}>Add</Button>
+      <Button type="submit" size="default" class="pointer-coarse:min-h-11" disabled={view.saving || !displayName.trim()}>Add</Button>
     </form>
   {/if}
   {#if view.snapshot}
@@ -91,8 +91,8 @@
       {@const canRemove = selected.id !== selected.provider}
       {#if canSelect || canRemove}
         <div class="flex justify-end gap-2">
-          {#if canSelect}<Button variant="outline" size="sm" disabled={view.saving || !selected.enabled} onclick={() => void client.write({ expectedRevision: view.snapshot!.revision, change: { kind: "select", instanceId: selected!.id } })}>Use for new sessions</Button>{/if}
-          {#if canRemove}<Button variant="ghost" size="sm" disabled={view.saving} onclick={() => void remove()}>Remove instance</Button>{/if}
+          {#if canSelect}<Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={view.saving || !selected.enabled} onclick={() => void client.write({ expectedRevision: view.snapshot!.revision, change: { kind: "select", instanceId: selected!.id } })}>Use for new sessions</Button>{/if}
+          {#if canRemove}<Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={view.saving} onclick={() => void remove()}>Remove instance</Button>{/if}
         </div>
       {/if}
       {#if selected.provider === "antigravity"}

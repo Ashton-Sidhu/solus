@@ -34,7 +34,7 @@
     <Button
       variant="ghost"
       size="sm"
-      class="mt-2 -ml-2 text-workspace-chrome text-(--solus-text-tertiary)"
+      class="mt-2 -ml-2 text-muted-foreground pointer-coarse:min-h-11"
       onclick={() => void setup.cancelGithubConnect()}
     >
       Cancel

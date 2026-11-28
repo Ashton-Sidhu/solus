@@ -102,7 +102,7 @@
 {#if isAdding}
   <SettingsSection label="Add from skills.sh" description="A reference the hosts install for you; the files stay in the registry.">
     {#snippet action()}
-      <Button variant="ghost" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={closeAdd}>Done</Button>
+      <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={closeAdd}>Done</Button>
     {/snippet}
     <div class="flex items-center">
       <SearchField bind:ref={searchEl} bind:value={() => query, setQuery} placeholder="Search skills.sh…"
@@ -116,7 +116,7 @@
     {:else if search.error}
       <div class="flex flex-wrap items-center justify-between gap-3 p-4">
         <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{search.error}</p>
-        <Button variant="outline" size="sm" class="[@media(pointer:coarse)]:min-h-11" onclick={() => setQuery(query)}>Retry</Button>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => setQuery(query)}>Retry</Button>
       </div>
     {:else if search.searching || !search.hasSearched}
       <p class="flex items-center justify-center gap-2 p-8 text-workspace-chrome text-muted-foreground" role="status"><LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Searching skills.sh…</p>
@@ -133,7 +133,7 @@
             {#if inProfile.has(skill.name)}
               <span class="flex h-7 items-center rounded-[min(var(--radius-md),12px)] bg-muted px-2.5 text-workspace-chrome text-foreground pointer-coarse:min-h-11">Added</span>
             {:else}
-              <Button variant="outline" size="sm" class="text-workspace-chrome shadow-xs pointer-coarse:min-h-11" onclick={() => add(skill)} aria-label="Add {skill.name}"><Plus size={14} />Add</Button>
+              <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => add(skill)} aria-label="Add {skill.name}"><Plus size={14} />Add</Button>
             {/if}
           {/snippet}
         </ProfileEntryRow>
@@ -143,7 +143,7 @@
 {:else}
   <SettingsSection label={skillCount > 0 ? `Skills · ${skillCount}` : "Skills"} description="Installed for you on every host the profile reaches.">
     {#snippet action()}
-      <Button variant="outline" size="sm" class="text-workspace-chrome shadow-xs pointer-coarse:min-h-11" onclick={() => void openAdd()}><Plus size={14} />Add from skills.sh</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => void openAdd()}><Plus size={14} />Add from skills.sh</Button>
     {/snippet}
     {#if skillCount === 0}
       <div class="flex flex-col items-center gap-1 p-8 text-center">

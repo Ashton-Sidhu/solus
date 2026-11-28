@@ -3,21 +3,21 @@ import { readAddMachineOutcome, type AddMachineAsk } from '@solus/contracts/add-
 import type { HostPairRequest } from '@solus/contracts/host-pairing'
 import type { HostListing } from '@solus/contracts/host-list'
 import type { SshAddProgress, SshAddRequest, SshAddResult } from '@solus/contracts/remote-machines'
-import type { AddMachineCandidate } from '@solus/client-core/add-machine-candidates'
+import { otherMachineWay, type AddMachineCandidate } from '@solus/client-core/add-machine-candidates'
 import {
-  ANOTHER_ADDRESS_KEY,
-  ANOTHER_SSH_KEY,
   addressAttempt,
   candidateAttempt,
+  OTHER_MACHINE_KEY,
+  otherMachineAttempt,
   reachableMachines,
   sessionHostDialUrl,
   sshCardOutcome,
   sshTargetAttempt,
-  stepTextParts,
   typedCodeAttempt,
   wayLabel,
 } from '@solus/workspace-ui/components/conversation/lib/add-machine-card'
 import { newCheckCode } from '@solus/workspace-ui/lib/check-code'
+import { stepTextParts } from '@solus/workspace-ui/lib/step-text'
 import { normalizeCheckCode } from '@solus/contracts/add-machine'
 
 // The card state is a Svelte class; these tests need only its values.
@@ -31,7 +31,7 @@ const { AddMachineCardState } = await import('@solus/workspace-ui/components/con
 
 const windows: AddMachineCandidate = { key: 'ssh:solus-windows', label: 'solus-windows', detail: 'solus-windows · 10.10.1.10', way: 'ssh', minted: false, sshTarget: 'solus-windows', url: 'http://10.10.1.10:4317', isMatch: true }
 const studio: AddMachineCandidate = { key: 'host:studio', label: 'Studio', detail: 'http://10.0.0.5:4317', way: 'code', minted: true, url: 'http://10.0.0.5:4317', serverId: 'studio', isMatch: false }
-const nearby: AddMachineCandidate = { key: 'nearby:x', label: 'nas', detail: 'http://10.0.0.9:4317', way: 'approve', minted: false, url: 'http://10.0.0.9:4317', isMatch: false }
+const nearby: AddMachineCandidate = { key: 'nearby:x', label: 'nas', detail: 'http://10.0.0.9:4317', way: 'code', minted: false, url: 'http://10.0.0.9:4317', isMatch: false }
 const listing = (id: string, label: string): HostListing => ({ id, installationId: id, label, routes: [], lastConnected: 1 })
 
 function harness(candidates: AddMachineCandidate[], overrides: Partial<{
@@ -63,9 +63,9 @@ describe('Add machine card words', () => {
   test('each way reads as the person would say it', () => {
     // WHY: the row tells the person how much the way needs from them before they click Add.
     expect(wayLabel(studio)).toBe('From this device')
-    expect(wayLabel(windows)).toBe('Over SSH')
-    expect(wayLabel(nearby)).toBe('Ask it to approve')
-    expect(wayLabel({ way: 'code', minted: false })).toBe('Needs a code')
+    expect(wayLabel(windows)).toBe('SSH')
+    expect(wayLabel(nearby)).toBe('Code if it asks')
+    expect(wayLabel({ way: 'approve', minted: false })).toBe('Needs approval')
   })
 })
 
@@ -94,8 +94,11 @@ describe('the shape check', () => {
     expect(typedCodeAttempt(undefined, link)).toEqual({ attempt: { way: 'code', url: 'http://10.10.1.10:4317', code: link } })
   })
 
-  test('a typed address asks for approval; a pasted pair link pairs with its code', () => {
-    expect(addressAttempt('10.10.1.10:4317', '', false)).toEqual({ attempt: { way: 'approve', url: 'http://10.10.1.10:4317' } })
+  // WHY: a machine with no screen cannot approve a request, so with no code the
+  // card first joins where the network allows it; approval only when chosen.
+  test('a typed address joins with no code, asks only when the person chose approval, and a pair link pairs with its code', () => {
+    expect(addressAttempt('10.10.1.10:4317', '', false)).toEqual({ attempt: { way: 'network', url: 'http://10.10.1.10:4317' } })
+    expect(addressAttempt('10.10.1.10:4317', '', false, true)).toEqual({ attempt: { way: 'approve', url: 'http://10.10.1.10:4317' } })
     expect(addressAttempt('', '', false)).toEqual({ error: expect.any(String), field: 'address' })
     expect(addressAttempt('http://10.10.1.10:4317/pair#token=abc', '', false)).toMatchObject({ attempt: { way: 'code', url: 'http://10.10.1.10:4317' } })
   })
@@ -104,6 +107,8 @@ describe('the shape check', () => {
     expect(candidateAttempt(studio, '', false)).toEqual({ attempt: { way: 'minted', url: studio.url!, serverId: 'studio' } })
     expect(candidateAttempt(windows, '', false)).toEqual({ attempt: { way: 'ssh', sshTarget: 'solus-windows' } })
     expect(candidateAttempt(nearby, '654321', true)).toEqual({ attempt: { way: 'code', url: nearby.url!, code: '654321' } })
+    expect(candidateAttempt(nearby, '', false)).toEqual({ attempt: { way: 'network', url: nearby.url! } })
+    expect(candidateAttempt(nearby, '', false, '', true)).toEqual({ attempt: { way: 'approve', url: nearby.url! } })
   })
 })
 
@@ -168,9 +173,29 @@ describe('the card', () => {
     expect(card.failure).toEqual({ field: 'password', message: 'Connect over HTTPS first.' })
   })
 
-  test('approve: the check code shows before the host answers, and it is the one sent', async () => {
+  test('a found machine joins with no code, and is never asked to approve unless the person chooses it', async () => {
+    const { card, calls } = harness([nearby])
+    expect(card.showsCodeField).toBe(true)
+    await card.add()
+    expect(calls.pair).toEqual([{ url: nearby.url! }])
+    expect(card.approval).toBeNull()
+    expect(readAddMachineOutcome(calls.answers[0])).toEqual({ status: 'added', installationId: 'target', way: 'code' })
+  })
+
+  test('a refused join with no code keeps the code field, with the refusal at it', async () => {
+    const { card, calls } = harness([nearby], { pair: async () => { throw new Error('nas does not let this host join without a pairing code.') } })
+    await card.add()
+    expect(calls.pair).toEqual([{ url: nearby.url! }])
+    expect(card.showsCodeField).toBe(true)
+    expect(card.failure).toEqual({ field: 'code', message: 'nas does not let this host join without a pairing code.' })
+    expect(calls.answers).toEqual([])
+  })
+
+  test('approve, once the person chooses it: the check code shows before the host answers, and it is the one sent', async () => {
     let approve!: (value: HostListing) => void
     const { card, calls } = harness([nearby], { pair: () => new Promise((resolve) => { approve = resolve }) })
+    card.askApproval()
+    expect(card.showsCodeField).toBe(false)
     const adding = card.add()
     await Promise.resolve()
     expect(card.approval?.checkCode).toBe(calls.pair[0].checkCode!)
@@ -193,12 +218,12 @@ describe('the card', () => {
     expect(calls.answers).toEqual([])
   })
 
-  test('minted: a refused code falls back to an approval request', async () => {
+  test('minted: a code this device cannot make falls back to a join with no code, not an approval request', async () => {
     const { card, calls } = harness([studio], { mint: async () => { throw new Error('refused') } })
     await card.add()
-    expect(calls.pair[0].checkCode).toBeDefined()
+    expect(calls.pair).toEqual([{ url: studio.url! }])
     expect(readAddMachineOutcome(calls.answers[0])?.status).toBe('added')
-    expect(calls.answers[0].way).toBe('approve')
+    expect(calls.answers[0].way).toBe('code')
   })
 
   test('minted: the code made on the target pairs, and the tool hears the code way', async () => {
@@ -245,25 +270,21 @@ describe('the card', () => {
     expect(card.statusCard).toBeNull()
   })
 
-  test('minted: a code refused by the target turns the setup card into a wait for approval', async () => {
-    let approve!: (value: HostListing) => void
-    const { card } = harness([studio], { mint: async () => { throw new Error('refused') }, pair: () => new Promise((resolve) => { approve = resolve }) })
-    const adding = card.add()
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(card.statusCard?.steps[0]).toEqual({ id: 'approve', label: 'Waiting for approval on Studio', status: 'active' })
-    approve(listing('studio', 'Studio'))
-    await adding
+  test('minted: when neither a code made here nor a join with no code works, the card asks for the code', async () => {
+    const { card, calls } = harness([studio], { mint: async () => { throw new Error('refused') }, pair: async () => { throw new Error('Studio does not let this host join without a pairing code.') } })
+    await card.add()
+    expect(calls.pair).toEqual([{ url: studio.url! }])
+    expect(card.showsCodeField).toBe(true)
+    expect(card.failure?.message).toBe('Studio does not let this host join without a pairing code.')
+    expect(calls.answers).toEqual([])
   })
 
-  test('arrow keys move the selection through the rows to "Another address…"', () => {
+  test('arrow keys move the selection through the rows to "Other machine…"', () => {
     const { card } = harness([windows, nearby])
     expect(card.selectedKey).toBe(windows.key)
     card.move('ArrowDown')
     card.move('ArrowDown')
-    expect(card.selectedKey).toBe(ANOTHER_SSH_KEY)
-    card.move('ArrowDown')
-    expect(card.selectedKey).toBe(ANOTHER_ADDRESS_KEY)
+    expect(card.selectedKey).toBe(OTHER_MACHINE_KEY)
     card.move('ArrowDown')
     expect(card.selectedKey).toBe(windows.key)
   })
@@ -273,6 +294,37 @@ describe('the card', () => {
     await card.decline()
     expect(calls.answers).toEqual([{ status: 'declined' }])
     expect(card.phase).toBe('closed')
+  })
+})
+
+describe('"Other machine…": one field for an SSH target or an address', () => {
+  test('a URL, a pair link, or host:port is a Solus address; anything else is an SSH target', () => {
+    // WHY: the one field replaces two rows, so how it reads the text decides which way the card adds.
+    expect(otherMachineWay('http://10.10.1.40:4317')).toBe('address')
+    expect(otherMachineWay('https://box.tail1234.ts.net/pair#token=abc')).toBe('address')
+    expect(otherMachineWay('10.10.1.40:4317')).toBe('address')
+    expect(otherMachineWay('ubuntu@3.91.20.4')).toBe('ssh')
+    expect(otherMachineWay('ubuntu@3.91.20.4:2222')).toBe('ssh')
+    expect(otherMachineWay('build-box')).toBe('ssh')
+    expect(otherMachineWay('10.10.1.40')).toBe('ssh')
+  })
+
+  test('an empty field sends nothing; an address joins with no code; an SSH target adds over SSH', () => {
+    expect(otherMachineAttempt('  ', '', false, '')).toEqual({ error: expect.any(String), field: 'target' })
+    expect(otherMachineAttempt('http://10.10.1.40:4317', '', false, '~/.ssh/k.pem')).toEqual({ attempt: { way: 'network', url: 'http://10.10.1.40:4317' } })
+    expect(otherMachineAttempt('ubuntu@3.91.20.4', '', false, '~/.ssh/k.pem')).toEqual({ attempt: { way: 'ssh', sshTarget: 'ubuntu@3.91.20.4', identityFile: '~/.ssh/k.pem' } })
+  })
+
+  test('the card joins the typed address with no code, and a refusal shows at its code field', async () => {
+    const { card, calls } = harness([windows], { pair: async () => { throw new Error('10.10.1.40 does not let this host join without a pairing code.') } })
+    card.select(OTHER_MACHINE_KEY)
+    card.otherMachine = 'http://10.10.1.40:4317'
+    expect(card.isAddressRow).toBe(true)
+    expect(card.showsCodeField).toBe(true)
+    await card.add()
+    expect(calls.ssh).toEqual([])
+    expect(calls.pair).toEqual([{ url: 'http://10.10.1.40:4317' }])
+    expect(card.failure?.field).toBe('code')
   })
 })
 
@@ -291,8 +343,9 @@ describe('SSH with a target and a key the person names', () => {
 
   test('the card sends the typed target and key to the session host', async () => {
     const { card, calls } = harness([windows])
-    card.select(ANOTHER_SSH_KEY)
-    card.sshTarget = ec2.sshTarget
+    card.select(OTHER_MACHINE_KEY)
+    card.otherMachine = ec2.sshTarget
+    card.openKeyField()
     card.identityFile = ec2.identityFile
     await card.add()
     expect(calls.ssh[0]).toMatchObject(ec2)
@@ -301,7 +354,7 @@ describe('SSH with a target and a key the person names', () => {
 
   test('the card sends nothing for an empty target', async () => {
     const { card, calls } = harness([])
-    card.select(ANOTHER_SSH_KEY)
+    card.select(OTHER_MACHINE_KEY)
     await card.add()
     expect(calls.ssh).toEqual([])
     expect(card.failure?.field).toBe('target')
@@ -319,8 +372,8 @@ describe('SSH with a target and a key the person names', () => {
 
   test('the agent\'s target and key fill the card: a typed target opens its own row', () => {
     const { card } = harness([windows, nearby], { ask: { reason: 'Add the EC2 box.', ...ec2 } })
-    expect(card.selectedKey).toBe(ANOTHER_SSH_KEY)
-    expect(card.sshTarget).toBe(ec2.sshTarget)
+    expect(card.selectedKey).toBe(OTHER_MACHINE_KEY)
+    expect(card.otherMachine).toBe(ec2.sshTarget)
     expect(card.identityFile).toBe(ec2.identityFile)
     expect(card.showsKeyField).toBe(true)
   })
@@ -339,7 +392,7 @@ describe('SSH with a target and a key the person names', () => {
   test('the agent\'s alias selects its row once the config hosts arrive', () => {
     const candidates: AddMachineCandidate[] = []
     const { card } = harness(candidates, { ask: { reason: 'Add Windows.', sshTarget: 'solus-windows' } })
-    expect(card.selectedKey).toBe(ANOTHER_SSH_KEY)
+    expect(card.selectedKey).toBe(OTHER_MACHINE_KEY)
     candidates.push(windows)
     expect(card.selectedKey).toBe(windows.key)
     expect(card.isKeyFieldOpen).toBe(false)

@@ -21,7 +21,6 @@ const base: FleetMachineInput = {
   sessions: 0,
   load: { cpu: 20, memory: 40, latencyMs: 4 },
   hasUpdate: false,
-  needsSetup: false,
 }
 const own = (count: number) => Array.from({ length: count }, (_, i) => fleetMachine({ ...base, serverId: `own${i}`, installationId: `i-own${i}`, label: `own-${i}` }))
 

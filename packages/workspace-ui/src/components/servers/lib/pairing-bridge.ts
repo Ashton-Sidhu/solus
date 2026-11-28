@@ -19,6 +19,8 @@ export interface BridgeMachine {
   name: string
   /** Absent when the machine did not say: the bridge draws a globe. */
   os?: HostOperatingSystem
+  /** From the machine's `/health`; absent when it did not answer. */
+  installationId?: string
 }
 
 const OS_NAMES = { macos: 'macOS', windows: 'Windows', linux: 'Linux' } satisfies Record<HostOperatingSystem, string>
@@ -70,7 +72,7 @@ const LOOKUP_TIMEOUT_MS = 3_000
 export async function lookUpHost(url: string, signal: AbortSignal, fetchImpl: typeof fetch = fetch): Promise<BridgeMachine> {
   const health = await readHostHealth(fetchImpl, url, AbortSignal.any([signal, AbortSignal.timeout(LOOKUP_TIMEOUT_MS)]))
   // A reply through a tunnel leaves the name out: the address stands in for it.
-  return health ? { name: health.name || urlHost(url), os: health.os } : { name: urlHost(url) }
+  return health ? { name: health.name || urlHost(url), os: health.os, installationId: health.installationId } : { name: urlHost(url) }
 }
 
 /** Where a pairing surface stands, from what it knows. */

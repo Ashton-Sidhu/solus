@@ -2799,13 +2799,22 @@ html.is-mac-workspace
 }
 
 /* Settings controls share one surface even when their trigger comes from a
-   folder picker, a model picker, or a standard outline button. Focus and error
-   states keep the owning control's indicator. */
+   folder picker, a model picker, or a standard outline button. The settings
+   page and each settings dialog set it once, so an outline button looks the
+   same in a row, a section heading, a row body, and a dialog. Focus and error
+   states keep the owning control's indicator. An outline action button (one
+   that opens no menu) keeps a hover fill; a picker trigger stays a quiet field. */
 @utility settings-controls {
   & :is([data-variant="outline"], [data-slot="select-trigger"], [data-slot="session-chip"]):not(:focus-visible):not([aria-invalid="true"]) {
     @apply border-input bg-white text-foreground shadow-xs/5;
     @variant dark {
       @apply bg-input/30;
+    }
+  }
+  & [data-variant="outline"]:not([aria-haspopup]):not(:focus-visible):not([aria-invalid="true"]):hover {
+    @apply bg-muted;
+    @variant dark {
+      @apply bg-input/50;
     }
   }
 }

@@ -67,10 +67,10 @@
         </DropdownMenu.Content>
       </DropdownMenu.Root>
     {:else if canManage}
-      <Button variant="outline" size="sm" class="border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11"
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11"
         disabled={linear.pending} onclick={openDialog} aria-label="Connect Linear">Connect</Button>
     {:else}
-      <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11"
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11"
         disabled={linear.loading} onclick={() => void connection.load()}>Try again</Button>
     {/if}
   {/snippet}
@@ -96,7 +96,7 @@
     </div>
     {#if linear.error}<p role="alert" class="text-pretty text-xs text-(--solus-status-error)">{linear.error}</p>{/if}
     <div>
-      <Button type="submit" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={!key.trim() || linear.pending}>
+      <Button type="submit" size="sm" class="pointer-coarse:min-h-11" disabled={!key.trim() || linear.pending}>
         {linear.pending ? "Saving…" : linear.connected ? "Save key" : "Connect"}
       </Button>
     </div>

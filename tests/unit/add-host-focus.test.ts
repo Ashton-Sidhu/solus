@@ -23,14 +23,14 @@ const { serversStore } = await import('@solus/workspace-ui/contexts/connections/
 
 afterEach(() => serversStore.closeAddServer())
 
-// The opener that knows the way (a drop on a found machine, an SSH config entry,
-// a host to pair again) opens the Add host dialog on that one tab, so the person
-// is not asked to choose among ways that do not apply. A plain Add host shows them all.
+// The opener that knows the way (an SSH config entry, a host to pair again) opens
+// the Add host dialog on that one tab, so the person is not asked to choose among
+// ways that do not apply. A plain Add host shows them all.
 describe('Add host dialog focus', () => {
   test('an opener that names a tab focuses the dialog on it', () => {
-    serversStore.openAddServer('', 'approve')
-    expect(serversStore.addServerMode).toBe('approve')
-    expect(serversStore.addServerFocusedTab).toBe('approve')
+    serversStore.openAddServer('', 'ssh')
+    expect(serversStore.addServerMode).toBe('ssh')
+    expect(serversStore.addServerFocusedTab).toBe('ssh')
   })
 
   test('an address to pair again focuses the address tab, filled in', () => {

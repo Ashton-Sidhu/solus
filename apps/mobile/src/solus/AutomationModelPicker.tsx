@@ -1,3 +1,4 @@
+import { automationAgents } from "@solus/client-core/model-picker-agents";
 import { agentProjectInstance } from "@solus/contracts/provider-instance-models";
 import { Atom } from "effect/reactivity";
 import { useAtomValue } from "@effect/atom-react";
@@ -77,10 +78,8 @@ function Picker({
   const host = useModelPickerHost(draft.host, draft.cwd);
   const policy = workPolicy(host.policies, draft.organizationId);
   const defaults = solus.personal.runSettings();
-  const agents = (host.agents ?? []).filter(
-    (agent) =>
-      (agent.id === "codex" || agent.id === "claude-code") &&
-      !policy.providerDenial(agent.id),
+  const agents = automationAgents(host.agents ?? []).filter(
+    (agent) => !policy.providerDenial(agent.id),
   );
   const groups = agents.map((agent) => {
     const group = solusModelGroup(

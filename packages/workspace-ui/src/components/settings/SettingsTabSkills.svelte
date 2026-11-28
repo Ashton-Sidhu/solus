@@ -121,7 +121,7 @@
 {#snippet showMore(window: ListWindow, total: number)}
   {#if window.remaining(total) > 0}
     <button type="button"
-      class="flex w-full cursor-pointer items-center justify-center gap-1.5 px-4 py-3 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none [@media(pointer:coarse)]:min-h-11"
+      class="flex w-full cursor-pointer items-center justify-center gap-1.5 px-4 py-3 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none pointer-coarse:min-h-11"
       onclick={() => window.showMore()}>
       Show {Math.min(ListWindow.PAGE, window.remaining(total))} more
       <span class="text-[0.875em] opacity-70">· {window.remaining(total)} remaining</span>
@@ -138,7 +138,7 @@
   {#if isAdding}
     <SettingsSection label="Add from skills.sh" description="Installs for {audience}.">
       {#snippet action()}
-        <Button variant="ghost" size="sm" class="text-workspace-chrome [@media(pointer:coarse)]:min-h-11" onclick={closeAdd}>Done</Button>
+        <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={closeAdd}>Done</Button>
       {/snippet}
       <div class="flex items-center">
         <SearchField bind:ref={searchEl} bind:value={query} placeholder="Search skills.sh…"
@@ -150,7 +150,7 @@
       {:else if search.error}
         <div class="flex flex-wrap items-center justify-between gap-3 p-4">
           <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{search.error}</p>
-          <Button variant="outline" size="sm" class="text-workspace-chrome [@media(pointer:coarse)]:min-h-11" onclick={() => search.search(api, query)}>Retry</Button>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => search.search(api, query)}>Retry</Button>
         </div>
       {:else if search.searching || !search.hasSearched}
         <p class="flex items-center justify-center gap-2 p-8 text-workspace-chrome text-muted-foreground" role="status"><LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Searching skills.sh…</p>
@@ -171,7 +171,7 @@
                 {#if inventory.isInstalled(skill)}
                   <div class="flex items-center gap-1.5 text-workspace-chrome text-(--solus-accent)" data-testid="skill-installed"><Check size={14} />Installed</div>
                 {:else}
-                  <Button variant="outline" size="sm" class="text-workspace-chrome [@media(pointer:coarse)]:min-h-11" onclick={() => install(skill)} disabled={inventory.busy !== null || !canInstall} data-testid="skill-install">
+                  <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => install(skill)} disabled={inventory.busy !== null || !canInstall} data-testid="skill-install">
                     {#if inventory.busy === skill.id}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Installing…
                     {:else}<Download size={14} />Install{/if}
                   </Button>
@@ -190,8 +190,8 @@
     <SettingsSection label={installedLabel} description="Available to {audience}.">
       {#snippet action()}
         <div class="flex items-center gap-1">
-          {#if canManage}<Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground [@media(pointer:coarse)]:min-h-11" onclick={() => inventory.load(api)} disabled={inventory.loading || inventory.busy !== null}>Refresh</Button>{/if}
-          <Button variant="outline" size="sm" class="text-workspace-chrome [@media(pointer:coarse)]:min-h-11" onclick={openAdd} disabled={!canInstall}><Plus size={14} />Add skill</Button>
+          {#if canManage}<Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => inventory.load(api)} disabled={inventory.loading || inventory.busy !== null}>Refresh</Button>{/if}
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={openAdd} disabled={!canInstall}><Plus size={14} />Add skill</Button>
         </div>
       {/snippet}
       {#if !canManage}
@@ -206,7 +206,7 @@
         {#if inventory.error}
           <div class="flex flex-wrap items-center justify-between gap-3 p-4">
             <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{inventory.error}</p>
-            <Button variant="outline" size="sm" class="text-workspace-chrome [@media(pointer:coarse)]:min-h-11" onclick={() => inventory.load(api)} disabled={inventory.loading}>Retry</Button>
+            <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => inventory.load(api)} disabled={inventory.loading}>Retry</Button>
           </div>
         {/if}
         {#if inventory.loading && !inventory.loaded}
@@ -224,7 +224,7 @@
                     <span class="whitespace-nowrap rounded-md border border-border px-1.5 py-px text-[0.8em] leading-[1.6] text-muted-foreground">{agent}</span>
                   {/each}
                 </div>
-                <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground hover:text-destructive [@media(pointer:coarse)]:min-h-11" onclick={() => { confirmRemove = skill.path; }} disabled={inventory.busy !== null || !!inventory.error || inventory.loading} aria-label="Remove {skill.name}">Remove</Button>
+                <Button variant="ghost" size="sm" class="text-muted-foreground hover:text-destructive pointer-coarse:min-h-11" onclick={() => { confirmRemove = skill.path; }} disabled={inventory.busy !== null || !!inventory.error || inventory.loading} aria-label="Remove {skill.name}">Remove</Button>
               </div>
             {/snippet}
             {#snippet body()}
@@ -233,8 +233,8 @@
                 {#if confirmRemove === skill.path}
                   <p class="text-pretty text-workspace-chrome">Remove {skill.name} from all agents and projects on {hostLabel}? Local skill files may be deleted.</p>
                   <div class="flex flex-wrap gap-2">
-                    <Button variant="destructive" size="sm" class="text-workspace-chrome [@media(pointer:coarse)]:min-h-11" onclick={() => remove(skill.name)} disabled={inventory.busy !== null}>{inventory.busy === skill.name ? "Removing…" : "Remove skill"}</Button>
-                    <Button variant="outline" size="sm" class="text-workspace-chrome [@media(pointer:coarse)]:min-h-11" onclick={() => { confirmRemove = null; }} disabled={inventory.busy !== null}>Cancel</Button>
+                    <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => { confirmRemove = null; }} disabled={inventory.busy !== null}>Cancel</Button>
+                    <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={() => remove(skill.name)} disabled={inventory.busy !== null}>{inventory.busy === skill.name ? "Removing…" : "Remove skill"}</Button>
                   </div>
                 {/if}
                 {#if inventory.errors.get(skill.name)}<p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{inventory.errors.get(skill.name)}</p>{/if}

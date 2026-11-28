@@ -5,6 +5,8 @@
   import { hostOnboardingStore as store } from "./host-onboarding.store.svelte";
   import type { DiscoveredServer } from "@solus/contracts/types";
   import { localApi } from "@solus/client-core/local-api";
+  import { pairCodeSteps } from "@solus/client-core/pairing";
+  import { stepTextParts } from "../../lib/step-text";
   import PairingBridge from "./PairingBridge.svelte";
   import { thisDevice, type PairingPhase } from "./lib/pairing-bridge";
 
@@ -99,6 +101,10 @@
         dictation={false}
       />
     </label>
+    <!-- Where the code comes from: a machine with no screen has a shell. -->
+    <p class="mt-2.5 text-pretty text-[0.8125rem] text-muted-foreground">
+      {#each stepTextParts(pairCodeSteps(target.name)) as part, index (index)}{#if part.isCode}<code class="rounded-sm bg-(--solus-surface-hover) px-1 font-mono text-[0.95em]">{part.text}</code>{:else}{part.text}{/if}{/each}
+    </p>
     {#if store.pairingError}
       <p class="mt-2.5 text-pretty text-[0.8125rem] text-destructive">{store.pairingError}</p>
     {/if}

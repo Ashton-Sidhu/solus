@@ -66,6 +66,7 @@
           <Button
             variant="ghost"
             size="icon-sm"
+            class="text-muted-foreground pointer-coarse:tap-area"
             aria-label={open ? `Hide ${group.label.toLowerCase()} tools` : `Show ${group.label.toLowerCase()} tools`}
             aria-expanded={open}
             aria-controls={`solus-tools-${group.id}`}

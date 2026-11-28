@@ -180,6 +180,7 @@
             bind:ref={deleteButtonEl}
             size="sm"
             variant="destructive"
+            class="pointer-coarse:min-h-11"
             disabled={isBusy}
             onclick={() => {
               deleteError = "";
@@ -210,7 +211,7 @@
     >
       {#snippet action()}
         <div class="flex items-center gap-2">
-          <Button size="sm" variant="ghost" disabled={isRefreshing || groups.length === 0} onclick={() => void codebasesStore.refreshMembers(codebaseId)}>
+          <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={isRefreshing || groups.length === 0} onclick={() => void codebasesStore.refreshMembers(codebaseId)}>
             <RefreshIcon size={14} />
             {isRefreshing ? "Reading…" : "Refresh"}
           </Button>
@@ -219,7 +220,7 @@
             <DropdownMenu.Root>
               <DropdownMenu.Trigger>
                 {#snippet child({ props })}
-                  <Button {...props} bind:ref={addButtonEl} size="sm" variant="outline" disabled={isBusy || isAdding || isFull}>
+                  <Button {...props} bind:ref={addButtonEl} size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={isBusy || isAdding || isFull}>
                     <PlusIcon size={14} /> {isAdding ? "Adding…" : "Add folder"}
                   </Button>
                 {/snippet}
@@ -236,6 +237,7 @@
               bind:ref={addButtonEl}
               size="sm"
               variant="outline"
+              class="pointer-coarse:min-h-11"
               disabled={isBusy || isAdding || isFull || !picker.host}
               onclick={() => picker.host && browseOn(picker.host.serverId)}
             >

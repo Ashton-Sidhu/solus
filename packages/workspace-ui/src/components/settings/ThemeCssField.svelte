@@ -72,9 +72,9 @@
     </p>
     <div class="flex items-center gap-2">
       {#if settings.themeCss}
-        <Button size="sm" variant="ghost" onclick={clear}>Clear</Button>
+        <Button size="sm" variant="destructive" class="pointer-coarse:min-h-11" onclick={clear}>Clear</Button>
       {/if}
-      <Button size="sm" disabled={loadsFiles || !isChanged} onclick={save}>Save CSS</Button>
+      <Button size="sm" class="pointer-coarse:min-h-11" disabled={loadsFiles || !isChanged} onclick={save}>Save CSS</Button>
     </div>
   </div>
 </div>

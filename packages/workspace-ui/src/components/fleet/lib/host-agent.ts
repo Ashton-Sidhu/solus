@@ -59,7 +59,6 @@ export function hostAgentPrompt(machines: readonly FleetMachine[], ask: HostAsk)
   const request = {
     unreachable: `Solus cannot reach ${names}. Find out why, and restore the connection if you can. Tell me what you find before you change anything.`,
     reconnecting: `Solus loses its connection to ${names} again and again. Find out why, and make the connection stable if you can. Tell me what you find before you change anything.`,
-    signin: `An agent on ${names} needs a sign-in. Find which agent, and help me sign in.`,
     update: `Update Solus to the newest version on ${names}. Then confirm that Solus runs.`,
     stopped: `Solus shows ${names} as stopped. Find out why, and tell me how to start it again.`,
     check: `Check ${names}: the load, the disk, the Solus version, and anything that needs attention. Report what you find.`,

@@ -67,6 +67,7 @@
           <Button
             variant="ghost"
             size="icon-sm"
+            class="text-muted-foreground pointer-coarse:tap-area"
             aria-label={`Move ${row.url} up`}
             disabled={index === 0}
             onclick={() => hostRoutesStore.move(serverId, row.url, -1)}
@@ -76,6 +77,7 @@
           <Button
             variant="ghost"
             size="icon-sm"
+            class="text-muted-foreground pointer-coarse:tap-area"
             aria-label={`Move ${row.url} down`}
             disabled={index === rows.length - 1}
             onclick={() => hostRoutesStore.move(serverId, row.url, 1)}
@@ -86,6 +88,7 @@
             <Button
               variant="ghost"
               size="icon-sm"
+              class="text-muted-foreground hover:text-destructive pointer-coarse:tap-area"
               aria-label={`Remove ${row.url}`}
               onclick={() => (confirmingRemoveUrl = row.url)}
             >
@@ -95,9 +98,9 @@
         {/if}
       </div>
       {#if confirmingRemoveUrl === row.url}
-        <div class="flex items-center justify-end gap-3">
-          <Button variant="ghost" size="sm" onclick={() => (confirmingRemoveUrl = null)}>Cancel</Button>
-          <Button variant="destructive" size="sm" onclick={() => removeRoute(row.url)}>Remove route</Button>
+        <div class="flex items-center justify-end gap-2">
+          <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => (confirmingRemoveUrl = null)}>Cancel</Button>
+          <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={() => removeRoute(row.url)}>Remove route</Button>
         </div>
       {/if}
     </div>
@@ -123,7 +126,7 @@
           oninput={() => (addError = null)}
           class="min-w-0 flex-1"
         />
-        <Button type="submit" variant="outline" size="sm" class="shrink-0" disabled={isChecking || !address.trim()}>
+        <Button type="submit" size="default" class="shrink-0 pointer-coarse:min-h-11" disabled={isChecking || !address.trim()}>
           {isChecking ? "Checking…" : "Add route"}
         </Button>
       </div>

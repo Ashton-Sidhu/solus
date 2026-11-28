@@ -2,7 +2,7 @@ import { organizationOfSession } from '../../data/sessions/session-records'
 import { createLogger } from '../../logger'
 import { type ExecutionPreferences } from '@solus/contracts/settings'
 import { setSessionBranch } from '../../db/session-indexer'
-import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
+import { moveSessionLineageThread, resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import type { GitCheckout } from '@solus/contracts/types'
 import { isTaskFolderPath } from '@solus/contracts/codebases'
 import { type Actor } from '../../admission/actor'
@@ -95,7 +95,8 @@ export class SessionCheckouts {
     await this.heldMoves.get(sessionId)?.()
   }
 
-  /** The first turn after a move forks the active thread in the new checkout.
+  /** The first turn after a move continues the active thread in the new
+   *  checkout: it resumes there when its backend can, else it forks there.
    *  A client that already asked for the fork keeps its own request. */
   continueInMovedCheckout(request: SessionRunRequest): SessionRunRequest {
     const { sessionId, input } = request
@@ -104,6 +105,21 @@ export class SessionCheckouts {
     const checkout = this.getGitContext(sessionId)
     const directory = this.sessionCheckoutPaths.get(sessionId)
     if (!active?.providerSessionId || !checkout || !directory) return request
+    if (this.rt.backends.get(active.provider)?.resumesInAnotherDirectory) {
+      log.info('moved_checkout_resume', { sessionId, directory })
+      moveSessionLineageThread({ sessionId, providerSessionId: active.providerSessionId, cwd: directory })
+      return {
+        ...request,
+        input: {
+          ...input,
+          provider: active.provider,
+          agentSessionId: active.providerSessionId,
+          forked: false,
+          gitContext: checkout,
+          workingDirectory: directory,
+        },
+      }
+    }
     log.info('moved_checkout_fork', { sessionId, directory })
     return {
       ...request,

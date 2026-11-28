@@ -33,8 +33,8 @@
     </div>
     {#if error}<p role="alert" class="break-words text-(--solus-status-error)">{error}</p>{/if}
     <div class="flex justify-end gap-2">
-      <Button variant="ghost" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => { open = false; }} disabled={isBusy}>Cancel</Button>
-      <Button bind:ref={actionEl} variant="destructive" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={onConfirm} disabled={isBusy}>{isBusy ? busyAction : action}</Button>
+      <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => { open = false; }} disabled={isBusy}>Cancel</Button>
+      <Button bind:ref={actionEl} variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={onConfirm} disabled={isBusy}>{isBusy ? busyAction : action}</Button>
     </div>
   </Popover.Content>
 </Popover.Root>

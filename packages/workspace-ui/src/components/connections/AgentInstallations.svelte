@@ -25,7 +25,7 @@
       {#if switchTo}
         <SettingsRow label={row.label} description={row.description} {managed} disabled={!mayEdit}>
           {#snippet control()}
-            <Button variant="outline" size="sm" disabled={busy || !mayEdit} onclick={() => void setup.selectProviderInstallation(row.agent, switchTo)}>
+            <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={busy || !mayEdit} onclick={() => void setup.selectProviderInstallation(row.agent, switchTo)}>
               {busy ? 'Updating…' : switchTo === 'existing' ? 'Use existing installation' : 'Use native installation'}
             </Button>
           {/snippet}

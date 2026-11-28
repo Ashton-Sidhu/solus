@@ -47,18 +47,15 @@ To introduce two hosts yourself, for example after you forgot an
 introduction:
 
 - Drag the **+** beside one of your hosts onto another host. A drop on a
-  machine marked **Found nearby** adds that machine, on the map. A machine
-  that runs Solus gets an approval request, and the **Add host** dialog opens
-  focused on its **Approve** tab: the check code in large type and what to do
-  on that machine, with the line between the two machines filling while it
-  waits. **Other ways** shows the dialog's other tabs. **Stop** ends the
-  request, **Use a pairing code** moves to the **Address** tab with the
-  machine's address filled in, and a denied or expired request offers
-  **Ask again**. A machine that runs an older Solus has no approval requests:
-  the dialog says so and offers only **Use a pairing code**. That machine shows
-  its code in **Settings › Hosts › This device › Access**. The machine's card on the
-  map shows the code too while the request waits. A machine found on Tailscale pairs as a
-  Tailscale route, by approval or by code. A WSL distro is set up; a machine from your SSH
+  machine marked **Found nearby** adds that machine. For a machine that runs
+  Solus, the drop does what **Connect** does in the machine's row on the
+  **Add a machine** page: the machine's setup opens at once and pairs in the
+  first way that needs nobody at that machine. First it pairs with no code if
+  the machine trusts devices on this network. Then it pairs over SSH, with the
+  SSH access of this device. Only when neither works does it ask for a code:
+  run `solus pair` on that machine, or open
+  **Settings › Hosts › This device › Access** there. A machine found on
+  Tailscale pairs as a Tailscale route. A WSL distro is set up; a machine from your SSH
   config opens the SSH form, filled in. A drop on empty space says what a drop
   takes.
 - While you drag, the line leaves the side of the host that faces the pointer,
@@ -80,6 +77,29 @@ Select a line to see each direction and its health. **Forget** stops an
 introduction on both hosts. The two hosts stay forgotten until you introduce
 them again. A pairing made from chat or the CLI shows its health but has no
 **Forget** on the map.
+
+## How Solus pairs a machine
+
+Every way to add a machine uses the same order: a drop on the map, **Connect**
+and **Add N machines** on the **Add a machine** page, **Pair with a code** there,
+the **Add host** dialog, and the agent's add-machine card on desktop, web, and
+the phone. Each way comes before the next because it needs less from you, and
+only the last needs anything from the machine itself:
+
+1. **Through a host you already reach.** A host that already paired the machine
+   makes a code there for this device (`hostsPairClient`), or this device makes
+   one on a host it reaches (the agent's card).
+2. **No code.** The machine lets this device, or the session's host, join
+   because its network trusts it (**Access** › local network on that machine).
+3. **SSH.** Solus signs in with SSH and pairs (the host stage, and SSH rows on
+   the agent's card).
+4. **A code.** Run `solus pair` on the machine, or choose **Show pairing code**
+   in the command palette of Solus there. Every surface says this
+   (`pairCodeSteps` in `packages/client-core/src/pairing.ts`).
+
+An approval request needs somebody at the machine, so Solus never chooses it
+alone. Where it is offered, you choose it: **Ask it to approve** in
+**Pair with a code**, and **Ask … to approve instead** on the agent's card.
 
 ## Selecting, moving, and finding
 

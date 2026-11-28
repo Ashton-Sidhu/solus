@@ -158,7 +158,7 @@
 
 <div class="flex flex-col gap-8">
   <div class="flex flex-wrap items-center gap-3">
-    <Button size="sm" variant="ghost" onclick={onClose}><ArrowLeftIcon size={14} /> Webhooks</Button>
+    <Button size="sm" variant="ghost" class="text-muted-foreground pointer-coarse:min-h-11" onclick={onClose}><ArrowLeftIcon size={14} /> Webhooks</Button>
     <h2 class="text-lg font-medium">{target.kind === "new" ? "New webhook" : (webhook?.name ?? "Webhook")}</h2>
     {#if status}<span class="text-sm text-muted-foreground">{webhookStateLabel(status)}</span>{/if}
     {#if serverId}<span class="text-sm text-muted-foreground">on {hostLabelFor(serverId)}</span>{/if}
@@ -193,8 +193,8 @@
         {#if reachability}<p class="text-sm text-muted-foreground">{reachability}</p>{/if}
         {#if isOwner}
           <div class="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={isBusy || !url?.url} onclick={copyUrl}><CopyIcon size={14} /> Copy</Button>
-            <Button size="sm" variant="outline" disabled={isBusy} onclick={rotate}><RotateIcon size={14} /> Rotate</Button>
+            <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={isBusy || !url?.url} onclick={copyUrl}><CopyIcon size={14} /> Copy</Button>
+            <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={isBusy} onclick={rotate}><RotateIcon size={14} /> Rotate</Button>
           </div>
           {#if url && !url.url}<p class="text-xs text-muted-foreground">{REACHABILITY_TEXT.noUrl}</p>{/if}
         {/if}
@@ -204,12 +204,12 @@
         {#if webhook.pausedByAdmin}
           <p class="text-sm text-muted-foreground">Paused by organization admin. Only an admin can resume it.</p>
         {:else if isOwner}
-          <Button size="sm" variant="outline" disabled={isBusy} onclick={() => setEnabled(!webhook.enabled)}>
+          <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={isBusy} onclick={() => setEnabled(!webhook.enabled)}>
             {webhook.enabled ? "Pause" : "Resume"}
           </Button>
         {/if}
         {#if isOwner}
-          <Button size="sm" variant="destructive" disabled={isBusy} onclick={remove}>Delete</Button>
+          <Button size="sm" variant="destructive" class="pointer-coarse:min-h-11" disabled={isBusy} onclick={remove}>Delete</Button>
         {/if}
       </section>
     {/if}
@@ -244,7 +244,7 @@
         />
         {#if saveError}<p class="text-sm text-destructive">{saveError}</p>{/if}
         {#if isOwner}
-          <Button size="sm" class="self-start" disabled={isBusy} onclick={() => void save()}>
+          <Button size="sm" class="self-start pointer-coarse:min-h-11" disabled={isBusy} onclick={() => void save()}>
             {target.kind === "new" ? "Create webhook" : "Save"}
           </Button>
         {/if}

@@ -71,15 +71,13 @@
   // A share link's guest reads only the shared session: the workspace pages are not theirs (host-sharing.md §10).
   const isGuest = $derived(hosts.runOn?.me.isGuest ?? false);
   const pullRequests = getPullRequestsContext();
-  const needsReviewCount = $derived(
-    pullRequests.needsReview.countFor(
-      session.serverIdForContext(session.ctx),
-      session.ctx,
-    ),
-  );
   // Keyed on the host and the project alone: `session.ctx` is a new object on
-  // every session event, and the interest only changes with these two.
-  const needsReviewServerId = $derived(session.serverIdForContext(session.ctx));
+  // every session event, and the interest only changes with these two. A new
+  // web account has no host yet; the column still shows, with no count.
+  const needsReviewServerId = $derived(session.serverIdForContextOrNull(session.ctx));
+  const needsReviewCount = $derived(
+    needsReviewServerId ? pullRequests.needsReview.countFor(needsReviewServerId, session.ctx) : 0,
+  );
   const needsReviewScope = $derived(projectScopeOf(session.ctx.session));
   $effect(() => {
     void needsReviewServerId;

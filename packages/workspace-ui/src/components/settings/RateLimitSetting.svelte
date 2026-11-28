@@ -37,7 +37,7 @@
             variant="outline"
             size="sm"
             aria-label="Rate limit behavior"
-            class="min-w-24 justify-between text-xs font-normal shadow-xs"
+            class="h-8 min-w-24 justify-between gap-1.5 rounded-lg px-2.5 font-normal pointer-coarse:min-h-11"
           >
             <span>{rateLimitLabel}</span>
             <CaretDownIcon size={11} style="opacity:0.6" />

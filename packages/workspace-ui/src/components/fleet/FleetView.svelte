@@ -13,6 +13,7 @@
   import { connectionsNav } from "../connections/connections-nav.svelte";
   import { outsideApps } from "../connections/outside-apps/outside-apps.svelte";
   import HostDirectory from "../servers/HostDirectory.svelte";
+  import { hostOnboardingStore } from "../servers/host-onboarding.store.svelte";
   import { hostSetupStore } from "../servers/host-setup.store.svelte";
   import { Button } from "../ui/button";
   import * as Tooltip from "../ui/tooltip";
@@ -27,7 +28,6 @@
   import FleetZoneDetail from "./FleetZoneDetail.svelte";
   import { addWslDistroStore } from "../servers/add-wsl-distro.store.svelte";
   import { openSshAdd } from "./add-machine";
-  import { approvalRequestStore } from "../servers/approval-request.store.svelte";
   import { askAgentAboutHosts } from "./ask-agent";
   import { discoverStore } from "./discover.store.svelte";
   import { fleetStore } from "./fleet.store.svelte";
@@ -56,6 +56,8 @@
   /** Which match of Find Enter goes to next. */
   let findIndex = $state(-1);
   let isIntroducing = $state(false);
+  /** The introduction a drop started, while it runs: the map keeps its hosts marked and says so. */
+  let introducing = $state<{ sourceId: string; targetIds: string[] } | null>(null);
   let fleetMap = $state<ReturnType<typeof FleetMap> | null>(null);
   let isPaused = $state(false);
   let isInView = $state(true);
@@ -198,6 +200,7 @@
     const source = reachHost(sourceId);
     if (!source || isIntroducing) return;
     isIntroducing = true;
+    introducing = { sourceId, targetIds };
     const done: string[] = [];
     const failed: string[] = [];
     for (const targetId of targetIds) {
@@ -211,6 +214,7 @@
       }
     }
     isIntroducing = false;
+    introducing = null;
     pickedIds.clear();
     if (done.length) toasts.success(`Introduced ${source.label} to ${done.join(", ")}`, { description: "Agents on each can now start sessions on the other." });
     if (failed.length) toasts.error(`Could not introduce ${source.label}`, { description: failed.join("\n") });
@@ -233,8 +237,9 @@
   }
 
   /**
-   * Adds a found machine that a handle was dropped on: a host that runs Solus gets
-   * an approval request, shown in the Add host dialog with its check code; a WSL
+   * Adds a found machine that a handle was dropped on, as Connect on the Add page
+   * does: a host that runs Solus opens its stage, which pairs with no code where it
+   * can (a host that trusts this network, then SSH) and asks for a code last; a WSL
    * distro is set up; a machine from the SSH config opens the SSH form, filled in.
    */
   function addFound(key: string) {
@@ -242,8 +247,7 @@
     if (!machine) return;
     if (machine.kind === "wsl") return void addWslDistroStore.add(machine.windowsHostId, machine.distro);
     if (machine.kind === "ssh") return openSshAdd(machine.sshTarget);
-    void approvalRequestStore.start(machine);
-    serversStore.openAddServer("", "approve");
+    hostOnboardingStore.openForDiscovered(machine.server);
   }
 
   /** Enter in Find goes to the next match, Shift+Enter to the one before, centered on the map and selected. */
@@ -381,7 +385,6 @@
               bind:this={fleetMap}
               {machines}
               found={discoverStore.found}
-              approval={approvalRequestStore}
               onAddFound={addFound}
               answers={fleetStore.answers}
               {colorMode}
@@ -405,6 +408,7 @@
               onStart={(serverId) => fleetStore.startHosts([serverId])}
               onPointFound={(key) => (pointedFoundKey = key)}
               onRetry={(zone) => fleetStore.retryZone(zone)}
+              {introducing}
               onIntroduce={(sourceId, targetIds, skipped) => void introduce(sourceId, targetIds, skipped)}
               onOpenMenu={(serverId, x, y) => (hostMenu = { serverId, x, y })}
             />

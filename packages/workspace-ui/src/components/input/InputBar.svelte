@@ -362,12 +362,19 @@
     ownsVoice && voice.mode === "message" && voiceState !== "idle" &&
       !!(voice.partialTranscript.stable || voice.partialTranscript.tentative),
   );
-  const voiceControlState = $derived(composerVoice.controlState);
   const backgroundVoiceState = $derived(
     !ownsVoice && voice.messageOwner?.startsWith("composer:") &&
       voice.isMessageInFlight(voice.messageOwner)
       ? (voice.starting ? "recording" : voice.state) : "idle",
   );
+  // The recording this bar shows: its own, or another composer's that is still
+  // in flight. The mic controls, Send, and the placeholder all follow it, so
+  // Send never sits beside Finish.
+  const voiceControlState = $derived(
+    backgroundVoiceState === "idle" ? composerVoice.controlState : backgroundVoiceState,
+  );
+  // A background recording takes the whole row too, as this bar's own does.
+  const meterFillsRow = $derived(isListening || backgroundVoiceState === "recording");
   const micHoldsBarOpen = $derived(composerVoice.holdsBarOpen);
   const claimVoice = composerVoice.claim;
   const toggleVoice = composerVoice.toggle;
@@ -495,9 +502,9 @@
         ? "Initializing..."
         : hasPartialTranscript
           ? ""
-        : voiceState === "recording"
+        : voiceControlState === "recording"
           ? "Listening..."
-        : voiceState === "transcribing"
+        : voiceControlState === "transcribing"
           ? "Transcribing..."
           : pendingPlan
             ? "Send feedback to revise the pending plan..."
@@ -809,7 +816,7 @@
       >
         <div class="min-h-0 overflow-hidden">
           <div
-            class="flex items-center pr-[calc(var(--composer-actions-width)_+_0.5rem)] min-h-(--composer-actions-height) {isListening ? 'invisible' : ''}"
+            class="flex items-center pr-[calc(var(--composer-actions-width)_+_0.5rem)] min-h-(--composer-actions-height) {meterFillsRow ? 'invisible' : ''}"
           >
             {@render leadingActions()}
           </div>
@@ -822,7 +829,7 @@
         data-composer-actions
         bind:clientWidth={actionsWidth}
         bind:clientHeight={actionsHeight}
-        class="absolute bottom-0 right-0 flex shrink-0 items-center justify-end gap-1 pointer-coarse:gap-2 {isListening ? 'left-0' : ''}"
+        class="absolute bottom-0 right-0 flex shrink-0 items-center justify-end gap-1 pointer-coarse:gap-2 {meterFillsRow ? 'left-0' : ''}"
       >
         {@render actionButtons()}
       </div>
@@ -987,7 +994,7 @@
 {#snippet voiceButtons()}
   <RecordingControls
     variant="bar"
-    state={backgroundVoiceState === "idle" ? voiceControlState : backgroundVoiceState}
+    state={voiceControlState}
     rmsRef={voice.rmsRef}
     waiting={isVoiceWaiting}
     showMic={voiceHost?.transcribes === true && !isTouch}

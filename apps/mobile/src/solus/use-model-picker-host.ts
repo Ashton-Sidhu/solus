@@ -143,11 +143,3 @@ export function useModelPickerHost(host: string, cwd: string) {
     },
   };
 }
-
-export function isPickerProvider(provider: AgentId): boolean {
-  return (
-    provider === "claude-code" ||
-    provider === "codex" ||
-    (__DEV__ && provider === "replay")
-  );
-}

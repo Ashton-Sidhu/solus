@@ -42,6 +42,12 @@ import { couldBeForgedByWebPage, isProxiedRequest } from './web-page-requests'
 const log = createLogger('main', 'ws-transport')
 /** How long a client's event stream and receipts outlive its last socket, so a short drop resumes without a reload. */
 const STREAM_TTL_MS = 6 * 60_000
+/**
+ * The close code a browser sends when its page unloads or reloads (RFC 6455 §7.4.1).
+ * Solus clients never send it, and a reloaded page dials as a new client, so nothing
+ * can resume the old stream: the client ends now instead of after `STREAM_TTL_MS`.
+ */
+const PAGE_GONE_CLOSE_CODE = 1001
 /** The most events kept for a resume. A client that missed more reloads instead. */
 const MAX_REPLAY_EVENTS = 5_000
 /** A socket that does not say `hello` in this time is closed. The credential can come from a slow account plane. */
@@ -111,7 +117,7 @@ interface Connection {
   // oxlint-disable-next-line anti-slop/no-unknown-parameters
   pending: Map<string, { resolve: (answer: unknown) => void; reject: (error: Error) => void }>
   /** Runs once when the socket closes. */
-  onClosed: Array<(reason: string) => void>
+  onClosed: Array<(reason: string, code: number) => void>
   connectedAt: number
 }
 
@@ -284,7 +290,7 @@ export function attachWebSocketTransport(
       for (const request of connection.pending.values()) request.reject(new Error('The socket closed'))
       connection.pending.clear()
       const why = reason.toString() || String(code)
-      for (const closed of connection.onClosed.splice(0)) closed(why)
+      for (const closed of connection.onClosed.splice(0)) closed(why, code)
     })
     ws.on('error', (error) => log.info('ws_socket_error', { error: error.message }))
   }
@@ -386,10 +392,10 @@ export function attachWebSocketTransport(
     sendFrame(connection, { t: 'welcome', epoch: eventLog.epoch, seq: replay && resume ? resume.seq : eventLog.lastSeq, recovered })
     for (const frame of replay ?? []) sendText(connection, frame)
 
-    connection.onClosed.push((reason) => {
+    connection.onClosed.push((reason, code) => {
       lifetime.stop()
       sessions.delete(id)
-      leaveClient(clientId, deviceId, connection)
+      leaveClient(clientId, deviceId, connection, code === PAGE_GONE_CLOSE_CODE)
       log.info('ws_session_closed', { id, clientId, deviceLabel, reason, connectedMs: Date.now() - session.connectedAt, recovered })
     })
 
@@ -429,28 +435,40 @@ export function attachWebSocketTransport(
     return eventLog
   }
 
-  /** Removes a closed socket from its client. A client with no socket keeps its stream for a resume until the TTL ends. */
-  function leaveClient(clientId: string, deviceId: string | null, connection: Connection): void {
+  /**
+   * Removes a closed socket from its client. A client with no socket keeps its stream
+   * for a resume until the TTL ends, unless its page is gone and can never resume it.
+   */
+  function leaveClient(clientId: string, deviceId: string | null, connection: Connection, isPageGone: boolean): void {
     const sockets = clientSockets.get(clientId)
     sockets?.delete(connection)
     if (sockets && sockets.size > 0) return
     clientSockets.delete(clientId)
     if (closing) return
     opts.onClientDisconnected?.({ clientId, deviceId })
+    if (isPageGone) {
+      expireClient(clientId, deviceId)
+      return
+    }
     const timer = setTimeout(() => {
       cleanupTimers.delete(clientId)
       if ((clientSockets.get(clientId)?.size ?? 0) > 0) return
-      eventUnregisters.get(clientId)?.()
-      eventUnregisters.delete(clientId)
-      frameUnregisters.get(clientId)?.()
-      frameUnregisters.delete(clientId)
-      eventLogs.delete(clientId)
-      responseCaches.get(clientId)?.close()
-      responseCaches.delete(clientId)
-      opts.onClientExpired?.({ clientId, deviceId })
+      expireClient(clientId, deviceId)
     }, STREAM_TTL_MS)
     timer.unref?.()
     cleanupTimers.set(clientId, timer)
+  }
+
+  /** Ends a client that has no socket: its stream, receipts, and everything the host keeps for it. */
+  function expireClient(clientId: string, deviceId: string | null): void {
+    eventUnregisters.get(clientId)?.()
+    eventUnregisters.delete(clientId)
+    frameUnregisters.get(clientId)?.()
+    frameUnregisters.delete(clientId)
+    eventLogs.delete(clientId)
+    responseCaches.get(clientId)?.close()
+    responseCaches.delete(clientId)
+    opts.onClientExpired?.({ clientId, deviceId })
   }
 
   async function answerRpc(connection: Connection, id: string, method: string, args: unknown[]): Promise<void> {

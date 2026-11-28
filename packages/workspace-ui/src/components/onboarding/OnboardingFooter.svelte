@@ -23,17 +23,19 @@
   <div class="flex min-w-0 flex-1 flex-wrap items-center gap-3.5">
     <p class="m-0 min-w-0 flex-1 text-[13px] leading-4.5 text-(--solus-text-tertiary)" aria-live="polite">{footer.hint}</p>
     <div class="flex items-center gap-2">
-      <Button
-        variant="ghost"
-        class="h-9.5 gap-2 rounded-md pr-2.5 pl-3.5 text-[14px] leading-5 font-medium text-(--solus-text-secondary)"
-        disabled={isBusy && footer.secondary === "skip"}
-        onclick={onsecondary}
-      >
-        {footer.secondary === "invite" ? "Invite your team" : "Skip"}
-        {#if footer.secondary === "skip"}
-          <kbd class="flex h-5 items-center rounded-[4px] border border-(--hairline) px-1.25 font-mono text-[11px] leading-3.5 font-normal text-(--solus-text-tertiary)">esc</kbd>
-        {/if}
-      </Button>
+      {#if footer.secondary}
+        <Button
+          variant="ghost"
+          class="h-9.5 gap-2 rounded-md pr-2.5 pl-3.5 text-[14px] leading-5 font-medium text-(--solus-text-secondary)"
+          disabled={isBusy && footer.secondary === "skip"}
+          onclick={onsecondary}
+        >
+          {footer.secondary === "invite" ? "Invite your team" : "Skip"}
+          {#if footer.secondary === "skip"}
+            <kbd class="flex h-5 items-center rounded-[4px] border border-(--hairline) px-1.25 font-mono text-[11px] leading-3.5 font-normal text-(--solus-text-tertiary)">esc</kbd>
+          {/if}
+        </Button>
+      {/if}
       <Button
         bind:ref={primaryRef}
         class="h-9.5 gap-2.5 rounded-md pr-2.5 pl-4 text-[14px] leading-5 font-medium"

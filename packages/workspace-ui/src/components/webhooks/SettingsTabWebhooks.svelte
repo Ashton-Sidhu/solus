@@ -182,7 +182,7 @@
             <ListFilterGroup label="Organization" options={organizationChoices} selected={[view.organization ?? ""]} onChange={([organization]) => setView({ organization: organization || null })} />
           {/snippet}
         </ListFilterBar>
-        <Button size="sm" variant="outline" class="shrink-0" onclick={() => open({ kind: "new", serverId: view.host })}>
+        <Button size="sm" variant="outline" class="shrink-0 pointer-coarse:min-h-11" onclick={() => open({ kind: "new", serverId: view.host })}>
           <PlusIcon size={14} /> New webhook
         </Button>
       {/if}
@@ -234,14 +234,14 @@
         <ListEmpty title="No webhooks match these filters.">
           Try a different search or filter.
           {#snippet actions()}
-            <Button size="sm" variant="outline" onclick={clearFilters}>Clear filters</Button>
+            <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" onclick={clearFilters}>Clear filters</Button>
           {/snippet}
         </ListEmpty>
       {:else}
         <ListEmpty title="No webhooks yet.">
           Make one to let another service start agent work.
           {#snippet actions()}
-            <Button size="sm" variant="outline" onclick={() => open({ kind: "new", serverId: view.host })}>
+            <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" onclick={() => open({ kind: "new", serverId: view.host })}>
               <PlusIcon size={14} /> New webhook
             </Button>
           {/snippet}

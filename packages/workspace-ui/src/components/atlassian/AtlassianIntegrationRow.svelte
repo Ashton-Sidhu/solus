@@ -50,7 +50,7 @@
         </DropdownMenu.Content>
       </DropdownMenu.Root>
     {:else}
-      <Button variant="outline" size="sm" class="border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11"
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11"
         onclick={() => (isDialogOpen = true)} aria-label="Connect Atlassian">Connect</Button>
     {/if}
   {/snippet}

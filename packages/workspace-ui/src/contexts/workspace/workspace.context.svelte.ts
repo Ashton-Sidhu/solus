@@ -876,6 +876,16 @@ export class WorkspaceContext implements SurfaceContext {
       : this.defaultServerId()
   }
 
+  /**
+   * The host a context reads from, or null while this client has no host: a
+   * new Solus Cloud account on the web starts with none. A surface that only
+   * shows host state reads this, so it renders with no host instead of throwing.
+   */
+  serverIdForContextOrNull(ctx: IpcContext): string | null {
+    if (ctx.session.sessionId) return this.serverIdForSession(ctx.session.sessionId)
+    return serverConnections.runOnHostId() ?? serverConnections.defaultServerId()
+  }
+
   get activeTab(): Tab | undefined {
     return this.registry.activeTab
   }

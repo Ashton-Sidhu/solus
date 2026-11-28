@@ -17,7 +17,7 @@ import type { PrsStore } from './prs.store.svelte'
 /** The part of a workspace that says which project it shows. */
 interface ShowingWorkspace {
   readonly ctx: IpcContext
-  serverIdForContext(ctx: IpcContext): string
+  serverIdForContextOrNull(ctx: IpcContext): string | null
   apiForContext(ctx: IpcContext): HostApi
 }
 
@@ -52,7 +52,7 @@ export class PrNeedsReviewStore {
    */
   wantShown(workspace: ShowingWorkspace): (() => void) | undefined {
     const ctx = workspace.ctx
-    const serverId = workspace.serverIdForContext(ctx)
+    const serverId = workspace.serverIdForContextOrNull(ctx)
     if (!serverId || !projectScopeOf(ctx.session)) return
     return untrack(() => this.prs.want(workspace.apiForContext(ctx), serverId, ctx, [{ kind: 'needs-review' }]))
   }

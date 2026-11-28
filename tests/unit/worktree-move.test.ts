@@ -8,6 +8,8 @@ import type { GitCheckout, NormalizedEvent, SessionRunInput } from '@solus/contr
 import { ulid } from '@solus/contracts/ulid'
 import type { Actor } from '@solus/server/admission/actor'
 import type { WorktreeMoveRuntime } from '@solus/server/execution/sessions/worktree-move'
+import type { AgentBackend } from '@solus/server/execution/agents/agent-backend'
+import type { SessionRunRequest } from '@solus/server/execution/session-runtime'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
@@ -579,6 +581,55 @@ describe('Stop and a move in progress', () => {
       sessionRuntime.sessionCheckouts.moveSessionCheckout('moved-session', repo, { repoRoot: repo, branch: 'main', targetBranch: 'main' })
       expect(forkFor({ ...request, input: { ...request.input, workingDirectory: worktree } }).input).toMatchObject({ forked: true, workingDirectory: repo })
     } finally {
+      sessionRuntime.shutdown()
+    }
+  })
+
+  test('a turn no client sent binds the session to its worktree, not to the project folder', async () => {
+    // WHY: after a host restart nothing in memory names the session's checkout,
+    // and send_session or an automation sends no git context. A binding to the
+    // project folder made move_checkout refuse to leave the worktree.
+    const { EventEmitter } = await import('node:events')
+    const { SessionRuntime } = await import('@solus/server/execution/session-runtime')
+    const backend = Object.assign(new EventEmitter(), {
+      startRun: () => { throw new Error('the agent started') },
+      isSessionRunning: () => false,
+      getPendingHandles: () => [],
+      getEnrichedError: () => ({ message: 'failed', isError: true, stderrTail: [] }),
+    })
+    const sessionRuntime = new SessionRuntime(new Map([['codex', backend as unknown as AgentBackend]]))
+    sessionRuntime.on('error', () => {})
+    const input: SessionRunInput = {
+      provider: 'codex', agentSessionId: null, forked: false, workingDirectory: worktree, projectPath: worktree,
+      gitContext: null, worktreeBaseBranch: null, contextWindow: null,
+      model: 'gpt-requested', preferredModel: 'gpt-requested', reasoningEffort: 'medium', fastMode: false,
+      permissionMode: 'supervised', rateLimitBehavior: 'queue', extraInstructions: '',
+    }
+    try {
+      await sessionRuntime.runTurn({ target: { kind: 'new-session' }, sessionId: 'unattended-session', tools: [], input, options: { prompt: 'go' } }).catch(() => {})
+      expect(sessionRuntime.sessionCheckouts.getGitContext('unattended-session')).toMatchObject({ worktreePath: worktree, repoRoot: repo, branch: 'feature' })
+    } finally {
+      sessionRuntime.shutdown()
+    }
+  })
+
+  test('an Antigravity session resumes its own thread in the new checkout, so it keeps its history', async () => {
+    const { SessionRuntime } = await import('@solus/server/execution/session-runtime')
+    const { registerSessionLineage, resolveSessionLineageById } = await import('@solus/server/data/sessions/session-lineage')
+    const sessionRuntime = new SessionRuntime(new Map())
+    // ACP cannot fork a thread: a fork there started an empty session, and the session lost its turns.
+    sessionRuntime.backends.set('antigravity', { resumesInAnotherDirectory: true } as unknown as AgentBackend)
+    try {
+      registerSessionLineage({ sessionId: 'moved-agy-session', provider: 'antigravity', providerSessionId: 'agy-thread', cwd: repo })
+      sessionRuntime.sessionCheckouts.moveSessionCheckout('moved-agy-session', worktree, { repoRoot: repo, worktreePath: worktree, branch: 'feature', targetBranch: 'main' })
+      const request = { sessionId: 'moved-agy-session', target: { kind: 'session' as const, sessionId: 'moved-agy-session' }, input: { provider: 'antigravity' as const, agentSessionId: 'agy-thread', forked: false, workingDirectory: repo } } as unknown as SessionRunRequest
+      const next = sessionRuntime.sessionCheckouts.continueInMovedCheckout(request)
+      expect(next.target).toEqual(request.target)
+      expect(next.input).toMatchObject({ forked: false, agentSessionId: 'agy-thread', workingDirectory: worktree })
+      // The session's folder is the new checkout; its thread is the same.
+      expect(resolveSessionLineageById('moved-agy-session')?.active).toMatchObject({ providerSessionId: 'agy-thread', cwd: worktree })
+    } finally {
+      sessionRuntime.backends.delete('antigravity')
       sessionRuntime.shutdown()
     }
   })

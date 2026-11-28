@@ -14,7 +14,7 @@
 </script>
 <SettingsSection {...settingsDefinitions["providers.section-advanced-provider-settings"]}>
   <SettingsRow {...settingsDefinitions["providers.status-check-interval"]}>
-    {#snippet control()}<div class="flex gap-2"><Input type="number" aria-label="Provider status check interval in seconds" min={0} max={86400} value={snapshot.healthCheckSeconds} disabled={saving} onchange={(event) => save(Number(event.currentTarget.value), snapshot.idleCompaction)} /><Button variant="ghost" size="sm" disabled={saving} onclick={() => save(300, snapshot.idleCompaction)}>Reset</Button></div>{/snippet}
+    {#snippet control()}<div class="flex gap-2"><Input type="number" aria-label="Provider status check interval in seconds" min={0} max={86400} value={snapshot.healthCheckSeconds} disabled={saving} onchange={(event) => save(Number(event.currentTarget.value), snapshot.idleCompaction)} /><Button variant="outline" size="default" class="pointer-coarse:min-h-11" disabled={saving} onclick={() => save(300, snapshot.idleCompaction)}>Reset</Button></div>{/snippet}
   </SettingsRow>
   <SettingsRow {...settingsDefinitions["providers.default-idle-compaction"]}>
     {#snippet control()}<SettingsSelect value={snapshot.idleCompaction} options={[{ value: "onReturn", label: "Ask on return" }, { value: "off", label: "Never" }]} onSelect={(value) => save(snapshot.healthCheckSeconds, value)} ariaLabel="Default idle compaction" />{/snippet}

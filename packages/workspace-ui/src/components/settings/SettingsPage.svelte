@@ -629,7 +629,7 @@
   tabindex="-1"
   {@attach focusOnOpen}
   onkeydown={handleKeydown}
-  class="flex h-full w-full min-w-0 overflow-hidden text-workspace-chrome outline-none [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [&_button]:text-[length:inherit]"
+  class="settings-controls flex h-full w-full min-w-0 overflow-hidden text-workspace-chrome outline-none [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [&_button]:text-[length:inherit]"
 >
   <!-- The dialog is the pane container. Below 48rem, section buttons replace
        the fixed navigation column. A page under Hosts takes the whole dialog:

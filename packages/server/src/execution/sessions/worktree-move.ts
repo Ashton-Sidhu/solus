@@ -22,8 +22,10 @@ const log = createLogger('worktree', 'worktree-move.ts')
  * Moves a session into another checkout of its repository (docs/worktree-names.md,
  * "Agent worktrees"). One path for the user's "Continue in worktree", the
  * agent's `move_checkout` tool, and the Switch action of a worktree offer: the
- * session's checkout, diff, status, and branch follow, and the next turn forks
- * the provider thread into the new directory (`SessionCheckouts.continueInMovedCheckout`).
+ * session's checkout, diff, status, and branch follow, and the next turn
+ * continues the provider thread in the new directory: it resumes the thread
+ * there when the backend can, else it forks the thread there
+ * (`SessionCheckouts.continueInMovedCheckout`).
  */
 
 export type WorktreeMoveTarget =

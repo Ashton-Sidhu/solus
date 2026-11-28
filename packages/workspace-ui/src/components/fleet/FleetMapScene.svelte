@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronRight, FoldVertical, KeyRound, Laptop, Plus, RotateCw, Terminal, UnfoldVertical, X } from "@lucide/svelte";
+  import { ChevronRight, FoldVertical, KeyRound, Laptop, Plus, RotateCw, Terminal, UnfoldVertical } from "@lucide/svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import FleetLoadRing from "./FleetLoadRing.svelte";
   import FleetMapCard from "./FleetMapCard.svelte";
@@ -8,7 +8,6 @@
   import FleetStatusLine from "./FleetStatusLine.svelte";
   import FleetTile from "./FleetTile.svelte";
   import HostStateIcon from "./HostStateIcon.svelte";
-  import type { ApprovalRequest } from "../servers/approval-request.store.svelte";
   import type { FoundMachine } from "./lib/discover";
   import { CARD_HEIGHT, groupsOf, machineMatches, rollup, toneOf, ZONE_HEADER, type AddWay, type FleetMachine, type FleetZoneId, type MapLayout, type Point, type TileColorMode, type ZoneSlot } from "./lib/fleet-model";
   import type { ReachPath } from "./lib/fleet-reach";
@@ -39,8 +38,6 @@
     dropStateOf: (serverId: string) => "ok" | "no" | null;
     /** The found machine a dragged handle is over: a drop there adds it. */
     dropFoundKey: string | null;
-    /** The found machines a drop is adding: a card says it waits, with the check code, or why it failed. */
-    approval: ApprovalRequest;
     canIntroduce: (serverId: string) => boolean;
     labelOf: (serverId: string) => string;
     onPoint: (serverId: string | null) => void;
@@ -56,7 +53,7 @@
   }
 
   let {
-    map, machines, colorMode, query, focusId, isLit, selectedId, pickedIds, selectedEdgeId, currentId, wires, reachPaths, dragSourceId, dropStateOf, dropFoundKey, approval, canIntroduce, labelOf,
+    map, machines, colorMode, query, focusId, isLit, selectedId, pickedIds, selectedEdgeId, currentId, wires, reachPaths, dragSourceId, dropStateOf, dropFoundKey, canIntroduce, labelOf,
     onPoint, onSelect, onOpenZone, onToggleZone, onAdd, onStart, onPointFound, onRetry, onHandleDown, onSelectEdge,
   }: Props = $props();
 
@@ -277,7 +274,6 @@
 
 <!-- Room to grow is a dashed outline, not a card: it is not a host yet. -->
 {#snippet foundCard(machine: FoundMachine, at: Point)}
-  {@const outcome = approval.machine?.key === machine.key ? { state: approval.phase, message: approval.message } : undefined}
   <button
     type="button"
     data-found-key={machine.key}
@@ -286,8 +282,7 @@
     onmouseleave={() => onPointFound(null)}
     onfocus={() => onPointFound(machine.key)}
     onblur={() => onPointFound(null)}
-    class="group absolute z-10 flex -translate-1/2 items-center gap-2.5 overflow-hidden rounded-xl border border-dashed border-(--hairline-strongest) pl-2 text-left text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-card motion-reduce:transition-none
-      {outcome?.state === 'waiting' ? 'pr-9' : 'pr-3'}
+    class="group absolute z-10 flex -translate-1/2 items-center gap-2.5 overflow-hidden rounded-xl border border-dashed border-(--hairline-strongest) pl-2 text-left text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-card motion-reduce:transition-none pr-3
       {dropFoundKey === machine.key ? 'bg-card outline-2 outline-offset-2 outline-(--success)' : ''}"
     style:left="{at.x}%"
     style:top="{at.y}%"
@@ -299,32 +294,10 @@
     </span>
     <span class="flex min-w-0 flex-1 flex-col gap-0.5">
       <span class="truncate text-[0.8125rem] font-medium text-foreground">{machine.name}</span>
-      {#if outcome?.state === "waiting"}
-        <!-- The code is what the person compares on the other machine: it never shortens; the words before it do. -->
-        <span role="status" class="flex min-w-0 items-baseline gap-1 text-chrome-dense text-(--solus-text-secondary)">
-          <span class="truncate">Approve:</span>
-          <code class="shrink-0 font-mono font-medium tracking-[0.06em] text-foreground">{approval.checkCode}</code>
-        </span>
-      {:else if outcome?.state === "failed" || outcome?.state === "unavailable"}
-        <span role="alert" class="truncate text-chrome-dense text-(--solus-status-error)" title={outcome.message ?? undefined}>{outcome.message}</span>
-      {:else}
-        <span class="truncate text-chrome-dense">Found nearby</span>
-      {/if}
+      <span class="truncate text-chrome-dense">Found nearby</span>
     </span>
-    {#if outcome?.state !== "waiting"}<Plus size={13} class="shrink-0 group-hover:text-foreground" />{/if}
+    <Plus size={13} class="shrink-0 group-hover:text-foreground" />
   </button>
-  {#if outcome?.state === "waiting"}
-    <!-- The way out of a request that waits: beside the card, since a button cannot hold a button. -->
-    <button
-      type="button"
-      onclick={() => approval.stop()}
-      aria-label="Stop the request to {machine.name}"
-      title="Stop the request"
-      class="absolute z-20 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-(--wash-3) hover:text-foreground"
-      style:left="calc({at.x + map.cardWidth / 2}% - 1.75rem)"
-      style:top="{at.y}%"
-    ><X size={13} /></button>
-  {/if}
 {/snippet}
 
 <!-- A zone whose hosts are not read yet: nothing is kept from an earlier start. -->

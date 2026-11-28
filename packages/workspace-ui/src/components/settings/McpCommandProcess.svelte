@@ -52,8 +52,8 @@
       </div>
       {#if withActions && status.actions.length > 0}
         <div class="flex flex-wrap items-center gap-2">
-          {#each status.actions as action, index (action.kind)}
-            <Button variant={index === 0 ? "outline" : "ghost"} size="sm" class="text-workspace-chrome pointer-coarse:min-h-11 {index === 0 ? '' : 'text-muted-foreground'}"
+          {#each status.actions as action (action.kind)}
+            <Button variant={action.kind === "cancel" ? "ghost" : "outline"} size="sm" class="pointer-coarse:min-h-11 {action.kind === 'cancel' ? 'text-muted-foreground' : ''}"
               disabled={!action.isEnabled || isOffline} aria-describedby={!action.isEnabled ? `command-blocked-${integration.id}` : undefined}
               onclick={() => run(action.kind)}>{action.label}</Button>
           {/each}

@@ -1,31 +1,39 @@
 <script lang="ts">
-  import { normalizeServerUrl, parsePairLink, urlHost } from "@solus/client-core/pairing";
+  import { normalizeServerUrl, pairCodeSteps, parsePairLink, urlHost } from "@solus/client-core/pairing";
   import { PAIR_APPROVAL_TTL_MS } from "@solus/contracts/add-machine";
   import { onDestroy } from "svelte";
+  import { serversStore } from "../../contexts";
   import { newCheckCode } from "../../lib/check-code";
+  import { stepTextParts } from "../../lib/step-text";
+  import { lookUpHost } from "../servers/lib/pairing-bridge";
   import { countdown } from "../../lib/countdown";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { connectionsNav } from "../connections/connections-nav.svelte";
   import { messageFor } from "../servers/lib/setup-rpc";
   import { Button } from "../ui/button";
   import HostStateIcon from "./HostStateIcon.svelte";
-  import { pairWithApproval, pairWithCode } from "./add-machine";
+  import { pairWithApproval, pairWithCode, pairWithoutCode } from "./add-machine";
 
   /** "Pair with a code": an address and the 6-digit code the host shows, or
-   *  its pair link, which carries both. With only an address, "Ask it to approve"
-   *  sends an approval request instead: the host's owner approves it after they
-   *  compare the check code (docs/plans/add-machine-card.md). */
+   *  its pair link, which carries both. With only an address, Pair tries the ways
+   *  that need nobody at the host (`pairWithoutCode`), then asks for its code.
+   *  "Ask it to approve" sends an approval request only when the person chooses
+   *  it: the host's owner approves it after they compare the check code
+   *  (docs/plans/add-machine-card.md). */
   let address = $state("");
   let code = $state("");
   let phase = $state<"idle" | "pairing" | "approving">("idle");
   let error = $state<string | null>(null);
   let pairedLabel = $state<string | null>(null);
+  /** The host that paired in no way without a code: the form asks for its code while its address stays. */
+  let codeNeeded = $state<{ url: string; name: string } | null>(null);
   let approval = $state<{ checkCode: string; expiresAt: number } | null>(null);
   let stopApproval: AbortController | null = null;
 
   const pairLink = $derived(parsePairLink(address.trim()));
   const url = $derived(pairLink?.url ?? normalizeServerUrl(address));
-  const isReady = $derived(!!url && (!!pairLink || code.length === 6));
+  const isReady = $derived(!!url && (!!pairLink || code.length === 6 || code.length === 0));
+  const codeNeededFrom = $derived(codeNeeded?.url === url ? codeNeeded.name : null);
   const canAskApproval = $derived(!!url && !pairLink && phase === "idle");
 
   let now = $state(Date.now());
@@ -40,6 +48,7 @@
     phase = "pairing";
     error = null;
     try {
+      if (!pairLink && !code) return await pairNoCode();
       const server = await pairWithCode(url, pairLink?.pairToken ?? code);
       pairedLabel = server.label;
     } catch (err) {
@@ -47,6 +56,18 @@
     } finally {
       phase = "idle";
     }
+  }
+
+  async function pairNoCode() {
+    codeNeeded = null;
+    const found = await lookUpHost(url, new AbortController().signal);
+    const host = await pairWithoutCode({ url, installationId: found.installationId, name: found.name });
+    if (!host) {
+      codeNeeded = { url, name: found.name };
+      return;
+    }
+    await serversStore.savePairedServer(host);
+    pairedLabel = host.label;
   }
 
   async function askApproval() {
@@ -122,8 +143,12 @@
       {/if}
     </div>
     {#if error}<p class="text-chrome-dense text-(--solus-status-error)" role="alert">{error}</p>{/if}
-    <p class="text-chrome-dense text-muted-foreground">
-      On the other machine, open Settings › Hosts › This device › Access and make a code. A pair link fills in both fields. With no code, ask it to approve this device.
+    {#if codeNeededFrom}
+      <p class="text-pretty text-chrome-dense text-(--solus-text-secondary)" role="status">{codeNeededFrom} needs a pairing code.</p>
+    {/if}
+    <p class="text-pretty text-chrome-dense text-muted-foreground">
+      {#each stepTextParts(pairCodeSteps(codeNeededFrom ?? "the other machine")) as part, index (index)}{#if part.isCode}<code class="font-mono">{part.text}</code>{:else}{part.text}{/if}{/each}
+      A pair link fills in both fields. With no code, Solus pairs through a host that already paired it, or as a device its network trusts.
     </p>
   </form>
 {/if}

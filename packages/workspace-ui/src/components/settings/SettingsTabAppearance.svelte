@@ -171,7 +171,7 @@
   >
     {#snippet control()}
       {#if isPlacesLayoutChanged(theme.sidebarPlaces)}
-        <Button variant="ghost" size="sm" onclick={() => theme.setPersonal("sidebarPlaces", { order: [], hidden: [] })}>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => theme.setPersonal("sidebarPlaces", { order: [], hidden: [] })}>
           Reset
         </Button>
       {/if}
@@ -179,6 +179,7 @@
         bind:ref={placesTrigger}
         variant="outline"
         size="sm"
+        class="pointer-coarse:min-h-11"
         aria-haspopup="menu"
         aria-expanded={placesMenuOpen}
         onclick={() => (placesMenuOpen = !placesMenuOpen)}
@@ -248,8 +249,9 @@
     {#snippet control()}
       {#if !isDefaultPanelHiddenItems(theme.projectPanelHiddenItems)}
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
+          class="pointer-coarse:min-h-11"
           onclick={() => theme.setPersonal("projectPanelHiddenItems", [...DEFAULT_PERSONAL_SETTINGS.projectPanelHiddenItems])}
         >
           Reset
@@ -259,6 +261,7 @@
         bind:ref={panelItemsTrigger}
         variant="outline"
         size="sm"
+        class="pointer-coarse:min-h-11"
         aria-haspopup="menu"
         aria-expanded={panelItemsMenuOpen}
         onclick={() => (panelItemsMenuOpen = !panelItemsMenuOpen)}
@@ -495,7 +498,7 @@
       description="{override.family} on this device. Your synced choice is {presetLabel(override.synced)}."
     >
       {#snippet control()}
-        <Button variant="outline" size="sm" onclick={() => useSyncedFont(override.key)}>Use synced font</Button>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => useSyncedFont(override.key)}>Use synced font</Button>
       {/snippet}
     </SettingsRow>
   {/each}

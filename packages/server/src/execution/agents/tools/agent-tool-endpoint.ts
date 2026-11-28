@@ -11,10 +11,11 @@ import { withWorkspaceToolAuthority } from '../../../admission/workspace-tool-au
 import { resolveHomePath } from '../../../platform/paths'
 import { withActorScope } from '../../seats/acting-identity'
 import type { AgentTool, AgentToolContext, AgentToolResult } from './agent-tool'
-import { appToolHints, appToolRefusal, toolAccessRefusal } from './tool-access'
+import type { AppOperationTool } from './app-tools'
+import { appOperationRefusal, appToolHints, appToolRefusal, toolAccessRefusal } from './tool-access'
 import { clientRequesterKey } from '../../orchestration/exchange'
 import { advertisedInputSchema, assertUniqueAgentTools, enabledAgentTools, executeAgentTool } from './agent-tool'
-import { listedProxyTools, parseToolCallProxy, parseToolSearchQuery, searchDeferredTools, TOOL_CALL, TOOL_SEARCH } from './deferred-tool-proxy'
+import { listedProxyTools, parseToolCallProxy, parseToolSearchQuery, proxyTools, searchDeferredTools, TOOL_CALL, TOOL_SEARCH } from './deferred-tool-proxy'
 
 /**
  * The tools of one run, served over the host's MCP endpoint (plans/035 §3-§4).
@@ -211,6 +212,48 @@ async function appTools(access: AppAccess): Promise<AgentTool[]> {
   return enabledAgentTools(Object.values(solusToolbox).flatMap((group) => Object.values(group))).filter((tool) => !appToolRefusal(tool, access))
 }
 
+/** What an outside app reads of the proxy: it reaches the operations of the person's apps (plans/035 §7.3). */
+const APP_OPERATIONS_PROXY = {
+  search: 'Find the operations of the apps that live in Solus on this host, then run one with tool_call. Search by app name, operation name, or purpose; an empty query lists them. Each result has its input schema.',
+  query: 'App name, operation name, or keywords. Empty lists the operations.',
+  call: 'Run an app operation by its exact name from tool_search, such as `notes__add`. A read-only connection runs queries only.',
+}
+
+/**
+ * The operations of the person's running apps, behind `tool_search` and
+ * `tool_call`. They load on the first call that needs them.
+ */
+async function appOperationTools(app: AppCaller, solusTools: readonly AgentTool[]): Promise<AppOperationTool[]> {
+  const { appOperationAgentTools } = await import('./app-tools')
+  return appOperationAgentTools(app.actor, new Set([...solusTools.map((tool) => tool.name), TOOL_SEARCH, TOOL_CALL]), { instructionTools: true })
+}
+
+/** The proxy is listed whenever the host runs apps for the person, so `tools/list` stays the same when an app is added, deployed, or stopped. */
+async function listsAppOperations(app: AppCaller): Promise<boolean> {
+  const { hostRunsAppsFor } = await import('./app-tools')
+  return hostRunsAppsFor(app.actor)
+}
+
+/** The tool an outside app's call runs and its input, or why the app may not run it. */
+type OutsideAppCall = { agentTool: AgentTool; input: NonNullable<ToolArguments> } | { refusal: string }
+
+/** A `tool_call` of an app operation: a mutation needs a write grant. */
+function appOperationCall(operations: readonly AppOperationTool[], args: ToolArguments, access: AppAccess): OutsideAppCall {
+  const parsed = parseToolCallProxy(args)
+  if (!parsed.ok) return { refusal: parsed.error }
+  const operation = operations.find((candidate) => candidate.name === parsed.name)
+  if (!operation) return { refusal: `Unknown app operation: ${parsed.name}. Find it with tool_search.` }
+  const refusal = appOperationRefusal(operation.name, operation.operationKind, access)
+  return refusal ? { refusal } : { agentTool: operation, input: parsed.arguments }
+}
+
+/** A call of a Solus tool on the outside app's list. */
+function solusToolCall(tools: readonly AgentTool[], name: string, args: ToolArguments, access: AppAccess): OutsideAppCall {
+  const agentTool = tools.find((candidate) => candidate.name === name)
+  if (!agentTool) return { refusal: appToolRefusal({ name, requiresApproval: false }, access) ?? `Unknown tool: ${name}` }
+  return { agentTool, input: args ?? {} }
+}
+
 /**
  * The MCP server for one request of an outside app. It has no session: each
  * call runs as the app's person, under the same access rule as a harness turn,
@@ -219,11 +262,25 @@ async function appTools(access: AppAccess): Promise<AgentTool[]> {
 export async function appToolServer(app: AppCaller): Promise<Server> {
   const server = new Server({ name: 'solus', version: '1.0.0' }, { capabilities: { tools: {} } })
   const tools = await appTools(app.access)
-  server.setRequestHandler('tools/list', () => ({ tools: tools.map((tool) => listedTool(tool, appToolHints(tool.name))) }))
+  let operations: Promise<AppOperationTool[]> | null = null
+  const appOperations = () => operations ??= appOperationTools(app, tools)
+  server.setRequestHandler('tools/list', async () => ({
+    tools: [
+      ...tools.map((tool) => listedTool(tool, appToolHints(tool.name))),
+      ...await listsAppOperations(app) ? proxyTools(APP_OPERATIONS_PROXY) : [],
+    ],
+  }))
   server.setRequestHandler('tools/call', async (request, extra): Promise<CallToolResult> => {
-    const agentTool = tools.find((candidate) => candidate.name === request.params.name)
-    if (!agentTool) return refused(appToolRefusal({ name: request.params.name, requiresApproval: false }, app.access) ?? `Unknown tool: ${request.params.name}`)
-    const input = request.params.arguments ?? {}
+    if (request.params.name === TOOL_SEARCH) {
+      const query = parseToolSearchQuery(request.params.arguments)
+      if (query === null) return refused('tool_search requires a string `query` argument.')
+      return { content: [{ type: 'text', text: JSON.stringify({ tools: searchDeferredTools(await appOperations(), query) }) }] }
+    }
+    const call = request.params.name === TOOL_CALL
+      ? appOperationCall(await appOperations(), request.params.arguments, app.access)
+      : solusToolCall(tools, request.params.name, request.params.arguments, app.access)
+    if ('refusal' in call) return refused(call.refusal)
+    const { agentTool, input } = call
     const denied = await toolAccessRefusal(agentTool, input, undefined, app.actor.principal)
     if (denied) return refused(denied)
     const context: AgentToolContext = {

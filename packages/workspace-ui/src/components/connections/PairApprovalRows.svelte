@@ -52,17 +52,18 @@
       </p>
     </div>
     <code class="shrink-0 font-mono text-workspace-chrome font-medium tracking-[0.06em] text-(--solus-text-primary)" aria-label="Check code {approval.checkCode}">{approval.checkCode}</code>
-    <div class="flex shrink-0 items-center gap-1">
+    <div class="flex shrink-0 items-center gap-2">
       <Button
-        variant="ghost"
+        variant="outline"
         size="sm"
-        class="bg-muted"
+        class="pointer-coarse:min-h-11"
         disabled={isDeciding || isExpired}
         aria-label="Deny {approval.deviceLabel}"
         onclick={() => void pairApprovalsStore.decide(serverId, approval.requestId, "deny")}
       >Deny</Button>
       <Button
         size="sm"
+        class="pointer-coarse:min-h-11"
         disabled={isDeciding || isExpired}
         aria-label="Approve {approval.deviceLabel}"
         onclick={() => void pairApprovalsStore.decide(serverId, approval.requestId, "approve")}

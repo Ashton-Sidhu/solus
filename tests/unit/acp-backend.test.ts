@@ -13,6 +13,7 @@ import { runToolBindingFor, setAgentToolEndpointUrl } from '@solus/server/execut
 import type { AgentTool } from '@solus/server/execution/agents/tools/agent-tool'
 import { z } from 'zod'
 import { acpPermissionAnswer } from '@solus/server/execution/agents/acp/acp-permissions'
+import { projectSessionHistory } from '@solus/server/data/sessions/result-projection'
 import { FakeAgent, FakeChild, INITIALIZE, request, settle, setup, temporaryDirectory, testAgent, type Json } from './helpers/acp-fake-agent'
 
 describe('AcpBackend turns', () => {
@@ -79,6 +80,15 @@ describe('AcpBackend turns', () => {
     await backend.startRun(request({ conversation: { kind: 'resume', threadId: 'saved-thread' } })).runPromise
     expect(agents[0]!.methods()).toEqual(['initialize', 'authenticate', 'session/resume', 'session/prompt'])
     expect(agents[0]!.received.find((message) => message.method === 'session/resume')?.params).toMatchObject({ sessionId: 'saved-thread', cwd: '/tmp' })
+    backend.shutdown()
+  })
+
+  test('a fork fails with a clear error and starts no empty session, which would lose the conversation', async () => {
+    const { backend, agents } = setup({ 'session/prompt': () => ({ stopReason: 'end_turn' }) })
+    const handle = backend.startRun(request({ conversation: { kind: 'fork', sourceThreadId: 'thread-1' } }))
+    await settle(handle.runPromise)
+    await expect(handle.runPromise).rejects.toThrow('cannot fork a conversation')
+    expect(agents).toHaveLength(0)
     backend.shutdown()
   })
 
@@ -180,6 +190,41 @@ describe('AcpBackend steering', () => {
     await handle.runPromise
     expect(await backend.steerSession('thread-1', { prompt: 'Too late' })).toBeNull()
     expect(agents[0]!.methods().filter((method) => method === 'session/prompt')).toHaveLength(1)
+    backend.shutdown()
+  })
+})
+
+describe('AcpBackend agent cards', () => {
+  const dispatched: NormalizedEvent = {
+    type: 'agent_conversation_update',
+    update: { phase: 'dispatched', sessionId: 'child-1', messageId: 'exchange-1', origin: 'created', prompt: 'Pin workflow versions', provider: 'antigravity', title: 'Workflow version pinning', cwd: '/repo', fireAndForget: true, dispatchedAt: 1 },
+  }
+
+  // agy does not send back the text of a Solus tool's result, so its own
+  // start_sessions row has no exchange tags, and a reload had no card.
+  test('a session the turn started keeps its card after a reload', async () => {
+    let answer: ((stopReason: string) => void) | undefined
+    const { backend } = setup({
+      initialize: () => INITIALIZE,
+      'session/prompt': () => new Promise<Json>((resolve) => { answer = (stopReason) => resolve({ stopReason }) }),
+    })
+    const handle = backend.startRun(request())
+    while (!answer) await new Promise((resolve) => setTimeout(resolve, 1))
+    backend.keepHostEvent('thread-1', dispatched)
+    answer('end_turn')
+    await handle.runPromise
+
+    const results = projectSessionHistory(await backend.loadSession('thread-1')).flatMap((row) => row.agentConversationResults ?? [])
+    expect(results).toEqual([{ sessionId: 'child-1', messageId: 'exchange-1', provider: 'antigravity', item: 0 }])
+    backend.shutdown()
+  })
+
+  test('a card update after the turn ended adds no row', async () => {
+    const { backend } = setup({ initialize: () => INITIALIZE, 'session/prompt': () => ({ stopReason: 'end_turn' }) })
+    await backend.startRun(request()).runPromise
+    const before = await backend.loadSession('thread-1')
+    backend.keepHostEvent('thread-1', dispatched)
+    expect(await backend.loadSession('thread-1')).toEqual(before)
     backend.shutdown()
   })
 })

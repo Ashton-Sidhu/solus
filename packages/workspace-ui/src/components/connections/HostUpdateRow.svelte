@@ -35,17 +35,17 @@
   {#snippet control()}
     <div class="flex flex-col items-end gap-2">
     {#if desktop && command && command.command !== 'check'}
-      <Button variant="outline" size="sm" onclick={runDesktopCommand}>{command.label}</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={runDesktopCommand}>{command.label}</Button>
     {/if}
     {#if !desktop && status?.serverUpdate?.supported}
       {#if operation?.phase === 'waiting'}
-        <Button variant="outline" size="sm" disabled={host.readiness !== 'ready' || hostUpdatesStore.updateRequests.has(host.id)} onclick={() => void hostUpdatesStore.cancelUpdate(host.id)}>Cancel update</Button>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={host.readiness !== 'ready' || hostUpdatesStore.updateRequests.has(host.id)} onclick={() => void hostUpdatesStore.cancelUpdate(host.id)}>Cancel update</Button>
       {:else if status.check.kind === 'available' || updating}
-        <Button variant="outline" size="sm" disabled={host.readiness !== 'ready' || updating} onclick={() => void hostUpdater.updateTarget(host.id, 'solus')}>{updating ? 'Updating Solus…' : 'Update Solus'}</Button>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={host.readiness !== 'ready' || updating} onclick={() => void hostUpdater.updateTarget(host.id, 'solus')}>{updating ? 'Updating Solus…' : 'Update Solus'}</Button>
       {/if}
     {/if}
     {#if hosts.get(host.id)?.supports('hostUpdates') && status?.install !== 'cloud'}
-      <Button variant="outline" size="sm" disabled={host.readiness !== 'ready' || updating || status?.check.kind === 'checking' || status?.providers.some((p) => p.check.kind === 'checking')} onclick={() => void checkHost()}>Check for updates</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={host.readiness !== 'ready' || updating || status?.check.kind === 'checking' || status?.providers.some((p) => p.check.kind === 'checking')} onclick={() => void checkHost()}>Check for updates</Button>
     {/if}
     </div>
   {/snippet}

@@ -157,7 +157,7 @@
     </p>
     <pre class="overflow-x-auto rounded-[0.625rem] bg-neutral-900 px-3.5 py-3 font-mono text-[0.75rem] leading-4.5 whitespace-pre-wrap break-all text-neutral-100 select-text dark:bg-black/45">{commandsText(action.commands)}</pre>
     <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-      <Button variant="ghost" size="sm" class="self-start bg-muted" onclick={() => void copyCommands(action.commands)}>
+      <Button variant="outline" size="sm" class="self-start pointer-coarse:min-h-11" onclick={() => void copyCommands(action.commands)}>
         {isCopied ? "Copied" : "Copy commands"}
       </Button>
       <span class="text-[0.8125rem] leading-4 text-(--solus-text-tertiary)">
@@ -168,7 +168,7 @@
     {@const open = action}
     {@render accessSwitch()}
     <div class="flex flex-col gap-2">
-      <Button class="self-start" onclick={() => void handOff(guide, open)}>
+      <Button size="sm" class="self-start pointer-coarse:min-h-11" onclick={() => void handOff(guide, open)}>
         {open.label}
         <OpenIcon size={14} />
       </Button>

@@ -597,17 +597,45 @@ export const setAppSignalActionAgentTool: AgentTool<typeof signalActionFields> =
   },
 }
 
+/** Whether this host runs apps and this person may use them: then an outside app lists `tool_search` and `tool_call`, even before the first app runs. */
+export function hostRunsAppsFor(actor: Actor): boolean {
+  return parts !== null && mayUseApps(actor.principal)
+}
+
+/** An app's operation as an agent tool: a query reads the app's data, a mutation writes it. */
+export interface AppOperationTool extends AgentTool {
+  operationKind: AppOperation['kind']
+}
+
 /**
  * The operations of the host's running apps as agent tools (§7.1), for a
  * run's person. A name another tool of the run already has is left out: an
  * integration the person added after the app keeps its tools.
+ *
+ * An outside app has no `inspect_app` (plans/035 §7.3). With
+ * `instructionTools`, each app with instructions also gets a tool that
+ * answers them, `<slug>__app-instructions`: an operation's name has no `-`,
+ * so no operation has that name.
  */
-export async function appOperationAgentTools(actor: Actor, taken: ReadonlySet<string>): Promise<AgentTool[]> {
+export async function appOperationAgentTools(actor: Actor, taken: ReadonlySet<string>, options: { instructionTools?: boolean } = {}): Promise<AppOperationTool[]> {
   const service = parts?.apps
   const authority: AppAuthority = { principal: actor.principal, actor }
   if (!service || !mayUseApps(actor.principal)) return []
-  const tools: AgentTool[] = []
+  const tools: AppOperationTool[] = []
   for (const { app, descriptor } of await service.running(authority)) {
+    const instructionsTool = descriptor.instructions === '' ? null : options.instructionTools ? `${app.slug}__app-instructions` : 'inspect_app'
+    if (instructionsTool && options.instructionTools) {
+      tools.push({
+        name: instructionsTool,
+        description: `${app.name}: how to use this app's operations. Read it once before you call them.`,
+        inputFields: {},
+        alwaysLoad: false,
+        requiresApproval: false,
+        access: { permission: HOST_USE },
+        operationKind: 'query',
+        execute: async () => ({ ok: true, text: descriptor.instructions }),
+      })
+    }
     for (const operation of descriptor.operations) {
       const name = integrationToolName(app.slug, operation.name)
       if (taken.has(name)) {
@@ -615,9 +643,10 @@ export async function appOperationAgentTools(actor: Actor, taken: ReadonlySet<st
         continue
       }
       const fields = inputFieldsFor({ ...operation.input, type: 'object' })
-      const tool: AgentTool = {
+      const tool: AppOperationTool = {
         name,
-        description: operationToolDescription(app.name, operation, descriptor.instructions !== ''),
+        description: operationToolDescription(app.name, operation, instructionsTool),
+        operationKind: operation.kind,
         inputFields: fields ?? {},
         alwaysLoad: false,
         requiresApproval: false,
@@ -640,11 +669,11 @@ export async function appOperationAgentTools(actor: Actor, taken: ReadonlySet<st
   return tools
 }
 
-/** What an agent reads of one operation: what it does, the shape of what it answers when the app declares one, and where the app's instructions are. */
-function operationToolDescription(appName: string, operation: AppOperation, hasInstructions: boolean): string {
+/** What an agent reads of one operation: what it does, the shape of what it answers when the app declares one, and the tool that gives the app's instructions. */
+function operationToolDescription(appName: string, operation: AppOperation, instructionsTool: string | null): string {
   const lines = [`${appName}: ${operation.description || operation.name}`]
   if (operation.output) lines.push(`Returns: ${JSON.stringify(operation.output).slice(0, OUTPUT_SCHEMA_MAX_CHARS)}`)
-  if (hasInstructions) lines.push('Read this app\'s instructions once with inspect_app before you use it.')
+  if (instructionsTool) lines.push(`Read this app's instructions once with ${instructionsTool} before you use it.`)
   return lines.join('\n').slice(0, 1000)
 }
 

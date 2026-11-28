@@ -72,12 +72,12 @@
         {error || (kind === "scopes" ? "Separated by spaces. The next sign-in asks for them." : "Separated by spaces. New names remove the values saved for the old ones.")}
       </p>
       <div class="flex flex-wrap items-center gap-2">
-        <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isBusy || isOffline}>{isBusy ? "Saving…" : "Save"}</Button>
         {#if kind === "scopes" && words.length > 0}
-          <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" disabled={isBusy || isOffline}
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={isBusy || isOffline}
             onclick={() => write({ id: integration.id, scopes: null })}>Use the server’s scopes</Button>
         {/if}
-        <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={() => { isEditing = false; }}>Cancel</Button>
+        <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => { isEditing = false; }}>Cancel</Button>
+        <Button type="submit" size="sm" class="pointer-coarse:min-h-11" disabled={isBusy || isOffline}>{isBusy ? "Saving…" : "Save"}</Button>
       </div>
     </form>
   {:else}
@@ -89,7 +89,7 @@
           <span class="text-workspace-chrome text-(--solus-text-secondary)">The ones the server names</span>
         {/each}
       </div>
-      <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={!canEdit || isBusy || isOffline}
+      <Button variant="outline" size="sm" class="shrink-0 pointer-coarse:min-h-11" disabled={!canEdit || isBusy || isOffline}
         aria-label={kind === "scopes" ? `Edit the scopes of ${integration.name}` : `Edit the header names of ${integration.name}`} onclick={startEdit}>Edit</Button>
     </div>
   {/if}

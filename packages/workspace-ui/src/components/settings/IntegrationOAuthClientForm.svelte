@@ -141,7 +141,7 @@
           <div class="flex flex-wrap items-center gap-2">
             <Input id="{fieldPrefix}-redirect" value={redirectUrl} readonly class="h-8 min-w-0 flex-1 text-workspace-chrome" dictation={false}
               onfocus={(event) => event.currentTarget.select()} />
-            <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={copyRedirectUrl} aria-label="Copy the redirect URL">
+            <Button variant="outline" size="default" class="pointer-coarse:min-h-11" onclick={copyRedirectUrl} aria-label="Copy the redirect URL">
               {#if isCopied}<Check size={14} />Copied{:else}<Copy size={14} />Copy{/if}
             </Button>
           </div>
@@ -162,17 +162,17 @@
           {/if}
         </div>
         <div class="flex flex-wrap items-center gap-2">
+          {#if isEditing}
+            <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={cancelChange} disabled={isBusy}>Cancel</Button>
+          {/if}
           {#if compact}
             <TranscriptCardAction kind="filled" type="submit" disabled={isBusy || isOffline || !clientIdDraft.trim()}>
               {#if isBusy}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />Saving…{:else}Save{/if}
             </TranscriptCardAction>
           {:else}
-            <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isBusy || isOffline || !clientIdDraft.trim()}>
+            <Button type="submit" size="sm" class="pointer-coarse:min-h-11" disabled={isBusy || isOffline || !clientIdDraft.trim()}>
               {#if isBusy}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Saving…{:else}Save{/if}
             </Button>
-          {/if}
-          {#if isEditing}
-            <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={cancelChange} disabled={isBusy}>Cancel</Button>
           {/if}
         </div>
       </form>
@@ -183,7 +183,7 @@
       <div class="flex flex-wrap items-center gap-2">
         {@render primaryAction?.()}
         <!-- Beside a sign-in button it is the quiet second choice at that button's height; alone it is a settings button. -->
-        <Button variant={primaryAction ? "ghost" : "outline"} size={primaryAction ? "default" : "sm"} class="text-workspace-chrome pointer-coarse:min-h-11" onclick={startChange} disabled={isBusy || isOffline}>{text.action}</Button>
+        <Button variant={primaryAction ? "ghost" : "outline"} size={primaryAction ? "default" : "sm"} class="pointer-coarse:min-h-11" onclick={startChange} disabled={isBusy || isOffline}>{text.action}</Button>
       </div>
     {:else if text.state === "set"}
       {#if primaryAction}<div>{@render primaryAction()}</div>{/if}
@@ -194,17 +194,17 @@
             {text.clientId} · {text.secret}
           </p>
         </div>
-        <div class="flex items-center gap-1">
-          <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={startChange} disabled={isBusy || isOffline}>Change</Button>
-          <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground hover:text-destructive pointer-coarse:min-h-11" onclick={() => { error = ""; isConfirmingRemove = true; }}
+        <div class="flex items-center gap-2">
+          <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={startChange} disabled={isBusy || isOffline}>Change</Button>
+          <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={() => { error = ""; isConfirmingRemove = true; }}
             disabled={isBusy || isOffline} aria-label="Remove the OAuth client of {integration.name}">Remove</Button>
         </div>
       </div>
       {#if isConfirmingRemove}
         <p class="text-pretty text-workspace-chrome">Remove the OAuth client? {integration.auth.kind === "oauth" && integration.auth.registration !== "client-required" ? "New sign-ins will use automatic setup again." : "Enter another client before you sign in again."}</p>
         <div class="flex flex-wrap gap-2">
-          <Button variant="destructive" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={remove} disabled={isBusy}>{isBusy ? "Removing…" : "Remove client"}</Button>
-          <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => { isConfirmingRemove = false; void focusFirstControl(); }} disabled={isBusy}>Cancel</Button>
+          <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => { isConfirmingRemove = false; void focusFirstControl(); }} disabled={isBusy}>Cancel</Button>
+          <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={remove} disabled={isBusy}>{isBusy ? "Removing…" : "Remove client"}</Button>
         </div>
       {/if}
     {/if}

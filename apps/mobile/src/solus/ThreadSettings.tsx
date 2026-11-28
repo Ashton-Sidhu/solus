@@ -32,7 +32,8 @@ import {
   runOptionSelections,
   solusModelGroup,
 } from "./model-picker-catalog";
-import { isPickerProvider, useModelPickerHost } from "./use-model-picker-host";
+import { isModelPickerAgentVisible } from "@solus/client-core/model-picker-agents";
+import { useModelPickerHost } from "./use-model-picker-host";
 export function SolusThreadSettings({
   route,
 }: StaticScreenProps<ExistingThreadSettingsRouteParams>) {
@@ -78,7 +79,7 @@ function Picker({
   const host = useModelPickerHost(params.environmentId, cwd);
   const agents = (host.agents ?? meta.runOptions.agents ?? []).filter(
     (agent) =>
-      isPickerProvider(agent.id) && !controller.policy.providerDenial(agent.id),
+      isModelPickerAgentVisible(agent.id, __DEV__) && !controller.policy.providerDenial(agent.id),
   );
   const defaults = solus.personal.runSettings();
   const groups = agents.map((agent) => {

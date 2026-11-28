@@ -108,7 +108,7 @@
           variant="ghost"
           size="icon-sm"
           onclick={copyCode}
-          class="text-(--solus-text-tertiary)"
+          class="text-muted-foreground pointer-coarse:tap-area"
           aria-label="Copy code"
         >
           {#if copied}
@@ -119,7 +119,7 @@
         </Button>
       </div>
 
-      <Button onclick={openVerification}>
+      <Button size="sm" class="pointer-coarse:min-h-11" onclick={openVerification}>
         <ArrowSquareOutIcon size={14} />
         Open github.com/login/device
       </Button>
@@ -128,7 +128,7 @@
         variant="ghost"
         size="sm"
         onclick={cancel}
-        class="self-center text-(--solus-text-tertiary)"
+        class="self-center text-muted-foreground pointer-coarse:min-h-11"
       >
         Cancel
       </Button>

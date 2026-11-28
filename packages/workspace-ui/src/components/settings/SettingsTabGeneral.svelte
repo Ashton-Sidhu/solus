@@ -140,7 +140,7 @@
         <Button
           variant="ghost"
           size="icon-sm"
-          class="text-(--solus-text-tertiary) disabled:opacity-0"
+          class="text-muted-foreground disabled:opacity-0 pointer-coarse:tap-area"
           disabled={!projectsBaseDirectoryIsSet}
           aria-label="Reset projects folder"
           title="Reset to the default folder"
@@ -152,7 +152,7 @@
           variant="outline"
           size="sm"
           aria-label="Projects folder"
-          class="w-56 justify-between text-xs font-normal shadow-xs {projectsBaseDirectoryIsSet
+          class="h-8 w-56 justify-between gap-1.5 rounded-lg px-2.5 font-normal {projectsBaseDirectoryIsSet
             ? ''
             : 'text-muted-foreground'}"
           onclick={() => (projectsBasePickerOpen = true)}
@@ -196,7 +196,7 @@
           variant="outline"
           size="sm"
           disabled
-          class="w-full @min-[30rem]/pane:w-56 text-xs shadow-xs"
+          class="h-8 w-full @min-[30rem]/pane:w-56 justify-between gap-1.5 rounded-lg px-2.5 font-normal"
         >
           <Skeleton class="h-3 w-24" aria-label="Loading settings" />
         </Button>

@@ -1,17 +1,16 @@
 import type { AddMachineAsk } from "@solus/contracts/add-machine";
-import { ANOTHER_SSH } from "@solus-mobile/features/conversation/lib/add-machine-card";
+import { OTHER_MACHINE } from "@solus-mobile/features/conversation/lib/add-machine-card";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 
-import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import { IdentityFileField } from "../../solus/IdentityFileField";
 import { solus } from "../../solus/runtime";
 import type { AddMachineFlow } from "./LinkRequestCard";
 
-/** The typed SSH target and key, filled first from the agent's ask. */
+/** The typed SSH key, filled first from the agent's ask. */
 export function useSshFields(ask: AddMachineAsk) {
-  const [sshTarget, setSshTarget] = useState(ask.sshTarget ?? "");
   const [identityFile, setIdentityFile] = useState(ask.identityFile ?? "");
   // On an SSH config alias the key of ~/.ssh/config is used until the person asks for another.
   const [useAnotherKey, setUseAnotherKey] = useState(Boolean(ask.identityFile));
@@ -19,8 +18,6 @@ export function useSshFields(ask: AddMachineAsk) {
   const [keyFix, setKeyFix] = useState<string | null>(null);
   const [identityError, setIdentityError] = useState<string | null>(null);
   return {
-    sshTarget,
-    setSshTarget,
     identityFile,
     setIdentityFile: (value: string) => {
       setIdentityFile(value);
@@ -51,8 +48,8 @@ export function SshKeySection(props: { readonly flow: AddMachineFlow; readonly d
 }
 
 /**
- * The SSH fields of the Add machine sheet. "Another machine over SSH…" takes a
- * target and an identity file. An SSH config alias uses the key that
+ * The SSH key of the Add machine sheet. A target typed on "Other machine…"
+ * takes an identity file. An SSH config alias uses the key that
  * `~/.ssh/config` names until the person chooses "Use another key…".
  */
 function SshKeyFields(props: { readonly flow: AddMachineFlow; readonly disabled: boolean }) {
@@ -69,28 +66,7 @@ function SshKeyFields(props: { readonly flow: AddMachineFlow; readonly disabled:
       disabled={props.disabled}
     />
   );
-  if (flow.selectedKey === ANOTHER_SSH) {
-    return (
-      <View className="gap-4">
-        <View className="gap-2">
-          <Text className="px-1 text-sm font-t3-medium text-foreground-muted">Target</Text>
-          <TextInput
-            accessibilityLabel="SSH target"
-            placeholder="ubuntu@3.91.20.4"
-            value={ssh.sshTarget}
-            onChangeText={ssh.setSshTarget}
-            editable={!props.disabled}
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoComplete="off"
-            keyboardType="url"
-            spellCheck={false}
-          />
-        </View>
-        {identityField}
-      </View>
-    );
-  }
+  if (flow.selectedKey === OTHER_MACHINE) return identityField;
   if (ssh.useAnotherKey) return identityField;
   return (
     <View className="flex-row flex-wrap items-center gap-x-2 gap-y-1 px-1">

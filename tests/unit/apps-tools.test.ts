@@ -104,4 +104,59 @@ describeWithNode('the agent\'s tools for apps', () => {
     expect((await tools.setAppSignalActionAgentTool.execute({ app: 'reports', signal: 'report.ready', type: 'run_automation' }, context)).text).toBe('set_app_signal_action failed: send_to_session needs session_id, and run_automation needs automation_id.')
     expect((await tools.inspectAppAgentTool.execute({ app: 'reports', view: 'signals' }, context)).text).toContain('- report.ready: A report is ready.')
   })
+
+  test('an outside app finds and runs app operations through tool_search and tool_call, within its grant', async () => {
+    // WHY: Claude Desktop, ChatGPT, or Cursor read tools/list once, when they
+    // start (plans/035 §7.3). App operations are behind tool_search and
+    // tool_call, so a new app or a deploy reaches them with no restart. A
+    // read grant only reads: it runs a query and never a mutation. An outside
+    // app has no inspect_app, so the app's instructions are a tool it can call.
+    const { Client, InMemoryTransport } = await import('@modelcontextprotocol/client')
+    const { appToolServer } = await import('@solus/server/execution/agents/tools/agent-tool-endpoint')
+    const apps = await service()
+    const notes = (await ship(apps, project(NOTES))).app
+    await ship(apps, project(REPORTS))
+    const connect = async (access: 'read' | 'write') => {
+      const server = await appToolServer({ grantId: `grant-${access}`, access, actor: owner.actor, signal: new AbortController().signal })
+      const [serverSide, clientSide] = InMemoryTransport.createLinkedPair()
+      await server.connect(serverSide)
+      const client = new Client({ name: 'outside-app', version: '1.0.0' })
+      await client.connect(clientSide)
+      return client
+    }
+    const textOf = (result: Awaited<ReturnType<Awaited<ReturnType<typeof connect>>['callTool']>>) => (result.content as { text: string }[])[0]?.text ?? ''
+
+    const reader = await connect('read')
+    const listed = (await reader.listTools()).tools.map((tool) => tool.name)
+    expect(listed).toEqual(expect.arrayContaining(['tool_search', 'tool_call', 'list_works']))
+    expect(listed).not.toContain('notes__add')
+
+    const found = JSON.parse(textOf(await reader.callTool({ name: 'tool_search', arguments: { query: '' } }))).tools as { name: string; description: string }[]
+    expect(found.map((tool) => tool.name)).toEqual(expect.arrayContaining(['notes__list', 'notes__add', 'reports__list', 'reports__app-instructions']))
+    expect(found.find((tool) => tool.name === 'reports__list')?.description).toContain('Read this app\'s instructions once with reports__app-instructions before you use it.')
+    expect(textOf(await reader.callTool({ name: 'tool_call', arguments: { name: 'reports__app-instructions' } }))).toBe('Call list before you make a report.')
+
+    const refused = await reader.callTool({ name: 'tool_call', arguments: { name: 'notes__add', arguments: { text: 'from a read grant' } } })
+    expect(refused.isError).toBe(true)
+    expect(textOf(refused)).toBe('notes__add changes the app\'s records, and this app was approved to read only. Connect it again with write access.')
+    const read = await reader.callTool({ name: 'tool_call', arguments: { name: 'notes__list' } })
+    expect(read.isError).toBeFalsy()
+    expect(JSON.parse(textOf(read))).toEqual([])
+
+    const writer = await connect('write')
+    const writerTools = (await writer.listTools()).tools.map((tool) => tool.name)
+    const added = await writer.callTool({ name: 'tool_call', arguments: { name: 'notes__add', arguments: { text: 'from Claude Desktop' } } })
+    expect(added.isError).toBeFalsy()
+    expect(await call(apps, notes.id, appOperationCallName('list'))).toEqual([{ id: 1, text: 'from Claude Desktop' }])
+    // The call log shows an agent that is in no session.
+    expect((await apps.calls(owner, notes.id)).find((entry) => entry.operation === 'add')).toMatchObject({ caller: { kind: 'agent', sessionId: null } })
+
+    // An app with agent access off is not found, and the person's apps come back when it is on again.
+    await apps.setAgentAccess(owner, notes.id, false)
+    const again = await connect('write')
+    // The tool list stays the same, so the app needs no restart when the person turns it on again.
+    expect((await again.listTools()).tools.map((tool) => tool.name)).toEqual(writerTools)
+    expect(textOf(await again.callTool({ name: 'tool_call', arguments: { name: 'notes__list' } }))).toBe('Unknown app operation: notes__list. Find it with tool_search.')
+    await apps.setAgentAccess(owner, notes.id, true)
+  })
 })

@@ -77,7 +77,7 @@ describe('the steps of each flow', () => {
 
 describe('the timeline', () => {
   test('one step is open, done steps fold with a check, and the rest are next', () => {
-    const entries = timeline({ steps: stepsFor('desktop', 'local'), open: 'projects', done: new Set(['setup', 'agents']), working: NONE, signingIn: false })
+    const entries = timeline({ steps: stepsFor('desktop', 'local'), open: 'projects', done: new Set(['setup', 'agents']), working: NONE, failed: NONE, signingIn: false })
     expect(entries.map((entry) => [entry.step, entry.status, entry.marker])).toEqual([
       ['setup', 'done', 'check'],
       ['agents', 'done', 'check'],
@@ -90,15 +90,22 @@ describe('the timeline', () => {
   test('while the browser sign-in runs, step 1 spins and every other step waits on it (decision 3)', () => {
     // WHY: the account decides where logins go; an agent signed in before the
     // sign-in ends would be kept in the wrong place.
-    const entries = timeline({ steps: stepsFor('desktop', 'account'), open: 'setup', done: NONE, working: NONE, signingIn: true })
+    const entries = timeline({ steps: stepsFor('desktop', 'account'), open: 'setup', done: NONE, working: NONE, failed: NONE, signingIn: true })
     expect(entries[0]).toMatchObject({ step: 'setup', status: 'open', marker: 'spinner' })
     expect(entries.slice(1).map((entry) => entry.status)).toEqual(['waiting', 'waiting', 'waiting'])
     expect(stepCopy('agents', 'waiting', COPY).detail).toBe('Opens after you sign in')
   })
 
   test('a done step whose work goes on in the background keeps a spinner marker', () => {
-    const entries = timeline({ steps: stepsFor('cloud', 'account'), open: 'agents', done: new Set(['machine']), working: new Set(['machine']), signingIn: false })
+    const entries = timeline({ steps: stepsFor('cloud', 'account'), open: 'agents', done: new Set(['machine']), working: new Set(['machine']), failed: NONE, signingIn: false })
     expect(entries[0]).toMatchObject({ step: 'machine', status: 'done', marker: 'spinner' })
+  })
+
+  test('a done step whose background work failed shows the failure, not a spinner or a check', () => {
+    // WHY: a cloud host that did not start spun forever, and the person went
+    // on to a workspace where nothing could run.
+    const entries = timeline({ steps: stepsFor('cloud', 'account'), open: 'agents', done: new Set(['machine']), working: NONE, failed: new Set(['machine']), signingIn: false })
+    expect(entries[0]).toMatchObject({ step: 'machine', status: 'done', marker: 'failed' })
   })
 
   test('the header counts steps, and names an optional last step as optional', () => {

@@ -78,7 +78,7 @@
   {#if error}<p class="text-sm text-destructive" role="alert">{error}</p>{/if}
 
   <div class="flex items-center gap-2">
-    <Button size="sm" disabled={!canCreate} onclick={() => void create()}>{isBusy ? "Making the codebase…" : "Create codebase"}</Button>
-    <Button size="sm" variant="ghost" disabled={isBusy} onclick={onClose}>Cancel</Button>
+    <Button size="sm" variant="ghost" class="text-muted-foreground pointer-coarse:min-h-11" disabled={isBusy} onclick={onClose}>Cancel</Button>
+    <Button size="sm" class="pointer-coarse:min-h-11" disabled={!canCreate} onclick={() => void create()}>{isBusy ? "Making the codebase…" : "Create codebase"}</Button>
   </div>
 </div>

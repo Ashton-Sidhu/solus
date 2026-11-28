@@ -47,7 +47,7 @@
   <Dialog.Portal>
     <Dialog.Overlay class="fixed inset-0 z-[10001] modal-backdrop duration-150 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 motion-reduce:animate-none" />
     <Dialog.Content
-      class="text-workspace-chrome fixed inset-0 z-[10001] m-auto flex h-fit max-h-[calc(100dvh-2rem)] w-[min(32rem,calc(100vw-2rem))] flex-col gap-4 overflow-y-auto rounded-2xl border border-(--solus-tool-border) bg-(--solus-container-bg) p-6 shadow-(--solus-popover-shadow) duration-150 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 motion-reduce:animate-none"
+      class="settings-controls text-workspace-chrome fixed inset-0 z-[10001] m-auto flex h-fit max-h-[calc(100dvh-2rem)] w-[min(32rem,calc(100vw-2rem))] flex-col gap-4 overflow-y-auto rounded-2xl border border-(--solus-tool-border) bg-(--solus-container-bg) p-6 shadow-(--solus-popover-shadow) duration-150 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 motion-reduce:animate-none"
       data-testid="copied-files-dialog"
     >
       <Dialog.Close>
@@ -71,7 +71,7 @@
               <span class="text-xs text-(--solus-text-tertiary) tabular-nums">
                 {draft.chosen.size} of {draft.files.length}{draft.chosenBytes > 0 ? ` · ${formatFileSize(draft.chosenBytes)}` : ""}
               </span>
-              <Button variant="ghost" size="xs" disabled={draft.status !== "ready"} onclick={() => draft?.toggleAll()}>
+              <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" disabled={draft.status !== "ready"} onclick={() => draft?.toggleAll()}>
                 {draft.allChosen ? "None" : "All"}
               </Button>
             {/if}
@@ -81,7 +81,7 @@
             <p class="text-xs text-(--solus-text-tertiary)">Finding ignored files…</p>
           {:else if draft.status === "failed"}
             <p class="text-xs text-destructive" role="alert">{draft.error}</p>
-            <Button variant="outline" size="sm" class="self-start" onclick={() => draft?.load()}>Try again</Button>
+            <Button variant="outline" size="sm" class="self-start pointer-coarse:min-h-11" onclick={() => draft?.load()}>Try again</Button>
           {:else if draft.files.length === 0}
             <p class="text-xs text-(--solus-text-tertiary)">Git ignores no files in this project.</p>
           {:else}
@@ -118,8 +118,10 @@
       {/if}
 
       <div class="flex justify-end gap-2">
-        <Button variant="outline" onclick={() => (open = false)}>Cancel</Button>
+        <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => (open = false)}>Cancel</Button>
         <Button
+          size="sm"
+          class="pointer-coarse:min-h-11"
           disabled={!draft || draft.status !== "ready" || (draft.changes.length === 0 && draft.hasIncludeFile)}
           onclick={save}
         >

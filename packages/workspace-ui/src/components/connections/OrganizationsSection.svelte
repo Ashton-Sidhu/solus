@@ -49,7 +49,7 @@
     <Button
       variant="ghost"
       size="icon-sm"
-      class="text-(--solus-text-tertiary)"
+      class="text-muted-foreground pointer-coarse:tap-area"
       aria-label="Refresh organizations"
       disabled={loading}
       onclick={() => void organizationsStore.refresh(serverId)}

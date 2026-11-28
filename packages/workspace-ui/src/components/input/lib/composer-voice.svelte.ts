@@ -250,7 +250,11 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
   useKeybinding("voice.toggle-recorder", toggleVoice, {
     enabled: () =>
       options.active() &&
-      (ownsVoice || !!voice.messageOwner?.startsWith("composer:")) &&
+      // Any bar may finish another composer's recording in flight, which still
+      // goes to that composer. An idle mic answers only its owner: the dock
+      // stays active under a draft, and must not take the draft's mic.
+      (ownsVoice ||
+        (!!voice.messageOwner?.startsWith("composer:") && voice.isMessageInFlight(voice.messageOwner))) &&
       !options.isReadOnly() &&
       // The mic is hidden on a host that cannot transcribe, so the shortcut
       // that toggles it must go quiet too rather than opening a recording no

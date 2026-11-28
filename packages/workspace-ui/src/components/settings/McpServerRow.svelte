@@ -249,8 +249,8 @@
       <McpCommandFields form={editor} idPrefix="mcp-command-edit-{integration.id}" disabled={editor.isSaving || isOffline} />
       <p class="text-chrome-dense text-(--solus-text-secondary)">Saving stops the command. New variable names remove the values saved for the old ones.</p>
       <div class="flex flex-wrap items-center gap-2">
-        <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={editor.isSaving || isOffline}>{editor.isSaving ? "Saving…" : "Save"}</Button>
-        <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={() => { commandEditor = null; }}>Cancel</Button>
+        <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => { commandEditor = null; }}>Cancel</Button>
+        <Button type="submit" size="sm" class="pointer-coarse:min-h-11" disabled={editor.isSaving || isOffline}>{editor.isSaving ? "Saving…" : "Save"}</Button>
       </div>
     </form>
   {:else}
@@ -266,7 +266,7 @@
         <Monitor size={14} class="shrink-0" aria-hidden="true" /><span class="sr-only">on</span><span class="truncate">{hostLabel}</span>
       </span>
       <!-- The process below says why it is off, once. -->
-      <Button variant="ghost" size="sm" class="ml-auto shrink-0 text-workspace-chrome text-(--solus-text-secondary) pointer-coarse:min-h-11" disabled={!mayRunCommands || !canEdit || isBusy || isOffline}
+      <Button variant="outline" size="sm" class="ml-auto shrink-0 pointer-coarse:min-h-11" disabled={!mayRunCommands || !canEdit || isBusy || isOffline}
         aria-label={mayRunCommands ? "Edit the command" : `Edit the command. ${COMMAND_ADMIN_ONLY}`} onclick={editCommand}><Pencil size={14} />Edit</Button>
     </div>
   {/if}
@@ -286,7 +286,7 @@
   {:else if toolError}
     <div class="flex flex-wrap items-center justify-between gap-3">
       <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{toolError}</p>
-      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.loadTools(serverId, integration.id)}>Retry</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.loadTools(serverId, integration.id)}>Retry</Button>
     </div>
   {:else if !list}
     <p role="status" class="flex items-center gap-2 text-workspace-chrome text-muted-foreground"><LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Loading tools…</p>
@@ -334,10 +334,10 @@
       </span>
     </button>
     {#if showConnect && takesValues}
-      <Button variant="outline" size="sm" class="shrink-0 border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11" disabled={isOffline}
+      <Button variant="outline" size="sm" class="shrink-0 pointer-coarse:min-h-11" disabled={isOffline}
         onclick={enterValues} aria-label="Enter the values of {integration.name}">Enter values</Button>
     {:else if showConnect}
-      <Button variant="outline" size="sm" class="shrink-0 border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11" disabled={isOffline}
+      <Button variant="outline" size="sm" class="shrink-0 pointer-coarse:min-h-11" disabled={isOffline}
         onclick={onConnect} aria-label="{connection ? 'Reconnect' : 'Connect'} {integration.name}">{connection ? "Reconnect" : "Connect"}</Button>
     {/if}
     <DropdownMenu.Root>
@@ -383,8 +383,8 @@
           <p role="alert" class="break-words text-(--solus-status-error)">{hostState.writeError}</p>
         {/if}
         <div class="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => { isConfirmingRemove = false; }} disabled={isBusy}>Cancel</Button>
-          <Button bind:ref={removeButtonEl} variant="destructive" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={remove} disabled={isBusy}>{isBusy ? "Removing…" : "Remove"}</Button>
+          <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => { isConfirmingRemove = false; }} disabled={isBusy}>Cancel</Button>
+          <Button bind:ref={removeButtonEl} variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={remove} disabled={isBusy}>{isBusy ? "Removing…" : "Remove"}</Button>
         </div>
       </Popover.Content>
     </Popover.Root>
@@ -409,8 +409,8 @@
           <!-- svelte-ignore a11y_autofocus -->
           <Input bind:value={renameDraft} aria-label="Name of {integration.name}" class="h-8 min-w-0 flex-1 text-workspace-chrome" autofocus
             onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); isRenaming = false; } }} />
-          <Button variant="ghost" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => { isRenaming = false; }}>Cancel</Button>
-          <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isBusy || !renameDraft.trim()}>{isBusy ? "Saving…" : "Save"}</Button>
+          <Button variant="ghost" size="default" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => { isRenaming = false; }}>Cancel</Button>
+          <Button type="submit" size="default" class="pointer-coarse:min-h-11" disabled={isBusy || !renameDraft.trim()}>{isBusy ? "Saving…" : "Save"}</Button>
         </form>
       {/if}
       {#if isRenaming && hostState?.writeError}
@@ -464,7 +464,7 @@
             {/if}
           </p>
           {#if toolList?.length && toolsListable && !isNotRunning}
-            <Button variant="ghost" size="sm" class="-mr-2 shrink-0 text-workspace-chrome text-(--solus-text-secondary) pointer-coarse:min-h-11" disabled={!canEdit || isBusy || isOffline}
+            <Button variant="outline" size="sm" class="shrink-0 pointer-coarse:min-h-11" disabled={!canEdit || isBusy || isOffline}
               onclick={() => setAllTools(isOff)}>{isOff ? "Turn all on" : "Turn all off"}</Button>
           {/if}
         </div>

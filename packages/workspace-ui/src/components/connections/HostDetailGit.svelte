@@ -52,6 +52,7 @@
         <Button
           variant="outline"
           size="sm"
+          class="pointer-coarse:min-h-11"
           disabled={!hasToken || !!setup.runningStep}
           title={hasToken ? undefined : "Connect GitHub first"}
           onclick={() => void setup.installCredentialHelper()}
@@ -73,6 +74,7 @@
           <Button
             variant="outline"
             size="sm"
+            class="pointer-coarse:min-h-11"
             disabled={!hasToken || !!setup.runningStep}
             title={hasToken ? undefined : "Connect GitHub first"}
             onclick={() => void setup.authorizeGhCli()}
@@ -84,6 +86,7 @@
         <Button
           variant="outline"
           size="sm"
+          class="pointer-coarse:min-h-11"
           disabled={!!setup.runningStep}
           onclick={() => void setup.installGh()}
         >
@@ -109,7 +112,7 @@
     comingSoon
   >
     {#snippet control()}
-      <Button variant="outline" size="sm">Choose…</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11">Choose…</Button>
     {/snippet}
   </SettingsRow>
 </SettingsSection>
@@ -136,7 +139,7 @@
             (identityDraft = { ...identity, email: event.currentTarget.value })}
         />
         <Button
-          class="shrink-0"
+          class="shrink-0 pointer-coarse:min-h-11"
           disabled={!identityChanged ||
             !identity.name.trim() ||
             !identity.email.trim() ||

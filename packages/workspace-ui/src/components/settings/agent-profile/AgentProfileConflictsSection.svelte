@@ -32,8 +32,8 @@
         <span class="grid size-8 shrink-0 place-items-center rounded-lg border border-border/50 bg-muted text-(--solus-status-permission)" aria-hidden="true"><GitCompare size={15} /></span>
       {/snippet}
       {#snippet action()}
-        <Button variant="outline" size="sm" class="text-workspace-chrome shadow-xs pointer-coarse:min-h-11" onclick={() => resolve(conflict.key, "keep-mine")} aria-label="Keep this device's {conflict.label}">Keep mine</Button>
-        <Button variant="outline" size="sm" class="text-workspace-chrome shadow-xs pointer-coarse:min-h-11" onclick={() => resolve(conflict.key, "take-theirs")} aria-label="Take the synced {conflict.label}">Take theirs</Button>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => resolve(conflict.key, "keep-mine")} aria-label="Keep this device's {conflict.label}">Keep mine</Button>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => resolve(conflict.key, "take-theirs")} aria-label="Take the synced {conflict.label}">Take theirs</Button>
       {/snippet}
     </ProfileEntryRow>
   {/each}

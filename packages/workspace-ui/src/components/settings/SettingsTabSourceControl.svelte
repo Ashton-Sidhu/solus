@@ -188,7 +188,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus(); }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" class="min-w-48 justify-between text-xs font-normal shadow-xs" aria-label="Commit and pull request writing">
+            <Button {...props} variant="outline" size="sm" class="h-8 min-w-48 justify-between gap-1.5 rounded-lg px-2.5 font-normal" aria-label="Commit and pull request writing">
               <span class="truncate">{sourceControlWritingOptions[style.mode].label}</span>
               <CaretDownIcon size={11} class="opacity-60" />
             </Button>
@@ -234,6 +234,7 @@
           </p>
           <Button
             size="sm"
+            class="pointer-coarse:min-h-11"
             disabled={customInstructionsDraft.trim() === style.customInstructions}
             onclick={saveCustomInstructions}
           >
@@ -269,7 +270,7 @@
           <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus(); }}>
             <DropdownMenu.Trigger disabled={modelOptions.length === 0}>
               {#snippet child({ props })}
-                <Button {...props} variant="outline" size="sm" class="max-w-64 min-w-32 justify-between text-xs font-normal shadow-xs" aria-label="Source-control writer model">
+                <Button {...props} variant="outline" size="sm" class="h-8 max-w-64 min-w-32 justify-between gap-1.5 rounded-lg px-2.5 font-normal" aria-label="Source-control writer model">
                   <span class="truncate">{modelLabel(writerModel)}</span>
                   <CaretDownIcon size={11} class="opacity-60" />
                 </Button>

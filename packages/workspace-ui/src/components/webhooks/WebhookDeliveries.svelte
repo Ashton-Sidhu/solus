@@ -112,7 +112,7 @@
                   <p class="text-destructive">{verificationFailureText(openDelivery.verificationFailure)}</p>
                 {/if}
                 {#if canReplay}
-                  <Button size="xs" variant="outline" class="self-start" disabled={isReplaying} onclick={() => void replay(delivery.id)}>
+                  <Button size="sm" variant="outline" class="self-start pointer-coarse:min-h-11" disabled={isReplaying} onclick={() => void replay(delivery.id)}>
                     <ReplayIcon size={14} /> Replay all actions
                   </Button>
                 {/if}

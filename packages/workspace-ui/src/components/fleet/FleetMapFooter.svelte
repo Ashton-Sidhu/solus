@@ -49,7 +49,6 @@
     <div class="flex min-w-0 items-center gap-2">
       <span class="shrink-0 text-workspace-chrome font-medium">{machine.label}</span>
       <HostStateIcon state={machine.state} label={machine.problem?.label} count={machine.state === "running" ? machine.sessions : undefined} />
-      {#if machine.needsSetup}<HostStateIcon state="signin" />{/if}
       {#if machine.hasUpdate}<HostStateIcon state="update" />{/if}
       <span class="min-w-0 flex-1 truncate text-chrome-dense text-muted-foreground tabular-nums">
         {#if machine.problem}{machine.problem.headline}{#if machine.problem.detail}. {machine.problem.detail}{/if}

@@ -1466,6 +1466,14 @@ function ThreadDetailBody(
         nextFrame: requestAnimationFrame,
         isCurrent: () => !scope.aborted,
         run: () => {
+          // Away from the end, glide while the keyboard closes. The list holds the closed end
+          // inset for the close, so the glide does not wait for the keyboard to finish closing.
+          if (dismissingKeyboard && followSubmission && !wasAtEnd) {
+            void scrollMessageToEnd({ animated: !reduceMotion, closeKeyboard: true }).catch(() => {
+              if (!scope.aborted) freeze.set(false);
+            });
+            return;
+          }
           // Scrolling freezes the keyboard inset, so wait until dismissal has removed it.
           void KeyboardController.dismiss()
             .then(() => {

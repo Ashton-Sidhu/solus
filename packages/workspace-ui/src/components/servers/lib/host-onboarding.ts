@@ -12,8 +12,6 @@ export type OnboardingStepId =
 export interface OnboardingStep {
   id: OnboardingStepId
   label: string
-  /** The step as one noun, for the line that lists what is already done. */
-  name: string
   /** What this step buys, in the user's terms rather than the command's. */
   detail: string
   /**
@@ -226,7 +224,6 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
     {
       id: 'github',
       label: 'Connect GitHub',
-      name: 'GitHub',
       detail: 'A token of its own — nothing carries over from this machine.',
       why: 'So this server can clone, push and open pull requests as you.',
       automatic: false,
@@ -236,7 +233,6 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
     {
       id: 'credential-helper',
       label: 'Teach git to use it',
-      name: 'Git credentials',
       detail: 'So pushes from this host stop asking for a password.',
       why: 'Hands the GitHub token to git so pushes from this host stop asking for a password.',
       automatic: true,
@@ -246,7 +242,6 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
     {
       id: 'gh-cli',
       label: 'Install the GitHub CLI',
-      name: 'GitHub CLI',
       detail: 'The binary the next step signs in.',
       why: 'Installs the GitHub CLI, which is what the agent runs to open a pull request.',
       automatic: true,
@@ -256,7 +251,6 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
     {
       id: 'gh-auth',
       label: 'Authorize the gh CLI',
-      name: 'gh auth',
       detail: 'What the agent uses to open a pull request.',
       why: 'Signs the gh CLI in with the same token, which is what the agent uses to open a pull request.',
       automatic: true,
@@ -266,150 +260,11 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
     {
       id: 'providers',
       label: 'Add a coding provider',
-      name: 'Agent',
       detail: 'Claude Code or Codex — the CLI a session runs through.',
       why: 'One is enough to start. Add the other whenever you like.',
       automatic: false,
       done: hasSignedInProvider,
       blockedBy: null,
-    },
-  ]
-}
-
-/**
- * Enough of a host's identity key to recognise, short enough to sit in a meta
- * line beside the platform and address. Anything already short is left alone.
- */
-export function shortIdentityKey(identityKey: string | undefined): string | null {
-  if (!identityKey) return null
-  return identityKey.length > 12 ? `${identityKey.slice(0, 4)}…${identityKey.slice(-4)}` : identityKey
-}
-
-/** A thing the host already has, stated so the user can see what it didn't cost them. */
-export interface CarriedOverFact {
-  id: string
-  title: string
-  detail: string
-  done: boolean
-}
-
-export interface OnboardingRailInput {
-  readiness: HostReadiness | null
-  hostName: string
-  hostUrl?: string
-  identityKey?: string
-  stepError?: { step: string; message: string; provider?: SetupAgent } | null
-}
-
-/**
- * The complete read model for the onboarding rail. Keeping its ordering,
- * failure routing and weighted progress together prevents the sidebar and main
- * panel from independently deciding that a blocked host is already done.
- */
-export function onboardingRailModel(input: OnboardingRailInput) {
-  const steps = hostOnboardingSteps({ readiness: input.readiness })
-  const facts = hostCarriedOverFacts({
-    readiness: input.readiness,
-    hostName: input.hostName,
-  })
-  const decisions = steps.filter((step) => !step.automatic)
-  const automaticSteps = steps.filter((step) => step.automatic)
-  const blockingFailureStep = input.stepError
-    ? decisions.find((step) => step.id === input.stepError?.step && !step.done)
-    : undefined
-  const current =
-    blockingFailureStep ??
-    decisions.find((step) => !step.done && !step.blockedBy) ??
-    null
-  const currentNumber = current ? decisions.indexOf(current) + 1 : 0
-  const doneDecisions = decisions.filter(
-    (step) => step.done && step.id !== blockingFailureStep?.id,
-  )
-  const upcoming = decisions.filter(
-    (step) => step !== current && !step.done,
-  )
-  const failure = input.stepError &&
-    (input.stepError.step === 'providers' || input.stepError.step === current?.id)
-      ? input.stepError
-      : null
-  const carriedTotal = facts.length + automaticSteps.length
-  const carriedDone =
-    facts.filter((fact) => fact.done).length +
-    automaticSteps.filter((step) => step.done).length
-  // Decisions are the only items that cost user attention, so each has twice
-  // the weight of a carried-over fact or automatic follow-through.
-  const weightedTotal = carriedTotal + decisions.length * 2
-  const percentDone = weightedTotal === 0
-    ? 100
-    : Math.round(
-        ((carriedDone + doneDecisions.length * 2) / weightedTotal) * 100,
-      )
-  const hostMeta = [
-    input.readiness?.platform,
-    input.hostUrl,
-    shortIdentityKey(input.identityKey),
-  ]
-    .filter(Boolean)
-    .join(' · ')
-
-  return {
-    steps,
-    facts,
-    decisions,
-    automaticSteps,
-    current,
-    currentNumber,
-    doneDecisions,
-    upcoming,
-    failure,
-    carriedTotal,
-    carriedDone,
-    percentDone,
-    hostMeta,
-  }
-}
-
-/**
- * Read off readiness rather than run: these are the parts of a host that were
- * settled by pairing with it. A gap stays in the list as an undone row — a host
- * without git should read as a visible gap, not as a silently shorter list.
- *
- * Reached as defensively as `hostOnboardingSteps` — same version boundary.
- */
-export function hostCarriedOverFacts(
-  input: { readiness: HostReadiness | null; hostName: string },
-): CarriedOverFact[] {
-  const { readiness, hostName } = input
-  const projectsRoot = readiness?.projectsRoot
-  const git = readiness?.git
-  const identity = git?.identity
-
-  return [
-    {
-      id: 'name',
-      title: `Named ${hostName}`,
-      detail: 'from its hostname',
-      done: true,
-    },
-    {
-      id: 'projects',
-      title: projectsRoot ? `Projects land in ${projectsRoot}` : 'No clone location yet',
-      detail: projectsRoot ? 'matched to this Mac' : 'this host has not reported one',
-      done: !!projectsRoot,
-    },
-    {
-      id: 'git',
-      title: git?.installed ? 'git is already here' : "git isn't installed here",
-      detail: git?.installed
-        ? 'nothing to install'
-        : readiness?.installGit?.label ?? readiness?.installGit?.display ?? 'install it on the host to clone',
-      done: !!git?.installed,
-    },
-    {
-      id: 'identity',
-      title: 'Commit identity copied',
-      detail: identity ? `${identity.name} · ${identity.email}` : 'not set on this host',
-      done: !!identity,
     },
   ]
 }
@@ -436,14 +291,6 @@ const BLOCKING_STEPS = new Set<OnboardingStepId>(['github', 'providers'])
 /** Where the SSH handshake is. Each one is a different thing to ask the user for. */
 export type PairingView = 'connecting' | 'ssh-target' | 'ssh-password' | 'fallback' | 'error'
 
-export interface OnboardingHeadingInput {
-  hostName: string
-  /** Set while the host is still being paired; null once it is in setup. */
-  pairingView: PairingView | null
-  /** The decision the rail is asking about, or null when nothing is left. */
-  current: OnboardingStep | null
-}
-
 export interface OnboardingHeading {
   title: string
   /** One short line of why, never a paragraph. */
@@ -451,11 +298,11 @@ export interface OnboardingHeading {
 }
 
 /**
- * The one question the stage asks right now, as a title and one short line.
- * Kept short on purpose: the stage shows a single question, not an explanation.
+ * The pair step of a new host's setup while it is open: what the handshake asks
+ * now, as a title and one short line.
  */
-export function onboardingHeading(input: OnboardingHeadingInput): OnboardingHeading {
-  const { hostName, pairingView, current } = input
+export function onboardingHeading(input: { hostName: string; pairingView: PairingView }): OnboardingHeading {
+  const { hostName, pairingView } = input
   switch (pairingView) {
     case 'connecting':
       return {
@@ -471,6 +318,4 @@ export function onboardingHeading(input: OnboardingHeadingInput): OnboardingHead
     case 'error':
       return { title: `Couldn't reach ${hostName}`, subtitle: 'Check that it is on and reachable, then try again.' }
   }
-  if (current) return { title: current.label, subtitle: current.why }
-  return { title: `${hostName} is ready`, subtitle: 'Choose it in Run on to start a session there.' }
 }

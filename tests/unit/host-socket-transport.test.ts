@@ -621,6 +621,26 @@ describe('the host socket protocol', () => {
     expect(harness.transport.sessions.size).toBe(0)
   })
 
+  test('a page that unloads ends its client at once; a dropped socket keeps it for a resume', async () => {
+    // WHY: a reloaded page dials as a new client and can never resume the old stream.
+    // Kept for the TTL, every reload left one more watcher that each session event fanned out to.
+    const expired: string[] = []
+    const harness = await createHarness(false, '127.0.0.1', '127.0.0.1', { onClientExpired: ({ clientId }) => { expired.push(clientId) } })
+    const admitted = async (clientInstanceId: string) => {
+      const { socket, frames } = await rawSocket(harness.url)
+      socket.send(JSON.stringify({ t: 'hello', v: HOST_SOCKET_PROTOCOL_VERSION, clientInstanceId }))
+      await waitFor(() => frames.length === 1)
+      return socket
+    }
+    const dropped = await admitted('dropped_client_1')
+    const unloaded = await admitted('unloaded_page_01')
+
+    dropped.close(1000)
+    unloaded.close(1001)
+    await waitFor(() => harness.transport.sessions.size === 0)
+    expect(expired).toEqual(['ws:local:unloaded_page_01'])
+  })
+
   test('a frame before the hello is refused, and the RPC in it never runs', async () => {
     // WHY: admission is the hello; a request that comes first has no principal to run as.
     const harness = await createHarness(false)
@@ -804,7 +824,7 @@ async function messagesAfterRpc(url: string, hello: { frameParts?: true }): Prom
   return messages
 }
 
-async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHost = bindHost, lifecycle: Pick<Parameters<typeof attachWebSocketTransport>[2], 'onClientConnected' | 'onClientDisconnected'> = {}): Promise<Harness> {
+async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHost = bindHost, lifecycle: Pick<Parameters<typeof attachWebSocketTransport>[2], 'onClientConnected' | 'onClientDisconnected' | 'onClientExpired'> = {}): Promise<Harness> {
   const http = createServer((_request, response) => {
     response.statusCode = 404
     response.end()

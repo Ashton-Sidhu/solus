@@ -207,6 +207,21 @@ describe('pr.changed', () => {
     release()
   })
 
+  test('with no host yet, the needs-review interest asks for nothing and does not throw', async () => {
+    // WHY: a new Solus Cloud account on the web starts with no host. The
+    // sidebar asks for this count when it mounts; a throw there left the
+    // sidebar a skeleton, with Settings and the account out of reach.
+    const store = await newStore()
+    const { PrNeedsReviewStore } = await import('@solus/workspace-ui/contexts/prs/pr-needs-review.store.svelte')
+    const needsReview = new PrNeedsReviewStore(store)
+    const workspace = {
+      ctx,
+      serverIdForContextOrNull: () => null,
+      apiForContext: (): never => { throw new Error('no host to ask') },
+    }
+    expect(needsReview.wantShown(workspace)).toBeUndefined()
+  })
+
   test('pushed checks reach the list row of the same head, and only that head', async () => {
     // WHY: the list reads no checks of its own. A push is how a row learns
     // that CI finished, and checks of an older head are not this row's.

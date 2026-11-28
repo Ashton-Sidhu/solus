@@ -63,13 +63,13 @@
           onSubmit={() => draft.trim() && void save(draft.trim())}
         />
         {#if isEditing}
-          <Button size="sm" variant="ghost" class="text-(--solus-text-secondary)" disabled={isSaving} onclick={() => { isEditing = false; draft = ""; }}>Cancel</Button>
+          <Button size="default" variant="ghost" class="text-muted-foreground pointer-coarse:min-h-11" disabled={isSaving} onclick={() => { isEditing = false; draft = ""; }}>Cancel</Button>
         {/if}
-        <Button size="sm" disabled={isSaving || draft.trim() === ""} onclick={() => void save(draft.trim())}>{isSaving ? "Saving…" : "Save"}</Button>
+        <Button size="default" class="pointer-coarse:min-h-11" disabled={isSaving || draft.trim() === ""} onclick={() => void save(draft.trim())}>{isSaving ? "Saving…" : "Save"}</Button>
       {:else}
         <span class="text-[13px] text-muted-foreground">A key is saved</span>
-        <Button size="sm" variant="ghost" class="text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={isSaving} onclick={() => void save(null)}>Remove</Button>
-        <Button size="sm" variant="outline" disabled={isSaving} onclick={() => (isEditing = true)}>Replace</Button>
+        <Button size="sm" variant="destructive" class="pointer-coarse:min-h-11" disabled={isSaving} onclick={() => void save(null)}>Remove</Button>
+        <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={isSaving} onclick={() => (isEditing = true)}>Replace</Button>
       {/if}
     {/snippet}
   </SettingsRow>

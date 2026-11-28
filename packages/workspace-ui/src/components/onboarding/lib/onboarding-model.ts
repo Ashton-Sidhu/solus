@@ -122,8 +122,11 @@ export function nextOpenStep(steps: readonly OnboardingStep[], done: ReadonlySet
  */
 export type StepStatus = 'open' | 'done' | 'next' | 'waiting'
 
-/** The marker in the 22 px column: a number, a check, or a spinner for work that goes on. */
-export type StepMarker = 'number' | 'check' | 'spinner'
+/**
+ * The marker in the 22 px column: a number, a check, a spinner for work that
+ * goes on, or a failure mark for background work that ended without a result.
+ */
+export type StepMarker = 'number' | 'check' | 'spinner' | 'failed'
 
 export interface TimelineEntry {
   step: OnboardingStep
@@ -138,18 +141,20 @@ export interface TimelineInput {
   done: ReadonlySet<OnboardingStep>
   /** Steps whose work goes on in the background (a cloud host starting, a machine linking). */
   working: ReadonlySet<OnboardingStep>
+  /** Steps whose background work failed (a cloud host that did not start). */
+  failed: ReadonlySet<OnboardingStep>
   /** The desktop browser sign-in is open: step 1 waits on it and blocks the rest. */
   signingIn: boolean
 }
 
 export function timeline(input: TimelineInput): TimelineEntry[] {
-  const { steps, open, done, working, signingIn } = input
+  const { steps, open, done, working, failed, signingIn } = input
   return steps.map((step, index) => {
     const number = index + 1
     if (signingIn && step === 'setup') return { step, number, status: 'open', marker: 'spinner' }
     if (signingIn) return { step, number, status: 'waiting', marker: 'number' }
     if (step === open) return { step, number, status: 'open', marker: 'number' }
-    if (done.has(step)) return { step, number, status: 'done', marker: working.has(step) ? 'spinner' : 'check' }
+    if (done.has(step)) return { step, number, status: 'done', marker: failed.has(step) ? 'failed' : working.has(step) ? 'spinner' : 'check' }
     return { step, number, status: 'next', marker: working.has(step) ? 'spinner' : 'number' }
   })
 }
@@ -193,8 +198,8 @@ export interface Footer {
   hint: string
   primaryLabel: string
   primaryEnabled: boolean
-  /** The quiet action beside the primary: Skip, or on the cloud ready state, Invite your team. */
-  secondary: 'skip' | 'invite'
+  /** The quiet action beside the primary: Skip, or on the cloud ready state, Invite your team; null shows none. */
+  secondary: 'skip' | 'invite' | null
 }
 
 function startLabel(project: string | null): string {

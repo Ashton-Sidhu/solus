@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { AgentId, AgentMetadata, ModelConfig, RunConfig, StartInfo } from '@solus/contracts/types'
 import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
+import { automationAgents } from '@solus/client-core/model-picker-agents'
 
 /**
  * A host with only one agent installed must not be handed the other one by a
@@ -12,7 +13,6 @@ import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-locat
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 let WorkspaceLifecycleStore: typeof import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte')['WorkspaceLifecycleStore']
 let runnableAutomationAgent: typeof import('@solus/workspace-ui/components/automations/lib/automation-agent')['runnableAutomationAgent']
-let automationAgents: typeof import('@solus/workspace-ui/components/automations/lib/automation-agent')['automationAgents']
 
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
@@ -20,7 +20,7 @@ beforeAll(async () => {
     { snapshot: <T>(value: T) => value },
   )
   ;({ WorkspaceLifecycleStore } = await import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte'))
-  ;({ runnableAutomationAgent, automationAgents } = await import('@solus/workspace-ui/components/automations/lib/automation-agent'))
+  ;({ runnableAutomationAgent } = await import('@solus/workspace-ui/components/automations/lib/automation-agent'))
 })
 
 afterAll(() => {

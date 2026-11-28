@@ -53,7 +53,6 @@ export interface FleetMachine {
   /** Where the host answers; null for this device. */
   address: string | null
   hasUpdate: boolean
-  needsSetup: boolean
   /**
    * Why a host that does not answer does not, in the words every client uses
    * (`hostReadinessCopy`): "Needs pairing", "Different server", "Not running",
@@ -96,7 +95,6 @@ export interface FleetMachineInput {
   sessions: number
   load: { cpu: number | null; memory: number | null; latencyMs: number | null; traffic?: Traffic | null } | null
   hasUpdate: boolean
-  needsSetup: boolean
   /** The readiness words of the host (`hostReadinessCopy`). */
   readinessCopy?: HostReadinessCopy
 }
@@ -122,7 +120,6 @@ export function fleetMachine(input: FleetMachineInput): FleetMachine {
     routeInUse: input.isThisDevice || !input.dialedRouteKind ? null : routeInUseOf(input.dialedRouteKind, input.readiness),
     address: input.address ?? null,
     hasUpdate: input.hasUpdate,
-    needsSetup: input.needsSetup,
     problem: problemOf(input, state),
   }
 }
@@ -191,9 +188,9 @@ export function toneOf(state: FleetState): FleetTone {
   return 'warn'
 }
 
-/** A host that wants the person: a problem, a missing sign-in, or an update. */
+/** A host that wants the person: a problem, or an update of Solus or an agent. */
 export function needsAttention(machine: FleetMachine): boolean {
-  return machine.state === 'unreachable' || machine.state === 'reconnecting' || machine.needsSetup || machine.hasUpdate
+  return machine.state === 'unreachable' || machine.state === 'reconnecting' || machine.hasUpdate
 }
 
 /* ---------- zones ---------- */
@@ -542,15 +539,14 @@ export function routeHops(machine: FleetMachine): string[] {
   return ['This device', route, ...(machine.group ? [machine.group] : []), machine.label]
 }
 
-export type AttentionKind = 'unreachable' | 'reconnecting' | 'signin' | 'update'
+export type AttentionKind = 'unreachable' | 'reconnecting' | 'update'
 
 /** The most urgent problem of a host; null when it wants nothing. */
 export function attentionKindOf(machine: FleetMachine): AttentionKind | null {
   return machine.state === 'unreachable' ? 'unreachable'
     : machine.state === 'reconnecting' ? 'reconnecting'
-      : machine.needsSetup ? 'signin'
-        : machine.hasUpdate ? 'update'
-          : null
+      : machine.hasUpdate ? 'update'
+        : null
 }
 
 export interface AttentionRow {
@@ -567,7 +563,6 @@ export interface AttentionRow {
 const ATTENTION_NOTE = {
   unreachable: 'Solus cannot reach it',
   reconnecting: 'Reconnecting',
-  signin: 'An agent needs a sign-in',
   update: 'An update is ready',
 } satisfies Record<AttentionKind, string>
 
@@ -591,7 +586,7 @@ export function attentionRows(machines: readonly FleetMachine[], maxSingleRows =
       fix: kind === 'unreachable' ? machine.problem?.action ?? 'retry' : null,
     }))
   }
-  const order: AttentionKind[] = ['unreachable', 'reconnecting', 'signin', 'update']
+  const order: AttentionKind[] = ['unreachable', 'reconnecting', 'update']
   return order.flatMap((kind) => {
     const hosts = listed.filter((entry) => entry.kind === kind).map((entry) => entry.machine)
     if (!hosts.length) return []
@@ -729,7 +724,6 @@ export function statusLine(machines: readonly FleetMachine[]): StatusLine {
     else if (tone === 'warn') add('reconnecting', 'reconnecting', 'Reconnecting')
     else if (machine.problem?.action === 'pair-again') add(`bad:${machine.problem.label}`, 'signin', machine.problem.label)
     else add(`bad:${machine.problem?.label ?? 'Unreachable'}`, 'unreachable', machine.problem?.label ?? 'Unreachable')
-    if (machine.needsSetup) add('signin', 'signin', 'Needs an agent sign-in')
     if (machine.hasUpdate) add('update', 'update', 'Update available')
   }
   const order = { unreachable: 0, signin: 1, reconnecting: 2, stopped: 3, update: 4 } satisfies Record<StatusItem['state'], number>

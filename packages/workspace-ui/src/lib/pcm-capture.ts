@@ -1,9 +1,9 @@
 import { StreamingLinearResampler } from './audio-utils'
 
 const SAMPLE_RATE = 16_000
-// 250ms keeps live text and end-of-speech feedback responsive without flooding
-// the offline model with the ~3ms blocks produced by AudioWorklet.
-const CHUNK_SAMPLES = SAMPLE_RATE / 4
+// 80ms matches one Parakeet encoder frame, keeping live text and end-of-speech
+// feedback responsive without flooding the pipeline with ~3ms AudioWorklet blocks.
+const CHUNK_SAMPLES = 1_280
 const METER_SAMPLES = SAMPLE_RATE * 0.032
 
 export type PcmChunk = {
@@ -57,6 +57,12 @@ async function prepareCaptureContext(): Promise<AudioContext> {
   }
   if (audioCtx.state === 'suspended') await audioCtx.resume()
   return audioCtx
+}
+
+/** Pre-compile the capture worklet and wake the AudioContext while mic setup runs. */
+export function warmPcmCapture(): void {
+  if (!('AudioContext' in globalThis) || !('AudioWorkletNode' in globalThis)) return
+  void prepareCaptureContext().catch(() => {})
 }
 
 /** Close renderer-lifetime audio resources before a reload or window close. */

@@ -177,7 +177,7 @@
             {#if entry.step === "setup"}
               <SetupStep machineNoun={facts.machineNoun} />
             {:else if entry.step === "agents"}
-              {#if store.flow === "cloud"}<CloudAgentsStep />{:else}<AgentsStep machineNoun={facts.machineNoun} />{/if}
+              {#if store.flow === "cloud"}<CloudAgentsStep />{:else}<AgentsStep setup={store.setup} machineNoun={facts.machineNoun} />{/if}
             {:else if entry.step === "projects"}
               <ProjectsStep machineNoun={facts.machineNoun} />
             {:else if entry.step === "phone"}

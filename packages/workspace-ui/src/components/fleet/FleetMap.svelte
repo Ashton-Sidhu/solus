@@ -1,10 +1,9 @@
 <script lang="ts">
   import { SvelteSet } from "svelte/reactivity";
-  import { CircleHelp, Maximize, Minus, Plus, X } from "@lucide/svelte";
+  import { CircleHelp, LoaderCircle, Maximize, Minus, Plus, X } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import * as Popover from "../ui/popover";
   import FleetMapScene from "./FleetMapScene.svelte";
-  import type { ApprovalRequest } from "../servers/approval-request.store.svelte";
   import type { FoundMachine } from "./lib/discover";
   import { machinesByZone, OPEN_ZONE_CARDS, type AddWay, type FleetMachine, type FleetZoneId, type TileColorMode, type ZoneAnswers } from "./lib/fleet-model";
   import { arrowDirection, nextFleetStop, type FleetStop } from "./lib/fleet-keys";
@@ -45,21 +44,21 @@
     onSelectEdge: (edgeId: string) => void;
     onOpenZone: (zone: FleetZoneId) => void;
     onAdd: (way: AddWay) => void;
-    /** The approval request a drop on a found machine sent: its card says it waits. */
-    approval: ApprovalRequest;
     /** A drop on a found machine: add it. */
     onAddFound: (key: string) => void;
     onStart: (serverId: string) => void;
     onPointFound: (key: string | null) => void;
     onRetry: (zone: FleetZoneId) => void;
     onIntroduce: (sourceId: string, targetIds: string[], skipped: string[]) => void;
+    /** The introduction a drop started, while it runs: its hosts stay marked, and the map says so. */
+    introducing: { sourceId: string; targetIds: readonly string[] } | null;
     /** A click on a handle without a drag: the host's menu, which can introduce it from the keyboard too. */
     onOpenMenu: (serverId: string, x: number, y: number) => void;
   }
 
   let {
     machines, found, answers, colorMode, query, isLive, edges, pointedId, selectedId, pickedIds, selectedEdgeId, routesOf, isOwner,
-    onPoint, onActivate, onSelect, onPick, onClearSelection, onSelectEdge, onOpenZone, onAdd, approval, onAddFound, onStart, onPointFound, onRetry, onIntroduce, onOpenMenu,
+    onPoint, onActivate, onSelect, onPick, onClearSelection, onSelectEdge, onOpenZone, onAdd, onAddFound, onStart, onPointFound, onRetry, onIntroduce, onOpenMenu, introducing,
   }: Props = $props();
 
   let frame = $state<HTMLDivElement | null>(null);
@@ -119,6 +118,7 @@
   });
   /** Each host a drop would introduce shows it, so a drop on one of several picked hosts lights them all; a refused drop marks only the host under the pointer. */
   const dropStateOf = (serverId: string) => {
+    if (introducing) return introducing.targetIds.includes(serverId) ? "ok" : null;
     if (gesture?.kind !== "link" || !dropAction) return null;
     if (dropAction.kind === "introduce") return dropAction.targetIds.includes(serverId) ? "ok" : null;
     return gesture.overId === serverId ? "no" : null;
@@ -412,10 +412,9 @@
       {currentId}
       wires={scene.wires}
       reachPaths={scene.reachPaths}
-      dragSourceId={gesture?.kind === "link" ? gesture.sourceId : null}
+      dragSourceId={gesture?.kind === "link" ? gesture.sourceId : introducing?.sourceId ?? null}
       {dropStateOf}
       {dropFoundKey}
-      {approval}
       canIntroduce={(serverId) => blockOf(serverId) === null}
       {labelOf}
       {onPoint}
@@ -472,8 +471,13 @@
     ></div>
   {/if}
 
-  <!-- Why a drop did nothing, where it happened. -->
-  {#if notice}
+  <!-- What a drop is doing, and why a drop did nothing, where it happened. -->
+  {#if introducing}
+    <div role="status" aria-busy="true" class="absolute top-3 left-1/2 z-40 flex max-w-[min(32rem,calc(100%-2rem))] -translate-x-1/2 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-chrome-dense shadow-[shadow:var(--solus-menu-shadow)]">
+      <LoaderCircle size={14} class="shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" />
+      <span class="min-w-0 truncate">Introducing {labelOf(introducing.sourceId)} to {introducing.targetIds.map(labelOf).join(", ")}…</span>
+    </div>
+  {:else if notice}
     <div role="status" class="absolute top-3 left-1/2 z-40 flex max-w-[min(32rem,calc(100%-2rem))] -translate-x-1/2 items-center gap-2 rounded-lg border border-border bg-card py-1.5 pr-1.5 pl-3 text-chrome-dense shadow-[shadow:var(--solus-menu-shadow)]">
       <span class="min-w-0 text-pretty">{notice}</span>
       <Button variant="ghost" size="icon-sm" aria-label="Dismiss" onclick={() => (notice = null)}><X size={14} /></Button>

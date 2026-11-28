@@ -21,7 +21,7 @@
   {...settingsDefinitions["source-control.files-copied-to-other-hosts"]}
 >
   {#snippet control()}
-    <Button bind:ref={configureButton} variant="outline" size="sm" onclick={() => (open = true)}>Configure…</Button>
+    <Button bind:ref={configureButton} variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => (open = true)}>Configure…</Button>
   {/snippet}
 </SettingsRow>
 

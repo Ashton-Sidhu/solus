@@ -61,6 +61,15 @@ export class ClientEventRegistry {
     return next
   }
 
+  /**
+   * Resolves once every event published to this client so far was handed to its
+   * transport or dropped. An answer that waits for it reaches the client after
+   * those events: a watch's replay comes before the watch's answer.
+   */
+  delivered(clientId: ClientId): Promise<void> {
+    return (this.queues.get(clientId) ?? Promise.resolve()).then(() => {}, () => {})
+  }
+
   /** Whether the audience admits this event to this client now. A failed check admits nothing. */
   async admits(clientId: ClientId, event: HostEvent): Promise<boolean> {
     if (!this.audience) return true

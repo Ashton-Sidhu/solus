@@ -78,11 +78,11 @@
     </SettingsRow>
   {/if}
   <SettingsRow {...settingsDefinitions["providers.launch-arguments"]} managed={launch.launchArgs}>
-    {#snippet control()}<Button variant="outline" size="sm" onclick={() => draft.launchArgs.push("")}>Add argument</Button>{/snippet}
+    {#snippet control()}<Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => draft.launchArgs.push("")}>Add argument</Button>{/snippet}
     {#snippet body()}
       <div class="space-y-2">
         {#each draft.launchArgs as argument, index (index)}
-          <div class="flex min-w-0 gap-2"><Input aria-label="Launch argument {index + 1}" value={argument} oninput={(event) => (draft.launchArgs[index] = event.currentTarget.value)} /><Button variant="ghost" size="sm" onclick={() => draft.launchArgs.splice(index, 1)} aria-label="Remove argument {index + 1}">Remove</Button></div>
+          <div class="flex min-w-0 gap-2"><Input aria-label="Launch argument {index + 1}" value={argument} oninput={(event) => (draft.launchArgs[index] = event.currentTarget.value)} /><Button variant="ghost" size="default" class="pointer-coarse:min-h-11" onclick={() => draft.launchArgs.splice(index, 1)} aria-label="Remove argument {index + 1}">Remove</Button></div>
         {/each}
       </div>
     {/snippet}
@@ -92,7 +92,7 @@
 {#if !isAntigravity}
 <SettingsSection {...settingsDefinitions["providers.section-environment"]}>
   <SettingsRow {...settingsDefinitions["providers.variables"]} managed={launch.environment}>
-    {#snippet control()}<Button variant="outline" size="sm" onclick={addVariable}>Add variable</Button>{/snippet}
+    {#snippet control()}<Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={addVariable}>Add variable</Button>{/snippet}
     {#snippet body()}
       <div class="space-y-3">
         {#each draft.environment as variable, index (index)}
@@ -100,7 +100,7 @@
             <Input class="w-44" aria-label="Environment variable name {index + 1}" bind:value={variable.name} placeholder="VARIABLE_NAME" />
             <Input class="min-w-0 flex-1" type={variable.sensitive ? "password" : "text"} aria-label="Environment variable value {index + 1}" value={variable.value} oninput={(event) => { variable.value = event.currentTarget.value; variable.configured = false; }} placeholder={variable.configured ? "Saved value — leave empty to keep" : "Value"} autocomplete="off" />
             <label class="flex items-center gap-2 text-sm"><input type="checkbox" checked={variable.sensitive} onchange={(event) => { variable.sensitive = event.currentTarget.checked; if (!variable.sensitive) variable.configured = false; }} />Sensitive</label>
-            <Button variant="ghost" size="sm" onclick={() => draft.environment.splice(index, 1)} aria-label="Remove environment variable {index + 1}">Remove</Button>
+            <Button variant="ghost" size="default" class="pointer-coarse:min-h-11" onclick={() => draft.environment.splice(index, 1)} aria-label="Remove environment variable {index + 1}">Remove</Button>
           </div>
         {/each}
       </div>
@@ -114,10 +114,10 @@
     {#if revision !== expectedRevision}<span class="text-warning">Settings changed on another client. Your draft is kept. Reload before saving.</span>{:else}You have unsaved changes to this provider.{/if}
   </p>
   {#if revision !== expectedRevision}
-    <Button variant="outline" size="sm" onclick={discard}>Reload settings</Button>
+    <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={discard}>Reload settings</Button>
   {:else}
-    <Button variant="ghost" size="sm" onclick={discard}>Discard</Button>
-    <Button size="sm" disabled={saving} onclick={() => void save()}>Save changes</Button>
+    <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={discard}>Discard</Button>
+    <Button size="sm" class="pointer-coarse:min-h-11" disabled={saving} onclick={() => void save()}>Save changes</Button>
   {/if}
 </div>
 {/if}

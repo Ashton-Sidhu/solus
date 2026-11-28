@@ -1,7 +1,7 @@
 import type { HostApi } from '@solus/client-core/host-api'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { classifyPairSecret, normalizeServerUrl } from '@solus/client-core/pairing'
-import type { AddMachineCandidate, ReachableMachine } from '@solus/client-core/add-machine-candidates'
+import { otherMachineWay, type AddMachineCandidate, type ReachableMachine } from '@solus/client-core/add-machine-candidates'
 import { formatCheckCode, type AddMachineAsk, type AddMachineOutcome, type AddMachineWay } from '@solus/contracts/add-machine'
 import type { HostRoute } from '@solus/contracts/host-routes'
 import type { SshAddProgress, SshAddRequest } from '@solus/contracts/remote-machines'
@@ -47,30 +47,34 @@ export function reachableMachines(known: readonly KnownMachine[], sessionHostId:
 /** The way a row offers, as the row shows it. */
 export function wayLabel(candidate: Pick<AddMachineCandidate, 'way' | 'minted' | 'sshTarget'>): string {
   if (candidate.minted) return 'From this device'
-  if (candidate.way === 'ssh') return `Over SSH · ${candidate.sshTarget ?? ''}`
-  return candidate.way === 'approve' ? 'Ask it to approve' : 'Needs a code'
+  if (candidate.way === 'ssh') return 'SSH'
+  // The `code` way first joins with no code; the machine asks for one only when its network does not trust the host.
+  return candidate.way === 'approve' ? 'Needs approval' : 'Code if it asks'
 }
 
-/** The sheet's row "Another address…": a Solus address the person types. */
-export const ANOTHER_ADDRESS = 'another-address'
-/** The sheet's row "Another machine over SSH…": an SSH target the person types. */
-export const ANOTHER_SSH = 'another-ssh'
+/** The sheet's row "Other machine…": an SSH target or a Solus address the person types (`otherMachineWay`). */
+export const OTHER_MACHINE = 'other-machine'
 
 /**
  * The row the sheet selects before the person picks one. An SSH target from the
- * agent selects the SSH config alias it names, else "Another machine over SSH…"
- * with the target filled in.
+ * agent selects the SSH config alias it names, else "Other machine…" with the
+ * target filled in.
  */
 export function initialChoice(ask: AddMachineAsk, candidates: readonly AddMachineCandidate[]): string {
   const target = ask.sshTarget?.trim()
-  if (target) return candidates.find((row) => row.way === 'ssh' && row.sshTarget === target)?.key ?? ANOTHER_SSH
-  return candidates[0]?.key ?? ANOTHER_ADDRESS
+  if (target) return candidates.find((row) => row.way === 'ssh' && row.sshTarget === target)?.key ?? OTHER_MACHINE
+  return candidates[0]?.key ?? OTHER_MACHINE
 }
 
-/** The step of "Another machine over SSH…", or null while the target is empty. */
+/** The step of a typed SSH target, or null while the target is empty. */
 export function typedSshStep(target: string): AddMachineStep | null {
   const sshTarget = target.trim()
   return sshTarget ? { kind: 'ssh', sshTarget, name: sshTarget } : null
+}
+
+/** The step of "Other machine…": an SSH add for an SSH target, else the typed address's step. */
+export function otherMachineStep(typed: string, options: { useCode: boolean; useApproval: boolean; mintRefused: ReadonlySet<string> }): AddMachineStep | null {
+  return otherMachineWay(typed) === 'ssh' ? typedSshStep(typed) : stepFor(null, { ...options, address: typed })
 }
 
 /**
@@ -79,11 +83,14 @@ export function typedSshStep(target: string): AddMachineStep | null {
  * sends the field when it is filled.
  */
 export function chosenIdentityFile(selectedKey: string, fields: { identityFile: string; useAnotherKey: boolean }): string | undefined {
-  if (selectedKey !== ANOTHER_SSH && !fields.useAnotherKey) return undefined
+  if (selectedKey !== OTHER_MACHINE && !fields.useAnotherKey) return undefined
   return fields.identityFile.trim() || undefined
 }
 
-/** What one tap of Add does. `code` is a typed code; `mint` makes the code on a host this phone reaches. */
+/**
+ * What one tap of Add does. `code` is a typed code, or with none, a join that
+ * the target's network allows; `mint` makes the code on a host this phone reaches.
+ */
 export type AddMachineStep =
   | { kind: 'ssh'; sshTarget: string; name: string }
   | { kind: 'mint'; serverId: string; url: string; name: string }
@@ -91,20 +98,21 @@ export type AddMachineStep =
   | { kind: 'code'; url: string; name: string }
 
 /**
- * The step for the selected row. `candidate` null is "Another address…", with
- * the address the person typed. `useCode` is the person's choice to type a code
- * instead of asking for approval; `mintRefused` names the hosts that refused a
- * code from this phone, so the row asks for approval there instead.
+ * The step for the selected row. `candidate` null is a typed address on
+ * "Other machine…". `useCode` is the person's choice to type a code;
+ * `useApproval` is their choice to ask the target's owner, the one way that
+ * needs somebody at the target, so no row takes it alone. `mintRefused` names
+ * the hosts that refused a code from this phone, so the row uses the code way there.
  */
 export function stepFor(
   candidate: AddMachineCandidate | null,
-  options: { address: string; useCode: boolean; mintRefused: ReadonlySet<string> },
+  options: { address: string; useCode: boolean; useApproval: boolean; mintRefused: ReadonlySet<string> },
 ): AddMachineStep | null {
   if (!candidate) {
     const url = normalizeServerUrl(options.address)
     if (!url) return null
     const name = hostOf(url)
-    return options.useCode ? { kind: 'code', url, name } : { kind: 'approve', url, name }
+    return options.useApproval ? { kind: 'approve', url, name } : { kind: 'code', url, name }
   }
   const name = candidate.label
   if (candidate.way === 'ssh' && candidate.sshTarget) {
@@ -112,11 +120,12 @@ export function stepFor(
     return options.useCode && candidate.url ? { kind: 'code', url: candidate.url, name } : { kind: 'ssh', sshTarget: candidate.sshTarget, name }
   }
   if (!candidate.url) return null
+  if (options.useApproval) return { kind: 'approve', url: candidate.url, name }
   if (options.useCode) return { kind: 'code', url: candidate.url, name }
   if (candidate.minted && candidate.serverId && !options.mintRefused.has(candidate.serverId)) {
     return { kind: 'mint', serverId: candidate.serverId, url: candidate.url, name }
   }
-  return { kind: 'approve', url: candidate.url, name }
+  return { kind: 'code', url: candidate.url, name }
 }
 
 /** The way an added machine took, for the card's answer. */
@@ -156,11 +165,6 @@ export function makeCheckCode(randomBytes?: (length: number) => Uint8Array): str
   return formatCheckCode((n) => bytes[next++]! % n)
 }
 
-/** Where to get a code on the target. */
-export function codeSteps(name: string): string {
-  return `On ${name}, open Settings → Connections → This computer → Access → Generate code, or run \`solus pair\`.`
-}
-
 /** What the person does on the target while an approval request waits. */
 export function approveInstructions(name: string, checkCode: string): string {
   return `Approve it in Solus on ${name}, or run \`solus host approve ${checkCode}\` there.`
@@ -174,7 +178,7 @@ export type AddMachineAttempt =
   /** Other users can read the identity file, so SSH refuses it. Nothing was sent; the card offers Fix permissions. */
   | { kind: 'key-permissions'; identityFile: string; message: string }
   /**
-   * `mintRefused`: the target refused a code from this phone; the row asks for approval next.
+   * `mintRefused`: the target refused a code from this phone; the row uses the code way next.
    * `field`: the message belongs under that field, such as a missing identity file.
    */
   | { kind: 'failed'; message: string; mintRefused?: string; field?: 'identityFile' }
@@ -200,7 +204,7 @@ export interface AddMachineInput {
   fixIdentityFilePermissions?: boolean
   /** `approve`: the check code the card already shows. */
   checkCode?: string
-  /** `code`: the typed code, already checked with `typedCodeValue`. */
+  /** `code`: the typed code, already checked with `typedCodeValue`. None: a join with no code. */
   code?: string
 }
 
@@ -224,13 +228,13 @@ export async function attemptAddMachine(deps: AddMachineDeps, step: AddMachineSt
       }
       case 'mint': {
         const target = deps.target(step.serverId)
-        if (!target) return { kind: 'failed', message: `This device cannot reach ${step.name} now. Ask it to approve instead.`, mintRefused: step.serverId }
+        if (!target) return { kind: 'failed', message: `This device cannot reach ${step.name} now. Add again to join with no code, or enter its code.`, mintRefused: step.serverId }
         let code: string
         try {
           code = (await target.connectionsGeneratePairToken()).code
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error)
-          return { kind: 'failed', message: `${step.name} did not make a code for this device: ${reason}. Ask it to approve instead.`, mintRefused: step.serverId }
+          return { kind: 'failed', message: `${step.name} did not make a code for this device: ${reason}. Add again to join with no code, or enter its code.`, mintRefused: step.serverId }
         }
         const listing = await deps.session.hostsPair({ url: step.url, code })
         return added(listing.installationId, listing.label)
@@ -241,8 +245,8 @@ export async function attemptAddMachine(deps: AddMachineDeps, step: AddMachineSt
         return added(listing.installationId, listing.label)
       }
       case 'code': {
-        if (!input.code) return { kind: 'failed', message: 'Enter the 6-digit pairing code, or paste the pair link.' }
-        const listing = await deps.session.hostsPair({ url: step.url, code: input.code })
+        // With no code, the session host joins where the target's network trusts it; a refusal says a code is needed.
+        const listing = await deps.session.hostsPair(input.code ? { url: step.url, code: input.code } : { url: step.url })
         return added(listing.installationId, listing.label)
       }
     }

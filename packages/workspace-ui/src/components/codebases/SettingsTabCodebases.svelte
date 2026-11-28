@@ -90,7 +90,7 @@
       <p class="min-w-0 flex-1 basis-64 text-pretty text-workspace-chrome text-muted-foreground">
         A codebase is a named set of folders that one piece of work covers: two or more projects, or one folder that holds repositories.
       </p>
-      <Button data-new-codebase size="sm" variant="outline" class="shrink-0" disabled={!canMake} onclick={() => show(NEW_CODEBASE)}>
+      <Button data-new-codebase size="sm" variant="outline" class="shrink-0 pointer-coarse:min-h-11" disabled={!canMake} onclick={() => show(NEW_CODEBASE)}>
         <PlusIcon size={14} /> New codebase
       </Button>
     </div>
@@ -126,7 +126,7 @@
       <ListEmpty title="No codebases yet.">
         Make one from a folder that holds repositories, or from two folders, to let one session work in each of them.
         {#snippet actions()}
-          <Button size="sm" variant="outline" disabled={!canMake} onclick={() => show(NEW_CODEBASE)}>
+          <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={!canMake} onclick={() => show(NEW_CODEBASE)}>
             <PlusIcon size={14} /> New codebase
           </Button>
         {/snippet}

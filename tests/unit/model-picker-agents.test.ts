@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { isModelPickerAgentVisible } from '@solus/client-core/model-picker-agents'
+import { automationAgents, isModelPickerAgentVisible } from '@solus/client-core/model-picker-agents'
+import { AGENT_IDS, SESSION_AGENT_IDS, type AgentId } from '@solus/contracts/types'
 import { buildAgentAvailabilityRows } from '@solus/workspace-ui/lib/agentAvailability'
 
 const replay = {
@@ -23,10 +24,22 @@ describe('model picker development agents', () => {
     ])
   })
 
-  test('real providers remain visible in both build modes', () => {
-    for (const provider of ['claude-code', 'codex', 'opencode'] as const) {
+  // The host registers the providers it runs. A client that keeps its own list
+  // hides each new provider until someone edits that list, as mobile once hid Antigravity.
+  test('every real provider is visible in both build modes, including one added later', () => {
+    for (const provider of AGENT_IDS.filter((id) => id !== 'replay')) {
       expect(isModelPickerAgentVisible(provider, false)).toBe(true)
       expect(isModelPickerAgentVisible(provider, true)).toBe(true)
     }
+  })
+})
+
+describe('automation model picker agents', () => {
+  const metadata = (id: AgentId) => ({ id, label: id, models: [], defaultModel: '' })
+
+  test('offers every provider with a headless runner, and only those', () => {
+    const offered = automationAgents(AGENT_IDS.map(metadata)).map((agent) => agent.id)
+    expect(offered).toEqual([...SESSION_AGENT_IDS])
+    expect(offered).toContain('antigravity')
   })
 })

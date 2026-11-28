@@ -80,7 +80,7 @@
         maxlength={80_000}
         spellcheck={false}
       />
-      <Button size="sm" variant="outline" onclick={addTerms} disabled={!addText.trim()}>Add</Button>
+      <Button size="default" class="pointer-coarse:min-h-11" onclick={addTerms} disabled={!addText.trim()}>Add</Button>
     </div>
     {#if editor.error?.term === null}
       <p role="alert" class="mt-2 text-xs text-destructive">{editor.error.message}</p>

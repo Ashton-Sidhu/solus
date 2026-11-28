@@ -67,7 +67,7 @@
   let addError = $state("");
   const workspace = getWorkspaceContext();
   /** The project of the open session, when it is on this host: its files are read too (§8.1). */
-  const sessionScope = $derived(workspace.serverIdForContext(workspace.ctx) === serverId ? projectScopeOf(workspace.ctx.session) : null);
+  const sessionScope = $derived(workspace.serverIdForContextOrNull(workspace.ctx) === serverId ? projectScopeOf(workspace.ctx.session) : null);
   // A chat has no project (docs/plans/projectless-chat.md): only the host's own files are read then.
   const projectPath = $derived(sessionScope && !isChat(sessionScope) ? sessionScope : null);
   const projectName = $derived(projectPath ? hostPathBaseName(projectPath) || projectPath : null);

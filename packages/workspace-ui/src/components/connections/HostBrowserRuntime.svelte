@@ -22,13 +22,13 @@
 >
   {#snippet control()}
     {#if canInstall && !entry?.error}
-      <Button variant="outline" size="sm" disabled={entry?.pending} onclick={() => void browserRuntimeStore.refresh(serverId, true)}>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={entry?.pending} onclick={() => void browserRuntimeStore.refresh(serverId, true)}>
         {entry?.pending ? 'Starting…' : status?.phase === 'failed' ? 'Retry install' : 'Install browser'}
       </Button>
     {:else if installing && !entry?.error}
       <span role="status" class="text-workspace-chrome text-muted-foreground">Installing…</span>
     {:else}
-      <Button variant="ghost" size="sm" disabled={entry?.pending} onclick={() => void browserRuntimeStore.refresh(serverId)}>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={entry?.pending} onclick={() => void browserRuntimeStore.refresh(serverId)}>
         {entry?.pending ? 'Checking…' : 'Check again'}
       </Button>
     {/if}
@@ -38,7 +38,7 @@
       <div class="mt-2 space-y-2 text-workspace-chrome text-muted-foreground">
         <p>Run this command on the host as the user that runs Solus. Linux libraries can require an administrator password. Then select Check again.</p>
         <code class="block select-text whitespace-pre-wrap break-all rounded-md bg-muted p-2">{status.manualCommand}</code>
-        <Button variant="ghost" size="sm" disabled={entry?.pending} onclick={() => void browserRuntimeStore.refresh(serverId)}>Check again</Button>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={entry?.pending} onclick={() => void browserRuntimeStore.refresh(serverId)}>Check again</Button>
       </div>
     {/if}
   {/snippet}

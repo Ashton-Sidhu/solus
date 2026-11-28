@@ -149,6 +149,8 @@ function isInside(root: string, path: string): boolean {
 export class AcpBackend extends BaseAgentBackend implements AgentBackend {
   readonly id: AgentId
   readonly permissions: PermissionResponder
+  /** `session/resume` and `session/load` take the working directory, so a moved session resumes its thread there. */
+  readonly resumesInAnotherDirectory = true
 
   private readonly agent: AcpAgent
   private readonly history: KeptHistory
@@ -277,7 +279,8 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
   }
 
   private async run(handle: RunHandle, request: AgentRunRequest, sessionState?: AgentRunSessionState): Promise<void> {
-    if (request.conversation?.kind === 'fork') log.warn('acp_fork_started_fresh', { provider: this.id, sessionId: handle.sessionId ?? null })
+    // A new session would hold none of the source thread, and the session would lose its history (as in T3 Code).
+    if (request.conversation?.kind === 'fork') throw new Error(`${this.agent.label} cannot fork a conversation.`)
     const tools = this.runTools(handle, request, sessionState?.sessionId)
     handle.releaseTools = tools?.release
     const live = await this.connectionFor(handle, request, tools, sessionState)
@@ -934,6 +937,18 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     turn.latestPrompt = this.sendPrompt(live, turn, options.prompt, options.imageAttachments)
     log.info('acp_steer_sent', { provider: this.id, sessionId: turn.handle.sessionId ?? null, threadId })
     return turn.handle
+  }
+
+  /**
+   * The agent cards of the running turn. The agent does not send back the text
+   * of a Solus tool's result, so the exchange tags of `start_sessions` and
+   * `send_session` reach the kept history only from the host's own card updates.
+   * An update after the turn ended has no turn to join: a reload reads the
+   * state of that exchange from the host.
+   */
+  keepHostEvent(threadId: string, event: NormalizedEvent): void {
+    if (event.type !== 'agent_conversation_update') return
+    this.live.get(threadId)?.turn?.history.record(event)
   }
 
   /**

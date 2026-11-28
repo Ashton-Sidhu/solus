@@ -111,8 +111,8 @@
       {#if error}<p role="alert" class="break-words text-(--solus-status-error)">{error}</p>{/if}
 
       <div class="flex justify-end gap-2 pt-1">
-        <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => { open = false; }}>Cancel</Button>
-        <Button size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isAdding} onclick={() => onConfirm(useFileValues && valuesText !== null)}>
+        <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => { open = false; }}>Cancel</Button>
+        <Button size="sm" class="pointer-coarse:min-h-11" disabled={isAdding} onclick={() => onConfirm(useFileValues && valuesText !== null)}>
           {isAdding ? (isChange ? "Updating…" : "Adding…") : isChange ? "Update" : "Add"}
         </Button>
       </div>

@@ -69,12 +69,12 @@
       </div>
       <div class="flex shrink-0 items-center gap-1.5">
         {#if !isTwoWay(edge) && canIntroduce(edge.a) && canIntroduce(edge.b)}
-          <Button variant="outline" size="sm" disabled={isBusy} onclick={() => onIntroduce(edge.a, [edge.b])}><ArrowLeftRight size={13} />Both ways</Button>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={isBusy} onclick={() => onIntroduce(edge.a, [edge.b])}><ArrowLeftRight size={13} />Both ways</Button>
         {/if}
         {#if canForget(edge)}
-          <Button variant="ghost" size="sm" disabled={isBusy} onclick={() => onForget(edge)}>Forget</Button>
+          <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={isBusy} onclick={() => onForget(edge)}>Forget</Button>
         {/if}
-        <Button variant="ghost" size="icon-sm" aria-label="Clear the selection" onclick={onClear}><X size={14} /></Button>
+        <Button variant="ghost" size="icon-sm" class="text-muted-foreground pointer-coarse:tap-area" aria-label="Clear the selection" onclick={onClear}><X size={14} /></Button>
       </div>
     </div>
     <dl class="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-chrome-dense">
@@ -98,7 +98,6 @@
         <p class="flex min-w-0 items-center gap-2">
           <span class="truncate text-workspace-chrome font-medium">{selected.label}</span>
           <HostStateIcon state={selected.state} label={selected.problem?.label} count={selected.state === "running" ? selected.sessions : undefined} />
-          {#if selected.needsSetup}<HostStateIcon state="signin" />{/if}
           {#if selected.hasUpdate}<HostStateIcon state="update" />{/if}
         </p>
         <p class="truncate text-chrome-dense text-muted-foreground tabular-nums">
@@ -108,13 +107,13 @@
       </div>
       <div class="flex shrink-0 items-center gap-1.5">
         {#if selected.problem?.action}
-          <Button variant="outline" size="sm" onclick={() => onFix(selected)}>{HOST_READINESS_ACTION_LABELS[selected.problem.action]}</Button>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => onFix(selected)}>{HOST_READINESS_ACTION_LABELS[selected.problem.action]}</Button>
         {/if}
         {#if canIntroduce(selected.serverId) && (candidates.length || pickedTargets.length)}
           <DropdownMenu.Root>
             <DropdownMenu.Trigger>
               {#snippet child({ props })}
-                <Button {...props} variant="outline" size="sm" disabled={isBusy}><Link2 size={13} />Introduce to</Button>
+                <Button {...props} variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={isBusy}><Link2 size={13} />Introduce to</Button>
               {/snippet}
             </DropdownMenu.Trigger>
             <DropdownMenu.Content align="end" class="min-w-48">
@@ -130,8 +129,8 @@
             </DropdownMenu.Content>
           </DropdownMenu.Root>
         {/if}
-        <Button variant="outline" size="sm" onclick={() => onOpen(selected.serverId)}><ArrowUpRight size={13} />Open</Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Clear the selection" onclick={onClear}><X size={14} /></Button>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => onOpen(selected.serverId)}><ArrowUpRight size={13} />Open</Button>
+        <Button variant="ghost" size="icon-sm" class="text-muted-foreground pointer-coarse:tap-area" aria-label="Clear the selection" onclick={onClear}><X size={14} /></Button>
       </div>
     </div>
     <div class="grid gap-x-8 gap-y-3 @min-[40rem]/fleet:grid-cols-2">
@@ -177,7 +176,7 @@
         <span class="text-muted-foreground">{picked.map((machine) => machine.label).join(", ")}.</span>
         <span class="text-muted-foreground">Drag a host's + onto one of them to introduce it to all, or select a host and use Introduce to.</span>
       </p>
-      <Button variant="ghost" size="sm" onclick={onClear}>Clear</Button>
+      <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={onClear}>Clear</Button>
     </div>
   {/if}
 </div>

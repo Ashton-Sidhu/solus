@@ -185,6 +185,7 @@
       <Button
         variant="outline"
         size="sm"
+        class="pointer-coarse:min-h-11"
         disabled={testing}
         onclick={() => void testConnection()}
       >
@@ -198,6 +199,7 @@
       <Button
         variant="ghost"
         size="icon-sm"
+        class="text-muted-foreground pointer-coarse:tap-area"
         onclick={copyAddress}
         aria-label="Copy host address"
       >
@@ -298,14 +300,14 @@
     >
       {#snippet control()}
         {#if isConfirmingRemove}
-          <span class="flex gap-1.5">
-            <Button variant="ghost" size="sm" onclick={() => (isConfirmingRemove = false)}>Cancel</Button>
-            <Button variant="destructive" size="sm" disabled={managedHostsStore.busy?.serverId === host.id} onclick={() => void remove()}>
+          <span class="flex gap-2">
+            <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => (isConfirmingRemove = false)}>Cancel</Button>
+            <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={managedHostsStore.busy?.serverId === host.id} onclick={() => void remove()}>
               {hasManagedCompute ? "Delete" : "Remove"}
             </Button>
           </span>
         {:else}
-          <Button variant="outline" size="sm" class="text-(--solus-status-error)" onclick={() => (isConfirmingRemove = true)}>
+          <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={() => (isConfirmingRemove = true)}>
             {hasManagedCompute ? "Delete" : isShared ? "Remove" : "Forget"}
           </Button>
         {/if}
@@ -315,7 +317,7 @@
 {/if}
 
 {#snippet openTab(tab: string, satisfied: boolean)}
-  <Button variant="outline" size="sm" onclick={() => onOpenTab(tab)}>
+  <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => onOpenTab(tab)}>
     {satisfied ? "Configure" : "Set up"}
   </Button>
 {/snippet}

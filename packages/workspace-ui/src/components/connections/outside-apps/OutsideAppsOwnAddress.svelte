@@ -73,8 +73,8 @@
       aria-invalid={problem ? true : undefined}
       class="h-7 min-w-0 flex-1 basis-56 bg-(--solus-tx-card-bg) text-workspace-chrome"
     />
-    <Button variant="ghost" size="sm" class="bg-muted" disabled={isBusy} onclick={cancel}>Cancel</Button>
-    <Button type="submit" size="sm" disabled={!canSave || !settings || isBusy}>
+    <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" disabled={isBusy} onclick={cancel}>Cancel</Button>
+    <Button type="submit" size="sm" class="pointer-coarse:min-h-11" disabled={!canSave || !settings || isBusy}>
       {#if settings?.saving}Saving…{:else if test?.kind === "running"}Testing…{:else}Save and test{/if}
     </Button>
   </div>

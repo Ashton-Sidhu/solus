@@ -3,11 +3,9 @@ import type { HostReadiness } from '@solus/contracts/types'
 import {
   codingProviderRows,
   gitHostRows,
-  hostCarriedOverFacts,
   hostOnboardingSteps,
   hostReadinessSummary,
   onboardingHeading,
-  onboardingRailModel,
   providerSetupActions,
   seatProviderFor,
 } from '@solus/workspace-ui/components/servers/lib/host-onboarding'
@@ -152,47 +150,6 @@ describe('host onboarding order', () => {
   })
 })
 
-describe('carried over facts', () => {
-  function factFor(facts: ReturnType<typeof hostCarriedOverFacts>, id: string) {
-    return facts.find((fact) => fact.id === id)!
-  }
-
-  test('what pairing already settled is reported back, so the user sees what it did not cost them', () => {
-    // WHY: the stage's premise is that the host is mostly ready already. Git and
-    // a commit identity the host came with have to read as carried over, or the
-    // user assumes they are still owed work.
-    const facts = hostCarriedOverFacts({
-      readiness: readiness({
-        git: {
-          installed: true,
-          identity: { name: 'dev', email: 'dev@example.com' },
-          credentialHelper: false,
-        },
-      }),
-      hostName: 'gpu-01',
-    })
-    expect(factFor(facts, 'git').done).toBe(true)
-    expect(factFor(facts, 'git').title).toBe('git is already here')
-    expect(factFor(facts, 'identity').done).toBe(true)
-    expect(factFor(facts, 'identity').detail).toBe('dev · dev@example.com')
-  })
-
-  test('a host missing git keeps the row and marks it undone rather than dropping it', () => {
-    // WHY: a shorter list reads as "nothing to know here". The gap has to stay
-    // visible, because it is what stops this host cloning anything later.
-    const facts = hostCarriedOverFacts({
-      readiness: readiness({
-        git: { installed: false, identity: null, credentialHelper: false },
-        installGit: { display: 'apt install git', autoRunnable: false },
-      }),
-      hostName: 'gpu-01',
-    })
-    expect(factFor(facts, 'git').done).toBe(false)
-    expect(factFor(facts, 'git').detail).toBe('apt install git')
-    expect(factFor(facts, 'identity').done).toBe(false)
-  })
-})
-
 describe('host readiness summary', () => {
   test('missing git and commit identity do not make onboarding incomplete', () => {
     // WHY: readiness in the host directory reflects outstanding user choices;
@@ -221,71 +178,15 @@ describe('host readiness summary', () => {
   })
 })
 
-describe('onboarding rail model', () => {
-  test('a blocking failure stays on the decision that can repair it', () => {
-    // WHY: the sidebar and main panel must not route independently and leave a
-    // failed provider setup looking like the rail advanced past the blocker.
-    const model = onboardingRailModel({
-      readiness: readiness({
-        github: {
-          solusToken: true,
-          solusLogin: 'dev',
-          solusScopes: ['repo', 'read:org', 'gist', 'project'],
-          ghCli: true,
-          ghAuthenticated: true,
-        },
-      }),
-      hostName: 'gpu-01',
-      stepError: {
-        step: 'providers',
-        provider: 'claude',
-        message: 'Sign-in failed',
-      },
-    })
-
-    expect(model.current?.id).toBe('providers')
-    expect(model.failure?.message).toBe('Sign-in failed')
-    expect(model.doneDecisions.map((step) => step.id)).not.toContain('providers')
-  })
-
-  test('decisions carry extra progress weight because they cost user attention', () => {
-    // WHY: four facts copied automatically must not make the rail look nearly
-    // finished while both account decisions still need the user.
-    const model = onboardingRailModel({
-      readiness: readiness(),
-      hostName: 'gpu-01',
-    })
-
-    expect(model.carriedDone).toBe(4)
-    expect(model.carriedTotal).toBe(7)
-    expect(model.percentDone).toBe(36)
-  })
-})
-
 describe('onboarding stage heading', () => {
-  test('the done line names each step in a word or two so it never wraps', () => {
-    // WHY: the stage footer lists every finished step on one line beside the
-    // buttons. A sentence per step ("Signed in as …") wrapped it onto two.
-    for (const step of hostOnboardingSteps({ readiness: readiness() })) {
-      expect(step.name.split(' ').length).toBeLessThanOrEqual(2)
-    }
-  })
-
   test('a failed handshake says so instead of repeating the reach prompt', () => {
     // WHY: the error view keeps the same control area, so the title is the
     // only place that tells the user the attempt failed.
-    const reaching = onboardingHeading({ hostName: 'atlas', pairingView: 'connecting', current: null })
-    const failed = onboardingHeading({ hostName: 'atlas', pairingView: 'error', current: null })
+    const reaching = onboardingHeading({ hostName: 'atlas', pairingView: 'connecting' })
+    const failed = onboardingHeading({ hostName: 'atlas', pairingView: 'error' })
     expect(reaching.title).toBe('Reach atlas')
     expect(failed.title).not.toBe(reaching.title)
     expect(failed.title).toContain('atlas')
-  })
-
-  test('setup asks the current decision, and says ready only when none is left', () => {
-    const steps = hostOnboardingSteps({ readiness: readiness() })
-    const github = stepFor(steps, 'github')
-    expect(onboardingHeading({ hostName: 'atlas', pairingView: null, current: github }).title).toBe(github.label)
-    expect(onboardingHeading({ hostName: 'atlas', pairingView: null, current: null }).title).toBe('atlas is ready')
   })
 })
 

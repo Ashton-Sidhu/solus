@@ -125,7 +125,7 @@
   {#if compact}
     <TranscriptCardAction kind="ghost" {onclick}>{label}</TranscriptCardAction>
   {:else}
-    <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" {onclick}>{label}</Button>
+    <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" {onclick}>{label}</Button>
   {/if}
 {/snippet}
 
@@ -139,8 +139,8 @@
         {@render ghostAction("Cancel", cancel)}
         <TranscriptCardAction kind="filled" type="submit" disabled={isOffline || !value.trim()}>Submit</TranscriptCardAction>
       {:else}
-        <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || !value.trim()}>Submit</Button>
         {@render ghostAction("Cancel", cancel)}
+        <Button type="submit" size="default" class="pointer-coarse:min-h-11" disabled={isOffline || !value.trim()}>Submit</Button>
       {/if}
     </div>
     {#if error}
@@ -161,7 +161,7 @@
       {:else if hostState.connectionsStatus === "error"}
         <div class="flex flex-wrap items-center gap-2">
           <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">Could not read your connection.</p>
-          <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.loadConnections(serverId)} disabled={isOffline}>Retry</Button>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.loadConnections(serverId)} disabled={isOffline}>Retry</Button>
         </div>
       {:else if compact && flow?.kind === "failed"}
         <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{flow.message}</p>
@@ -179,11 +179,11 @@
     {:else if showAction}
       <div class="flex flex-wrap items-center gap-2">
         {#if valuesText?.hasValues}
-          <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" aria-label="Change the values of {integrationName}"
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" aria-label="Change the values of {integrationName}"
             disabled={isOffline} onclick={() => mcpStore.integrations.connect(serverId, integrationId).then(focusNextControl)}>Change values</Button>
         {/if}
-        <Button variant={status.action === "Disconnect" ? "ghost" : "outline"} size="sm"
-          class="text-workspace-chrome pointer-coarse:min-h-11 {status.action === 'Disconnect' ? 'text-muted-foreground hover:text-destructive' : ''}"
+        <Button variant={status.action === "Disconnect" ? "destructive" : "outline"} size="sm"
+          class="pointer-coarse:min-h-11"
           aria-label="{actionLabel} {integrationName}" aria-describedby={connectHint ? `integration-connect-hint-${integrationId}` : undefined}
           disabled={isOffline || !!connectHint} onclick={runAction}>{actionLabel}</Button>
       </div>
@@ -202,10 +202,10 @@
         {#if flow.input === "callback"}{@render ghostAction("Cancel", cancel)}{/if}
         <TranscriptCardAction kind="filled" onclick={() => mcpStore.integrations.openInBrowser(flow.url)}>Open sign-in<ExternalLink size={14} aria-hidden="true" /></TranscriptCardAction>
       {:else}
-        <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.openInBrowser(flow.url)}>
+        {#if flow.input === "callback"}{@render ghostAction("Cancel", cancel)}{/if}
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.openInBrowser(flow.url)}>
           Open sign-in<ExternalLink size={14} />
         </Button>
-        {#if flow.input === "callback"}{@render ghostAction("Cancel", cancel)}{/if}
       {/if}
     </div>
     {#if flow.input === "redirect-url"}
@@ -227,8 +227,8 @@
           {@render ghostAction("Cancel", cancel)}
           <TranscriptCardAction kind="filled" type="submit" disabled={isOffline}>Save values</TranscriptCardAction>
         {:else}
-          <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline}>Save values</Button>
           {@render ghostAction("Cancel", cancel)}
+          <Button type="submit" size="sm" class="pointer-coarse:min-h-11" disabled={isOffline}>Save values</Button>
         {/if}
       </div>
       {#if flow.error}

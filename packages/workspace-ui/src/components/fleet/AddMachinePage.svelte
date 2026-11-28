@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onMount } from "svelte";
   import { ChevronRight, Cloud, QrCode, RefreshCw, Terminal } from "@lucide/svelte";
   import { managedHostsStore } from "../../contexts";
   import { connectionsNav } from "../connections/connections-nav.svelte";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import { Button } from "../ui/button";
+  import { Checkbox } from "../ui/checkbox";
   import AddCloudMachine from "./AddCloudMachine.svelte";
   import AddPairMachine from "./AddPairMachine.svelte";
   import FoundMachineRow from "./FoundMachineRow.svelte";
@@ -18,7 +19,8 @@
    * machine in reach is one action away. Below it, the other ways as one choice;
    * the chosen way opens in place, its first field focused, and finishes here.
    * Only SSH has its own form. Several machines that run Solus are added at
-   * once: select them, then Add, and approve each one on its own machine. A
+   * once: select them, then Add; each pairs in the ways that need nobody at it,
+   * and one that needs SSH or a code says so. A
    * machine added on any device joins all of a person's machines
    * (docs/plans/host-reach.md). Registering a host to a Solus Cloud account is
    * not a way to add it: it is a switch on the host's own page.
@@ -37,11 +39,11 @@
 
   const found = $derived(discoverStore.found);
   const several = new AddSeveral();
-  const togetherCount = $derived(found.filter(canAddTogether).length);
+  // Selection shows only when there is more than one machine to add together: for one, Connect does it.
+  const canSelect = $derived(found.filter(canAddTogether).length > 1);
+  const openCount = $derived(found.filter((machine) => canAddTogether(machine) && several.outcomes.get(machine.key)?.state !== "added").length);
   const chosenCount = $derived(found.filter((machine) => canAddTogether(machine) && several.selected.has(machine.key)).length);
-
-  // Leaving the page stops the requests that still wait.
-  onDestroy(() => several.stop());
+  const isAllChosen = $derived(openCount > 0 && chosenCount === openCount);
 
   onMount(() => {
     void managedHostsStore.loadCatalog();
@@ -63,36 +65,40 @@
     </p>
   </div>
 
-  <SettingsSection label="Nearby" description="Machines this device can already see. Connect one in a step.">
+  <SettingsSection label="Nearby" description="Machines this device can see. Connect one, or select several and add them together.">
     {#snippet action()}
-      {#if togetherCount > 1}
-        <Button variant="ghost" size="sm" disabled={several.isRunning} onclick={() => several.toggleAll(found)}>
-          {chosenCount === togetherCount ? "Select none" : "Select all"}
-        </Button>
-      {/if}
-      {#if chosenCount > 0 || several.isRunning}
-        <Button size="sm" disabled={several.isRunning} onclick={() => void several.add(found)}>
-          {several.isRunning ? "Adding…" : `Add ${chosenCount} ${chosenCount === 1 ? "machine" : "machines"}`}
-        </Button>
-      {/if}
       <Button variant="ghost" size="sm" disabled={discoverStore.isScanning} onclick={() => void discoverStore.scan()}>
         <RefreshCw size={13} class={discoverStore.isScanning ? "animate-spin motion-reduce:animate-none" : ""} />
         {discoverStore.isScanning ? "Scanning…" : "Scan again"}
       </Button>
     {/snippet}
-    {#if several.checkCode}
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5" role="status">
-        <code class="font-mono text-[1.375rem] leading-none font-medium tracking-[0.08em] text-(--solus-text-primary) tabular-nums">{several.checkCode}</code>
-        <p class="min-w-0 flex-1 basis-56 text-pretty text-[0.8125rem] text-(--solus-text-secondary)">
-          Approve the request in Solus on each machine. Approve only if it shows this code.
-        </p>
-        <Button variant="ghost" size="sm" onclick={() => several.stop()}>Stop</Button>
+    {#if canSelect}
+      <!-- The selection bar: its box lines up with the boxes of the rows, and Add acts on what they choose. -->
+      <div class="flex min-h-12 items-center gap-3 px-4 py-2">
+        <label class="flex min-w-0 flex-1 items-center gap-3">
+          <Checkbox
+            checked={isAllChosen}
+            indeterminate={chosenCount > 0 && !isAllChosen}
+            disabled={several.isRunning || openCount === 0}
+            onCheckedChange={() => several.toggleAll(found)}
+            aria-label={isAllChosen ? "Select none" : "Select all"}
+            class="pointer-coarse:size-5"
+          />
+          <span class="text-chrome-dense text-muted-foreground">
+            {chosenCount > 0 ? `${chosenCount} of ${openCount} selected` : "Select all"}
+          </span>
+        </label>
+        {#if chosenCount > 0 || several.isRunning}
+          <Button size="sm" disabled={several.isRunning} onclick={() => void several.add(found)}>
+            {several.isRunning ? "Adding…" : `Add ${chosenCount} ${chosenCount === 1 ? "machine" : "machines"}`}
+          </Button>
+        {/if}
       </div>
     {/if}
     {#each found as machine (machine.key)}
       <FoundMachineRow
         {machine}
-        selection={canAddTogether(machine) ? {
+        selection={canSelect && canAddTogether(machine) ? {
           isChosen: several.selected.has(machine.key),
           outcome: several.outcomes.get(machine.key),
           isLocked: several.isRunning,

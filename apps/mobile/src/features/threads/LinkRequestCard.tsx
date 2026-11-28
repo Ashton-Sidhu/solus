@@ -1,9 +1,11 @@
 import { useNavigation } from "@react-navigation/native";
 import {
+  otherMachineWay,
   rankAddMachineCandidates,
   type AddMachineCandidate,
 } from "@solus/client-core/add-machine-candidates";
 import { addMachineStatusCard } from "@solus/client-core/add-machine-progress";
+import { pairCodeSteps } from "@solus/client-core/pairing";
 import {
   addMachineOutcomeAnswers,
   PAIR_APPROVAL_TTL_MS,
@@ -13,20 +15,18 @@ import {
 import type { SshAddProgress, SshTargetCandidate } from "@solus/contracts/remote-machines";
 import { requestExpiryText, type StatusCardState } from "@solus/contracts/types";
 import {
-  ANOTHER_ADDRESS,
-  ANOTHER_SSH,
   approveInstructions,
   attemptAddMachine,
   chosenIdentityFile,
-  codeSteps,
   fixKeyThenAdd,
   initialChoice,
   makeCheckCode,
+  OTHER_MACHINE,
+  otherMachineStep,
   reachableMachines,
   stepFor,
   typedCodeError,
   typedCodeValue,
-  typedSshStep,
   watchSshProgress,
   wayLabel,
   type AddMachineAttempt,
@@ -235,13 +235,15 @@ function useCandidates(ask: AddMachineAsk, sessionHostId: string, isOpen: boolea
   }, [ask, sessionHostId, ssh, found.hosts, environments]);
 }
 
-/** The step of the selected row: a typed SSH target, or a ranked machine or a typed address. */
+/** The step of the selected row: a ranked machine, or what the person typed on "Other machine…". */
 function selectedStep(
   selectedKey: string,
   candidate: AddMachineCandidate | null,
-  options: { sshTarget: string; address: string; useCode: boolean; mintRefused: ReadonlySet<string> },
+  options: { otherMachine: string; useCode: boolean; useApproval: boolean; mintRefused: ReadonlySet<string> },
 ): AddMachineStep | null {
-  return selectedKey === ANOTHER_SSH ? typedSshStep(options.sshTarget) : stepFor(candidate, options);
+  return selectedKey === OTHER_MACHINE
+    ? otherMachineStep(options.otherMachine, options)
+    : stepFor(candidate, { ...options, address: "" });
 }
 
 /** The state of one card: the selected row, the typed values, and the attempt in progress. */
@@ -254,8 +256,11 @@ function useAddMachine(
   const [isOpen, setIsOpen] = useState(false);
   const candidates = useCandidates(ask, sessionHostId, isOpen);
   const [choice, setChoice] = useState<string | null>(null);
-  const [address, setAddress] = useState(ask.url ?? "");
+  // "Other machine…": an SSH target or a Solus address. The agent's address is already a row.
+  const [otherMachine, setOtherMachine] = useState(ask.sshTarget ?? "");
   const [useCode, setUseCode] = useState(false);
+  // An approval request needs somebody at the target: only the person chooses it.
+  const [useApproval, setUseApproval] = useState(false);
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [needsAuth, setNeedsAuth] = useState<string | null>(null);
@@ -281,7 +286,7 @@ function useAddMachine(
 
   const selectedKey = choice ?? initialChoice(ask, candidates);
   const candidate = candidates.find((row) => row.key === selectedKey) ?? null;
-  const step = selectedStep(selectedKey, candidate, { sshTarget: ssh.sshTarget, address, useCode, mintRefused });
+  const step = selectedStep(selectedKey, candidate, { otherMachine, useCode, useApproval, mintRefused });
   const codeError = step?.kind === "code" ? typedCodeError(code) : null;
   // The sent attempt as setup steps, the rows a worktree setup draws: they run, then show where the add stopped.
   const statusCard: StatusCardState | null = useMemo(() => {
@@ -300,12 +305,14 @@ function useAddMachine(
   }, [sent, sshSteps, busy, needsAuth, error]);
   const ready =
     step !== null &&
-    (step.kind !== "code" || typedCodeValue(code) !== null) &&
+    // An empty code is a join with no code; a typed one must have the shape of a code.
+    (step.kind !== "code" || !code.trim() || typedCodeValue(code) !== null) &&
     (needsAuth === null || password.length > 0);
 
   const select = (key: string) => {
     setChoice(key);
     setUseCode(false);
+    setUseApproval(false);
     setNeedsAuth(null);
     setPassword("");
     setError(null);
@@ -348,7 +355,7 @@ function useAddMachine(
     // The check code shows at once, so the person can compare it while the target asks.
     if (checkCode) setWaiting({ checkCode, expiresAt: Date.now() + PAIR_APPROVAL_TTL_MS, name: step.name });
     const input: AddMachineInput = { requestId, checkCode };
-    if (step.kind === "code") input.code = typedCodeValue(code) ?? undefined;
+    if (step.kind === "code" && code.trim()) input.code = typedCodeValue(code) ?? undefined;
     if (step.kind === "ssh") input.identityFile = chosenIdentityFile(selectedKey, ssh);
     if (needsAuth !== null && password) input.authSecret = password;
     // No value is kept after it is sent.
@@ -371,11 +378,17 @@ function useAddMachine(
     selectedKey,
     candidate,
     step,
-    address,
-    setAddress,
+    otherMachine,
+    setOtherMachine,
     useCode,
     setUseCode: (value: boolean) => {
       setUseCode(value);
+      setError(null);
+      setSent(null);
+    },
+    useApproval,
+    setUseApproval: (value: boolean) => {
+      setUseApproval(value);
       setError(null);
       setSent(null);
     },
@@ -415,8 +428,6 @@ function AddMachineSheet(props: {
     return () => flow.setIsOpen(false);
   }, []);
   const step = flow.step;
-  const offersCode =
-    step?.kind === "approve" || (step?.kind === "ssh" && flow.candidate?.url !== undefined);
   // An SSH add or a code cannot be stopped once it is sent; an approval request waits on the card.
   const mayClose = !props.disabled || flow.waiting !== null;
 
@@ -474,15 +485,7 @@ function AddMachineSheet(props: {
           tone="primary"
           fullWidth
         />
-        {offersCode || flow.useCode ? (
-          <Button
-            label={flow.useCode ? "Ask it to approve instead" : "Use a pairing code instead"}
-            tone="secondary"
-            disabled={props.disabled}
-            onPress={() => flow.setUseCode(!flow.useCode)}
-            fullWidth
-          />
-        ) : null}
+        <OtherWays flow={flow} disabled={props.disabled} />
         <Button
           label="Cancel"
           tone="secondary"
@@ -495,10 +498,11 @@ function AddMachineSheet(props: {
   );
 }
 
-/** The ranked machines, then "Another address…" with its field. */
+/** The ranked machines, then "Other machine…" with its one field. */
 function MachineList(props: { readonly flow: AddMachineFlow; readonly disabled: boolean }) {
   const { flow } = props;
-  const typesAddress = flow.selectedKey === ANOTHER_ADDRESS;
+  const typesMachine = flow.selectedKey === OTHER_MACHINE;
+  const typed = flow.otherMachine.trim();
   return (
     <>
       <SettingsSection title="Machine">
@@ -513,33 +517,67 @@ function MachineList(props: { readonly flow: AddMachineFlow; readonly disabled: 
           />
         ))}
         <SettingsChoiceRow
-          label="Another machine over SSH…"
-          description="Add a machine by its SSH target, such as user@host."
-          selected={flow.selectedKey === ANOTHER_SSH}
+          label="Other machine…"
+          description="An SSH target, such as user@host, or a Solus address."
+          selected={typesMachine}
           separated={flow.candidates.length > 0}
           disabled={props.disabled}
-          onPress={() => flow.select(ANOTHER_SSH)}
-        />
-        <SettingsChoiceRow
-          label="Another address…"
-          description="Add a machine by its address on your network or tailnet."
-          selected={typesAddress}
-          separated
-          disabled={props.disabled}
-          onPress={() => flow.select(ANOTHER_ADDRESS)}
+          onPress={() => flow.select(OTHER_MACHINE)}
         />
       </SettingsSection>
-      {typesAddress ? (
-        <TextInput
-          accessibilityLabel="Address"
-          placeholder="http://10.0.0.5:4810"
-          value={flow.address}
-          onChangeText={flow.setAddress}
-          editable={!props.disabled}
-          autoCorrect={false}
-          autoCapitalize="none"
-          keyboardType="url"
-          spellCheck={false}
+      {typesMachine ? (
+        <View className="gap-1">
+          <TextInput
+            accessibilityLabel="SSH target or address"
+            placeholder="user@host, or http://host:port"
+            value={flow.otherMachine}
+            onChangeText={flow.setOtherMachine}
+            editable={!props.disabled}
+            autoFocus
+            autoCorrect={false}
+            autoCapitalize="none"
+            autoComplete="off"
+            keyboardType="url"
+            spellCheck={false}
+          />
+          {typed ? (
+            <Text className="px-1 font-sans text-xs text-foreground-muted">
+              {otherMachineWay(typed) === "ssh" ? "Adds over SSH" : "Joins the Solus at this address, with its code if it asks"}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The other ways for the selected machine: a code on an SSH row that shares a
+ * Solus address, and an approval request, which needs somebody at the target,
+ * so only the person chooses it.
+ */
+function OtherWays(props: { readonly flow: AddMachineFlow; readonly disabled: boolean }) {
+  const { flow } = props;
+  const step = flow.step;
+  const offersCode = step?.kind === "ssh" && flow.candidate?.url !== undefined;
+  return (
+    <>
+      {offersCode || (flow.useCode && flow.candidate?.way === "ssh") ? (
+        <Button
+          label={flow.useCode ? "Use SSH instead" : "Use a pairing code instead"}
+          tone="secondary"
+          disabled={props.disabled}
+          onPress={() => flow.setUseCode(!flow.useCode)}
+          fullWidth
+        />
+      ) : null}
+      {step?.kind === "code" || step?.kind === "approve" ? (
+        <Button
+          label={step.kind === "approve" ? "Use a pairing code instead" : `Ask ${step.name} to approve instead`}
+          tone="secondary"
+          disabled={props.disabled}
+          onPress={() => flow.setUseApproval(step.kind !== "approve")}
+          fullWidth
         />
       ) : null}
     </>
@@ -562,8 +600,8 @@ function CodeSteps(props: {
   return (
     <StepRail
       steps={[
-        { title: `Make a code on ${step.name}`, hint: codeSteps(step.name), state: hasCode ? "done" : "current" },
-        { title: "Enter the code here", state: hasCode ? "current" : "next" },
+        { title: `Make a code on ${step.name}`, hint: pairCodeSteps(step.name), state: hasCode ? "done" : "current" },
+        { title: "Enter the code here", hint: "With no code, Add first tries to join without one.", state: hasCode ? "current" : "next" },
       ]}
       renderDetail={(_step, index) =>
         index === 0 && codeHostId ? (

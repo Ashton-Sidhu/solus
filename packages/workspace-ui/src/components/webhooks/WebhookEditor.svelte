@@ -85,7 +85,7 @@
       />
     {/each}
     {#if draft.actions.length < WEBHOOK_MAX_ACTIONS}
-      <Button size="xs" variant="ghost" class="self-start" {disabled} onclick={() => draft.actions.push(emptyActionDraft(crypto.randomUUID()))}>
+      <Button size="sm" variant="ghost" class="self-start text-muted-foreground pointer-coarse:min-h-11" {disabled} onclick={() => draft.actions.push(emptyActionDraft(crypto.randomUUID()))}>
         <PlusIcon size={14} /> Add action
       </Button>
     {/if}

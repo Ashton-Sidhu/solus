@@ -141,6 +141,17 @@ describe('explicit owner host pairing', () => {
     expect(h.pairTokens).toEqual(['link-token', CODE])
   })
 
+  // WHY: a found machine that trusts its local network must pair with nobody at
+  // it, and one that does not must say a code is needed, not that a code was wrong.
+  test('with no code, the host joins as a device the target network trusts, or is told a code is needed', async () => {
+    const refused = harness({ pairReply: () => new Response(null, { status: 401 }) })
+    await expect(refused.service.pair({ url: URL })).rejects.toThrow('Windows does not let this host join without a pairing code.')
+    expect(refused.service.snapshot().hosts).toEqual([])
+    const trusted = harness({ pairReply: () => Response.json({ sessionToken: TOKEN, installationId: 'remote', identityKey: identity.publicKey() }) })
+    const host = await trusted.service.pair({ url: URL })
+    expect([host.installationId, trusted.pairTokens]).toEqual(['remote', [undefined]])
+  })
+
   test('with no label, the host is named by the name it reports', async () => {
     // WHY: docs/plans/add-machine-card.md rule 5. An agent's guess ("Windows machine") must not outrank the host's own name.
     const host = await harness().service.pair({ url: URL, code: CODE })

@@ -44,7 +44,7 @@
 >
   {#snippet action()}
     {#if !isConnected || needsDriveReadScope}
-      <Button variant="outline" size="sm" class="border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11"
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11"
         disabled={isConnecting} onclick={() => void connect()} aria-label="{isConnected ? 'Reconnect' : 'Connect'} Google Drive">
         {#if isConnecting}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Waiting for browser…{:else}{isConnected ? "Reconnect" : "Connect"}{/if}
       </Button>

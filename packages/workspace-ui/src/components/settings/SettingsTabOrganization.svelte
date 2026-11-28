@@ -97,7 +97,7 @@
     <SettingsSection {...settingsDefinitions["organization.section-organization"]}>
       <SettingsRow label="No organization" description="You are not a member of an organization. Create one, or accept an invitation, on Solus Cloud.">
         {#snippet control()}
-          <Button variant="outline" size="sm" onclick={() => void localApi.openExternal(consolePageUrl(account.consoleUrl, "organizations"))}>Open Solus Cloud</Button>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => void localApi.openExternal(consolePageUrl(account.consoleUrl, "organizations"))}>Open Solus Cloud</Button>
         {/snippet}
       </SettingsRow>
     </SettingsSection>
@@ -160,7 +160,7 @@
     {:else if view.status === "offline" || view.status === "error"}
       <div class="flex items-center gap-3 text-workspace-chrome" role="alert">
         <span class="text-destructive">{view.status === "offline" ? "Solus could not reach your account." : view.message}</span>
-        <Button variant="outline" size="sm" onclick={() => origin && organizationId && void store.load(origin, organizationId)}>Retry</Button>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => origin && organizationId && void store.load(origin, organizationId)}>Retry</Button>
       </div>
     {:else if ready}
       {#if ready.saveError}
@@ -170,8 +170,8 @@
       <SettingsSection label="{settingsDefinitions['organization.section-members'].label} ({ready.settings.members.length})">
         {#snippet action()}
           {#if isOwner}
-            <Button variant="outline" size="sm" onclick={() => openConsole("invite")}>Invite people</Button>
-            <Button variant="ghost" size="sm" onclick={() => openConsole("members")}>Manage</Button>
+            <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => openConsole("invite")}>Invite people</Button>
+            <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => openConsole("members")}>Manage</Button>
           {/if}
         {/snippet}
         {#each ready.settings.members as person (person.userId)}
@@ -248,14 +248,14 @@
       <SettingsSection label="Policy">
         <SettingsRow {...settingsDefinitions["organization.policy"]}>
           {#snippet control()}
-            <Button variant="outline" size="sm" onclick={() => session.showSettings("policy", "click")}>Open Policy</Button>
+            <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => session.showSettings("policy", "click")}>Open Policy</Button>
           {/snippet}
         </SettingsRow>
         {#if isOwner}
           <SettingsRow label="Audit log and observability" description="Who changed what, and how the organization's agents run. In the Solus console.">
             {#snippet control()}
-              <Button variant="ghost" size="sm" onclick={() => openConsole("audit")}>Audit log</Button>
-              <Button variant="ghost" size="sm" onclick={() => openConsole("observability")}>Observability</Button>
+              <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => openConsole("audit")}>Audit log</Button>
+              <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => openConsole("observability")}>Observability</Button>
             {/snippet}
           </SettingsRow>
         {/if}
@@ -264,13 +264,13 @@
       <SettingsSection label="Membership">
         <SettingsRow {...settingsDefinitions["organization.leave"]}>
           {#snippet control()}
-            <Button variant="outline" size="sm" onclick={() => openConsole("leave")}>Leave…</Button>
+            <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={() => openConsole("leave")}>Leave…</Button>
           {/snippet}
         </SettingsRow>
         {#if isOwner}
           <SettingsRow {...settingsDefinitions["organization.delete"]}>
             {#snippet control()}
-              <Button variant="destructive" size="sm" onclick={() => openConsole("delete")}>Delete…</Button>
+              <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={() => openConsole("delete")}>Delete…</Button>
             {/snippet}
           </SettingsRow>
         {/if}

@@ -91,15 +91,15 @@
                 <Input id="{idPrefix}-value-{row.id}" type={isShown ? "text" : "password"} bind:value={row.value}
                   placeholder={hasSavedValues ? "Saved. Type to replace it" : "Value"} aria-label="Value of {row.name.trim() || `variable ${index + 1}`}"
                   autocomplete="off" spellcheck={false} dictation={false} {disabled} class="h-8 w-full min-w-0 pr-8 text-workspace-chrome" />
-                <button type="button" class="absolute inset-y-0 right-0 flex w-8 items-center justify-center rounded-r-md text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                <Button variant="ghost" size="icon-xs" class="absolute inset-y-0 right-1 my-auto text-muted-foreground pointer-coarse:tap-area"
                   aria-label="{isShown ? 'Hide' : 'Show'} the value of {row.name.trim() || `variable ${index + 1}`}" aria-pressed={isShown} {disabled}
                   onclick={() => (isShown ? shown.delete(row.id) : shown.add(row.id))}>
                   {#if isShown}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
-                </button>
+                </Button>
               </div>
             {/if}
             </div>
-            <Button variant="ghost" size="icon" class="shrink-0 text-muted-foreground hover:text-foreground pointer-coarse:size-11" aria-label="Remove {row.name.trim() || `variable ${index + 1}`}"
+            <Button variant="ghost" size="icon" class="shrink-0 text-muted-foreground hover:text-destructive pointer-coarse:tap-area" aria-label="Remove {row.name.trim() || `variable ${index + 1}`}"
               {disabled} onclick={() => remove(row)}><X size={14} /></Button>
           </div>
           {#if problem}
@@ -111,7 +111,7 @@
   {/if}
 
   <div>
-    <Button bind:ref={addButton} variant="ghost" size="sm" class="-ml-2 text-workspace-chrome text-(--solus-text-secondary) pointer-coarse:min-h-11" {disabled} onclick={add}>
+    <Button bind:ref={addButton} variant="ghost" size="sm" class="-ml-2 text-muted-foreground pointer-coarse:min-h-11" {disabled} onclick={add}>
       <Plus size={14} />Add variable
     </Button>
   </div>

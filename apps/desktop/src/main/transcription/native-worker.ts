@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { endianness } from 'node:os'
 import { createInterface } from 'node:readline'
 import { z } from 'zod'
 import { cleanVoiceTranscript } from '@solus/server/transcription/clean-transcript'
@@ -34,7 +35,13 @@ export function nativeFrame(operation: NativeOperation, requestId: number, sampl
       offset += term.length
     }
   }
-  if (samples) for (let i = 0; i < samples.length; i++) frame.writeFloatLE(samples[i], offset + i * 4)
+  if (samples) {
+    if (endianness() === 'LE') {
+      Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength).copy(frame, offset)
+    } else {
+      for (let i = 0; i < samples.length; i++) frame.writeFloatLE(samples[i], offset + i * 4)
+    }
+  }
   return frame
 }
 

@@ -43,7 +43,7 @@
 >
   {#snippet control()}
     {#if deviceState}
-      <Button variant="outline" size="sm" onclick={openDeviceSettings}>Device settings</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={openDeviceSettings}>Device settings</Button>
     {/if}
   {/snippet}
 </SettingsRow>

@@ -197,11 +197,21 @@ An organization can choose the apps its members may connect: in Settings → Pol
 
 | Access | The app can |
 |---|---|
-| Read | Read works, projects, codebases, tasks, automations, sessions, the links of a session, pull requests and their checks, your other hosts, and the results of messages the app sent. |
-| Read and write | Also create works, and start, message, organize, and stop sessions, on this host and your other hosts. |
+| Read | Read works, projects, codebases, tasks, automations, sessions, the links of a session, pull requests and their checks, your other hosts, and the results of messages the app sent. Run the queries of your apps. |
+| Read and write | Also create works, and start, message, organize, and stop sessions, on this host and your other hosts. Run the mutations of your apps. |
 | Full | Also use tools that ask for approval inside Solus: change a work, change a task's status or comment on it, change, run, or delete an automation, link items to a session, change, answer, review, or merge a pull request, and rerun checks. |
 
 The app works as you, and only where you can work yourself. It does not get your integration tokens. To use an integration (for example Google), the app starts a Solus session, and the agent in that session uses your integrations.
+
+## Your apps
+
+The app can use the apps that live in Solus on this host (see the create-app skill): their operations are tools for it, as they are for an agent in a session. An app shows only when a version runs and its agent access is on.
+
+- **Find an operation.** When the host runs apps, the app's tool list has two more tools: `tool_search` and `tool_call`. `tool_search` finds operations by app name, operation name, or purpose, with the input of each. An empty query lists them. The tool list does not change when you add or deploy an app, so the app finds a new operation without a restart.
+- **Run it.** `tool_call` with the operation's name, such as `query-watch__review`, and its `arguments`. A **Read** connection runs queries only. A mutation needs **Read and write**.
+- **Read the app's instructions.** An app with instructions has one more operation, `<app>__app-instructions`. Each operation's description names it.
+
+An operation runs on this host as you. It can use the app's integrations and secrets there; those tokens stay on the host, but the operation's result goes to the app. The app's call log shows the call as an agent's, with no session. Turn off an app's agent access on its Manage page to keep it from outside apps and from agents.
 
 ## Sessions and pull requests
 

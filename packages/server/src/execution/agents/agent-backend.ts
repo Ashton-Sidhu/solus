@@ -97,6 +97,10 @@ export interface BackendEvents {
 export interface AgentBackend extends EventEmitter {
   readonly id: AgentId
   readonly metadata: AgentMetadata
+  /** The backend resumes a thread in another working directory, so a session
+   *  that moved to another checkout goes on in the same thread. A backend
+   *  without it forks the thread into the new directory. */
+  readonly resumesInAnotherDirectory?: boolean
 
   startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle
   /** Append input to the provider's active turn. Expected turn-boundary races
@@ -107,6 +111,10 @@ export interface AgentBackend extends EventEmitter {
     options: Pick<PromptOptions, 'prompt' | 'imageAttachments'>,
   ): Promise<RunHandle | null>
   cancelSession(sessionId: string): boolean
+  /** Keep an event that the host made for the running turn, such as an agent
+   *  card, in the history that Solus keeps for this provider. Absent when the
+   *  provider keeps its own history (Claude, Codex) or writes its own rows (replay). */
+  keepHostEvent?(sessionId: string, event: NormalizedEvent): void
   /** Set whether a running command holds the turn; returns its canonical item ID.
    * Accepts the command item ID or the terminal session ID shown to the agent. */
   setBackgroundCommandWaiting?(sessionId: string, taskId: string, waiting: boolean): string | null

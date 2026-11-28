@@ -31,9 +31,9 @@
 <div class="flex flex-col gap-5 p-5" style:min-height="{MAP_HEIGHT}rem">
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex min-w-0 items-center gap-2">
-      <button type="button" onclick={onBack} aria-label="Back to the map" class="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-(--wash-3) hover:text-foreground">
+      <Button variant="ghost" size="icon-sm" onclick={onBack} aria-label="Back to the map" class="shrink-0 text-muted-foreground pointer-coarse:tap-area">
         <ChevronLeft size={15} />
-      </button>
+      </Button>
       <div class="flex min-w-0 flex-col">
         <h3 class="text-workspace-chrome font-medium">{zone.label}</h3>
         <p class="flex items-center gap-2.5">
@@ -45,9 +45,9 @@
       </div>
     </div>
     <div class="flex flex-wrap gap-1.5">
-      {#if unreachable.length}<Button variant="ghost" size="sm" onclick={() => fleetStore.retryHosts(unreachable)}>Retry {unreachable.length}</Button>{/if}
-      {#if withUpdate.length}<Button variant="ghost" size="sm" onclick={() => fleetStore.updateHosts(withUpdate)}>Update {withUpdate.length}</Button>{/if}
-      {#if stopped.length}<Button variant="outline" size="sm" onclick={() => fleetStore.startHosts(stopped)}><Power size={13} />Start {stopped.length}</Button>{/if}
+      {#if unreachable.length}<Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => fleetStore.retryHosts(unreachable)}>Retry {unreachable.length}</Button>{/if}
+      {#if withUpdate.length}<Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => fleetStore.updateHosts(withUpdate)}>Update {withUpdate.length}</Button>{/if}
+      {#if stopped.length}<Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => fleetStore.startHosts(stopped)}><Power size={13} />Start {stopped.length}</Button>{/if}
     </div>
   </div>
   <div class="@container">

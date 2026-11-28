@@ -54,7 +54,7 @@
         {...settingsDefinitions["sessions.typesafe-key-required"]}
       >
         {#snippet control()}
-          <Button variant="outline" size="sm" class="text-workspace-chrome [@media(pointer:coarse)]:min-h-11" onclick={() => workspace.selectSettingsTab("tools")}>Add key</Button>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => workspace.selectSettingsTab("tools")}>Add key</Button>
         {/snippet}
       </SettingsRow>
     {/if}
@@ -91,7 +91,7 @@
     <div class="flex items-center gap-3 px-4 py-3 text-workspace-chrome">
       {#if state?.error}
         <p class="min-w-0 flex-1 text-destructive" role="alert">{state.error}</p>
-        <Button variant="outline" size="sm" onclick={() => modelRoutingStore.load(serverId)}>Retry</Button>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => modelRoutingStore.load(serverId)}>Retry</Button>
       {:else}
         <p class="text-muted-foreground" role="status">Loading models…</p>
       {/if}

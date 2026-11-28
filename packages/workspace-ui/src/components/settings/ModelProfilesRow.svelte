@@ -15,7 +15,7 @@
 {#if hosts.get(host.id)?.supports('modelProfiles')}
   <SettingsRow {...settingsDefinitions["providers.model-list"]} description={modelProfilesLine(status)} bodyVisible={!!error}>
     {#snippet control()}
-      <Button variant="outline" size="sm" disabled={host.readiness !== 'ready' || busy} onclick={() => void modelProfilesStore.refresh(host.id)}>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={host.readiness !== 'ready' || busy} onclick={() => void modelProfilesStore.refresh(host.id)}>
         {busy ? 'Refreshing…' : 'Clear cache and refresh'}
       </Button>
     {/snippet}

@@ -876,6 +876,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     orchestrator,
     agentIdFromContext: opts.agentIdFromContext,
     shares,
+    clientEvents,
     onResponseForkCreated: announceFork,
   }
   registerSessionHandlers(server, sessionDeps)

@@ -10,7 +10,7 @@ import { SETUP_PROVIDERS, seatProviderFor } from '../servers/lib/host-onboarding
 import { hostSetupStore, type HostSetupSession } from '../servers/host-setup.store.svelte'
 import { agentHistoryStore } from './agent-history.store.svelte'
 import { cloudOnboardingStore as cloud } from './cloud-onboarding.store.svelte'
-import { defaultSize, machineTargets, newCloudHostRequest, type MachineTargets } from './lib/cloud-compute'
+import { defaultSize, machineStepProgress, machineTargets, newCloudHostRequest, reachability, type MachineTargets } from './lib/cloud-compute'
 import {
   defaultCheckedProjects,
   footerFor,
@@ -98,19 +98,29 @@ class OnboardingStore {
     return this.flow === 'cloud' && this.open === null
   }
 
-  /** Steps whose work goes on while the person finishes: the cloud host starting, a computer linking. */
+  /** Where cloud step 1's background work is: the cloud host starting, a computer linking. */
+  private get machineProgress(): 'working' | 'failed' | 'settled' {
+    if (this.flow !== 'cloud') return 'settled'
+    return machineStepProgress({
+      host: cloud.chosenHost,
+      isBusy: !!cloud.hostBusy,
+      hasError: !!cloud.hostError || !!cloud.linkError,
+      isLinking: this.machineTarget === 'own' && !!cloud.linkCode && !cloud.chosenServerId,
+    })
+  }
+
+  /** Steps whose work goes on while the person finishes. */
   get working(): ReadonlySet<OnboardingStep> {
-    const working = new Set<OnboardingStep>()
-    if (this.flow !== 'cloud') return working
-    const host = cloud.chosenHost
-    const hostComing = !!cloud.hostBusy || (!!host && host.readiness !== 'ready')
-    const linking = this.machineTarget === 'own' && !!cloud.linkCode && !cloud.chosenServerId
-    if (hostComing || linking) working.add('machine')
-    return working
+    return new Set<OnboardingStep>(this.machineProgress === 'working' ? ['machine'] : [])
+  }
+
+  /** Steps whose background work failed: the marker says so instead of spinning. */
+  get failed(): ReadonlySet<OnboardingStep> {
+    return new Set<OnboardingStep>(this.machineProgress === 'failed' ? ['machine'] : [])
   }
 
   get timeline(): TimelineEntry[] {
-    return timeline({ steps: this.steps, open: this.open, done: this.done, working: this.working, signingIn: this.signingIn })
+    return timeline({ steps: this.steps, open: this.open, done: this.done, working: this.working, failed: this.failed, signingIn: this.signingIn })
   }
 
   get progress(): string {
@@ -170,9 +180,12 @@ class OnboardingStore {
       if (host) return host.readiness === 'ready' ? `${host.label} · linked` : `${host.label} · connecting`
       return cloud.linkCode ? 'Waiting for it to link' : 'Not linked yet'
     }
-    if (cloud.hostBusy === 'creating' || !host) return 'Starting in the background · about a minute'
-    if (host.readiness !== 'ready') return 'Starting in the background · about a minute'
-    return 'Running'
+    if (cloud.hostBusy === 'creating') return 'Starting in the background · about a minute'
+    // Skipped, or the create was refused before it started: nothing runs.
+    if (!host) return 'Not set up yet'
+    if (host.readiness === 'ready') return 'Running'
+    if (this.machineProgress === 'failed') return `${host.label} · ${reachability(host)}`
+    return 'Starting in the background · about a minute'
   }
 
   get footer(): Footer {

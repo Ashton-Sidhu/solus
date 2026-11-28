@@ -38,8 +38,8 @@
   <span class="min-w-0 flex-1 truncate text-chrome-dense text-(--solus-text-primary) select-text">{value}</span>
   <Button
     variant="ghost"
-    size="icon-sm"
-    class="shrink-0 text-(--solus-text-tertiary)"
+    size="icon-xs"
+    class="shrink-0 text-muted-foreground pointer-coarse:tap-area"
     onclick={() => void copy()}
     aria-label={`Copy ${label.toLowerCase()}`}
   >

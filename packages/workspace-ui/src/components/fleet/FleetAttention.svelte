@@ -7,7 +7,7 @@
   import { fleetStore } from "./fleet.store.svelte";
   import { attentionRows, type AttentionRow, type FleetMachine } from "./lib/fleet-model";
 
-  /** What wants the person: a host that is down, an agent to sign in, an update.
+  /** What wants the person: a host that is down, or an update of Solus or an agent.
    *  Each row has its own fix, and a session about its hosts. */
   interface Props {
     machines: FleetMachine[];
@@ -26,7 +26,6 @@
     else if (row.fix === "start") fleetStore.startHosts(row.serverIds);
     else if (row.kind === "unreachable") fleetStore.retryHosts(row.serverIds);
     else if (row.kind === "update") fleetStore.updateHosts(row.serverIds);
-    else onOpen(row.serverIds[0]!);
   }
 </script>
 
@@ -39,14 +38,13 @@
       </button>
       <!-- No button fixes a connection that drops again and again: the session is its fix. -->
       {#if row.kind !== "reconnecting"}
-        <Button variant="ghost" size="sm" onclick={() => act(row)}>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => act(row)}>
           {row.fix && row.fix !== "retry" ? HOST_READINESS_ACTION_LABELS[row.fix]
-            : row.kind === "unreachable" ? (row.serverIds.length > 1 ? "Retry all" : "Retry")
             : row.kind === "update" ? (row.serverIds.length > 1 ? "Update all" : "Update")
-              : "Sign in"}
+              : row.serverIds.length > 1 ? "Retry all" : "Retry"}
         </Button>
       {/if}
-      <Button variant="ghost" size="sm" onclick={() => onAsk(row)}><Bot size={14} />Ask an agent</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => onAsk(row)}><Bot size={14} />Ask an agent</Button>
     </div>
   {/each}
 </SettingsSection>

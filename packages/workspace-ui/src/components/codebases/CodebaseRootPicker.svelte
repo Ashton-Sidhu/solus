@@ -52,7 +52,7 @@
       {:else}
         <span class="text-workspace-chrome text-foreground">{host.label}</span>
       {/if}
-      <Button bind:ref={chooseButtonEl} size="sm" variant="outline" {disabled} onclick={() => (isBrowsing = true)}>
+      <Button bind:ref={chooseButtonEl} size="sm" variant="outline" class="pointer-coarse:min-h-11" {disabled} onclick={() => (isBrowsing = true)}>
         <FolderOpenIcon size={14} />
         {picker.scan ? "Choose a different folder" : "Choose folder"}
       </Button>

@@ -40,7 +40,7 @@
     <Button
       variant="outline"
       size="sm"
-      class="shrink-0"
+      class="shrink-0 pointer-coarse:min-h-11"
       aria-label={`Add ${wslHostLabel(distro.name)}`}
       disabled={store.isAdding}
       onclick={() => void store.add(hostId, distro.name)}

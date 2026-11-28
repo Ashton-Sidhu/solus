@@ -71,6 +71,7 @@
               <Button
                 variant="ghost"
                 size="icon-xs"
+                class="text-muted-foreground pointer-coarse:tap-area"
                 aria-label="Move {lens.name || 'lens'} up"
                 title="Move up"
                 disabled={index === 0}
@@ -81,6 +82,7 @@
               <Button
                 variant="ghost"
                 size="icon-xs"
+                class="text-muted-foreground pointer-coarse:tap-area"
                 aria-label="Move {lens.name || 'lens'} down"
                 title="Move down"
                 disabled={index === lenses.length - 1}
@@ -93,7 +95,7 @@
                 size="icon-xs"
                 aria-label="Delete {lens.name || 'lens'}"
                 title="Delete"
-                class="hover:text-destructive"
+                class="text-muted-foreground hover:text-destructive pointer-coarse:tap-area"
                 onclick={() => remove(lens.id)}
               >
                 <DeleteIcon />
@@ -114,12 +116,12 @@
   {/if}
 
   <div class="flex flex-wrap items-center gap-1.5">
-    <Button variant="outline" size="xs" onclick={() => add()}>
+    <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => add()}>
       <AddIcon />
       Add lens
     </Button>
     {#each unusedTemplates as template (template.name)}
-      <Button variant="ghost" size="xs" title={template.prompt} onclick={() => add(template)}>
+      <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" title={template.prompt} onclick={() => add(template)}>
         <AddIcon />
         {template.name}
       </Button>

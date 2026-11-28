@@ -288,6 +288,16 @@ export function appToolRefusal(tool: Pick<AgentTool, 'name' | 'requiresApproval'
   return null
 }
 
+/**
+ * Why an outside app with this access may not run an app's operation; null
+ * when it may. A query reads the app's data, so a read grant runs it; a
+ * mutation writes it, so it needs a write grant (plans/035 §7.3).
+ */
+export function appOperationRefusal(toolName: string, kind: 'query' | 'mutation', access: AppAccess): string | null {
+  if (kind === 'mutation' && access === 'read') return `${toolName} changes the app's records, and this app was approved to read only. Connect it again with write access.`
+  return null
+}
+
 /** A tool's rule: the table's for a Solus tool, else its own. A tool with neither has no rule. */
 export function toolAccessOf(tool: Pick<AgentTool, 'name' | 'access'>): ToolAccess | undefined {
   return ACCESS_BY_NAME.get(tool.name) ?? tool.access

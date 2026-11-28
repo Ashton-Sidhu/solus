@@ -118,7 +118,7 @@
           <Button
             variant="outline"
             size="sm"
-            class="min-w-29 transition-transform active:scale-[0.96]"
+            class="min-w-29 transition-transform active:scale-[0.96] pointer-coarse:min-h-11"
             disabled={installingCodeIntel.has(language.language)}
             onclick={() => installCodeIntel(language.language, language.label, language.toolName)}
           >

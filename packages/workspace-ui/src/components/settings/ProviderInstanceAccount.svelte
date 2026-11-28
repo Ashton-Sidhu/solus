@@ -31,10 +31,10 @@
 
 <SettingsSection {...settingsDefinitions["providers.section-status-and-account"]}>
   <SettingsRow {...settingsDefinitions["providers.status"]} description={statusDescription} bodyVisible={Boolean(status?.account || status?.error)}>
-    {#snippet control()}<Button variant="ghost" size="sm" onclick={() => void client.inspect(instanceId)}>Refresh status</Button>{/snippet}
+    {#snippet control()}<Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => void client.inspect(instanceId)}>Refresh status</Button>{/snippet}
     {#snippet body()}
       <div class="flex flex-col items-start gap-2 text-sm">
-        {#if status?.account}<Button variant="ghost" size="sm" class="-ml-2" onclick={() => (revealAccount = !revealAccount)}>{revealAccount ? status.account : "Show account details"}</Button>{/if}
+        {#if status?.account}<Button variant="ghost" size="sm" class="-ml-2 text-muted-foreground pointer-coarse:min-h-11" onclick={() => (revealAccount = !revealAccount)}>{revealAccount ? status.account : "Show account details"}</Button>{/if}
         {#if status?.error}<p role="alert" class="text-destructive">{status.error}</p>{/if}
       </div>
     {/snippet}
@@ -42,8 +42,8 @@
   <SettingsRow {...settingsDefinitions["providers.account"]}>
     {#snippet control()}
       <div class="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" disabled={view.action !== null || status?.phase === "connecting"} onclick={() => void client.signIn(instanceId)}>{status?.authenticated ? "Change account" : "Sign in"}</Button>
-        {#if status?.authenticated}<Button variant="ghost" size="sm" disabled={view.action !== null} onclick={() => (confirmSignOut = true)}>Sign out</Button>{/if}
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={view.action !== null || status?.phase === "connecting"} onclick={() => void client.signIn(instanceId)}>{status?.authenticated ? "Change account" : "Sign in"}</Button>
+        {#if status?.authenticated}<Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={view.action !== null} onclick={() => (confirmSignOut = true)}>Sign out</Button>{/if}
       </div>
     {/snippet}
     {#snippet body()}
@@ -52,8 +52,8 @@
           <a class="w-fit underline underline-offset-4" href={verification.verificationUrl} target="_blank" rel="noreferrer">Open sign-in page</a>
           <div><CopyButton text={verification.verificationUrl} title="Copy sign-in link" /></div>
           {#if verification.userCode}<p>Device code: <code>{verification.userCode}</code></p>{/if}
-          {#if verification.requiresCodeInput}<form class="flex gap-2" onsubmit={(event) => { event.preventDefault(); void client.submitCode(instanceId, code); }}><Input aria-label="Provider sign-in code" bind:value={code} autocomplete="off" {@attach focusCodeField} /><Button type="submit" size="sm" disabled={!code.trim()}>Submit code</Button></form>{/if}
-          <Button variant="ghost" size="sm" class="w-fit" onclick={() => void client.cancelSignIn(instanceId)}>Cancel sign-in</Button>
+          {#if verification.requiresCodeInput}<form class="flex gap-2" onsubmit={(event) => { event.preventDefault(); void client.submitCode(instanceId, code); }}><Input aria-label="Provider sign-in code" bind:value={code} autocomplete="off" {@attach focusCodeField} /><Button type="submit" size="default" class="pointer-coarse:min-h-11" disabled={!code.trim()}>Submit code</Button></form>{/if}
+          <Button variant="ghost" size="sm" class="w-fit text-muted-foreground pointer-coarse:min-h-11" onclick={() => void client.cancelSignIn(instanceId)}>Cancel sign-in</Button>
         </div>
       {/if}
     {/snippet}
@@ -65,7 +65,7 @@
     <Dialog.Content class="fixed top-1/2 left-1/2 z-[10001] flex w-[min(28rem,calc(100%-2rem))] -translate-1/2 flex-col gap-4 rounded-xl border border-border bg-background p-6 text-workspace-chrome shadow-lg">
       <Dialog.Title class="text-lg font-medium">Sign out of this provider account?</Dialog.Title>
       <Dialog.Description class="text-sm text-muted-foreground">Other instances that use the same provider home share this login. New turns need a valid login.</Dialog.Description>
-      <div class="flex justify-end gap-2"><Button variant="ghost" size="sm" onclick={() => (confirmSignOut = false)}>Cancel</Button><Button variant="outline" size="sm" onclick={() => { confirmSignOut = false; void client.signOut(instanceId); }}>Sign out</Button></div>
+      <div class="flex justify-end gap-2"><Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => (confirmSignOut = false)}>Cancel</Button><Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={() => { confirmSignOut = false; void client.signOut(instanceId); }}>Sign out</Button></div>
     </Dialog.Content>
   </Dialog.Portal>
 </Dialog.Root>

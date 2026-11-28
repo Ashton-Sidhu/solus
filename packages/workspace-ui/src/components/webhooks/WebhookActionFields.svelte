@@ -84,7 +84,7 @@
       On
     </label>
     {#if onRemove}
-      <Button size="icon-xs" variant="ghost" class="ml-auto" aria-label="Remove action {index + 1}" {disabled} onclick={onRemove}>
+      <Button size="icon-sm" variant="ghost" class="ml-auto text-muted-foreground hover:text-destructive pointer-coarse:tap-area" aria-label="Remove action {index + 1}" {disabled} onclick={onRemove}>
         <TrashIcon size={14} />
       </Button>
     {/if}
@@ -164,13 +164,13 @@
             aria-label="Filter {filterIndex + 1} value"
           />
         {/if}
-        <Button size="icon-xs" variant="ghost" aria-label="Remove filter {filterIndex + 1}" {disabled} onclick={() => action.filters.splice(filterIndex, 1)}>
+        <Button size="icon-sm" variant="ghost" class="text-muted-foreground hover:text-destructive pointer-coarse:tap-area" aria-label="Remove filter {filterIndex + 1}" {disabled} onclick={() => action.filters.splice(filterIndex, 1)}>
           <TrashIcon size={14} />
         </Button>
       </div>
     {/each}
     {#if action.filters.length < WEBHOOK_MAX_FILTERS}
-      <Button size="xs" variant="ghost" class="self-start" {disabled} onclick={() => action.filters.push({ path: "", op: "", value: "" })}>
+      <Button size="sm" variant="ghost" class="self-start text-muted-foreground pointer-coarse:min-h-11" {disabled} onclick={() => action.filters.push({ path: "", op: "", value: "" })}>
         <PlusIcon size={14} /> Add filter
       </Button>
     {/if}

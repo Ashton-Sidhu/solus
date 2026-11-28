@@ -80,7 +80,7 @@
         <span class="font-medium text-foreground">{signInReturns.pending.conversationTitle}</span>
         waits for {signInReturns.pending.providerLabel}. It continues when you finish signing in.
       </p>
-      <Button size="sm" variant="ghost" class="shrink-0 text-(--solus-accent)" onclick={() => signInReturns.goBack()}>
+      <Button size="sm" variant="outline" class="shrink-0 pointer-coarse:min-h-11" onclick={() => signInReturns.goBack()}>
         <ArrowLeft size={14} />Back to the conversation
       </Button>
     </div>
@@ -94,7 +94,6 @@
         <h1 class="flex min-w-0 items-center gap-2.5 text-[1.375rem] font-medium tracking-[-0.01em] text-foreground">
           <span class="truncate">{host.label}</span>
           <HostStateIcon state={machine.state} count={machine.state === "running" ? machine.sessions : undefined} size={15} />
-          {#if machine.needsSetup}<HostStateIcon state="signin" size={15} />{/if}
           {#if machine.hasUpdate}<HostStateIcon state="update" size={15} />{/if}
         </h1>
         <p class="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -106,13 +105,13 @@
     <div class="flex flex-wrap items-center gap-1.5">
       {#if machine.hasManagedCompute}
         {#if machine.state === "stopped"}
-          <Button variant="outline" size="sm" disabled={!!busyAction} onclick={() => void managedHostsStore.start(host.id)}><Power size={14} />{busyAction === "start" ? "Starting…" : "Start"}</Button>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={!!busyAction} onclick={() => void managedHostsStore.start(host.id)}><Power size={14} />{busyAction === "start" ? "Starting…" : "Start"}</Button>
         {:else}
-          <Button variant="ghost" size="sm" disabled={!!busyAction} onclick={() => void managedHostsStore.restart(host.id)}><RotateCw size={14} />{busyAction === "restart" ? "Restarting…" : "Restart"}</Button>
-          <Button variant="outline" size="sm" disabled={!!busyAction} onclick={() => void managedHostsStore.stop(host.id)}><Power size={14} />{busyAction === "stop" ? "Stopping…" : "Stop"}</Button>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={!!busyAction} onclick={() => void managedHostsStore.restart(host.id)}><RotateCw size={14} />{busyAction === "restart" ? "Restarting…" : "Restart"}</Button>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={!!busyAction} onclick={() => void managedHostsStore.stop(host.id)}><Power size={14} />{busyAction === "stop" ? "Stopping…" : "Stop"}</Button>
         {/if}
       {/if}
-      <Button size="sm" disabled={machine.state !== "running" && machine.state !== "idle"} onclick={newSession}><Plus size={14} />New session</Button>
+      <Button size="sm" class="pointer-coarse:min-h-11" disabled={machine.state !== "running" && machine.state !== "idle"} onclick={newSession}><Plus size={14} />New session</Button>
     </div>
   </div>
 

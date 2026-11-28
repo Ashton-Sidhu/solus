@@ -35,7 +35,7 @@
 <SettingsSection label="Cloud devices" description="Lease devices from your Simlock pool.">
   {#snippet action()}
     <div class="flex flex-wrap gap-2">
-      <Button size="sm" variant="outline" disabled={busy || !!draft} onclick={() => edit(newCloudDeviceHost(`simlock-${crypto.randomUUID()}`))}>Add Simlock pool</Button>
+      <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={busy || !!draft} onclick={() => edit(newCloudDeviceHost(`simlock-${crypto.randomUUID()}`))}>Add Simlock pool</Button>
     </div>
   {/snippet}
   {#if error}<p class="px-4 py-3 text-workspace-chrome text-destructive" role="alert">{error}</p>{/if}
@@ -48,8 +48,8 @@
         {#if host.config}<p class="text-workspace-chrome text-muted-foreground">{cloudDeviceHostLimits(host.config)}</p>{/if}
         {#if status?.detail}<p class="break-words text-workspace-chrome text-muted-foreground" role="status">{status.detail}</p>{/if}
       </div>
-      {#if host.config}<Button size="sm" variant="ghost" disabled={busy || !!draft} onclick={() => host.config && edit(host.config)}>Edit</Button>{/if}
-      <Button size="sm" variant="ghost" disabled={busy} onclick={() => void run(() => devicesStore.removeHost(serverId, host.deviceHostId))}>Remove</Button>
+      {#if host.config}<Button size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={busy || !!draft} onclick={() => host.config && edit(host.config)}>Edit</Button>{/if}
+      <Button size="sm" variant="destructive" class="pointer-coarse:min-h-11" disabled={busy} onclick={() => void run(() => devicesStore.removeHost(serverId, host.deviceHostId))}>Remove</Button>
     </div>
   {/each}
   {#if draft}
@@ -73,9 +73,9 @@
         </div>
       {/if}
       <div class="flex flex-wrap justify-end gap-2">
-        <Button type="button" variant="outline" size="sm" disabled={busy || !canCheck} onclick={check}>Check connection</Button>
-        <Button type="button" variant="ghost" size="sm" disabled={busy} onclick={() => { draft = null; }}>Cancel</Button>
-        <Button type="submit" size="sm" disabled={busy || !valid}>{busy ? "Working…" : "Save source"}</Button>
+        <Button type="button" variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={busy || !canCheck} onclick={check}>Check connection</Button>
+        <Button type="button" variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" disabled={busy} onclick={() => { draft = null; }}>Cancel</Button>
+        <Button type="submit" size="sm" class="pointer-coarse:min-h-11" disabled={busy || !valid}>{busy ? "Working…" : "Save source"}</Button>
       </div>
     </form>
   {/if}

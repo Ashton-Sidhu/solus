@@ -94,7 +94,7 @@
 {#snippet toolAction(tool: "hub" | "agent")}
   {@const version = localHost?.tools?.[tool]}
   {#if localHost && version && deviceState?.settings.enabled && !version.installedVersions.includes(version.requiredVersion)}
-    <Button size="sm" variant="outline" class="w-full" disabled={busy} onclick={() => void run(() => devicesStore.updateTool(serverId, localHost.deviceHostId, tool))}>
+    <Button size="sm" variant="outline" class="w-full pointer-coarse:min-h-11" disabled={busy} onclick={() => void run(() => devicesStore.updateTool(serverId, localHost.deviceHostId, tool))}>
       {version.installedVersions.length ? `Update to ${version.requiredVersion}` : `Install ${version.requiredVersion}`}
     </Button>
   {:else}
@@ -126,7 +126,7 @@
       {#if settings.enabled && localHost}
         <SettingsRow label="Simulator support">
           {#snippet control()}
-            <Button size="sm" variant="outline" disabled={busy} onclick={() => void run(() => devicesStore.inspect(serverId))}>Refresh</Button>
+            <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={busy} onclick={() => void run(() => devicesStore.inspect(serverId))}>Refresh</Button>
           {/snippet}
           {#snippet body()}
             <div class="flex flex-wrap gap-x-5 gap-y-2 text-xs">
@@ -143,7 +143,7 @@
             {#if localStatus?.status === "failed"}
               <div class="mt-3 flex items-start justify-between gap-3 text-xs text-destructive" role="status">
                 <p class="min-w-0 whitespace-pre-wrap break-words">{localStatus.detail ?? "The device hub did not start."}</p>
-                <Button size="xs" variant="outline" disabled={busy} onclick={() => void run(() => devicesStore.retryHost(serverId, localStatus.deviceHostId))}>Retry</Button>
+                <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={busy} onclick={() => void run(() => devicesStore.retryHost(serverId, localStatus.deviceHostId))}>Retry</Button>
               </div>
             {/if}
           {/snippet}
@@ -175,7 +175,7 @@
       description="Add a Mac or Linux machine with simulator or emulator runtimes. This host connects to it with SSH keys and sets up the device tools there."
     >
       {#snippet action()}
-        <Button size="sm" variant="outline" disabled={busy || editing} onclick={() => (editing = true)}><Plus class="size-3.5" /> Add host</Button>
+        <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={busy || editing} onclick={() => (editing = true)}><Plus class="size-3.5" /> Add host</Button>
       {/snippet}
       {#if sshHosts.length === 0 && !editing}
         <p class="px-4 py-3.5 text-[13px] text-muted-foreground">No device hosts.</p>
@@ -206,12 +206,12 @@
           {/if}
           <DeviceToolVersions tools={host.tools} error={host.toolInspectionError} />
           {#if status?.status === "failed"}
-            <Button size="sm" variant="outline" disabled={busy} onclick={() => void run(() => devicesStore.retryHost(serverId, host.deviceHostId))}>Retry</Button>
+            <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={busy} onclick={() => void run(() => devicesStore.retryHost(serverId, host.deviceHostId))}>Retry</Button>
           {/if}
           <DropdownMenu.Root>
             <DropdownMenu.Trigger>
               {#snippet child({ props })}
-                <Button {...props} size="icon-sm" variant="ghost" disabled={busy} aria-label="{host.label} options"><Ellipsis class="size-4" /></Button>
+                <Button {...props} size="icon-sm" variant="ghost" class="text-muted-foreground pointer-coarse:tap-area" disabled={busy} aria-label="{host.label} options"><Ellipsis class="size-4" /></Button>
               {/snippet}
             </DropdownMenu.Trigger>
             <DropdownMenu.Content align="end" sideOffset={6}>
@@ -252,7 +252,7 @@
               <p role="status" class="text-xs text-muted-foreground">
                 {testResult ? (testResult.ok ? "Connection checks passed" : `${testResult.checks.filter((check) => !check.ok).length} of ${testResult.checks.length} checks failed`) : "Test the connection before you save. It installs and starts nothing."}
               </p>
-              <Button type="button" size="sm" variant="outline" disabled={busy} onclick={test}>Test connection</Button>
+              <Button type="button" size="sm" variant="outline" class="pointer-coarse:min-h-11" disabled={busy} onclick={test}>Test connection</Button>
             </div>
             {#if testResult}
               <ul class="flex flex-col gap-1 border-t border-border/60 px-3 py-2.5 text-xs">
@@ -266,8 +266,8 @@
             {/if}
           </div>
           <div class="flex justify-end gap-2">
-            <Button type="button" size="sm" variant="ghost" disabled={busy} onclick={closeEditor}>Cancel</Button>
-            <Button type="submit" size="sm" disabled={busy}>Save</Button>
+            <Button type="button" size="sm" variant="ghost" class="text-muted-foreground pointer-coarse:min-h-11" disabled={busy} onclick={closeEditor}>Cancel</Button>
+            <Button type="submit" size="sm" class="pointer-coarse:min-h-11" disabled={busy}>Save</Button>
           </div>
         </form>
       {/if}

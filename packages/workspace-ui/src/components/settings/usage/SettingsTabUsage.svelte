@@ -425,6 +425,7 @@
       <Button
         variant="outline"
         size="sm"
+        class="pointer-coarse:min-h-11"
         disabled={refreshing || activeHostEntries.length === 0}
         onclick={() => void refreshAll()}
         title={latestCheckedLabel ? `Last updated ${latestCheckedLabel}` : "Refresh usage limits"}

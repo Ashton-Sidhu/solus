@@ -35,11 +35,11 @@
 <Popover.Root>
   <Popover.Trigger>
     {#snippet child({ props })}
-      <Button {...props} size="xs" variant="ghost" class="font-normal text-muted-foreground"
+      <Button {...props} size="sm" variant="ghost" class="text-muted-foreground pointer-coarse:min-h-11"
         aria-label={kind ? `${NAMES[kind]}: ${chip}. Show details` : undefined}>{chip}</Button>
     {/snippet}
   </Popover.Trigger>
-  <Popover.Content side="bottom" align="end" sideOffset={6} class="w-80 gap-0 p-3">
+  <Popover.Content side="bottom" align="end" sideOffset={6} class="settings-controls w-80 gap-0 p-3">
     <p class="font-medium">{kind ? NAMES[kind] : "Device tools"}</p>
     {#if rows.length}
       <div class="mt-3 divide-y divide-border/50">

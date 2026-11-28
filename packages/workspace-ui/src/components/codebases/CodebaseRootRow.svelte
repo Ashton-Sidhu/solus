@@ -66,7 +66,7 @@
       bind:ref={removeButtonEl}
       size="icon-sm"
       variant="ghost"
-      class="shrink-0 text-muted-foreground hover:text-foreground"
+      class="shrink-0 text-muted-foreground hover:text-destructive pointer-coarse:tap-area"
       disabled={isBusy || !canRemove}
       aria-describedby={canRemove ? undefined : "codebase-removal-refusal"}
       title="Remove from the codebase"
@@ -110,9 +110,9 @@
             <span class="max-w-[40%] shrink-0 truncate font-medium text-foreground">{suggestion.name}</span>
             <span class="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={suggestion.path}>{suggestion.path}</span>
             <Button
-              size="xs"
+              size="sm"
               variant="outline"
-              class="shrink-0"
+              class="shrink-0 pointer-coarse:min-h-11"
               disabled={isBusy || !canAdd}
               aria-label="Add {suggestion.name} to the codebase"
               onclick={() => onAddSuggestion(suggestion.path)}

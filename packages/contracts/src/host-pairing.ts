@@ -12,7 +12,8 @@ export const hostPairRequestSchema = z.object({
   code: z.string().trim().min(1).max(2048).optional(),
   checkCode: z.string().trim().length(9).optional(),
   label: z.string().trim().min(1).max(200).optional(),
-}).strict().refine((request) => !!request.code !== !!request.checkCode, { message: 'Give a pairing code or a check code, not both.' })
+  // Neither: the host joins as a device that the target's network trusts, with no code.
+}).strict().refine((request) => !(request.code && request.checkCode), { message: 'Give a pairing code or a check code, not both.' })
 export type HostPairRequest = z.infer<typeof hostPairRequestSchema>
 
 /** A host this host paired. `pairedAt` changes only when the owner pairs it again:

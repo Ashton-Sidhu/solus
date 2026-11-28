@@ -33,7 +33,7 @@
     <DropdownMenu.Root>
       <DropdownMenu.Trigger>
         {#snippet child({ props })}
-          <Button {...props} variant="outline" disabled={!document || unsetBlocks.length === 0}>
+          <Button {...props} variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={!document || unsetBlocks.length === 0}>
             <PlusIcon size={16} />
             Add rule
           </Button>
@@ -78,7 +78,7 @@
             <div class="min-w-0 flex-1 *:w-full">
               <SettingsSelect options={choicesOf(block, value)} {value} onSelect={(next) => set(block, next)} ariaLabel={block.label} />
             </div>
-            <Button variant="ghost" size="icon" class="shrink-0" aria-label={`Remove ${block.label}`} onclick={() => set(block, undefined)}>
+            <Button variant="ghost" size="icon" class="shrink-0 text-muted-foreground hover:text-destructive pointer-coarse:tap-area" aria-label={`Remove ${block.label}`} onclick={() => set(block, undefined)}>
               <RemoveIcon size={16} />
             </Button>
           </div>

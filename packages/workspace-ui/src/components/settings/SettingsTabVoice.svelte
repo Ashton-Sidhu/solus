@@ -92,6 +92,7 @@
   <Button
     variant="outline"
     size="sm"
+    class="pointer-coarse:min-h-11"
     onclick={() => void host.retryVoiceModel()}
   >Retry</Button>
 {/snippet}

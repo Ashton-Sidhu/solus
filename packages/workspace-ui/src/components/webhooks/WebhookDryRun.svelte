@@ -59,7 +59,7 @@
       Check verification too. This is useful only with a real signed request.
     </label>
   {/if}
-  <Button size="sm" variant="outline" class="self-start" disabled={isRunning} onclick={() => void run()}>
+  <Button size="sm" variant="outline" class="self-start pointer-coarse:min-h-11" disabled={isRunning} onclick={() => void run()}>
     {isRunning ? "Running…" : "Run dry run"}
   </Button>
   {#if error}<p class="text-sm text-destructive">{error}</p>{/if}

@@ -3,7 +3,8 @@
    * One step of the onboarding timeline (docs/plans/one-page-onboarding.md
    * decision 1): the 22 px marker column with its 1 px line, and the step's
    * text. An open step shows its body; a done step folds to one line with
-   * Edit or Change; a next or waiting step is dimmed.
+   * Edit or Change; a next or waiting step is dimmed. First-run onboarding and
+   * the setup of a new host draw their steps with it.
    */
   import type { Snippet } from "svelte";
   import { LoaderCircle as SpinnerIcon } from "@lucide/svelte";
@@ -11,7 +12,7 @@
   import type { StepCopy } from "./lib/step-copy";
 
   interface Props {
-    entry: TimelineEntry;
+    entry: Pick<TimelineEntry, "number" | "status" | "marker">;
     copy: Pick<StepCopy, "title" | "detail" | "editLabel">;
     isFirst: boolean;
     isLast: boolean;
@@ -31,6 +32,12 @@
     {#if entry.marker === "spinner"}
       <span class="flex size-5.5 shrink-0 items-center justify-center text-(--solus-text-tertiary)">
         <SpinnerIcon size={22} strokeWidth={1.5} class="animate-spin motion-reduce:animate-none" />
+      </span>
+    {:else if entry.marker === "failed"}
+      <span class="flex size-5.5 shrink-0 items-center justify-center rounded-full bg-(--solus-status-error-bg)">
+        <svg width="11" height="11" viewBox="0 0 24 24">
+          <path d="M12 5v9M12 19.5v.01" fill="none" stroke="var(--solus-status-error)" stroke-width="3.4" stroke-linecap="round" />
+        </svg>
       </span>
     {:else if entry.marker === "check"}
       <span class="flex size-5.5 shrink-0 items-center justify-center rounded-full bg-(--solus-status-live-bg)">
@@ -58,7 +65,8 @@
     <div class="flex min-w-0 flex-1 items-start gap-3.5" class:pb-5.5={!isLast} class:pb-7={isLast}>
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
         <h2 class="m-0 text-[15px] leading-5.5 font-medium text-(--solus-text-secondary)">{copy.title}</h2>
-        <p class="m-0 truncate text-[13px] leading-4.5 text-(--solus-text-tertiary)">{copy.detail}</p>
+        <!-- A failure says why in full; it is not cut to one line. -->
+        <p class={["m-0 text-[13px] leading-4.5", entry.marker === "failed" ? "text-(--solus-status-error)" : "truncate text-(--solus-text-tertiary)"]}>{copy.detail}</p>
       </div>
       {#if onedit}
         <button

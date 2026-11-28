@@ -41,9 +41,9 @@
   {/snippet}
   {#snippet control()}
     <Button
-      variant={status?.kind === "connected" ? "ghost" : "outline"}
+      variant="outline"
       size="sm"
-      class="text-workspace-chrome"
+      class="pointer-coarse:min-h-11"
       aria-label="{action} {label} on your Solus account"
       onclick={() => void localApi.openExternal(url)}
     >

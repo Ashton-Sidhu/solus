@@ -50,7 +50,7 @@
       : `Machines that ${holderName} reaches through a forward it holds.`}
   >
     {#snippet control()}
-      <Button variant="outline" size="sm" onclick={() => addOverSshStore.open(serverId)}>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => addOverSshStore.open(serverId)}>
         <PlusIcon size={14} />
         Add machine over SSH
       </Button>
@@ -84,7 +84,7 @@
           <Button
             variant="outline"
             size="sm"
-            class="shrink-0"
+            class="shrink-0 pointer-coarse:min-h-11"
             disabled={!!store.busyInstallationId}
             onclick={() => void store.link(serverId, host.installationId)}
           >
@@ -93,9 +93,9 @@
         {/if}
         {#if confirmingRemoveId !== host.installationId}
           <Button
-            variant="ghost"
+            variant="destructive"
             size="sm"
-            class="shrink-0 text-(--solus-text-tertiary) hover:text-(--solus-status-error)"
+            class="shrink-0 pointer-coarse:min-h-11"
             disabled={!!store.busyInstallationId}
             onclick={() => askRemove(host.installationId)}
           >
@@ -109,17 +109,18 @@
       {/if}
 
       {#if confirmingRemoveId === host.installationId}
-        <div class="flex flex-wrap items-center justify-end gap-3">
+        <div class="flex flex-wrap items-center justify-end gap-2">
           {#if host.startedBySolus}
             <label class="mr-auto flex items-center gap-2 text-chrome-dense text-(--solus-text-secondary)">
               <Switch bind:checked={stopRemote} size="sm" disabled={isBusy} aria-label="Also stop Solus there" />
               Also stop Solus there
             </label>
           {/if}
-          <Button variant="ghost" size="sm" disabled={isBusy} onclick={() => (confirmingRemoveId = null)}>Cancel</Button>
+          <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" disabled={isBusy} onclick={() => (confirmingRemoveId = null)}>Cancel</Button>
           <Button
             variant="destructive"
             size="sm"
+            class="pointer-coarse:min-h-11"
             disabled={isBusy}
             onclick={() => void confirmRemove(host.installationId, host.startedBySolus)}
           >

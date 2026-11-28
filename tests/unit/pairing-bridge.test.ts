@@ -63,14 +63,15 @@ describe('this device', () => {
 describe('host lookup', () => {
   const signal = new AbortController().signal
 
-  test('a host on the local network gives its name and system', async () => {
+  // WHY: the installation id lets a host this device already reaches pair it with no code.
+  test('a host on the local network gives its name, system, and installation id', async () => {
     const fetchImpl = respondWith({ ok: true, installationId: 'abc', name: 'gpu-box', os: 'linux', requireAuth: true })
-    expect(await lookUpHost('http://192.168.1.42:3000', signal, fetchImpl)).toEqual({ name: 'gpu-box', os: 'linux' })
+    expect(await lookUpHost('http://192.168.1.42:3000', signal, fetchImpl)).toEqual({ name: 'gpu-box', os: 'linux', installationId: 'abc' })
   })
 
   test('a host behind its tunnel keeps its name, so the address stands in', async () => {
     const fetchImpl = respondWith({ ok: true, installationId: 'abc', requireAuth: true })
-    expect(await lookUpHost('https://swift-otter.solus.sh', signal, fetchImpl)).toEqual({ name: 'swift-otter.solus.sh' })
+    expect(await lookUpHost('https://swift-otter.solus.sh', signal, fetchImpl)).toEqual({ name: 'swift-otter.solus.sh', installationId: 'abc' })
   })
 
   test('an address that does not answer still shows where pairing will go', async () => {

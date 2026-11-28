@@ -77,10 +77,10 @@
       {#if oncancel}<TranscriptCardAction kind="ghost" onclick={oncancel}>Cancel</TranscriptCardAction>{/if}
       <TranscriptCardAction kind="filled" type="submit" disabled={disabled || !username}>Submit</TranscriptCardAction>
     {:else}
-      <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={disabled || !username}>Submit</Button>
       {#if oncancel}
-        <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={oncancel}>Cancel</Button>
+        <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={oncancel}>Cancel</Button>
       {/if}
+      <Button type="submit" size="sm" class="pointer-coarse:min-h-11" disabled={disabled || !username}>Submit</Button>
     {/if}
   </div>
 </form>

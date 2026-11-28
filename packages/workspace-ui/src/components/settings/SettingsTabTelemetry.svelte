@@ -165,7 +165,7 @@
               authorizes this host. They are stored on the host, never on this device.
             {/if}
           </p>
-          <Button size="sm" disabled={locked || !connectionDirty} onclick={saveConnection}>
+          <Button size="sm" class="pointer-coarse:min-h-11" disabled={locked || !connectionDirty} onclick={saveConnection}>
             Save endpoint
           </Button>
         </div>

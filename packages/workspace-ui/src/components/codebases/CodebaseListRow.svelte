@@ -58,7 +58,7 @@
     bind:ref={deleteButtonEl}
     size="icon-sm"
     variant="ghost"
-    class="relative z-[1] shrink-0 text-muted-foreground hover:text-destructive"
+    class="relative z-[1] shrink-0 text-muted-foreground hover:text-destructive pointer-coarse:tap-area"
     title="Delete codebase"
     aria-label="Delete {name}"
     onclick={() => {

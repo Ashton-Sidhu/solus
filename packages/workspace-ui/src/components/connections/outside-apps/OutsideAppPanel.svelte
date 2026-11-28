@@ -87,7 +87,7 @@
         {#if grants.length > 1}
           <div class="flex items-center justify-between gap-3">
             <span class="min-w-0 truncate text-chrome-dense text-(--solus-text-tertiary)">{grant.deviceLabel}</span>
-            <Button variant="ghost" size="sm" class="text-(--solus-status-error) hover:text-(--solus-status-error)" disabled={revokingId !== null} onclick={() => void disconnect(grant)}>
+            <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={revokingId !== null} onclick={() => void disconnect(grant)}>
               {revokingId === grant.deviceId ? "Disconnecting…" : "Disconnect"}
             </Button>
           </div>
@@ -95,10 +95,10 @@
       </div>
     {/each}
     <div class="flex flex-wrap items-center gap-2">
-      <Button variant="ghost" size="sm" class="bg-muted" onclick={() => (isConnectingAgain = true)}>Connect again</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => (isConnectingAgain = true)}>Connect again</Button>
       {#if grants.length === 1}
         {@const [only] = grants}
-        <Button variant="ghost" size="sm" class="text-(--solus-status-error) hover:text-(--solus-status-error)" disabled={revokingId !== null} onclick={() => void disconnect(only)}>
+        <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={revokingId !== null} onclick={() => void disconnect(only)}>
           {revokingId === only.deviceId ? "Disconnecting…" : "Disconnect"}
         </Button>
       {/if}
@@ -122,7 +122,7 @@
     {/if}
     {#if isConnectingAgain}
       <div>
-        <Button variant="ghost" size="sm" class="self-start bg-muted" onclick={() => (isConnectingAgain = false)}>Back to the connection</Button>
+        <Button variant="ghost" size="sm" class="self-start text-muted-foreground pointer-coarse:min-h-11" onclick={() => (isConnectingAgain = false)}>Back to the connection</Button>
       </div>
     {/if}
   {/if}

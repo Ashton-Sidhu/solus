@@ -145,6 +145,15 @@ export function normalizeServerUrl(input: string): string {
   }
 }
 
+/**
+ * Where a person gets a pairing code on a machine, for every surface that asks
+ * for one: from its shell, which a machine with no screen has, or from Solus
+ * there. A command is in backticks.
+ */
+export function pairCodeSteps(machineName: string): string {
+  return `On ${machineName}, run \`solus pair\`, or choose Show pairing code in the command palette of Solus there.`
+}
+
 export function urlHost(url: string): string {
   try {
     return new URL(url).host

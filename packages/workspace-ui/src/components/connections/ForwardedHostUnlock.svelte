@@ -41,7 +41,7 @@
         dictation={false}
         disabled={isBusy}
       />
-      <Button type="submit" variant="outline" size="sm" class="shrink-0" disabled={isBusy || !password}>
+      <Button type="submit" size="default" class="shrink-0 pointer-coarse:min-h-11" disabled={isBusy || !password}>
         {isBusy ? "Connecting…" : "Connect"}
       </Button>
     </div>

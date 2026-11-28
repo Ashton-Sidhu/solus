@@ -10,7 +10,7 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-test('feeds stay ordered across model startup and finish waits for all audio', async () => {
+test('feeds coalesce queued chunks in order across startup and finish waits for all audio', async () => {
   const started = deferred<{ streamId: string }>()
   const calls: string[] = []
   const firstFeed = deferred<{ stable: string; tentative: string }>()
@@ -18,7 +18,7 @@ test('feeds stay ordered across model startup and finish waits for all audio', a
   const api: VoiceStreamApi = {
     voiceStreamStart: () => started.promise,
     voiceStreamFeed: async request => {
-      calls.push(`feed:${request.samples[0]}`)
+      calls.push(`feed:${request.samples.join(',')}`)
       if (calls.length === 1) { feedStarted.resolve(); return firstFeed.promise }
       return { stable: '', tentative: '' }
     },
@@ -28,14 +28,17 @@ test('feeds stay ordered across model startup and finish waits for all audio', a
   const stream = new VoiceStreamSession(api)
   stream.feed(Float32Array.of(0.25))
   stream.feed(Float32Array.of(0.5))
-  const result = stream.finish()
   expect(calls).toEqual([])
   started.resolve({ streamId })
   await feedStarted.promise
-  expect(calls).toEqual(['feed:0.25'])
+  expect(calls).toEqual(['feed:0.25,0.5'])
+  // Chunks queued while a feed is in flight coalesce into the next single RPC.
+  stream.feed(Float32Array.of(0.75))
+  stream.feed(Float32Array.of(1))
+  const result = stream.finish()
   firstFeed.resolve({ stable: 'all', tentative: ' audio' })
   expect(await result).toEqual({ error: null, transcript: 'all audio' })
-  expect(calls).toEqual(['feed:0.25', 'feed:0.5', 'finish'])
+  expect(calls).toEqual(['feed:0.25,0.5', 'feed:0.75,1', 'finish'])
 })
 
 test('cancelling during model startup cancels the eventual stream without sending audio', async () => {
@@ -101,13 +104,22 @@ test('partial snapshots replace tentative words and unchanged feeds do not repai
     { stable: 'open the ', tentative: 'calendar' },
   ]
   let index = 0
+  let feedDone: (() => void) | null = null
   const stream = new VoiceStreamSession({
     voiceStreamStart: async () => ({ streamId }),
-    voiceStreamFeed: async () => snapshots[index++],
+    voiceStreamFeed: async () => {
+      const next = snapshots[index++]
+      queueMicrotask(() => feedDone?.())
+      return next
+    },
     voiceStreamFinish: async () => ({ error: null, transcript: 'Open the calendar.' }),
     voiceStreamCancel: async () => {},
   }, partial => received.push(partial))
-  for (const _ of snapshots) stream.feed(Float32Array.of(0.25))
+  for (const _ of snapshots) {
+    const sent = new Promise<void>(resolve => { feedDone = resolve })
+    stream.feed(Float32Array.of(0.25))
+    await sent
+  }
   expect(await stream.finish()).toEqual({ error: null, transcript: 'Open the calendar.' })
   expect(received).toEqual([snapshots[0], snapshots[2]])
 })
@@ -115,12 +127,16 @@ test('partial snapshots replace tentative words and unchanged feeds do not repai
 test('cancel clears a live preview and discards a later feed reply', async () => {
   const received: VoicePartial[] = []
   const pending = deferred<VoicePartial>()
+  const firstSent = deferred<void>()
   const secondStarted = deferred<void>()
   let feeds = 0
   const stream = new VoiceStreamSession({
     voiceStreamStart: async () => ({ streamId }),
     voiceStreamFeed: async () => {
-      if (++feeds === 1) return { stable: '', tentative: 'first words' }
+      if (++feeds === 1) {
+        firstSent.resolve()
+        return { stable: '', tentative: 'first words' }
+      }
       secondStarted.resolve()
       return pending.promise
     },
@@ -128,6 +144,7 @@ test('cancel clears a live preview and discards a later feed reply', async () =>
     voiceStreamCancel: async () => {},
   }, partial => received.push(partial))
   stream.feed(Float32Array.of(0.25))
+  await firstSent.promise
   stream.feed(Float32Array.of(0.5))
   await secondStarted.promise
   stream.cancel()

@@ -78,7 +78,7 @@
         variant="outline"
         size="sm"
         aria-label={ariaLabel}
-        class="min-w-28 max-w-56 justify-between border-input bg-white text-xs font-normal shadow-xs/5 hover:bg-white aria-expanded:bg-white dark:hover:bg-input/30 dark:aria-expanded:bg-input/30"
+        class="h-8 min-w-28 max-w-56 justify-between gap-1.5 rounded-lg px-2.5 font-normal"
       >
         <span class="truncate">{label}</span>
         <CaretDownIcon size={11} style="opacity:0.6" />

@@ -90,7 +90,7 @@
     <!-- The row's actions sit together, apart from its text. -->
     <div class="flex shrink-0 items-center gap-1">
       {#if server.state === "new" || server.state === "changed"}
-        <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || isAdding}
+        <Button variant="outline" size="sm" class="shrink-0 pointer-coarse:min-h-11" disabled={isOffline || isAdding}
           onclick={() => onReview(server)} aria-label={server.state === "new" ? `Add ${server.name}` : `Review the change of ${server.name}`}>
           {server.state === "new" ? "Add" : "Review change"}
         </Button>
@@ -127,7 +127,7 @@
         <p class="text-chrome-dense font-medium text-(--solus-text-secondary)">
           {#if test.kind === "running"}Starting {server.name} to read its tools…{:else if test.kind === "failed"}The test failed{:else}{test.tools.length} {test.tools.length === 1 ? "tool" : "tools"}{/if}
         </p>
-        <Button variant="ghost" size="icon-sm" class="-my-1 shrink-0 text-muted-foreground" onclick={() => onCloseTest(server)} aria-label="Close the test of {server.name}"><X size={14} /></Button>
+        <Button variant="ghost" size="icon-sm" class="-my-1 shrink-0 text-muted-foreground pointer-coarse:tap-area" onclick={() => onCloseTest(server)} aria-label="Close the test of {server.name}"><X size={14} /></Button>
       </div>
       {#if test.kind === "failed"}
         <p role="alert" class="break-words text-chrome-dense text-(--solus-status-error)">{test.message}</p>

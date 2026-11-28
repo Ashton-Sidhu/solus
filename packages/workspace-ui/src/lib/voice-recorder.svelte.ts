@@ -3,7 +3,7 @@ import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
 import type { VoicePartial } from '@solus/contracts/voice-stream'
 import { VoiceStreamSession } from './voice-stream'
 import { track } from './analytics'
-import { disposePcmCaptureResources, PcmCapture, type PcmChunk } from './pcm-capture'
+import { disposePcmCaptureResources, PcmCapture, warmPcmCapture, type PcmChunk } from './pcm-capture'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hosts } from '../contexts/hosts/hosts.svelte'
 import type { HostApi } from '@solus/client-core/host-api'
@@ -127,12 +127,16 @@ export class VoiceRecorder {
     // its agent runs or a later change to Run on.
     this.#recordingHost = transcriptionHostApi()
     this.#dictionary = this.getDictionary().map(entry => ({ term: entry.term, aliases: [...entry.aliases] }))
-    void this.#recordingHost?.warmTranscription?.().catch(() => {})
+
+    // Overlap stream startup and AudioWorklet preparation with getUserMedia so
+    // the first speech packet reaches an already-open stream.
+    const earlyStream = this.#prepareStream(generation)
 
     let stream: MediaStream
     try {
       stream = await requestMicrophoneStream()
     } catch (err) {
+      this.#cancelEarlyStream(earlyStream)
       if (generation !== this.#startGeneration) return
       const info = microphoneErrorInfo(err)
       this.#setError(info.message, info.kind)
@@ -142,11 +146,13 @@ export class VoiceRecorder {
     }
 
     if (generation !== this.#startGeneration || this.#cancelled) {
+      this.#cancelEarlyStream(earlyStream)
       stream.getTracks().forEach((track) => track.stop())
       return
     }
 
     if (!supportsBatchTranscription()) {
+      this.#cancelEarlyStream(earlyStream)
       stream.getTracks().forEach((track) => track.stop())
       this.#setError('Voice input is not supported in this environment.', 'unsupported')
       this.starting = false
@@ -154,7 +160,29 @@ export class VoiceRecorder {
       return
     }
 
-    await this.#startCapture(stream, generation)
+    await this.#startCapture(stream, generation, earlyStream)
+  }
+
+  #prepareStream(generation: number): VoiceStreamSession | null {
+    if (supportsBatchTranscription()) {
+      warmPcmCapture()
+      if (hosts.transcription?.capabilityRecord?.voiceStreaming && this.#recordingHost) {
+        const earlyStream = new VoiceStreamSession(this.#recordingHost, (partial) => {
+          if (generation !== this.#startGeneration || this.#cancelled || !this.#speechDetected) return
+          this.partialTranscript = partial
+        }, { vocabulary: this.#dictionary.map(entry => entry.term) })
+        this.#stream = earlyStream
+        return earlyStream
+      }
+    }
+    void this.#recordingHost?.warmTranscription?.().catch(() => {})
+    return null
+  }
+
+  #cancelEarlyStream(stream: VoiceStreamSession | null): void {
+    if (!stream) return
+    stream.cancel()
+    if (this.#stream === stream) this.#stream = null
   }
 
   stop(): void {
@@ -201,7 +229,7 @@ export class VoiceRecorder {
     void disposePcmCaptureResources()
   }
 
-  async #startCapture(stream: MediaStream, generation: number): Promise<void> {
+  async #startCapture(stream: MediaStream, generation: number, earlyStream: VoiceStreamSession | null): Promise<void> {
     this.#buffer = []
     this.#recordedSamples = 0
     this.#speechDetected = false
@@ -233,6 +261,7 @@ export class VoiceRecorder {
       await capture.start()
     } catch (err: any) {
       if (generation !== this.#startGeneration) {
+        earlyStream?.cancel()
         capture.stop()
         return
       }
@@ -244,11 +273,12 @@ export class VoiceRecorder {
       return
     }
     if (generation !== this.#startGeneration || this.#capture !== capture || this.#cancelled) {
+      earlyStream?.cancel()
       capture.stop()
       return
     }
 
-    if (hosts.transcription?.capabilityRecord?.voiceStreaming && this.#recordingHost)
+    if (!this.#stream && hosts.transcription?.capabilityRecord?.voiceStreaming && this.#recordingHost)
       this.#stream = new VoiceStreamSession(this.#recordingHost, (partial) => {
         if (generation !== this.#startGeneration || this.#cancelled || !this.#speechDetected) return
         this.partialTranscript = partial

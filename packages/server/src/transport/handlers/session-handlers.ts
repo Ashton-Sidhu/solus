@@ -36,6 +36,7 @@ import { warmFinder } from '../../files/file-finder'
 import type { SolusServer } from '../server'
 import type { HandlerCtx } from '../server'
 import type { ShareManager } from '../../sharing/share-manager'
+import type { ClientEventRegistry } from '../events/client-event-registry'
 import { mayAnswerFor } from '../../execution/sessions/turn-organization'
 import { isOrganizationSpace, organizationForNew, recordScopeOf, type Principal } from '../../admission/principal'
 import { RequestNotAnswerableError } from '../../execution/sessions/pending-input'
@@ -79,6 +80,8 @@ export interface SessionDeps {
   agentIdFromContext(ctx?: IpcContext): AgentId
   /** Records who started a session; the first caller to name a new session owns it. */
   shares?: ShareManager
+  /** The host's event queues: a watch answers after its replay was sent (docs/plans/running-turn-open.md). */
+  clientEvents?: Pick<ClientEventRegistry, 'delivered'>
   onResponseForkCreated?(sessionId: string): void
 }
 
@@ -385,7 +388,8 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const { sessionId } = input
     // Asked before the watch, which makes any session known.
     const startsSession = !sessionRuntime.isKnownSession(sessionId)
-    const watched = sessionRuntime.watchers.watchSession(input, requireClientId(handlerCtx))
+    const clientId = requireClientId(handlerCtx)
+    const watched = sessionRuntime.watchers.watchSession(input, clientId)
     if (watched.resumed === false) return watched
     log.info('rpc_watch_session', { sessionId })
     // A guest or member can only watch a session that was shared with them, so a
@@ -400,6 +404,10 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
       await claimInTurn(sessionId, () => shares.claimSession(sessionId, handlerCtx.principal))
     }
     const execution = await readSessionExecution(await organizationOfSession(sessionId), sessionId, '')
+    // The replay waits in this client's queue behind its audience check. Answer
+    // after it, so the client holds the replay as the turn so far; an answer
+    // first makes the client apply the whole turn as live events.
+    await deps.clientEvents?.delivered(clientId)
     return execution ? { ...watched, execution } : watched
   })
 

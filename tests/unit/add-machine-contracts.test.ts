@@ -38,6 +38,16 @@ describe('rankAddMachineCandidates', () => {
     expect(rows).toHaveLength(2)
   })
 
+  test('an SSH row is named by its alias, and its detail is the address SSH reaches', () => {
+    // WHY: the name and the address are separate lines of the row; a name that repeats the address crowds the card.
+    const rows = rankAddMachineCandidates({ reason: 'x' }, {
+      reachable: [],
+      ssh: [{ target: 'ashto@solus-windows:2222', label: 'solus-windows -> 10.10.1.10', source: 'ssh-config', hostName: '10.10.1.10' }],
+      nearby: [],
+    })
+    expect(rows[0]).toMatchObject({ label: 'solus-windows', detail: 'ashto@10.10.1.10:2222', sshTarget: 'ashto@solus-windows:2222' })
+  })
+
   test('a code this client can make beats SSH for the same machine', () => {
     const rows = rankAddMachineCandidates(ask, {
       reachable: [{ serverId: 'win', label: 'sidhu', url: 'http://10.10.1.10:3000', canMint: true }],
@@ -48,9 +58,20 @@ describe('rankAddMachineCandidates', () => {
     expect(rows[0]).toMatchObject({ way: 'code', minted: true, serverId: 'win' })
   })
 
-  test('an address no source knows is still offered, as an approval request', () => {
+  test('an address no source knows is still offered, as the code way', () => {
     const rows = rankAddMachineCandidates({ url: 'http://10.10.1.99:3000', reason: 'x' }, { reachable: [], ssh: [], nearby: [] })
-    expect(rows).toEqual([expect.objectContaining({ way: 'approve', url: 'http://10.10.1.99:3000', isMatch: true })])
+    expect(rows).toEqual([expect.objectContaining({ way: 'code', url: 'http://10.10.1.99:3000', isMatch: true })])
+  })
+
+  // WHY: an approval request needs somebody at the machine, and a found machine
+  // may have no screen, so no row chooses it; the person can on the card.
+  test('no row is an approval request: a found machine and a host this client cannot make a code on are the code way', () => {
+    const rows = rankAddMachineCandidates({ reason: 'x' }, {
+      reachable: [{ serverId: 'pi', label: 'pi', url: 'http://10.10.1.30:3000', canMint: false }],
+      ssh: [],
+      nearby: [{ label: 'nas', url: 'http://10.10.1.40:3000' }],
+    })
+    expect(rows.map((row) => [row.label, row.way, row.minted])).toEqual([['nas', 'code', false], ['pi', 'code', false]])
   })
 
   test("the person's words rank a machine with no address match", () => {
@@ -78,10 +99,12 @@ describe('add machine contracts', () => {
     expect(readAddMachineOutcome({ status: 'declined' })).toEqual({ status: 'declined' })
   })
 
-  test('hostsPair takes a pairing code or a check code, never both or neither', () => {
+  // WHY: a host that the target's network trusts joins with no code, so no person
+  // has to be at the target; a code and a check code together are two ways at once.
+  test('hostsPair takes a pairing code, a check code, or neither, never both', () => {
     expect(hostPairRequestSchema.safeParse({ url: 'http://x', code: '123456' }).success).toBe(true)
     expect(hostPairRequestSchema.safeParse({ url: 'http://x', checkCode: 'K7QM-2XFD' }).success).toBe(true)
+    expect(hostPairRequestSchema.safeParse({ url: 'http://x' }).success).toBe(true)
     expect(hostPairRequestSchema.safeParse({ url: 'http://x', code: '123456', checkCode: 'K7QM-2XFD' }).success).toBe(false)
-    expect(hostPairRequestSchema.safeParse({ url: 'http://x' }).success).toBe(false)
   })
 })

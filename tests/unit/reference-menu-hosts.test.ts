@@ -25,7 +25,6 @@ const studio: FleetMachineInput = {
   sessions: 0,
   load: null,
   hasUpdate: false,
-  needsSetup: false,
 }
 
 describe('hosts in the # menu', () => {

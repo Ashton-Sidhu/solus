@@ -84,11 +84,11 @@
             <Input bind:ref={input} bind:value={apiKey} id="typesafe-api-key" type="password" autocomplete="new-password"
               aria-label="TypeSafe API key" placeholder={source === "saved" ? "Enter a new key" : "Enter API key"}
               maxlength={4096} {disabled} class="min-w-48 flex-1 text-workspace-chrome" />
-            <Button type="submit" variant="outline" size="sm" disabled={disabled || !apiKey.trim()}>
+            <Button type="submit" size="default" class="pointer-coarse:min-h-11" disabled={disabled || !apiKey.trim()}>
               {toolState?.saving ? "Saving…" : source === "saved" ? "Replace key" : "Save key"}
             </Button>
             {#if source === "saved"}
-              <Button type="button" variant="ghost" size="sm" {disabled} onclick={() => void save(null)}>Remove key</Button>
+              <Button type="button" variant="destructive" size="default" class="pointer-coarse:min-h-11" {disabled} onclick={() => void save(null)}>Remove key</Button>
             {/if}
           </form>
         {/if}

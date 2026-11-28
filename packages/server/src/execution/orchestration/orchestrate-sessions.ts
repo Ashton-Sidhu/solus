@@ -50,7 +50,12 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
       return codebasesFor(actor).get(codebaseId)
     },
     taskIdFor: async (sessionId) => (await taskIdForSession(ANY_ORGANIZATION, sessionId)) ?? undefined,
-    emit: (sessionId, event) => sessionRuntime.publish(sessionId, event),
+    emit: (sessionId, event) => {
+      sessionRuntime.publish(sessionId, event)
+      // A provider whose history Solus keeps needs the card in its turn, or a reload loses it.
+      const session = sessionRuntime.activeSessions.get(sessionId)
+      if (session?.agentSessionId) sessionRuntime.backendFor(session.backendId).keepHostEvent?.(session.agentSessionId, event)
+    },
     invalidatePlanCaches: (sessionId) => sessionRuntime.history.invalidatePlanCaches(sessionId),
     recordActivity: (subject, actor, kind) => sessionRuntime.recordActivity(subject, actor, kind),
     trackWork: (work) => sessionRuntime.trackUpdateWork(work),

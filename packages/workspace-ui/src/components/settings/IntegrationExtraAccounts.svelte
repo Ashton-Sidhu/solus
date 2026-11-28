@@ -35,7 +35,7 @@
         <p class="min-w-0 flex-1 truncate text-workspace-chrome {account.status === 'connected' ? 'text-foreground' : 'text-(--solus-status-error)'}" title={status.text}>
           {account.label ?? "Another account"}<span class="text-muted-foreground"> · {account.status === "connected" ? "Connected" : status.text}</span>
         </p>
-        <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground hover:text-destructive pointer-coarse:min-h-11" disabled={isOffline}
+        <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={isOffline}
           aria-label="Disconnect {account.label ?? 'this account'}" onclick={() => mcpStore.integrations.accounts.disconnect(serverId, integration.id, account.accountId)}>Disconnect</Button>
       </div>
     {/each}
@@ -44,12 +44,12 @@
         <p role="status" class="flex min-w-0 flex-1 items-center gap-2 text-workspace-chrome text-muted-foreground">
           <LoaderCircle size={14} class="shrink-0 animate-spin motion-reduce:animate-none" />Finish signing in to the other account in your browser
         </p>
-        <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => adding.url && mcpStore.integrations.openInBrowser(adding.url)}>Reopen<ExternalLink size={14} /></Button>
-        <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.accounts.cancelAdd(serverId, integration.id)}>Cancel</Button>
+        <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.accounts.cancelAdd(serverId, integration.id)}>Cancel</Button>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => adding.url && mcpStore.integrations.openInBrowser(adding.url)}>Reopen<ExternalLink size={14} /></Button>
       </div>
     {:else if canAdd}
       <div>
-        <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" disabled={isOffline || (adding !== null && !adding.error)}
+        <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" disabled={isOffline || (adding !== null && !adding.error)}
           onclick={() => mcpStore.integrations.accounts.add(serverId, integration.id, (url) => mcpStore.integrations.openInBrowser(url))}>
           <Plus size={14} />Add another account
         </Button>

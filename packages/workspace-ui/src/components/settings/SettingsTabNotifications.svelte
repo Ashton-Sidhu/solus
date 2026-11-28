@@ -63,7 +63,7 @@
       >
         {#snippet control()}
           {#if row.id === "system" && settings.notifications.channels.system && browserPermission.state === "default"}
-            <Button variant="outline" size="sm" onclick={() => void browserPermission.request()}>Allow</Button>
+            <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => void browserPermission.request()}>Allow</Button>
           {/if}
           <Switch
             checked={settings.notifications.channels[row.id]}

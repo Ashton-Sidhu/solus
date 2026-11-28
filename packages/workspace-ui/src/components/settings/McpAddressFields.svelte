@@ -116,7 +116,7 @@
         <label for="mcp-address-callback" class="text-workspace-chrome font-medium text-foreground">Callback URL</label>
         <div class="flex min-w-0 items-center gap-2">
           <Input id="mcp-address-callback" value={callbackUrl} readonly dictation={false} class="h-8 min-w-0 flex-1 text-workspace-chrome" onfocus={(event) => event.currentTarget.select()} />
-          <Button type="button" variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" onclick={copyCallback}>
+          <Button type="button" variant="outline" size="default" class="shrink-0 pointer-coarse:min-h-11" onclick={copyCallback}>
             {#if isCopied}<Check size={14} />Copied{:else}<Copy size={14} />Copy{/if}
           </Button>
         </div>
@@ -131,12 +131,12 @@
             autocomplete="off" spellcheck={false} dictation={false} {disabled} aria-invalid={form.problemOf("headers") ? true : undefined} class="h-8 min-w-0 flex-2 text-workspace-chrome" />
           <Input type="password" bind:value={header.value} placeholder="Value" aria-label="Value of header {index + 1}"
             autocomplete="off" spellcheck={false} dictation={false} {disabled} class="h-8 min-w-0 flex-3 text-workspace-chrome" />
-          <Button type="button" variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" {disabled}
+          <Button type="button" variant="ghost" size="icon" class="shrink-0 text-muted-foreground hover:text-destructive pointer-coarse:tap-area" {disabled}
             aria-label="Remove header {index + 1}" onclick={() => form.removeHeader(index)}><X size={14} /></Button>
         </div>
       {/each}
       <div>
-        <Button type="button" variant="ghost" size="sm" class="-ml-2 text-workspace-chrome text-(--solus-text-secondary) pointer-coarse:min-h-11" {disabled} onclick={() => form.addHeader()}><Plus size={14} />Add header</Button>
+        <Button type="button" variant="ghost" size="sm" class="-ml-2 text-muted-foreground pointer-coarse:min-h-11" {disabled} onclick={() => form.addHeader()}><Plus size={14} />Add header</Button>
       </div>
       {@render hint("mcp-address-headers-hint", form.problemOf("headers") ?? "Each value is a secret, saved for you alone on this host. Leave a value empty to give it later.", !!form.problemOf("headers"))}
     </div>

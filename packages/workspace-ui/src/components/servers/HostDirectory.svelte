@@ -65,9 +65,9 @@
 <SettingsSection label="Hosts">
   {#snippet action()}
     <Button
-      variant="ghost"
+      variant="outline"
       size="sm"
-      class="-my-1 text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+      class="-my-1 pointer-coarse:min-h-11"
       onclick={() => serversStore.openAddServer()}
     >
       <PlusIcon size={13} weight="bold" />
@@ -141,9 +141,9 @@
 <SettingsSection label="Nearby">
   {#snippet action()}
     <Button
-      variant="ghost"
+      variant="outline"
       size="sm"
-      class="-my-1 text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+      class="-my-1 pointer-coarse:min-h-11"
       disabled={serversStore.discoveryBusy}
       onclick={() => void serversStore.scanForServers()}
     >
@@ -173,7 +173,7 @@
       <Button
         variant="outline"
         size="sm"
-        class="shrink-0"
+        class="shrink-0 pointer-coarse:min-h-11"
         aria-label={`Connect to ${host.server.name}`}
         onclick={() => hostOnboardingStore.openForDiscovered(host.server)}
       >

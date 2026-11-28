@@ -33,7 +33,6 @@ const base: FleetMachineInput = {
   sessions: 0,
   load: { cpu: 20, memory: 40, latencyMs: 4 },
   hasUpdate: false,
-  needsSetup: false,
 }
 
 describe('the zone of a host', () => {
@@ -90,10 +89,9 @@ describe('the state of a host', () => {
     expect(machine).toMatchObject({ state: 'reconnecting', sessions: 0, cpu: null, latencyMs: null })
   })
 
-  test('wants the person when it is down, needs a sign-in, or has an update', () => {
+  test('wants the person when it is down or has an update of Solus or an agent', () => {
     expect(needsAttention(fleetMachine(base))).toBe(false)
     expect(needsAttention(fleetMachine({ ...base, readiness: 'unreachable' }))).toBe(true)
-    expect(needsAttention(fleetMachine({ ...base, needsSetup: true }))).toBe(true)
     expect(needsAttention(fleetMachine({ ...base, hasUpdate: true }))).toBe(true)
   })
 })
@@ -250,10 +248,10 @@ describe('the Needs attention list', () => {
   test('lists each host once, for its most urgent problem, while there are a handful', () => {
     const rows = attentionRows([
       fleetMachine({ ...base, serverId: 'a', label: 'a', readiness: 'unreachable', hasUpdate: true }),
-      fleetMachine({ ...base, serverId: 'b', label: 'b', needsSetup: true }),
+      fleetMachine({ ...base, serverId: 'b', label: 'b', hasUpdate: true }),
       fleetMachine({ ...base, serverId: 'c', label: 'c' }),
     ])
-    expect(rows.map((row) => [row.kind, row.title])).toEqual([['unreachable', 'a'], ['signin', 'b']])
+    expect(rows.map((row) => [row.kind, row.title])).toEqual([['unreachable', 'a'], ['update', 'b']])
   })
 
   test('groups a large fleet by kind, so the list stays short', () => {

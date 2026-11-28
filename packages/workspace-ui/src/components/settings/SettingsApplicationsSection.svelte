@@ -68,7 +68,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Code editor" class="min-w-32 justify-between gap-2 text-xs font-normal shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Code editor" class="h-8 min-w-32 justify-between gap-1.5 rounded-lg px-2.5 font-normal">
               <span class="flex min-w-0 items-center gap-1.5">
                 <AppLogo id={theme.defaultEditor} kind="editor" size={13} />
                 <span class="max-w-28 truncate">{selectedEditorApp?.name ?? "None"}</span>
@@ -100,7 +100,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" aria-label="Fallback terminal" class="min-w-32 justify-between gap-2 text-xs font-normal shadow-xs">
+            <Button {...props} variant="outline" size="sm" aria-label="Fallback terminal" class="h-8 min-w-32 justify-between gap-1.5 rounded-lg px-2.5 font-normal">
               <span class="flex min-w-0 items-center gap-1.5">
                 <AppLogo id={selectedTerminal} kind="terminal" size={13} />
                 <span class="max-w-28 truncate">{selectedTerminalApp?.name ?? "Default"}</span>
@@ -130,9 +130,9 @@
   >
     {#snippet control()}
       {#if appShortcutsStore.listError}
-        <Button variant="outline" size="sm" class="text-xs font-normal shadow-xs" onclick={() => void appShortcutsStore.checkAgain()}>Check again</Button>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => void appShortcutsStore.checkAgain()}>Check again</Button>
       {:else}
-        <Button variant="outline" size="sm" class="text-xs font-normal shadow-xs" disabled={shortcutCount === 0 || isRemovingShortcuts} onclick={removeAllShortcuts} data-testid="settings-remove-all-app-shortcuts">
+        <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={shortcutCount === 0 || isRemovingShortcuts} onclick={removeAllShortcuts} data-testid="settings-remove-all-app-shortcuts">
           {isRemovingShortcuts ? "Removing…" : "Remove all…"}
         </Button>
       {/if}

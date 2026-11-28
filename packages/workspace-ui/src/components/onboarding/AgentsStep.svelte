@@ -16,12 +16,11 @@
   import { codingProviderRows } from "../servers/lib/host-onboarding";
   import AgentRow from "./AgentRow.svelte";
   import { agentRow } from "./lib/agent-rows";
-  import { onboardingStore as store } from "./onboarding.store.svelte";
+  import type { HostSetupSession } from "../servers/host-setup.store.svelte";
   import type { SetupAgent } from "@solus/contracts/types";
 
-  let { machineNoun }: { machineNoun: string } = $props();
-
-  const setup = $derived(store.setup);
+  /** `setup`: the host's setup session, which first-run onboarding and a new host's setup each pass. */
+  let { setup, machineNoun }: { setup: HostSetupSession; machineNoun: string } = $props();
   const rows = $derived(
     codingProviderRows({
       readiness: setup.readiness,

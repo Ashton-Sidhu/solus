@@ -6,8 +6,6 @@ import { serversStore, type ServerItem } from '../../contexts'
 import { hosts } from '../../contexts/hosts/hosts.svelte'
 import { hostUpdatesStore } from '../../contexts/updates/host-updates.store.svelte'
 import { hostUpdater } from '../../contexts/updates/host-updater.svelte'
-import { hostSetupStore } from '../servers/host-setup.store.svelte'
-import { hostReadinessSummary } from '../servers/lib/host-onboarding'
 import { isCloudHost } from '../servers/lib/managed-host'
 import { fleetMachine, type FleetMachine, type FleetZoneId, type Traffic, type ZoneAnswers } from './lib/fleet-model'
 
@@ -76,7 +74,6 @@ class FleetStore {
       sessions,
       load: load ? { cpu: load.cpu, memory: load.memory, latencyMs: load.latencyMs, traffic: load.traffic } : null,
       hasUpdate: hostUpdatesStore.pendingCountFor(server.id) > 0,
-      needsSetup: hostSetupStore.hasProbed(server.id) && !hostReadinessSummary(hostSetupStore.stepsFor(server.id)).ready,
     })
   }
 

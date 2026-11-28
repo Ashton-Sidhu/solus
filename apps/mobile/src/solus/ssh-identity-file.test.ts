@@ -2,7 +2,7 @@ import { expect, it, vi } from "vite-plus/test";
 import type { AddMachineCandidate } from "@solus/client-core/add-machine-candidates";
 import type { SshAddRequest, SshAddResult } from "@solus/contracts/remote-machines";
 import {
-  ANOTHER_SSH,
+  OTHER_MACHINE,
   attemptAddMachine,
   chosenIdentityFile,
   fixKeyThenAdd,
@@ -60,7 +60,7 @@ it("sends the typed target and key in the SSH request of the card", async () => 
   const host = sessionHost([linked]);
   const step = typedSshStep(" ubuntu@3.91.20.4 ");
   expect(step).toEqual({ kind: "ssh", sshTarget: "ubuntu@3.91.20.4", name: "ubuntu@3.91.20.4" });
-  const identityFile = chosenIdentityFile(ANOTHER_SSH, { identityFile: " ~/.ssh/aws.pem ", useAnotherKey: false });
+  const identityFile = chosenIdentityFile(OTHER_MACHINE, { identityFile: " ~/.ssh/aws.pem ", useAnotherKey: false });
   const attempt = await attemptAddMachine(
     { session: host.session, target: () => null, deviceLabel: "Laptop" },
     step!,
@@ -78,13 +78,13 @@ it("sends the typed target and key in the SSH request of the card", async () => 
 it("uses the key of ~/.ssh/config on an alias until the person chooses another key", () => {
   expect(chosenIdentityFile("ssh:box", { identityFile: "~/.ssh/aws.pem", useAnotherKey: false })).toBeUndefined();
   expect(chosenIdentityFile("ssh:box", { identityFile: "~/.ssh/aws.pem", useAnotherKey: true })).toBe("~/.ssh/aws.pem");
-  expect(chosenIdentityFile(ANOTHER_SSH, { identityFile: "  ", useAnotherKey: false })).toBeUndefined();
+  expect(chosenIdentityFile(OTHER_MACHINE, { identityFile: "  ", useAnotherKey: false })).toBeUndefined();
 });
 
 it("selects the alias that the agent's target names, else the typed SSH row", () => {
   const candidates = [alias("work"), alias("box")];
   expect(initialChoice({ reason: "", sshTarget: "box" }, candidates)).toBe("ssh:box");
-  expect(initialChoice({ reason: "", sshTarget: "ubuntu@3.91.20.4" }, candidates)).toBe(ANOTHER_SSH);
+  expect(initialChoice({ reason: "", sshTarget: "ubuntu@3.91.20.4" }, candidates)).toBe(OTHER_MACHINE);
   expect(initialChoice({ reason: "" }, candidates)).toBe("ssh:work");
 });
 

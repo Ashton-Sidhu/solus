@@ -45,7 +45,7 @@
 <IntegrationRow name="GitHub" logo={PROVIDER_LOGOS.github} {description} {isConnected} testId="connections-row-github">
   {#snippet action()}
     {#if !isConnected || needsProjectScope}
-      <Button variant="outline" size="sm" class="border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11"
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11"
         disabled={connections.providerConnecting} onclick={() => void connect()} aria-label="{isConnected ? 'Reconnect' : 'Connect'} GitHub">
         {#if connections.providerConnecting}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />{/if}
         {isConnected ? "Reconnect" : "Connect"}

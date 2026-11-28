@@ -57,10 +57,10 @@
       </p>
     {/if}
     <div class="flex flex-wrap items-center gap-2">
-      <Button variant="ghost" size="sm" class="bg-muted" onclick={() => void outsideApps.check(serverId)}>Check again</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => void outsideApps.check(serverId)}>Check again</Button>
       {#if gate.canGoOn && gate.address}
         {@const url = gate.address.url}
-        <Button size="sm" onclick={() => outsideApps.goOnUntested(url)}>Go on anyway</Button>
+        <Button size="sm" class="pointer-coarse:min-h-11" onclick={() => outsideApps.goOnUntested(url)}>Go on anyway</Button>
       {/if}
     </div>
   {/if}

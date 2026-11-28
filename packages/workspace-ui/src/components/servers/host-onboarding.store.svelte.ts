@@ -1,3 +1,4 @@
+import { SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { LOCAL_SERVER_ID, serverFromSshAdd, type KnownHost } from '@solus/client-core/known-host'
 import { pairServer } from '@solus/client-core/pairing'
@@ -6,10 +7,12 @@ import { unencryptedPasswordMessage } from '@solus/client-core/ssh-password'
 import { discoveredServerUrl, serversStore } from '../../contexts'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { DiscoveredServer } from '@solus/contracts/types'
+import { pairWithoutCode } from '../fleet/add-machine'
 import { hostSetupStore, type HostSetupSession } from './host-setup.store.svelte'
 import { messageFor } from './lib/setup-rpc'
 import { discoveredAddFailure } from './lib/add-over-ssh'
 import type { PairingView } from './lib/host-onboarding'
+import type { HostStageStep } from './lib/host-stage'
 
 export interface OnboardingHost {
   id: string
@@ -50,6 +53,12 @@ export class HostOnboardingStore {
   sshTarget = $state('')
   sshPassword = $state('')
   pairCode = $state('')
+  // ─── The timeline: steps left for later, and a done step opened again ───
+  /** Steps the person left for later (Skip); a new host starts with none. */
+  readonly skippedSteps = new SvelteSet<HostStageStep>()
+  /** A done step the person opened again (Edit), until Continue. */
+  reopenedStep = $state<HostStageStep | null>(null)
+
   /** Bumped per attempt so a superseded handshake can't land on a newer one. */
   private pairingGeneration = 0
 
@@ -101,25 +110,17 @@ export class HostOnboardingStore {
     void this.pairTrustedOrBootstrap()
   }
 
-  /** A host that trusts this device by network position pairs without a code;
-   *  any other answer falls through to the SSH handshake. */
+  /** The ways that need no code and nobody at the host come first (`pairWithoutCode`);
+   *  when neither works, the SSH handshake, and a code last. */
   private async pairTrustedOrBootstrap(): Promise<void> {
     const target = this.pairingTarget
     if (!target) return
     const generation = ++this.pairingGeneration
     this.pairingView = 'connecting'
-    try {
-      const { server } = await pairServer({
-        url: discoveredServerUrl(target),
-        deviceLabel: defaultDeviceLabel(),
-        reportedName: target.name,
-      })
-      if (generation !== this.pairingGeneration || !this.isOpen) return
-      this.adoptPairedHost(server, target)
-    } catch {
-      if (generation !== this.pairingGeneration || !this.isOpen) return
-      void this.startSshBootstrap()
-    }
+    const server = await pairWithoutCode({ url: discoveredServerUrl(target), installationId: target.installationId, name: target.name, onTailnet: target.source === 'tailnet' })
+    if (generation !== this.pairingGeneration || !this.isOpen) return
+    if (server) void this.adoptPairedHost(server, target)
+    else void this.startSshBootstrap()
   }
 
   close(): void {
@@ -180,7 +181,7 @@ export class HostOnboardingStore {
 
       if (result.status === 'session') {
         this.sshPassword = ''
-        this.adoptPairedHost(serverFromSshAdd(result, url), target, result.identityKey)
+        void this.adoptPairedHost(serverFromSshAdd(result, url), target, result.identityKey)
         return
       }
 
@@ -262,7 +263,7 @@ export class HostOnboardingStore {
         // for the machine, so it must not outrank what the host reports later.
         reportedName: target.name,
       })
-      this.adoptPairedHost(server, target)
+      void this.adoptPairedHost(server, target)
     } catch (err) {
       this.pairingError = messageFor(err)
     } finally {
@@ -274,12 +275,29 @@ export class HostOnboardingStore {
    * The hinge between the two acts: the host is trusted, so the same stage
    * turns into its setup rail without ever closing.
    */
-  private adoptPairedHost(
+  /**
+   * Setup reads the host only after the catalog has it: a read before the save
+   * ends finds no host and fails as removed.
+   */
+  private async adoptPairedHost(
     server: KnownHost,
     target: DiscoveredServer,
     identityKey?: string,
-  ): void {
-    void serversStore.savePairedServer(server)
+  ): Promise<void> {
+    const generation = this.pairingGeneration
+    this.pairingBusy = true
+    let saved: KnownHost
+    try {
+      saved = await serversStore.savePairedServer(server)
+    } catch (err) {
+      if (generation !== this.pairingGeneration || !this.isOpen) return
+      this.pairingBusy = false
+      this.pairingError = messageFor(err)
+      this.pairingView = 'error'
+      return
+    }
+    if (generation !== this.pairingGeneration || !this.isOpen) return
+    this.pairingBusy = false
     // A pair started from the run-on picker already has a destination — that
     // flow retargets the session itself, and this stage's "start working" would
     // move the whole app instead of the one tab the user asked about.
@@ -287,7 +305,24 @@ export class HostOnboardingStore {
       this.close()
       return
     }
-    this.open({ id: server.id, label: server.label || target.name, identityKey })
+    this.open({ id: saved.id, label: saved.label || target.name, identityKey })
+  }
+
+  /** Skip: the open step waits for later, and the next one opens. */
+  skipStep(step: HostStageStep): void {
+    this.skippedSteps.add(step)
+    if (this.reopenedStep === step) this.reopenedStep = null
+  }
+
+  /** Edit: a done or skipped step opens again. */
+  reopenStep(step: HostStageStep): void {
+    this.skippedSteps.delete(step)
+    this.reopenedStep = step
+  }
+
+  /** Continue: the person is finished with the open step. */
+  continueStep(): void {
+    this.reopenedStep = null
   }
 
   private reset(): void {
@@ -301,6 +336,8 @@ export class HostOnboardingStore {
     this.sshTarget = ''
     this.sshPassword = ''
     this.pairCode = ''
+    this.skippedSteps.clear()
+    this.reopenedStep = null
     this.retained?.release()
     this.retained = null
     this.host = null

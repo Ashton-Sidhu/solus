@@ -18,7 +18,6 @@ const base: FleetMachineInput = {
   sessions: 0,
   load: null,
   hasUpdate: false,
-  needsSetup: false,
 }
 const refused: HostReadinessState = { readiness: 'refused', away: true, unreachableReason: null, refusedReason: 'auth', lastSeenAt: null }
 

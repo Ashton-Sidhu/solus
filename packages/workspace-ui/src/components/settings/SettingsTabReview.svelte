@@ -27,8 +27,10 @@
   const session = getWorkspaceContext();
   const projectPath = $derived(projectScopeOf(session.ctx.session));
   // Review warming runs on a host, for one of its projects: the host's setting.
-  const warmingServerId = $derived(session.serverIdForContext(session.ctx));
-  const warmingEnabled = $derived(hostSettingsStore.isReviewWarmingEnabled(warmingServerId, projectPath));
+  const warmingServerId = $derived(session.serverIdForContextOrNull(session.ctx));
+  const warmingEnabled = $derived(
+    warmingServerId ? hostSettingsStore.isReviewWarmingEnabled(warmingServerId, projectPath) : false,
+  );
 
   // These are the exact durable values used for review guide generation.
   const reviewAgentId = $derived(theme.reviewAgent);
@@ -88,7 +90,7 @@
   }
 
   function setWarmingEnabled(enabled: boolean) {
-    void hostSettingsStore.setReviewWarmingEnabled(warmingServerId, projectPath, enabled);
+    if (warmingServerId) void hostSettingsStore.setReviewWarmingEnabled(warmingServerId, projectPath, enabled);
     requestInputFocus();
   }
 

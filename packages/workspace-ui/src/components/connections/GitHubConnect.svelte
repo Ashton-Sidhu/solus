@@ -82,12 +82,12 @@ import Icon from "@iconify/svelte";
     {/snippet}
     {#snippet control()}
       {#if connections.providerStatus?.connected}
-        <Button variant="outline" size="sm" onclick={disconnect}>
+        <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={disconnect}>
           <SignOutIcon size={13} />
           Disconnect
         </Button>
       {:else}
-        <Button size="sm" onclick={connect} disabled={connections.providerConnecting}>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={connect} disabled={connections.providerConnecting}>
           {#if connections.providerConnecting}
             <SpinnerGapIcon size={14} class="animate-spin" />
             Connecting…
@@ -109,6 +109,7 @@ import Icon from "@iconify/svelte";
       <Button
         variant="outline"
         size="sm"
+        class="pointer-coarse:min-h-11"
         onclick={connect}
         disabled={connections.providerConnecting}
       >

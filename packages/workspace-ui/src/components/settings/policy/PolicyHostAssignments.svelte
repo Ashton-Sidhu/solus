@@ -39,7 +39,7 @@
               size="sm"
               aria-label={`Host policy for ${host.label}`}
               disabled={!canManage || assigning !== null}
-              class="min-w-36 justify-between gap-1.5 font-normal"
+              class="h-8 min-w-36 justify-between gap-1.5 rounded-lg px-2.5 font-normal pointer-coarse:min-h-11"
             >
               <span class="truncate">
                 {assigning === host.hostId ? "Saving…" : policies.find((policy) => policy.policyId === host.policyId)?.name ?? "None"}

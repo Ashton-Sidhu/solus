@@ -60,20 +60,29 @@ export function parseToolCallProxy(input: ProxyToolInput): ParsedToolCallProxy {
   return { ok: true, name, arguments: parsed.data.arguments ?? {} }
 }
 
-/** The `tools/list` descriptors for a deferred-proxy session: `alwaysLoad` tools plus `tool_search` and `tool_call`. */
-export function listedProxyTools(tools: AgentTool[], formatTool: (tool: AgentTool) => Tool): Tool[] {
-  const direct = tools.filter((tool) => tool.alwaysLoad)
-  const hasDeferred = tools.some((tool) => !tool.alwaysLoad)
-  if (!hasDeferred) return tools.map((tool) => formatTool(tool))
+/** What `tool_search` and `tool_call` tell the agent they reach. */
+export interface ProxyDescriptions {
+  search: string
+  query: string
+  call: string
+}
+
+const SESSION_PROXY: ProxyDescriptions = {
+  search: 'Find Solus and installed MCP server tools not listed directly, then run them with tool_call. Search by tool name, MCP server name (for example `paper`), or purpose (sessions, tasks, works, browser, pull requests, automations). Exact tool names return their input schema.',
+  query: 'Tool name, MCP server name, or keywords.',
+  call: 'Invoke any Solus or installed MCP server tool by exact name (find names and schemas with tool_search first).',
+}
+
+/** The `tool_search` and `tool_call` descriptors. */
+export function proxyTools(descriptions: ProxyDescriptions): Tool[] {
   return [
-    ...direct.map((tool) => formatTool(tool)),
     ToolSchema.parse({
       name: TOOL_SEARCH,
-      description: 'Find Solus and installed MCP server tools not listed directly, then run them with tool_call. Search by tool name, MCP server name (for example `paper`), or purpose (sessions, tasks, works, browser, pull requests, automations). Exact tool names return their input schema.',
+      description: descriptions.search,
       inputSchema: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Tool name, MCP server name, or keywords.' },
+          query: { type: 'string', description: descriptions.query },
         },
         required: ['query'],
       },
@@ -81,7 +90,7 @@ export function listedProxyTools(tools: AgentTool[], formatTool: (tool: AgentToo
     }),
     ToolSchema.parse({
       name: TOOL_CALL,
-      description: 'Invoke any Solus or installed MCP server tool by exact name (find names and schemas with tool_search first).',
+      description: descriptions.call,
       inputSchema: {
         type: 'object',
         properties: {
@@ -93,6 +102,14 @@ export function listedProxyTools(tools: AgentTool[], formatTool: (tool: AgentToo
       annotations: { readOnlyHint: false, openWorldHint: false },
     }),
   ]
+}
+
+/** The `tools/list` descriptors for a deferred-proxy session: `alwaysLoad` tools plus `tool_search` and `tool_call`. */
+export function listedProxyTools(tools: AgentTool[], formatTool: (tool: AgentTool) => Tool): Tool[] {
+  const direct = tools.filter((tool) => tool.alwaysLoad)
+  const hasDeferred = tools.some((tool) => !tool.alwaysLoad)
+  if (!hasDeferred) return tools.map((tool) => formatTool(tool))
+  return [...direct.map((tool) => formatTool(tool)), ...proxyTools(SESSION_PROXY)]
 }
 
 /** Stable key of the tool names `tools/list` publishes for a run: changes only when the listed catalog changes. */

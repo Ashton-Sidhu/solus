@@ -93,7 +93,6 @@
       {:else}
         <HostStateIcon state={machine.state} label={machine.problem?.label} count={machine.state === "running" ? machine.sessions : undefined} />
       {/if}
-      {#if machine.needsSetup}<HostStateIcon state="signin" />{/if}
 
       {#if machine.latencyMs !== null}
         <span class="ml-auto shrink-0 text-[0.6875rem] whitespace-nowrap text-muted-foreground tabular-nums">{machine.latencyMs} ms</span>

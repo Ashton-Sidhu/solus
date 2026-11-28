@@ -50,7 +50,7 @@
 
 <div class="flex flex-col gap-2">
   {#if cloud}
-    <Button size="sm" variant={compact ? "ghost" : "outline"} onclick={() => cloudSeats.connect()}>
+    <Button size="sm" variant={compact ? "ghost" : "outline"} class="pointer-coarse:min-h-11" onclick={() => cloudSeats.connect()}>
       {cloudSeats.connected(provider) ? "Manage cloud connection" : `Connect ${label}`}
     </Button>
   {:else if status?.state === "connecting" && verification}
@@ -96,7 +96,7 @@
             disabled={busy}
             {autofocus}
           />
-          <Button type="submit" size="sm" disabled={!token.trim() || busy}>Save</Button>
+          <Button type="submit" size="default" class="pointer-coarse:min-h-11" disabled={!token.trim() || busy}>Save</Button>
         </div>
       </form>
     {/if}

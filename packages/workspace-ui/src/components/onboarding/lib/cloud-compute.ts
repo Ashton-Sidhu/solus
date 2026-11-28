@@ -80,6 +80,24 @@ export function reachability(server: ComputeHost): string {
 }
 
 /**
+ * Where the work of cloud step 1 is after the person moved on (docs/plans/
+ * one-page-onboarding.md decision 1): a cloud host that is made or started,
+ * or a computer that links. A host that failed is `failed`, never a spinner
+ * with no end: the step must say that nothing runs.
+ */
+export function machineStepProgress(input: {
+  host: ComputeHost | null
+  isBusy: boolean
+  hasError: boolean
+  isLinking: boolean
+}): 'working' | 'failed' | 'settled' {
+  if (input.host?.readiness === 'ready') return 'settled'
+  if (input.hasError || input.host?.uplink?.managedState === 'failed') return 'failed'
+  if (input.isBusy || input.isLinking || input.host) return 'working'
+  return 'settled'
+}
+
+/**
  * What the machine step says when Solus Cloud did not create the cloud host. The
  * `/v1` code is kept in the text, so a report names the refusal.
  */

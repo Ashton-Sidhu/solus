@@ -89,7 +89,7 @@
     <Button
       size="icon-sm"
       variant="ghost"
-      class="text-muted-foreground hover:text-foreground pointer-coarse:tap-area {openSessionId ? '' : 'invisible'}"
+      class="text-muted-foreground pointer-coarse:tap-area {openSessionId ? '' : 'invisible'}"
       title="Open session"
       aria-label="Open the session of {worktree.title}"
       tabindex={openSessionId ? undefined : -1}

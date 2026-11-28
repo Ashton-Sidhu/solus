@@ -47,10 +47,8 @@
     runDuration,
     automationRunCwd,
   } from "./lib/automation-format";
-  import {
-    automationAgents,
-    runnableAutomationAgent,
-  } from "./lib/automation-agent";
+  import { automationAgents } from "@solus/client-core/model-picker-agents";
+  import { runnableAutomationAgent } from "./lib/automation-agent";
   import { ScheduleDraft } from "./lib/schedule-draft.svelte";
   import { ROW, ROW_BUTTON, LABEL, EYEBROW, VALUE } from "./lib/rail-styles";
   import AutomationInstructions from "./AutomationInstructions.svelte";

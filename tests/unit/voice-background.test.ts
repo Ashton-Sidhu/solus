@@ -70,6 +70,7 @@ test('streaming previews text before silence stops recording and commits only th
     const harnessPath = runes.module('capture-harness', `
       export const track = () => {}
       export const disposePcmCaptureResources = async () => {}
+      export const warmPcmCapture = () => {}
       export class PcmCapture {
         static current
         constructor(stream, onChunk, onLevel) { this.emit = onChunk; this.level = onLevel; PcmCapture.current = this }
@@ -157,6 +158,7 @@ test('recordings and failed-clip retries retain their original hints and replace
     const harnessPath = runes.module('retry-harness', `
       export const track = () => {}
       export const disposePcmCaptureResources = async () => {}
+      export const warmPcmCapture = () => {}
       export class PcmCapture {
         static current
         constructor(stream, onChunk) { this.emit = onChunk; PcmCapture.current = this }
@@ -211,6 +213,65 @@ test('recordings and failed-clip retries retain their original hints and replace
     expect(harness.started).toEqual([{ vocabulary: ['Solus'] }])
     expect(harness.retries).toEqual([{ vocabulary: ['Solus'] }, { vocabulary: ['Solus'] }])
     expect(transcripts).toEqual(['Solus'])
+    recorder.dispose()
+  } finally {
+    if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor)
+    else Reflect.deleteProperty(globalThis, 'navigator')
+    if (workletDescriptor) Object.defineProperty(globalThis, 'AudioWorkletNode', workletDescriptor)
+    else Reflect.deleteProperty(globalThis, 'AudioWorkletNode')
+    runes.dispose()
+  }
+})
+
+test('stream startup overlaps with microphone acquisition and cancels if microphone fails', async () => {
+  const runes = new SvelteRunes()
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  const workletDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'AudioWorkletNode')
+  try {
+    let rejectMic!: (err: Error) => void
+    const micPromise = new Promise<never>((_resolve, reject) => { rejectMic = reject })
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { mediaDevices: { getUserMedia: () => micPromise } } })
+    Object.defineProperty(globalThis, 'AudioWorkletNode', { configurable: true, value: class {} })
+    const harnessPath = runes.module('overlap-harness', `
+      export const track = () => {}
+      export const disposePcmCaptureResources = async () => {}
+      export const events = []
+      export const warmPcmCapture = () => { events.push('warm-pcm') }
+      export class PcmCapture {
+        async start() {} stop() {}
+      }
+      export const api = {
+        async warmTranscription() { events.push('warm-host') },
+        async voiceStreamStart() { events.push('stream-start'); return { streamId: 'stream-1' } },
+        async voiceStreamFeed() { return { stable: '', tentative: '' } },
+        async voiceStreamFinish() { return { error: null, transcript: '' } },
+        async voiceStreamCancel(req) { events.push('stream-cancel:' + req.streamId) },
+        async transcribeAudio() { return { error: null, transcript: '' } },
+        async logVoiceTranscription() {},
+      }
+      export const serverConnections = { apiFor() { return api } }
+      export const hosts = { transcription: { id: 'device', capabilityRecord: { voiceStreaming: true } } }
+    `)
+    const source = runes.source('overlap-recorder', 'packages/workspace-ui/src/lib/voice-recorder.svelte.ts', {
+      '@solus/contracts/voice-dictionary': SvelteRunes.file('packages/contracts/src/voice-dictionary.ts'),
+      '@solus/contracts/voice-audio': SvelteRunes.file('packages/contracts/src/voice-audio.ts'),
+      './voice-stream': SvelteRunes.file('packages/workspace-ui/src/lib/voice-stream.ts'),
+      './analytics': harnessPath, './pcm-capture': harnessPath,
+      '@solus/client-core/server-connections': harnessPath,
+      '../contexts/hosts/hosts.svelte': harnessPath,
+      'zod': SvelteRunes.file('node_modules/zod/index.js'),
+    })
+    const harness = await import(harnessPath)
+    const { VoiceRecorder } = await import(source)
+    const recorder = new VoiceRecorder(() => 1500)
+    const startPromise = recorder.start()
+    // Before getUserMedia resolves, both AudioWorklet warm and voiceStreamStart have already fired.
+    expect(harness.events).toEqual(['warm-pcm', 'stream-start'])
+    rejectMic(Object.assign(new Error('denied'), { name: 'NotAllowedError' }))
+    await startPromise
+    await Promise.resolve()
+    expect(harness.events).toEqual(['warm-pcm', 'stream-start', 'stream-cancel:stream-1'])
+    expect(recorder.state).toBe('idle')
     recorder.dispose()
   } finally {
     if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor)

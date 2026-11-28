@@ -74,11 +74,11 @@
               disabled={isSaving}
               class="min-w-48 flex-1 text-workspace-chrome"
             />
-            <Button type="submit" variant="outline" size="sm" disabled={isSaving || !shownAddress.trim() || shownAddress.trim() === address.origin}>
+            <Button type="submit" class="pointer-coarse:min-h-11" disabled={isSaving || !shownAddress.trim() || shownAddress.trim() === address.origin}>
               {isSaving ? "Saving…" : "Save"}
             </Button>
             {#if address.source === "setting"}
-              <Button type="button" variant="ghost" size="sm" disabled={isSaving} onclick={() => void change(null)}>Use {DEFAULT_CLOUD_ORIGIN.replace("https://", "")}</Button>
+              <Button type="button" variant="outline" class="pointer-coarse:min-h-11" disabled={isSaving} onclick={() => void change(null)}>Use {DEFAULT_CLOUD_ORIGIN.replace("https://", "")}</Button>
             {/if}
           </form>
         {/if}

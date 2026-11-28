@@ -98,7 +98,7 @@
         </p>
       </div>
       <AccountConnectionsLink />
-      <Button variant="outline" size="sm" onclick={() => void accountStore.signOut()}>Sign out</Button>
+      <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={() => void accountStore.signOut()}>Sign out</Button>
     </div>
   {:else}
     <SettingsRow
@@ -109,7 +109,7 @@
     >
       {#snippet control()}
         {#if accountStore.isAvailable}
-          <Button variant="outline" size="sm" onclick={() => void accountStore.signIn()}>Sign in</Button>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => void accountStore.signIn()}>Sign in</Button>
         {/if}
       {/snippet}
     </SettingsRow>
@@ -129,7 +129,7 @@
     bodyVisible={hasSyncDetail}
   >
     {#snippet control()}
-      <Button variant="outline" size="sm" disabled={sync.busy || !sync.isAvailable || sync.state === "loading"} onclick={syncNow}>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={sync.busy || !sync.isAvailable || sync.state === "loading"} onclick={syncNow}>
         <SyncIcon size={13} class={sync.state === "loading" ? "animate-spin motion-reduce:animate-none" : ""} />
         {sync.state === "error" || sync.state === "offline" ? "Try again" : "Sync now"}
       </Button>
@@ -161,8 +161,8 @@
                   <span class="text-muted-foreground"> · This device: {conflict.mine} · Synced: {conflict.theirs}</span>
                 </span>
                 <span class="flex gap-1.5">
-                  <Button variant="outline" size="xs" onclick={() => sync.resolveSettingConflict(conflict.key, "keep-mine")}>Keep mine</Button>
-                  <Button variant="outline" size="xs" onclick={() => sync.resolveSettingConflict(conflict.key, "take-theirs")}>Use synced</Button>
+                  <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => sync.resolveSettingConflict(conflict.key, "keep-mine")}>Keep mine</Button>
+                  <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => sync.resolveSettingConflict(conflict.key, "take-theirs")}>Use synced</Button>
                 </span>
               </li>
             {/each}
@@ -171,7 +171,7 @@
         {#if profileConflictCount > 0}
           <p class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-xs text-foreground" role="status">
             <span>{profileConflictCount === 1 ? "1 entry" : `${profileConflictCount} entries`} of your agent profile changed on two devices.</span>
-            <Button variant="outline" size="xs" onclick={() => session.showSettings("agent-profile", "click")}>Resolve in Agent profile</Button>
+            <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => session.showSettings("agent-profile", "click")}>Resolve in Agent profile</Button>
           </p>
         {/if}
       </div>
@@ -188,9 +188,9 @@
   >
     {#snippet control()}
       {#if sync.notice?.kind === "has-unsent" && sync.notice.document === "settings"}
-        <Button variant="destructive" size="sm" disabled={sync.busy} onclick={() => void clearSettings(true)}>Discard and clear</Button>
+        <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={sync.busy} onclick={() => void clearSettings(true)}>Discard and clear</Button>
       {:else}
-        <Button variant="outline" size="sm" class="text-destructive" disabled={sync.busy || !sync.isAvailable} onclick={() => void clearSettings(false)}>Clear settings</Button>
+        <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={sync.busy || !sync.isAvailable} onclick={() => void clearSettings(false)}>Clear settings</Button>
       {/if}
     {/snippet}
   </SettingsRow>
@@ -201,9 +201,9 @@
   >
     {#snippet control()}
       {#if sync.notice?.kind === "has-unsent" && sync.notice.document === "profile"}
-        <Button variant="destructive" size="sm" disabled={sync.busy} onclick={() => void clearProfile(true)}>Discard and clear</Button>
+        <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={sync.busy} onclick={() => void clearProfile(true)}>Discard and clear</Button>
       {:else}
-        <Button variant="outline" size="sm" class="text-destructive" disabled={sync.busy || !sync.isAvailable} onclick={() => void clearProfile(false)}>Clear profile</Button>
+        <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={sync.busy || !sync.isAvailable} onclick={() => void clearProfile(false)}>Clear profile</Button>
       {/if}
     {/snippet}
   </SettingsRow>

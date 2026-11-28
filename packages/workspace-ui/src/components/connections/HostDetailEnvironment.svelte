@@ -25,9 +25,9 @@
 <SettingsSection label="Detected on this host">
   {#snippet action()}
     <Button
-      variant="ghost"
+      variant="outline"
       size="sm"
-      class="-my-1"
+      class="-my-1 pointer-coarse:min-h-11"
       disabled={setup.readinessLoading}
       onclick={() => void setup.refreshReadiness()}
     >
@@ -58,6 +58,7 @@
         <Button
           variant="outline"
           size="sm"
+          class="pointer-coarse:min-h-11"
           disabled={!!setup.runningStep}
           onclick={() => void setup.installGit()}
         >
@@ -104,7 +105,7 @@
     comingSoon
   >
     {#snippet control()}
-      <Button variant="outline" size="sm">Edit</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11">Edit</Button>
     {/snippet}
   </SettingsRow>
 
@@ -114,7 +115,7 @@
     comingSoon
   >
     {#snippet control()}
-      <Button variant="outline" size="sm">Edit</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11">Edit</Button>
     {/snippet}
   </SettingsRow>
 
@@ -124,7 +125,7 @@
     comingSoon
   >
     {#snippet control()}
-      <Button variant="outline" size="sm">Default</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11">Default</Button>
     {/snippet}
   </SettingsRow>
 </SettingsSection>

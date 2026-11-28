@@ -197,7 +197,7 @@
       <!-- svelte-ignore a11y_autofocus -->
       <Input id={fieldId} {type} bind:value={pasted} autofocus autocomplete="off" spellcheck={false} dictation={false} disabled={isOffline}
         class="h-8 min-w-0 flex-1 text-workspace-chrome" aria-invalid={error ? true : undefined} />
-      <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || !pasted.trim()}>Submit</Button>
+      <Button type="submit" size="default" class="pointer-coarse:min-h-11" disabled={isOffline || !pasted.trim()}>Submit</Button>
     </div>
     {#if error}<p role="alert" class="break-words text-chrome-dense text-(--solus-status-error)">{error}</p>{/if}
   </form>
@@ -209,9 +209,9 @@
       <div class="flex flex-col gap-3">
         {@render errorAlert(connect.addError)}
         <div class="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => connect.start()}>Try again</Button>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => connect.start()}>Try again</Button>
           {#if request.addsServer}
-            <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={() => connect.editAddress()}>Change the address or sign-in method</Button>
+            <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => connect.editAddress()}>Change the address or sign-in method</Button>
           {/if}
         </div>
       </div>
@@ -246,7 +246,7 @@
       {:else if connectionProblem}
         {@render errorAlert(`${connectionProblem.text}${connectionProblem.detail ? `: ${connectionProblem.detail}` : ""}`)}
       {/if}
-      <div><Button type="submit" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline}>Save values</Button></div>
+      <div><Button type="submit" size="sm" class="pointer-coarse:min-h-11" disabled={isOffline}>Save values</Button></div>
     </form>
   {:else}
     {#if takesUsernameAndPassword}
@@ -262,7 +262,7 @@
       {@render errorAlert(`${connectionProblem.text}${connectionProblem.detail ? `: ${connectionProblem.detail}` : ""}`)}
     {/if}
     {#snippet signInButton()}
-      <Button class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || hostState?.connectionsStatus !== "loaded"} onclick={() => mcpStore.integrations.connect(serverId, integration.id)}>
+      <Button class="pointer-coarse:min-h-11" disabled={isOffline || hostState?.connectionsStatus !== "loaded"} onclick={() => mcpStore.integrations.connect(serverId, integration.id)}>
         {takesUsernameAndPassword ? "Enter a user name and password" : integration.auth.kind === "bearer" ? `Enter an API key` : `Sign in to ${name}`}{#if integration.auth.kind !== "bearer"}<ExternalLink size={14} />{/if}
       </Button>
     {/snippet}
@@ -347,7 +347,7 @@
   {:else if toolError}
     {@render errorAlert(toolError)}
     <div>
-      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.loadTools(serverId, integration.id)}>Retry</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.loadTools(serverId, integration.id)}>Retry</Button>
     </div>
   {:else if !tools}
     {@render pending("Loading tools…")}
@@ -364,23 +364,23 @@
 
 {#snippet footerButtons()}
   {#if step === "source"}
-    <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={close}>Cancel</Button>
-    <Button type="submit" form="mcp-source-form" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || connect.sourceKind === "empty"}>Continue</Button>
+    <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={close}>Cancel</Button>
+    <Button type="submit" form="mcp-source-form" size="sm" class="pointer-coarse:min-h-11" disabled={isOffline || connect.sourceKind === "empty"}>Continue</Button>
   {:else if step === "command" && !commandForm?.refusal}
-    <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => (connect.isStartingCommand ? connect.cancelCommandStart() : close())}>{connect.isStartingCommand ? "Stop" : "Cancel"}</Button>
-    <Button type="submit" form="mcp-source-form" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={connect.isStartingCommand || isOffline || !commandForm?.line.trim()}>
+    <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => (connect.isStartingCommand ? connect.cancelCommandStart() : close())}>{connect.isStartingCommand ? "Stop" : "Cancel"}</Button>
+    <Button type="submit" form="mcp-source-form" size="sm" class="pointer-coarse:min-h-11" disabled={connect.isStartingCommand || isOffline || !commandForm?.line.trim()}>
       {#if connect.isStartingCommand}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Starting…{:else}Start and test{/if}
     </Button>
   {:else if step === "address"}
-    <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={close}>Cancel</Button>
-    <Button type="submit" form="mcp-address-form" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || !connect.addressForm.address.trim()}>Continue</Button>
+    <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={close}>Cancel</Button>
+    <Button type="submit" form="mcp-address-form" size="sm" class="pointer-coarse:min-h-11" disabled={isOffline || !connect.addressForm.address.trim()}>Continue</Button>
   {:else if step === "tools"}
-    <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={close}>Cancel</Button>
-    <Button size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={!tools || connect.isSaving || isOffline} onclick={() => connect.finish()}>
+    <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={close}>Cancel</Button>
+    <Button size="sm" class="pointer-coarse:min-h-11" disabled={!tools || connect.isSaving || isOffline} onclick={() => connect.finish()}>
       {connect.isSaving ? "Saving…" : request.addsServer ? `Add ${name}` : `Connect ${name}`}
     </Button>
   {:else}
-    <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={close}>{commandForm?.refusal ? "Close" : "Cancel"}</Button>
+    <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={close}>{commandForm?.refusal ? "Close" : "Cancel"}</Button>
   {/if}
 {/snippet}
 
@@ -392,7 +392,7 @@
     <Dialog.Content
       bind:ref={contentEl}
       onOpenAutoFocus={focusFirstField}
-      class="text-workspace-chrome fixed inset-0 z-[10001] m-auto flex h-fit max-h-[calc(100dvh-2rem)] w-[min(46rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-2xl bg-(--solus-popover-bg) p-6 shadow-(--solus-popover-shadow) duration-150 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 motion-reduce:animate-none"
+      class="settings-controls text-workspace-chrome fixed inset-0 z-[10001] m-auto flex h-fit max-h-[calc(100dvh-2rem)] w-[min(46rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-2xl bg-(--solus-popover-bg) p-6 shadow-(--solus-popover-shadow) duration-150 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 motion-reduce:animate-none"
       data-testid="mcp-connect-dialog"
     >
       <Dialog.Close>
@@ -434,7 +434,7 @@
           </Table.Root>
         {/if}
         <div class="mt-4 flex justify-end">
-          <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={close}>Close</Button>
+          <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={close}>Close</Button>
         </div>
         </div>
         </div>

@@ -6,6 +6,7 @@ import { DEFAULT_SERVER_PORT } from '@solus/contracts/types'
 import {
   attemptAddMachine,
   makeCheckCode,
+  otherMachineStep,
   reachableMachines,
   stepFor,
   typedCodeError,
@@ -48,9 +49,9 @@ describe('the Add machine card in the conversation', () => {
 
   test('each row says how the machine is added', () => {
     expect(wayLabel(candidate({ way: 'code', minted: true }))).toBe('From this device')
-    expect(wayLabel(candidate({ way: 'ssh', sshTarget: 'solus-windows' }))).toBe('Over SSH · solus-windows')
-    expect(wayLabel(candidate({ way: 'approve' }))).toBe('Ask it to approve')
-    expect(wayLabel(candidate({ way: 'code' }))).toBe('Needs a code')
+    expect(wayLabel(candidate({ way: 'ssh', sshTarget: 'solus-windows' }))).toBe('SSH')
+    expect(wayLabel(candidate({ way: 'approve' }))).toBe('Needs approval')
+    expect(wayLabel(candidate({ way: 'code' }))).toBe('Code if it asks')
   })
 
   test('the session host and its own hosts are left out, and only a direct address is offered for pairing', () => {
@@ -72,17 +73,33 @@ describe('the Add machine card in the conversation', () => {
     expect(rows.some((row) => row.serverId === 'away')).toBe(false)
   })
 
-  test('the selected row decides what Add does, and a refused code asks for approval next', () => {
+  // WHY: a machine with no screen cannot approve a request, so no row takes that
+  // way alone: a refused code and a typed address use the code way, which first
+  // joins with no code; approval only when the person chooses it, as on desktop and web.
+  test('the selected row decides what Add does; a refused code uses the code way next, and approval only on request', () => {
+    const none = { address: '', useCode: false, useApproval: false, mintRefused: NO_REFUSALS }
     const minted = candidate({ way: 'code', minted: true, serverId: 'win', url: 'http://10.10.1.10:4810', label: 'Windows' })
-    expect(stepFor(minted, { address: '', useCode: false, mintRefused: NO_REFUSALS })).toEqual({ kind: 'mint', serverId: 'win', url: 'http://10.10.1.10:4810', name: 'Windows' })
-    expect(stepFor(minted, { address: '', useCode: false, mintRefused: new Set(['win']) })).toEqual({ kind: 'approve', url: 'http://10.10.1.10:4810', name: 'Windows' })
-    expect(stepFor(minted, { address: '', useCode: true, mintRefused: NO_REFUSALS })?.kind).toBe('code')
+    expect(stepFor(minted, none)).toEqual({ kind: 'mint', serverId: 'win', url: 'http://10.10.1.10:4810', name: 'Windows' })
+    expect(stepFor(minted, { ...none, mintRefused: new Set(['win']) })).toEqual({ kind: 'code', url: 'http://10.10.1.10:4810', name: 'Windows' })
+    expect(stepFor(minted, { ...none, useCode: true })?.kind).toBe('code')
+    expect(stepFor(minted, { ...none, useApproval: true })?.kind).toBe('approve')
+    const found = candidate({ way: 'code', url: 'http://10.10.1.20:4810', label: 'nas' })
+    expect(stepFor(found, none)).toEqual({ kind: 'code', url: 'http://10.10.1.20:4810', name: 'nas' })
     const ssh = candidate({ way: 'ssh', sshTarget: 'solus-windows', label: 'solus-windows' })
-    expect(stepFor(ssh, { address: '', useCode: false, mintRefused: NO_REFUSALS })).toEqual({ kind: 'ssh', sshTarget: 'solus-windows', name: 'solus-windows' })
-    // "Another address…": a bare address gets the Solus port; approval first, a code on request.
-    expect(stepFor(null, { address: '10.10.1.10', useCode: false, mintRefused: NO_REFUSALS })).toEqual({ kind: 'approve', url: `http://10.10.1.10:${DEFAULT_SERVER_PORT}`, name: `10.10.1.10:${DEFAULT_SERVER_PORT}` })
-    expect(stepFor(null, { address: '10.10.1.10', useCode: true, mintRefused: NO_REFUSALS })?.kind).toBe('code')
-    expect(stepFor(null, { address: ' ', useCode: false, mintRefused: NO_REFUSALS })).toBeNull()
+    expect(stepFor(ssh, none)).toEqual({ kind: 'ssh', sshTarget: 'solus-windows', name: 'solus-windows' })
+    // A typed address: a bare address gets the Solus port; the code way first, approval on request.
+    expect(stepFor(null, { ...none, address: '10.10.1.10' })).toEqual({ kind: 'code', url: `http://10.10.1.10:${DEFAULT_SERVER_PORT}`, name: `10.10.1.10:${DEFAULT_SERVER_PORT}` })
+    expect(stepFor(null, { ...none, address: '10.10.1.10', useApproval: true })?.kind).toBe('approve')
+    expect(stepFor(null, { ...none, address: ' ' })).toBeNull()
+  })
+
+  test('"Other machine…" adds an SSH target over SSH and joins a typed address by the code way', () => {
+    // WHY: one field replaced the two typed rows; what it holds decides the way, as on desktop and web.
+    const options = { useCode: false, useApproval: false, mintRefused: NO_REFUSALS }
+    expect(otherMachineStep(' ubuntu@3.91.20.4 ', options)).toEqual({ kind: 'ssh', sshTarget: 'ubuntu@3.91.20.4', name: 'ubuntu@3.91.20.4' })
+    expect(otherMachineStep('http://10.10.1.40:4810', options)).toEqual({ kind: 'code', url: 'http://10.10.1.40:4810', name: '10.10.1.40:4810' })
+    expect(otherMachineStep('http://10.10.1.40:4810', { ...options, useApproval: true })?.kind).toBe('approve')
+    expect(otherMachineStep('  ', options)).toBeNull()
   })
 
   test('a typed value is checked before it can go anywhere: a password is not a code', () => {
@@ -158,7 +175,7 @@ describe('one tap of Add', () => {
     expect(session.callsOf('hostsPair')).toEqual([[{ url: 'http://10.10.1.10:4810', code: '482913' }]])
   })
 
-  test('a host that refuses to make a code sends nothing to the session host and offers approval', async () => {
+  test('a host that refuses to make a code sends nothing to the session host, and the row uses the code way next', async () => {
     const session = new FakeApi()
     const target = new FakeApi().on('connectionsGeneratePairToken', () => { throw new Error('only a local connection') })
     const attempt = await attemptAddMachine(deps(session, target), { kind: 'mint', serverId: 'win', url: 'http://10.10.1.10:4810', name: 'Windows' }, {})
@@ -175,13 +192,13 @@ describe('one tap of Add', () => {
     expect(await attemptAddMachine(deps(session), step, { checkCode: 'P3RT-8WXY' })).toMatchObject({ kind: 'added', outcome: { way: 'approve' } })
   })
 
-  test('a typed code goes as checked; without one nothing is sent', async () => {
-    const session = new FakeApi().on('hostsPair', () => listing('win', 'Windows'))
+  test('a typed code goes as checked; without one the session host joins with no code, and a refusal keeps the card', async () => {
+    const session = new FakeApi().on('hostsPair', () => { throw new Error('Windows does not let this host join without a pairing code.') })
     const step: AddMachineStep = { kind: 'code', url: 'http://10.10.1.10:4810', name: 'Windows' }
-    expect(await attemptAddMachine(deps(session), step, {})).toMatchObject({ kind: 'failed' })
-    expect(session.calls).toEqual([])
-    expect(await attemptAddMachine(deps(session), step, { code: '123456' })).toMatchObject({ kind: 'added' })
-    expect(session.callsOf('hostsPair')).toEqual([[{ url: 'http://10.10.1.10:4810', code: '123456' }]])
+    expect(await attemptAddMachine(deps(session), step, {})).toEqual({ kind: 'failed', message: 'Windows does not let this host join without a pairing code.' })
+    session.on('hostsPair', () => listing('win', 'Windows'))
+    expect(await attemptAddMachine(deps(session), step, { code: '123456' })).toMatchObject({ kind: 'added', outcome: { way: 'code' } })
+    expect(session.callsOf('hostsPair')).toEqual([[{ url: 'http://10.10.1.10:4810' }], [{ url: 'http://10.10.1.10:4810', code: '123456' }]])
   })
 })
 

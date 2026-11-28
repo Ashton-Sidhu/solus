@@ -56,7 +56,8 @@
     animation: intro-core-up 0.4s ease-out both;
   }
   .intro-arc {
-    stroke-dasharray: 1;
+    /* The gap is longer than the arc, so the next dash never paints a cap at its far end. */
+    stroke-dasharray: 1 2;
     animation: intro-arc-draw 0.35s ease-in-out 0.2s both;
   }
   .intro-word,
@@ -71,9 +72,12 @@
     from { opacity: 0; transform: scale(0.75); }
     to { opacity: 1; transform: none; }
   }
+  /* A round cap still paints a dot where a fully hidden dash ends, so each arc
+     stays invisible until its own draw starts. */
   @keyframes intro-arc-draw {
-    from { stroke-dashoffset: 1; }
-    to { stroke-dashoffset: 0; }
+    from { stroke-dashoffset: 1; opacity: 0; }
+    1% { opacity: 1; }
+    to { stroke-dashoffset: 0; opacity: 1; }
   }
   @keyframes intro-mark-settle {
     from { transform: translate3d(4.75rem, 0, 0); }

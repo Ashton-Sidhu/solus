@@ -53,13 +53,13 @@
   <div class="flex min-w-0 items-center justify-between gap-3">
     {#if code && timeLeft}
       <span class="truncate font-mono text-[1.375rem] leading-7 font-medium tracking-[0.08em] text-(--solus-text-primary) tabular-nums select-text">{code.code}</span>
-      <Button variant="ghost" size="sm" class="shrink-0 bg-muted" onclick={() => void copy()}>{isCopied ? "Copied" : "Copy"}</Button>
+      <Button variant="outline" size="sm" class="shrink-0 pointer-coarse:min-h-11" onclick={() => void copy()}>{isCopied ? "Copied" : "Copy"}</Button>
     {:else if codeError}
       <span role="alert" class="text-chrome-dense text-(--solus-status-error)">{codeError}</span>
-      <Button variant="ghost" size="sm" class="shrink-0 bg-muted" disabled={connections.appPairingCodeCreating} onclick={() => void connections.createAppPairingCode(serverId, access)}>Try again</Button>
+      <Button variant="outline" size="sm" class="shrink-0 pointer-coarse:min-h-11" disabled={connections.appPairingCodeCreating} onclick={() => void connections.createAppPairingCode(serverId, access)}>Try again</Button>
     {:else if code}
       <span class="text-workspace-chrome text-(--solus-text-secondary)">The code expired.</span>
-      <Button variant="ghost" size="sm" class="shrink-0 bg-muted" disabled={connections.appPairingCodeCreating} onclick={() => void connections.createAppPairingCode(serverId, access)}>New code</Button>
+      <Button variant="outline" size="sm" class="shrink-0 pointer-coarse:min-h-11" disabled={connections.appPairingCodeCreating} onclick={() => void connections.createAppPairingCode(serverId, access)}>New code</Button>
     {:else}
       <span class="text-workspace-chrome text-(--solus-text-tertiary)">Getting a code…</span>
     {/if}

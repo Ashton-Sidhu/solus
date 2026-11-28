@@ -71,7 +71,7 @@
       {/snippet}
       {#snippet control()}
         {#if !cloud && action === "disconnect"}
-          <Button variant="outline" size="sm" disabled={seatsStore.isBusy(serverId, provider)} onclick={() => void disconnect(provider)}>
+          <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={seatsStore.isBusy(serverId, provider)} onclick={() => void disconnect(provider)}>
             <SignOutIcon size={13} />
             Disconnect
           </Button>

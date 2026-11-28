@@ -6,6 +6,7 @@
   import UserChip from "../users/UserChip.svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
+  import ProviderMark from "../ui/ProviderMark.svelte";
   import { activityLine } from "./lib/activity-line";
 
   /**
@@ -43,6 +44,8 @@
     <span class="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center text-(--solus-accent)"><ClaudeIcon size={11} /></span>
   {:else if provider === "codex"}
     <span class="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-white text-(--solus-accent)"><OpenAIBlossom size={11} /></span>
+  {:else if provider === "antigravity"}
+    <span class="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center"><ProviderMark mark="antigravity" size={12} transparent /></span>
   {:else}
     <span class="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center text-(--solus-accent)"><CodeIcon size={11} /></span>
   {/if}

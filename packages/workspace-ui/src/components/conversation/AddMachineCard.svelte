@@ -28,10 +28,12 @@
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import DirectoryPicker from "../pickers/DirectoryPicker.svelte";
   import { countdown } from "../../lib/countdown";
-  import { ANOTHER_ADDRESS_KEY, ANOTHER_SSH_KEY, approveSteps, codeSteps, reachableMachines, stepTextParts, wayLabel } from "./lib/add-machine-card";
+  import { pairCodeSteps } from "@solus/client-core/pairing";
+  import { stepTextParts } from "../../lib/step-text";
+  import { approveSteps, OTHER_MACHINE_KEY, reachableMachines, wayLabel } from "./lib/add-machine-card";
   import { AddMachineCardState } from "./lib/add-machine-card.svelte";
   import { settingsSyncStore } from "../../contexts/app/settings-sync.store.svelte";
-  import SyncSettingsCheckbox from "../connections/SyncSettingsCheckbox.svelte";
+  import { Switch } from "../ui/switch";
 
   interface Props {
     tabId: string;
@@ -120,8 +122,10 @@
   const showsFieldMessage = $derived(!card.statusCard);
   const selected = $derived(card.selected);
   const name = $derived(card.machineName);
-  const isAddressRow = $derived(card.selectedKey === ANOTHER_ADDRESS_KEY);
-  const canEnterCode = $derived(!card.showsCodeField && (isAddressRow || selected?.way === "approve" || !!selected?.minted));
+  // A code is the way back from an approval request, and the way past a code this device makes.
+  const canEnterCode = $derived(!card.showsCodeField && (card.useApproval || !!selected?.minted));
+  // "Use another key…" shows once the row names an SSH target.
+  const offersAnotherKey = $derived(!card.isKeyFieldOpen && (selected?.way === "ssh" || (card.isSshTargetRow && !!card.otherMachine.trim())));
   const showsPassword = $derived(card.isPasswordAsked && !!card.selectedSshTarget);
   const failureAt = $derived(card.failure?.field);
 
@@ -145,6 +149,14 @@
   // The key is a file on the session's host, which runs SSH, so the picker browses that host.
   let identityInput: HTMLInputElement | null = $state(null);
   let isKeyPickerOpen = $state(false);
+
+  let otherMachineInput: HTMLInputElement | null = $state(null);
+
+  // A click on "Other machine…" means typing comes next; arrow keys keep focus on the list.
+  function chooseOtherMachine() {
+    card.select(OTHER_MACHINE_KEY);
+    void tick().then(() => otherMachineInput?.focus());
+  }
 
   function focusIdentityInput() {
     void tick().then(() => identityInput?.focus());
@@ -171,7 +183,7 @@
 
   function addLabel(): string {
     if (card.failure) return "Try again";
-    return selected?.way === "approve" && !card.useCode ? "Ask to approve" : `Add ${name}`;
+    return "Add";
   }
 </script>
 
@@ -221,7 +233,7 @@
           aria-disabled={closed || isBusy}
           onkeydown={onListKey}
         >
-          {#each candidates as candidate, index (candidate.key)}
+          {#each candidates as candidate (candidate.key)}
             {@const isSelected = candidate.key === card.selectedKey}
             <div
               id="{idBase}-{candidate.key}"
@@ -237,90 +249,58 @@
                 {#if candidate.way === "ssh"}<TerminalIcon size={15} />{:else}<HostOperatingSystemIcon os={candidate.os} size={15} />{/if}
               </span>
               <span class="flex min-w-0 flex-1 flex-col">
-                <span class="flex min-w-0 items-center gap-1.5">
-                  <span class={["truncate text-[0.8125rem] font-medium", isSelected ? "text-(--solus-text-primary)" : "text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)"]}>{candidate.label}</span>
-                  {#if index === 0 && candidate.isMatch}
-                    <span class="shrink-0 rounded-full bg-(--solus-accent-soft) px-1.5 text-[0.6875rem] leading-4 font-medium text-(--solus-accent)">Best match</span>
-                  {/if}
+                <!-- Weight marks the selection: the selected machine is medium, the others regular. -->
+                <span class={["truncate text-[0.8125rem]", isSelected ? "font-medium text-(--solus-text-primary)" : "text-(--solus-text-secondary) group-hover:text-(--solus-text-primary)"]}>{candidate.label}</span>
+                <!-- The way sits beside the address, so a row reads as one unit at any card width. -->
+                <span class="flex min-w-0 items-baseline gap-1.5 text-[0.6875rem] text-(--muted-foreground)">
+                  <span class="truncate font-mono">{candidate.detail}</span>
+                  <span class="shrink-0" aria-hidden="true">·</span>
+                  <span class="shrink-0">{wayLabel(candidate)}</span>
                 </span>
-                <span class="truncate font-mono text-[0.6875rem] text-(--muted-foreground)">{candidate.detail}</span>
               </span>
-              <span class="shrink-0 text-[0.6875rem] text-(--muted-foreground)">{wayLabel(candidate)}</span>
             </div>
           {/each}
           <div
-            id="{idBase}-{ANOTHER_SSH_KEY}"
+            id="{idBase}-{OTHER_MACHINE_KEY}"
             role="option"
             tabindex="-1"
-            aria-selected={card.isSshTargetRow}
-            class={["group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5", card.isSshTargetRow && "bg-(--solus-surface-hover) shadow-[inset_0_0_0_0.03125rem_color-mix(in_oklch,var(--foreground)_14%,transparent)]"]}
-            onclick={() => card.select(ANOTHER_SSH_KEY)}
-            onkeydown={onListKey}
-          >
-            <span class="flex size-7 shrink-0 items-center justify-center rounded-lg text-(--muted-foreground) shadow-[inset_0_0_0_0.0625rem_color-mix(in_oklch,var(--foreground)_14%,transparent)]" aria-hidden="true">
-              <TerminalIcon size={14} />
-            </span>
-            <span class={["min-w-0 flex-1 truncate text-[0.8125rem]", card.isSshTargetRow ? "font-medium text-(--solus-text-primary)" : "text-(--muted-foreground) group-hover:text-(--solus-text-primary)"]}>Another machine over SSH…</span>
-          </div>
-          <div
-            id="{idBase}-{ANOTHER_ADDRESS_KEY}"
-            role="option"
-            tabindex="-1"
-            aria-selected={isAddressRow}
-            class={["group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5", isAddressRow && "bg-(--solus-surface-hover) shadow-[inset_0_0_0_0.03125rem_color-mix(in_oklch,var(--foreground)_14%,transparent)]"]}
-            onclick={() => card.select(ANOTHER_ADDRESS_KEY)}
+            aria-selected={card.isOtherRow}
+            class={["group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5", card.isOtherRow && "bg-(--solus-surface-hover) shadow-[inset_0_0_0_0.03125rem_color-mix(in_oklch,var(--foreground)_14%,transparent)]"]}
+            onclick={chooseOtherMachine}
             onkeydown={onListKey}
           >
             <span class="flex size-7 shrink-0 items-center justify-center rounded-lg text-(--muted-foreground) shadow-[inset_0_0_0_0.0625rem_color-mix(in_oklch,var(--foreground)_14%,transparent)]" aria-hidden="true">
               <PlusIcon size={14} />
             </span>
-            <span class={["min-w-0 flex-1 truncate text-[0.8125rem]", isAddressRow ? "font-medium text-(--solus-text-primary)" : "text-(--muted-foreground) group-hover:text-(--solus-text-primary)"]}>Another address…</span>
+            <span class={["min-w-0 flex-1 truncate text-[0.8125rem]", card.isOtherRow ? "font-medium text-(--solus-text-primary)" : "text-(--muted-foreground) group-hover:text-(--solus-text-primary)"]}>Other machine…</span>
           </div>
         </div>
 
-        {#if isAddressRow}
+        {#if card.isOtherRow}
+          <!-- One field: an SSH target, or a Solus address or pair link. The way it is read shows at its end. -->
           <div class="flex min-w-0 flex-col gap-1">
-            <label for="{idBase}-address" class="text-transcript-meta text-(--muted-foreground)">Address or pair link</label>
-            <Input
-              id="{idBase}-address"
-              bind:value={card.address}
-              dictation={false}
-              spellcheck={false}
-              autocomplete="off"
-              placeholder="10.10.1.10, or paste a pair link"
-              disabled={closed || isBusy}
-              aria-invalid={failureAt === "address"}
-              class="h-8 font-mono text-xs"
-            />
-            {#if failureAt === "address" && showsFieldMessage}<p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>{/if}
+            <div class="relative min-w-0">
+              <Input
+                id="{idBase}-other-machine"
+                bind:ref={otherMachineInput}
+                bind:value={card.otherMachine}
+                dictation={false}
+                spellcheck={false}
+                autocomplete="off"
+                aria-label="SSH target or address"
+                placeholder="user@host, or http://host:port"
+                disabled={closed || isBusy}
+                aria-invalid={failureAt === "target" || failureAt === "address"}
+                class="h-8 pr-16 font-mono text-xs"
+              />
+              {#if card.otherMachine.trim()}
+                <span class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[0.6875rem] text-(--muted-foreground)">{card.isAddressRow ? "Address" : "SSH"}</span>
+              {/if}
+            </div>
+            {#if (failureAt === "target" || failureAt === "address") && showsFieldMessage}<p role="alert" class="m-0 text-transcript-meta text-pretty text-(--solus-status-error)">{card.failure?.message}</p>{/if}
           </div>
         {/if}
 
-        {#if card.isSshTargetRow}
-          <div class="flex min-w-0 flex-col gap-1">
-            <label for="{idBase}-ssh-target" class="text-transcript-meta text-(--muted-foreground)">Target</label>
-            <Input
-              id="{idBase}-ssh-target"
-              bind:value={card.sshTarget}
-              dictation={false}
-              spellcheck={false}
-              autocomplete="off"
-              placeholder="ubuntu@3.91.20.4"
-              disabled={closed || isBusy}
-              aria-invalid={failureAt === "target"}
-              class="h-8 font-mono text-xs"
-            />
-            {#if failureAt === "target" && showsFieldMessage}<p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>{/if}
-          </div>
-        {/if}
-
-        {#if selected?.way === "ssh" && !card.isKeyFieldOpen}
-          <p class="m-0 flex min-w-0 flex-wrap items-center gap-x-1.5 text-transcript-meta text-(--muted-foreground)">
-            <span>Key: from ~/.ssh/config</span>
-            <span aria-hidden="true">·</span>
-            <button type="button" class="interrupt-link" disabled={closed || isBusy} onclick={openKeyField}>Use another key…</button>
-          </p>
-        {/if}
 
         {#if card.showsKeyField}
           <div class="flex min-w-0 flex-col gap-1">
@@ -345,9 +325,7 @@
             <p id="{idBase}-identity-file-hint" class="m-0 text-transcript-meta text-pretty text-(--muted-foreground)">
               A private key on {sessionHostName}, as with ssh -i. Empty: its SSH keys and ~/.ssh/config.
             </p>
-            {#if !card.isSshTargetRow}
-              <button type="button" class="interrupt-link w-fit" disabled={closed || isBusy} onclick={() => card.closeKeyField()}>Use the key from ~/.ssh/config</button>
-            {/if}
+            <button type="button" class="interrupt-link w-fit" disabled={closed || isBusy} onclick={() => card.closeKeyField()}>Use the key from ~/.ssh/config</button>
           </div>
         {/if}
 
@@ -379,7 +357,7 @@
               class="h-8 font-mono text-sm tracking-[0.2em] placeholder:tracking-normal"
             />
             {#if failureAt === "code" && showsFieldMessage}<p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>{/if}
-            <p id="{idBase}-code-steps" class="m-0 text-transcript-meta text-pretty text-(--muted-foreground)">{@render stepText(codeSteps(name))}</p>
+            <p id="{idBase}-code-steps" class="m-0 text-transcript-meta text-pretty text-(--muted-foreground)">{@render stepText(pairCodeSteps(name))}{#if failureAt !== "code"} With no code, Add first tries to join without one.{/if}</p>
             {#if selected?.serverId}
               <button type="button" class="interrupt-link inline-flex w-fit items-center gap-1" onclick={showCodeOnTarget}>
                 Show the code on {name}<ArrowUpRightIcon size={14} />
@@ -415,19 +393,39 @@
           <p role="alert" class="m-0 text-transcript-meta text-(--solus-status-error)">{card.failure?.message}</p>
         {/if}
 
-        {#if !closed && !isBusy}
-          <SyncSettingsCheckbox />
+        {#if card.useApproval}
+          <p class="m-0 text-transcript-meta text-pretty text-(--muted-foreground)">Add sends {name} a request. Somebody at {name} approves it in Solus there.</p>
         {/if}
 
         {#if canEnterCode}
           <button type="button" class="interrupt-link w-fit" disabled={closed || isBusy} onclick={() => card.enterCode()}>Enter a code instead</button>
+        {/if}
+        {#if card.canAskApproval && card.showsCodeField}
+          <!-- The one way that needs somebody at the target: offered, never chosen alone. -->
+          <button type="button" class="interrupt-link w-fit" disabled={closed || isBusy} onclick={() => card.askApproval()}>Ask {name} to approve instead</button>
         {/if}
       {/if}
     </form>
     {#snippet footer()}
       {#if !request.expired}
         <div class="flex min-w-0 items-center justify-end gap-1">
-          <span class="interrupt-key mr-auto truncate" aria-hidden="true">↑↓ pick · ↵ add</span>
+          <div class="mr-auto flex min-w-0 items-center gap-3">
+            <!-- The config's key is the default; another key is one click away, not a line of its own. -->
+            {#if offersAnotherKey && !closed && !isBusy}
+              <button type="button" class="interrupt-link min-w-0 truncate" onclick={openKeyField}>Use another key…</button>
+            {/if}
+            <span class="interrupt-key truncate" aria-hidden="true">↑↓ pick · ↵ add</span>
+          </div>
+          <!-- Signed out, the new host takes this person's settings (docs/plans/settings-sync-hosts.md). Signed in, the account keeps every host the same. -->
+          {#if !settingsSyncStore.isSignedIn && !closed && !isBusy}
+            <label
+              class="mr-1.5 flex shrink-0 cursor-pointer items-center gap-1.5 text-transcript-meta text-(--muted-foreground)"
+              title="Copy your settings to the new host, and keep them the same on your hosts."
+            >
+              <Switch size="sm" checked={settingsSyncStore.copyOnAdd} onCheckedChange={(checked) => (settingsSyncStore.copyOnAdd = checked)} />
+              Sync settings
+            </label>
+          {/if}
           <Button size="sm" variant="ghost" disabled={closed || isBusy} onclick={() => void card.decline()}>Decline</Button>
           <Button size="sm" type="submit" form="{idBase}-form" disabled={closed || isBusy} class="min-w-0 max-w-64">
             <span class="truncate">{addLabel()}</span>

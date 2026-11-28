@@ -130,8 +130,8 @@
           </ul>
         {/if}
         <div class="flex flex-wrap gap-2">
-          <Button size="sm" disabled={pendingImport.differences.length === 0} onclick={confirmImport}>Import</Button>
-          <Button size="sm" variant="ghost" onclick={() => (pendingImport = null)}>Cancel</Button>
+          <Button size="sm" variant="ghost" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => (pendingImport = null)}>Cancel</Button>
+          <Button size="sm" class="pointer-coarse:min-h-11" disabled={pendingImport.differences.length === 0} onclick={confirmImport}>Import</Button>
         </div>
       {:else}
         <p class="text-destructive">{pendingImport.fileName} is not a valid policy:</p>
@@ -140,7 +140,7 @@
             <li>{issue}</li>
           {/each}
         </ul>
-        <div><Button size="sm" variant="ghost" onclick={() => (pendingImport = null)}>Close</Button></div>
+        <div><Button size="sm" variant="ghost" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => (pendingImport = null)}>Close</Button></div>
       {/if}
     </div>
   {/if}
@@ -148,13 +148,13 @@
   <div class="flex flex-wrap items-center justify-between gap-2">
     <div class="flex flex-wrap gap-2">
       {#if !readOnly && onChange}
-        <Button variant="outline" size="sm" aria-expanded={isJsonOpen} onclick={() => (isJsonOpen = !isJsonOpen)}>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" aria-expanded={isJsonOpen} onclick={() => (isJsonOpen = !isJsonOpen)}>
           <CodeIcon size={16} />
           {isJsonOpen ? "Hide JSON" : "Show JSON"}
         </Button>
       {/if}
       {#if !readOnly}
-        <Button variant="outline" size="sm" onclick={() => fileInput?.click()}>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => fileInput?.click()}>
           <UploadIcon size={16} />
           Import JSON
         </Button>
@@ -163,7 +163,7 @@
       <DropdownMenu.Root>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" disabled={!check.ok}>
+            <Button {...props} variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={!check.ok}>
               <DownloadIcon size={16} />
               Export
             </Button>

@@ -1,7 +1,7 @@
 import { isSessionWorktreeSetup, worktreeSetupCardId } from "@solus/contracts/setup-card";
 import { sessionWorktreeSetup } from "./session-worktree-setup";
 import { parseSideChatCommand } from "@t3tools/shared/composerTrigger";
-import { isPickerProvider } from "./use-model-picker-host";
+import { isModelPickerAgentVisible } from "@solus/client-core/model-picker-agents";
 import { projectThreadContentPresentation, threadSyncStatusLabel } from "../features/threads/threadContentPresentation";
 import { useDelayedStatus } from "../lib/useDelayedStatus";
 import { beginHostQueuedRunEdit, hostQueueMessage, saveHostQueuedRunEdit } from "./queue-messages";
@@ -643,7 +643,7 @@ export function useThreadScreenData({
     onCancelQueuedRunEdit: cancelQueuedRunEdit,
     onRemoveQueuedEditAttachment,
     canSwitchThreadProvider: controller.mayDrive && hostCapabilities?.sessionComposer?.providerSwitch !== false && !!meta.runOptions.agents?.some(agent =>
-      agent.available !== false && agent.id !== meta.run.provider && isPickerProvider(agent.id) && !controller.policy.providerDenial(agent.id)),
+      agent.available !== false && agent.id !== meta.run.provider && isModelPickerAgentVisible(agent.id, __DEV__) && !controller.policy.providerDenial(agent.id)),
     offersSideChat,
   } satisfies Omit<ThreadDetailScreenProps, "header">;
   return {

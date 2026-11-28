@@ -103,7 +103,7 @@
         <span class="truncate text-[0.875rem] leading-4.5 font-medium text-(--solus-text-primary)">{title}</span>
         {@render summary()}
       </div>
-      <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+      <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
         {#if isCurrent}
           <span class="inline-flex items-center gap-1 text-chrome-dense font-medium text-(--solus-status-complete)"><CheckIcon size={13} strokeWidth={2.5} aria-hidden="true" />In use</span>
         {/if}
@@ -137,11 +137,11 @@
   {#if isTailscaleCurrent && !isTailscaleBusy}
     <!-- In use: the address card already checks the address and offers Check again when it fails. -->
   {:else if isTailscaleBusy || tailscale.action === "turn-on"}
-    <Button size="sm" disabled={connectionsStore.appTailscaleBusyServerId !== null} onclick={() => void outsideApps.turnOnTailscale(serverId, reach)}>
+    <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={connectionsStore.appTailscaleBusyServerId !== null} onclick={() => void outsideApps.turnOnTailscale(serverId, reach)}>
       {#if isTailscaleBusy}<SpinnerIcon class="motion-safe:animate-spin" />Turning on {tailscaleFeature}…{:else}Turn on {tailscaleFeature}{/if}
     </Button>
   {:else if tailscale.action === "check"}
-    <Button variant="ghost" size="sm" class="bg-muted" onclick={() => void outsideApps.check(serverId)}>Check again</Button>
+    <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => void outsideApps.check(serverId)}>Check again</Button>
   {/if}
 {/snippet}
 
@@ -151,12 +151,12 @@
   {:else if solus.action === "policy" && cloudLock}
     <ManagedSettingNote note={cloudLock} />
   {:else if solus.action === "sign-in" && accountStore.state.kind === "signing-in"}
-    <Button variant="ghost" size="sm" class="bg-muted" onclick={() => accountStore.cancelSignIn()}>Cancel sign-in</Button>
+    <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => accountStore.cancelSignIn()}>Cancel sign-in</Button>
   {:else if solus.action && solus.action !== "policy"}
     <Button
-      variant="ghost"
+      variant="outline"
       size="sm"
-      class="bg-muted"
+      class="pointer-coarse:min-h-11"
       disabled={isSolusBusy || (solus.action === "sign-in" && accountStore.state.kind === "unavailable")}
       onclick={runSolus}
     >
@@ -169,13 +169,13 @@
   {#if !mayChangeSettings}
     <!-- Only someone who may change the host's settings adds or removes its address. -->
   {:else if isConfirmingRemove}
-    <Button variant="ghost" size="sm" class="bg-muted" disabled={isRemoving} onclick={() => (isConfirmingRemove = false)}>Keep</Button>
-    <Button variant="destructive" size="sm" disabled={isRemoving} onclick={() => void removeOwnAddress()}>{isRemoving ? "Removing…" : "Remove"}</Button>
+    <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" disabled={isRemoving} onclick={() => (isConfirmingRemove = false)}>Keep</Button>
+    <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={isRemoving} onclick={() => void removeOwnAddress()}>{isRemoving ? "Removing…" : "Remove"}</Button>
   {:else if ownAddress}
-    <Button variant="ghost" size="sm" class="bg-muted" aria-expanded={isAddingAddress} onclick={() => (isAddingAddress = !isAddingAddress)}>Change</Button>
-    <Button variant="ghost" size="sm" class="text-(--solus-status-error) hover:text-(--solus-status-error)" disabled={isAddingAddress} onclick={() => (isConfirmingRemove = true)}>Remove</Button>
+    <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" aria-expanded={isAddingAddress} onclick={() => (isAddingAddress = !isAddingAddress)}>Change</Button>
+    <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" disabled={isAddingAddress} onclick={() => (isConfirmingRemove = true)}>Remove</Button>
   {:else}
-    <Button variant="ghost" size="sm" class="bg-muted" aria-expanded={isAddingAddress} onclick={() => (isAddingAddress = !isAddingAddress)}>Add address</Button>
+    <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" aria-expanded={isAddingAddress} onclick={() => (isAddingAddress = !isAddingAddress)}>Add address</Button>
   {/if}
 {/snippet}
 

@@ -218,10 +218,11 @@
           <ListBulkBar {selection}>
             <AlertDialog.Trigger>
               {#snippet child({ props })}
-                <button
+                <Button
                   {...props}
-                  type="button"
-                  class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-[#cf222e] transition-colors duration-100 enabled:hover:bg-[#cf222e]/10 disabled:cursor-default disabled:opacity-50 @max-[30rem]/pane:h-9 @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:px-2.5 @max-[30rem]/pane:text-workspace-chrome [.dark_&]:text-[#f85149] [.dark_&]:enabled:hover:bg-[#f85149]/10"
+                  variant="destructive"
+                  size="sm"
+                  class="pointer-coarse:min-h-11"
                   disabled={!canDeleteSelection}
                   title="Delete the selected worktrees"
                 >
@@ -232,7 +233,7 @@
                     <Trash2 size={14} class="shrink-0" />
                     Delete
                   {/if}
-                </button>
+                </Button>
               {/snippet}
             </AlertDialog.Trigger>
           </ListBulkBar>
@@ -256,10 +257,10 @@
                   </li>
                 {/each}
               </ul>
-              <div class="flex justify-end gap-1.5">
+              <div class="flex justify-end gap-2">
                 <AlertDialog.Cancel>
                   {#snippet child({ props })}
-                    <Button {...props} variant="ghost" size="sm" class="pointer-coarse:min-h-11">Cancel</Button>
+                    <Button {...props} variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11">Cancel</Button>
                   {/snippet}
                 </AlertDialog.Cancel>
                 <AlertDialog.Action>

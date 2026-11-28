@@ -120,7 +120,7 @@
 </script>
 
 {#snippet editorButton(key: string)}
-  <Button variant="outline" size="sm" aria-expanded={openPolicyKey === key} onclick={() => toggleEditor(key)}>
+  <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" aria-expanded={openPolicyKey === key} onclick={() => toggleEditor(key)}>
     {openPolicyKey === key ? "Close" : canManage ? "Edit" : "View JSON"}
   </Button>
 {/snippet}
@@ -129,8 +129,8 @@
   {@const current = draft(target)}
   {#if current && canManage}
     {@const dirty = current.text !== current.saved.text}
-    <Button variant="ghost" size="sm" disabled={current.saving} onclick={() => cancel(target)}>Cancel</Button>
-    <Button size="sm" disabled={!dirty || current.saving || !!current.conflict} onclick={() => void save(target)}>
+    <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" disabled={current.saving} onclick={() => cancel(target)}>Cancel</Button>
+    <Button size="sm" class="pointer-coarse:min-h-11" disabled={!dirty || current.saving || !!current.conflict} onclick={() => void save(target)}>
       {current.saving ? "Saving…" : "Save"}
     </Button>
   {/if}
@@ -142,8 +142,8 @@
     <div class="flex flex-col gap-2 rounded-lg border border-border p-3 text-xs" role="alert" data-testid="policy-conflict">
       <p class="text-foreground">Another owner saved this policy while you edited it. Nothing of yours was saved.</p>
       <div class="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onclick={() => origin && organizationId && store.resolveConflict(origin, organizationId, target, "use-theirs")}>Use their policy</Button>
-        <Button size="sm" variant="outline" onclick={() => origin && organizationId && store.resolveConflict(origin, organizationId, target, "keep-mine")}>Keep my edits</Button>
+        <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" onclick={() => origin && organizationId && store.resolveConflict(origin, organizationId, target, "use-theirs")}>Use their policy</Button>
+        <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" onclick={() => origin && organizationId && store.resolveConflict(origin, organizationId, target, "keep-mine")}>Keep my edits</Button>
       </div>
     </div>
   {/if}
@@ -168,7 +168,7 @@
         <SettingsRow label={policy.title} description={policy.detail}>
           {#snippet control()}
             {#if policy.isMdm}
-              <Button variant="outline" size="sm" onclick={copyMdmAsNew}>
+              <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={copyMdmAsNew}>
                 <CopyIcon size={16} />
                 Copy as new
               </Button>
@@ -209,7 +209,7 @@
       {:else if view.status === "offline" || view.status === "error"}
         <div class="flex items-center gap-3 px-4 py-3 text-workspace-chrome" role="alert">
           <span class="text-destructive">{view.status === "offline" ? "Solus could not reach your account." : view.message}</span>
-          <Button variant="outline" size="sm" onclick={() => origin && organizationId && void store.load(origin, organizationId)}>Retry</Button>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => origin && organizationId && void store.load(origin, organizationId)}>Retry</Button>
         </div>
       {:else if ready}
         {@const organizationDraft = draft(ORGANIZATION)}
@@ -261,10 +261,10 @@
                     {#snippet actions()}
                       {#if canManage}
                         {#if confirmingDeleteId === policy.policyId}
-                          <Button variant="destructive" size="sm" onclick={() => void deleteHostPolicy(policy.policyId)}>Delete {policy.name}</Button>
-                          <Button variant="ghost" size="sm" onclick={() => (confirmingDeleteId = null)}>Keep</Button>
+                          <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => (confirmingDeleteId = null)}>Keep</Button>
+                          <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={() => void deleteHostPolicy(policy.policyId)}>Delete {policy.name}</Button>
                         {:else}
-                          <Button variant="ghost" size="sm" onclick={() => (confirmingDeleteId = policy.policyId)}>Delete…</Button>
+                          <Button variant="destructive" size="sm" class="pointer-coarse:min-h-11" onclick={() => (confirmingDeleteId = policy.policyId)}>Delete…</Button>
                         {/if}
                       {/if}
                       {@render draftActions(target)}
@@ -290,11 +290,11 @@
                 <form class="flex gap-2" onsubmit={(event) => { event.preventDefault(); void createHostPolicy(); }}>
                   <!-- svelte-ignore a11y_autofocus -->
                   <Input bind:value={newPolicyName} placeholder="Name" aria-label="New host policy name" class="h-8 w-44" maxlength={120} autofocus />
-                  <Button type="button" size="sm" variant="ghost" onclick={() => { isCreatingHostPolicy = false; newPolicyName = ""; createError = null; }}>Cancel</Button>
-                  <Button type="submit" size="sm" disabled={creating || !newPolicyName.trim()}>{creating ? "Creating…" : "Create"}</Button>
+                  <Button type="button" size="default" variant="ghost" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => { isCreatingHostPolicy = false; newPolicyName = ""; createError = null; }}>Cancel</Button>
+                  <Button type="submit" size="default" class="pointer-coarse:min-h-11" disabled={creating || !newPolicyName.trim()}>{creating ? "Creating…" : "Create"}</Button>
                 </form>
               {:else}
-                <Button variant="outline" size="sm" onclick={() => (isCreatingHostPolicy = true)}>
+                <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => (isCreatingHostPolicy = true)}>
                   <PlusIcon size={16} />
                   New host policy
                 </Button>
@@ -329,13 +329,13 @@
         description="Write a policy and download it for your MDM tool, to lock settings on the machines it manages. Nothing here is saved to Solus Cloud."
       >
         {#snippet control()}
-          <Button variant="outline" size="sm" aria-expanded={isFileOpen} onclick={() => (isFileOpen = !isFileOpen)}>{isFileOpen ? "Close" : "Create"}</Button>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" aria-expanded={isFileOpen} onclick={() => (isFileOpen = !isFileOpen)}>{isFileOpen ? "Close" : "Create"}</Button>
         {/snippet}
         {#snippet body()}
           {#if isFileOpen}
             <PolicyDocumentEditor label="MDM policy file" kind="mdm" text={store.builderText} onChange={(text) => (store.builderText = text)}>
               {#snippet actions()}
-                <Button variant="outline" size="sm" onclick={() => (store.builderText = policyText(newPolicyDocument("mdm", organizationName)))}>Start again</Button>
+                <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => (store.builderText = policyText(newPolicyDocument("mdm", organizationName)))}>Start again</Button>
               {/snippet}
             </PolicyDocumentEditor>
           {/if}

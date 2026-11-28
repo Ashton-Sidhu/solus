@@ -95,7 +95,7 @@
     description="Use a one-time code for web, mobile, or environments without SSH."
   >
     {#snippet control()}
-      <Button size="sm" onclick={() => void connections.generatePairToken(serverId)}>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => void connections.generatePairToken(serverId)}>
         <PlusIcon size={14} weight="bold" />
         Generate pair code
       </Button>
@@ -114,6 +114,7 @@
         <Button
           variant="ghost"
           size="icon-sm"
+          class="text-muted-foreground pointer-coarse:tap-area"
           onclick={() => copy(connections.activePair!.code, "code")}
           aria-label="Copy code"
         >
@@ -136,6 +137,7 @@
         <Button
           variant="ghost"
           size="icon-sm"
+          class="text-muted-foreground pointer-coarse:tap-area"
           onclick={() => void connections.generatePairToken(serverId)}
           aria-label={pairExpired
             ? "Generate new pair code"
@@ -183,9 +185,9 @@
             >
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="icon-xs"
               onclick={() => copy(bestPairLink, "best-link")}
-              class="shrink-0"
+              class="shrink-0 text-muted-foreground pointer-coarse:tap-area"
               aria-label="Copy best pair link"
             >
               {#if copiedField === "best-link"}
@@ -220,7 +222,7 @@
               variant="ghost"
               size="icon-xs"
               onclick={() => copy(link, endpoint.host)}
-              class="text-(--solus-text-tertiary) opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+              class="text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 pointer-coarse:tap-area"
               aria-label="Copy link"
             >
               {#if copiedField === endpoint.host}
@@ -235,9 +237,9 @@
     {/if}
 
     <Button
-      variant="outline"
+      variant="ghost"
       size="sm"
-      class="self-start"
+      class="self-start text-muted-foreground pointer-coarse:min-h-11"
       onclick={() => {
         connections.activePair = null;
       }}

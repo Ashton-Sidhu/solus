@@ -80,7 +80,7 @@
     </SettingsRow>
     <SettingsRow {...settingsDefinitions["providers.reset-model-options"]}>
       {#snippet control()}
-        <Button variant="outline" size="sm" disabled={!hasSavedOptions} onclick={resetOptions}>Reset options</Button>
+        <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={!hasSavedOptions} onclick={resetOptions}>Reset options</Button>
       {/snippet}
     </SettingsRow>
   {:else if modelId === "auto"}

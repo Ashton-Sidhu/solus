@@ -62,6 +62,7 @@
         <Button
           variant={command.command === "restart" ? "default" : "outline"}
           size="sm"
+          class="pointer-coarse:min-h-11"
           onclick={runCommand}
         >
           {command.label}
@@ -101,7 +102,7 @@
   </SettingsRow>
   {#if updatesStore.isAvailable && serversStore.local}
     <SettingsRow {...settingsDefinitions["general.coding-providers"]} description={providerSummary(hostUpdatesStore.hostUpdateFor(LOCAL_SERVER_ID))}>
-      {#snippet control()}<Button variant="outline" size="sm" onclick={openProviders}>Show providers</Button>{/snippet}
+      {#snippet control()}<Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={openProviders}>Show providers</Button>{/snippet}
     </SettingsRow>
   {/if}
   {#if serversStore.activeServer}

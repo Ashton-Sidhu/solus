@@ -15,7 +15,7 @@
 
 {#if hiddenCount > 0 || expanded}
   <div class="flex justify-center px-4 py-2">
-    <Button variant="ghost" size="sm" class="text-muted-foreground" onclick={onToggle}>
+    <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={onToggle}>
       {expanded ? `Show fewer ${noun}` : `Show ${hiddenCount} more`}
     </Button>
   </div>

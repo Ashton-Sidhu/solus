@@ -5,8 +5,11 @@ import type { HostOperatingSystem } from '@solus/contracts/types'
 /**
  * The machines an Add machine card offers (docs/plans/add-machine-card.md), in
  * one order for desktop, web, and mobile. Each machine gets the way that needs
- * the least from the person: a code this client makes, then SSH, then an
- * approval request. A typed code is the card's fallback, not a candidate.
+ * the least from the person and nobody at the machine: a code this client makes,
+ * then SSH, then the `code` way, which first joins with no code where the
+ * machine's network trusts the session host and asks for a code only when it
+ * does not. An approval request needs somebody at the machine, so no row gets it:
+ * the person chooses it on the card.
  */
 
 /** A host this client reaches. The caller leaves out the session's own host. */
@@ -51,7 +54,7 @@ export interface AddMachineCandidate {
   os?: HostOperatingSystem
 }
 
-const WAY_ORDER = { minted: 0, ssh: 1, approve: 2, code: 3 } as const
+const WAY_ORDER = { minted: 0, ssh: 1, code: 2, approve: 3 } as const
 // Words that name every machine and so match none.
 const COMMON_WORDS = new Set(['my', 'the', 'machine', 'computer', 'host', 'server', 'box', 'pc', 'at', 'on', 'to', 'this', 'that', 'link', 'add', 'pair', 'connect', 'with'])
 
@@ -68,6 +71,36 @@ function hintWords(hint: string | undefined): string[] {
   return (hint ?? '').toLowerCase().split(/[^a-z0-9.]+/).filter((word) => word.length >= 3 && !COMMON_WORDS.has(word))
 }
 
+/** The alias of an SSH target: `user@alias:port` without its user and port. */
+function sshAlias(target: string): string {
+  return target.replace(/^[^@]*@/, '').replace(/:\d+$/, '')
+}
+
+/** An SSH row's name: the alias alone. The address it resolves to is in the row's detail. */
+function sshRowName(target: SshTargetCandidate): string {
+  return target.hostName ? sshAlias(target.target) : target.label
+}
+
+/** An SSH row's detail: the target as SSH reaches it, with the alias resolved (`ashto@10.10.1.10`). */
+function sshRowDetail(target: SshTargetCandidate): string {
+  if (!target.hostName) return target.target
+  const user = /^[^@]*@/.exec(target.target)?.[0] ?? ''
+  const port = /:\d+$/.exec(target.target)?.[0] ?? ''
+  return `${user}${target.hostName}${port}`
+}
+
+/**
+ * How the "Other machine…" row reads what the person typed. A URL, a pair link,
+ * or `host:port` without a user is a Solus address; anything else is an SSH
+ * target (`user@host`, an alias, a bare host), which can also install Solus.
+ */
+export function otherMachineWay(typed: string): 'ssh' | 'address' {
+  const text = typed.trim()
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return 'address'
+  if (!text.includes('@') && /:\d+$/.test(text)) return 'address'
+  return 'ssh'
+}
+
 function orderOf(candidate: AddMachineCandidate): number {
   return candidate.minted ? WAY_ORDER.minted : WAY_ORDER[candidate.way]
 }
@@ -79,15 +112,15 @@ export function rankAddMachineCandidates(ask: AddMachineAsk, sources: AddMachine
   const all: AddMachineCandidate[] = []
   for (const machine of sources.reachable) {
     if (!machine.url) continue
-    const row: AddMachineCandidate = { key: `host:${machine.serverId}`, label: machine.label, detail: machine.url, way: machine.canMint ? 'code' : 'approve', minted: machine.canMint, url: machine.url, serverId: machine.serverId, isMatch: false }
+    const row: AddMachineCandidate = { key: `host:${machine.serverId}`, label: machine.label, detail: machine.url, way: 'code', minted: machine.canMint, url: machine.url, serverId: machine.serverId, isMatch: false }
     if (machine.os) row.os = machine.os
     all.push(row)
   }
   for (const target of sources.ssh) {
-    all.push({ key: `ssh:${target.target}`, label: target.label, detail: target.hostName ? `${target.target} · ${target.hostName}` : target.target, way: 'ssh', minted: false, sshTarget: target.target, isMatch: false })
+    all.push({ key: `ssh:${target.target}`, label: sshRowName(target), detail: sshRowDetail(target), way: 'ssh', minted: false, sshTarget: target.target, isMatch: false })
   }
   for (const machine of sources.nearby) {
-    all.push({ key: `nearby:${machine.url}`, label: machine.label, detail: machine.url, way: 'approve', minted: false, url: machine.url, isMatch: false })
+    all.push({ key: `nearby:${machine.url}`, label: machine.label, detail: machine.url, way: 'code', minted: false, url: machine.url, isMatch: false })
   }
 
   const addressOf = (candidate: AddMachineCandidate): string | null => {
@@ -111,7 +144,7 @@ export function rankAddMachineCandidates(ask: AddMachineAsk, sources: AddMachine
     if (!address) { unaddressed.push(candidate); continue }
     const held = byAddress.get(address)
     const best = !held || orderOf(candidate) < orderOf(held) ? candidate : held
-    // An SSH row keeps a Solus address it shares, so the card can still ask for approval or a code there.
+    // An SSH row keeps a Solus address it shares, so the card can still use a code there.
     const url = best.url ?? (best === candidate ? held?.url : candidate.url)
     byAddress.set(address, url ? { ...best, url } : best)
   }
@@ -119,7 +152,7 @@ export function rankAddMachineCandidates(ask: AddMachineAsk, sources: AddMachine
   // The agent's address is always offered, also when no source knows it.
   if (ask.url && askHost) {
     const held = byAddress.get(askHost)
-    if (!held) byAddress.set(askHost, { key: `ask:${ask.url}`, label: askHost, detail: ask.url, way: 'approve', minted: false, url: ask.url, isMatch: true })
+    if (!held) byAddress.set(askHost, { key: `ask:${ask.url}`, label: askHost, detail: ask.url, way: 'code', minted: false, url: ask.url, isMatch: true })
     else if (!held.url) byAddress.set(askHost, { ...held, url: ask.url })
   }
   const rows = [...byAddress.values(), ...unaddressed]

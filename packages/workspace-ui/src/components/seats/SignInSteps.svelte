@@ -114,8 +114,8 @@
                as a washed-out block, not as the next step. -->
           <Button
             type="submit"
-            class="h-8 px-3"
-            size="sm"
+            class="pointer-coarse:min-h-11"
+            size="default"
             variant={code.trim() ? "default" : "secondary"}
             disabled={!code.trim() || submitting}
           >
@@ -148,27 +148,27 @@
 
   <div class="flex items-center gap-2">
     {#if verification && !pageOpen}
-      <Button class="h-8.5 px-3.5 pointer-coarse:min-h-11" onclick={openPage}>
+      <Button size="sm" class="pointer-coarse:min-h-11" onclick={openPage}>
         Open {label}
         <ExternalLinkIcon data-icon="inline-end" />
       </Button>
       <span class="flex-1"></span>
-      <Button size="sm" variant="ghost" class="-mr-2.5 text-muted-foreground" onclick={oncancel}>Cancel</Button>
+      <Button size="sm" variant="ghost" class="-mr-2.5 text-muted-foreground pointer-coarse:min-h-11" onclick={oncancel}>Cancel</Button>
     {:else if verification}
-      <Button size="sm" variant="ghost" class="-ml-2.5 text-muted-foreground" onclick={openPage}>
+      <Button size="sm" variant="ghost" class="-ml-2.5 text-muted-foreground pointer-coarse:min-h-11" onclick={openPage}>
         Open {label} again
         <ExternalLinkIcon data-icon="inline-end" />
       </Button>
       <span class="flex-1"></span>
-      <Button size="sm" variant="ghost" class="-mr-2.5 text-muted-foreground" onclick={oncancel}>Cancel</Button>
+      <Button size="sm" variant="ghost" class="-mr-2.5 text-muted-foreground pointer-coarse:min-h-11" onclick={oncancel}>Cancel</Button>
     {:else if onstart}
-      <Button class="h-8.5 px-3.5 pointer-coarse:min-h-11" disabled={starting} onclick={onstart}>
+      <Button size="sm" class="pointer-coarse:min-h-11" disabled={starting} onclick={onstart}>
         {starting ? "Opening…" : (startLabel ?? `Open ${label}`)}
         {#if !starting}<ExternalLinkIcon data-icon="inline-end" />{/if}
       </Button>
       <span class="flex-1"></span>
       {#if ondismiss}
-        <Button size="sm" variant="ghost" class="-mr-2.5 text-muted-foreground" onclick={ondismiss}>Not now</Button>
+        <Button size="sm" variant="ghost" class="-mr-2.5 text-muted-foreground pointer-coarse:min-h-11" onclick={ondismiss}>Not now</Button>
       {/if}
     {/if}
   </div>

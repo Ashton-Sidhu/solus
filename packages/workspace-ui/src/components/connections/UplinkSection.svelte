@@ -110,13 +110,14 @@
           <Button
             variant="outline"
             size="sm"
+            class="pointer-coarse:min-h-11"
             disabled={busy || !uplink}
             onclick={() => void uplinkStore.register(serverId)}
           >
             {busy ? "Registering…" : "Register"}
           </Button>
         {:else if account.kind !== "signing-in" && account.kind !== "unavailable"}
-          <Button variant="outline" size="sm" onclick={() => session.showSettings("account", "click")}>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => session.showSettings("account", "click")}>
             Open Account & sync
           </Button>
         {/if}
@@ -138,6 +139,7 @@
         <Button
           variant="outline"
           size="sm"
+          class="pointer-coarse:min-h-11"
           disabled={selfTest?.kind === "running"}
           onclick={() => void uplinkStore.runSelfTest(serverId)}
         >
@@ -176,6 +178,7 @@
           <Button
             variant="outline"
             size="sm"
+            class="pointer-coarse:min-h-11"
             onclick={() => void localApi.openExternal(websiteUrl)}
           >
             Manage on website

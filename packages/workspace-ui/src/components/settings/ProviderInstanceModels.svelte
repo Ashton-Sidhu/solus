@@ -136,8 +136,8 @@
   <div class="flex flex-col gap-4 p-4">
     <div class="flex items-center gap-2">
       <Input aria-label="Filter provider models" placeholder="Filter models" bind:value={query} class="min-w-0 flex-1" />
-      <Button variant="ghost" size="sm" class="shrink-0" onclick={toggleAll}>{instance.hiddenModels.length ? "Show all" : "Hide all"}</Button>
-      <Button variant="outline" size="sm" class="shrink-0" disabled={adding} onclick={() => (adding = true)}>Add custom model</Button>
+      <Button variant="outline" size="default" class="shrink-0 pointer-coarse:min-h-11" onclick={toggleAll}>{instance.hiddenModels.length ? "Show all" : "Hide all"}</Button>
+      <Button variant="outline" size="default" class="shrink-0 pointer-coarse:min-h-11" disabled={adding} onclick={() => (adding = true)}>Add custom model</Button>
     </div>
     {#if adding}
       <form class="flex flex-col gap-3 rounded-lg border border-border p-4" onsubmit={(event) => { event.preventDefault(); add(); }} onkeydown={(event) => { if (event.key === "Escape") closeForm(); }}>
@@ -149,7 +149,7 @@
           </label>
         </div>
         {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
-        <div class="flex justify-end gap-2"><Button variant="ghost" size="sm" onclick={closeForm}>Cancel</Button><Button size="sm" type="submit">Add model</Button></div>
+        <div class="flex justify-end gap-2"><Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={closeForm}>Cancel</Button><Button size="sm" class="pointer-coarse:min-h-11" type="submit">Add model</Button></div>
       </form>
     {/if}
     <div class="divide-y divide-border">

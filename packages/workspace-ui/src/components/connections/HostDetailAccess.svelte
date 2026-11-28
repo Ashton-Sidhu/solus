@@ -169,7 +169,7 @@
           variant="ghost"
           size="icon-sm"
           onclick={copyAddress}
-          class="text-(--solus-text-tertiary)"
+          class="text-muted-foreground pointer-coarse:tap-area"
           aria-label="Copy network address"
         >
           {#if addressCopied}

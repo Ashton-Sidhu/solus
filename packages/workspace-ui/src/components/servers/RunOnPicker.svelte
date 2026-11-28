@@ -377,10 +377,14 @@
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}
+          <!-- The header chip keeps its name while locked, so it does not
+               shrink to an icon while a turn connects and runs. -->
           <span
             {...tooltipProps}
             aria-label={`Runs on ${selectedServer ? hostLabel(selectedServer) : "an unknown host"}`}
-            class="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary)"
+            class={variant === "header"
+              ? "inline-flex min-w-0 max-w-44 items-center gap-1.5 overflow-hidden px-2 py-1 text-workspace-chrome text-(--solus-text-tertiary) pointer-coarse:max-w-32"
+              : "inline-flex size-7 shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary)"}
           >
             {#if selectedAffinity}
               {@const HostIcon = selectedAffinity.icon}
@@ -397,6 +401,9 @@
               />
             {:else}
               <DesktopTowerIcon size={14} class="shrink-0 opacity-60" />
+            {/if}
+            {#if variant === "header"}
+              <span class="truncate">{hostLabel(selectedServer)}</span>
             {/if}
           </span>
         {/snippet}

@@ -6,7 +6,7 @@
    *  address, which needs no setup, is one line under the card. The host tests
    *  the address once the card shows it. */
   import { untrack } from "svelte";
-  import { Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
+  import { Check as CheckIcon, Copy as CopyIcon, Info as InfoIcon, TriangleAlert as WarningIcon } from "@lucide/svelte";
   import { connectionsStore } from "../../../contexts";
   import { Button } from "../../ui/button";
   import MarkdownAlert from "../../ui/MarkdownAlert.svelte";
@@ -51,7 +51,7 @@
   <span class="flex min-w-0 items-center gap-1">
     <span class="shrink-0 text-(--solus-text-tertiary)">{label}</span>
     <span class="min-w-0 truncate font-mono text-[0.75rem] text-(--solus-text-secondary) select-text">{shownAppAddress(url)}</span>
-    <Button variant="ghost" size="icon-xs" class="shrink-0 text-(--solus-text-tertiary)" aria-label="Copy {url}" onclick={() => void copy(url)}>
+    <Button variant="ghost" size="icon-xs" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" aria-label="Copy {url}" onclick={() => void copy(url)}>
       {#if copiedUrl === url}<CheckIcon class="text-(--solus-status-complete)" />{:else}<CopyIcon />{/if}
     </Button>
   </span>
@@ -61,8 +61,8 @@
   {@render addressLine(`On ${hostName}`, localUrl)}
 {/snippet}
 
-<!-- The app's callouts (MarkdownAlert): a Note for a working address, a Warning when its test fails,
-     Important when the host has none. The choice of ways is a card under the callout. -->
+<!-- A host with an address shows the address callout. The prose callouts (MarkdownAlert) are for an
+     error and for the choice of ways: Important when the host has no address. -->
 <section class="flex flex-col gap-3 text-[0.8125rem] leading-5" aria-label="Where apps reach this host">
   {#if endpointError}
     <MarkdownAlert alertType="caution" content={endpointErrorText} />
@@ -70,33 +70,42 @@
     <p class="px-0.5 text-(--solus-text-tertiary)">Reading addresses…</p>
   {:else if address && !isChoosing}
     {@const url = address.url}
-    {@const localUrl = endpoint.localUrl}
-    {#snippet addressText()}
-      <div class="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <div class="flex min-w-0 flex-1 basis-64 flex-col gap-0.5">
-          <p class="m-0 text-pretty" aria-live="polite">
-            {#if failure}
-              Cloud apps can’t reach {hostName} at this address. {failure}
-            {:else if health === "untested"}
-              Testing the address of {hostName}…
-            {:else if shown?.isDevicesOnly}
-              Your devices reach {hostName} through {appAddressSourceLabel(address.source)}. Cloud apps need an internet address.
-            {:else}
-              Cloud apps and your devices reach {hostName} through {appAddressSourceLabel(address.source)}.
-            {/if}
-          </p>
-          {@render addressLine("At", url)}
-          {@render localLine(localUrl)}
-        </div>
-        <div class="flex shrink-0 items-center gap-1.5">
+    <!-- The address callout: a boxed Note (a Warning when the test fails) in the colours of the
+         app's callouts. Its title row holds the actions; the address that apps use is the main value. -->
+    <div
+      class="flex min-w-0 flex-col gap-2.5 rounded-xl border border-[color-mix(in_oklch,var(--callout)_24%,transparent)] bg-[color-mix(in_oklch,var(--callout)_6%,transparent)] px-4 pt-3 pb-3.5 {failure ? '[--callout:var(--solus-art-2)]' : '[--callout:var(--solus-art-5)]'}"
+      role="note"
+    >
+      <div class="flex min-w-0 items-center justify-between gap-3">
+        <p class="m-0 flex items-center gap-1.5 font-medium text-[color:color-mix(in_oklch,var(--callout)_78%,var(--solus-text-primary))]">
+          {#if failure}<WarningIcon size={15} aria-hidden="true" />Warning{:else}<InfoIcon size={15} aria-hidden="true" />Note{/if}
+        </p>
+        <div class="flex shrink-0 items-center gap-1">
           {#if failure}
-            <Button variant="ghost" size="sm" class="bg-muted" onclick={() => void connectionsStore.testAppAddress(serverId, address.source)}>Check again</Button>
+            <Button variant="ghost" size="sm" class="h-7 px-2 text-(--solus-text-secondary) pointer-coarse:min-h-11" onclick={() => void connectionsStore.testAppAddress(serverId, address.source)}>Check again</Button>
           {/if}
-          <Button variant="ghost" size="sm" class="bg-muted" onclick={() => (isChoosing = true)}>Change</Button>
+          <Button variant="ghost" size="sm" class="h-7 px-2 text-(--solus-text-secondary) pointer-coarse:min-h-11" onclick={() => (isChoosing = true)}>Change</Button>
         </div>
       </div>
-    {/snippet}
-    <MarkdownAlert alertType={failure ? "warning" : "note"} content={addressText} />
+      <p class="m-0 text-pretty text-(--solus-text-primary)" aria-live="polite">
+        {#if failure}
+          Cloud apps can’t reach {hostName} at this address. {failure}
+        {:else if health === "untested"}
+          Testing the address of {hostName}…
+        {:else if shown?.isDevicesOnly}
+          Your devices reach {hostName} through {appAddressSourceLabel(address.source)}. Cloud apps need an internet address.
+        {:else}
+          Cloud apps and your devices reach {hostName} through {appAddressSourceLabel(address.source)}.
+        {/if}
+      </p>
+      <div class="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-(--solus-tx-card-bg) py-1 pr-1 pl-3">
+        <span class="min-w-0 flex-1 truncate font-mono text-[0.8125rem] text-(--solus-text-primary) select-text" title={url}>{shownAppAddress(url)}</span>
+        <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" aria-label="Copy {url}" onclick={() => void copy(url)}>
+          {#if copiedUrl === url}<CheckIcon class="text-(--solus-status-complete)" />{:else}<CopyIcon />{/if}
+        </Button>
+      </div>
+      <div class="text-chrome-dense">{@render localLine(endpoint.localUrl)}</div>
+    </div>
   {:else}
     {@const localUrl = endpoint.localUrl}
     {#snippet chooseText()}
@@ -116,7 +125,7 @@
       <OutsideAppsAddressWays {serverId} {hostName} reach="internet" currentSource={address?.source ?? null} />
       {#if address}
         <div class="flex justify-end px-3 pt-1 pb-1.5">
-          <Button variant="ghost" size="sm" class="bg-muted" onclick={() => (isChoosing = false)}>Done</Button>
+          <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={() => (isChoosing = false)}>Done</Button>
         </div>
       {/if}
     </div>

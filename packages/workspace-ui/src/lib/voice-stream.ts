@@ -8,6 +8,9 @@ export interface VoiceStreamApi {
   voiceStreamCancel(request: VoiceStreamRequest): Promise<void>
 }
 
+const MAX_FEED_SAMPLES = 16_000
+const MAX_QUEUED_SAMPLES = 160_000
+
 /** Serial feeds with bounded buffering. Losing a stream never loses the
  * recorder's separate full clip, which remains available for an offline retry. */
 export class VoiceStreamSession {
@@ -32,9 +35,9 @@ export class VoiceStreamSession {
 
   feed(samples: Float32Array): void {
     if (this.#cancelled || this.#failed || this.#finished || this.#finishing) return
-    // AudioWorklet capture emits 250 ms packets. Bound startup/slow-device
+    // AudioWorklet capture emits 80 ms packets. Bound startup/slow-device
     // backlog to ten seconds instead of retaining unbounded RPC promises.
-    if (samples.length > 16_000 || this.#queuedSamples + samples.length > 160_000) {
+    if (samples.length > MAX_FEED_SAMPLES || this.#queuedSamples + samples.length > MAX_QUEUED_SAMPLES) {
       this.#fail(new Error('Voice streaming could not keep up with recording'))
       return
     }
@@ -44,13 +47,33 @@ export class VoiceStreamSession {
     this.#drain()
   }
 
+  #takeBatch(): Float32Array {
+    const first = this.#queued.shift()!
+    this.#queuedSamples -= first.length
+    if (!this.#queued.length || first.length + this.#queued[0].length > MAX_FEED_SAMPLES) return first
+    const batch: Float32Array[] = [first]
+    let total = first.length
+    while (this.#queued.length && total + this.#queued[0].length <= MAX_FEED_SAMPLES) {
+      const next = this.#queued.shift()!
+      this.#queuedSamples -= next.length
+      batch.push(next)
+      total += next.length
+    }
+    const merged = new Float32Array(total)
+    let offset = 0
+    for (const chunk of batch) {
+      merged.set(chunk, offset)
+      offset += chunk.length
+    }
+    return merged
+  }
+
   #drain(): void {
     if (this.#draining) return
     this.#draining = (async () => {
       await this.#started
       while (this.#queued.length && !this.#cancelled && !this.#failed) {
-        const samples = this.#queued.shift()!
-        this.#queuedSamples -= samples.length
+        const samples = this.#takeBatch()
         const partial = await this.api.voiceStreamFeed({ streamId: this.#streamId!, samples: Array.from(samples) })
         // A late reply must not restore text after cancellation or failure.
         if (!this.#cancelled && !this.#failed) this.#publishPartial(partial)

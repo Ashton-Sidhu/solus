@@ -142,7 +142,7 @@
 >
   {#snippet action()}
     {#if !isAdding}
-      <Button variant="outline" size="sm" class="text-workspace-chrome shadow-xs pointer-coarse:min-h-11" onclick={() => void openAdd()}><Plus size={14} />Add a server</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => void openAdd()}><Plus size={14} />Add a server</Button>
     {/if}
   {/snippet}
   {#if isAdding}
@@ -182,8 +182,8 @@
           {/if}
         </p>
         <div class="flex shrink-0 gap-2">
-          <Button variant="ghost" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={closeAdd}>Cancel</Button>
-          <Button type="submit" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={!probeHostId || !address || !!urlProblem || checking}>
+          <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" onclick={closeAdd}>Cancel</Button>
+          <Button type="submit" size="sm" class="pointer-coarse:min-h-11" disabled={!probeHostId || !address || !!urlProblem || checking}>
             {#if checking}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Checking…{:else}Add{/if}
           </Button>
         </div>
@@ -207,7 +207,7 @@
             <span class="truncate">{status.text}</span>
           </span>
           {#if status.canConnect}
-            <Button variant="outline" size="sm" class="text-workspace-chrome shadow-xs pointer-coarse:min-h-11" disabled={isHostOffline}
+            <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={isHostOffline}
               onclick={() => openConnect({ name: integration.name, url: integration.url, integrationId: status.integrationId ?? undefined })}
               aria-label="Connect {integration.name} on {hostLabel}">Connect</Button>
           {/if}

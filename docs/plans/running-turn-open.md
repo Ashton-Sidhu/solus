@@ -58,7 +58,13 @@ prompt until the turn ended.
 3. **A watch replays the running turn.** `attachRuntime` replays the whole log.
    A run that is still starting (setup or launch, before the provider session
    exists) replays the latest setup card and the turn from its prompt on. The
-   result names the replayed turn in `runningTurnStartedAt`.
+   result names the replayed turn in `runningTurnStartedAt`. The replay goes
+   through the client's event queue, behind the audience check of its first
+   event. The watch answers only after that queue sent it
+   (`ClientEventRegistry.delivered`), so the replay always reaches the client
+   before the answer. Without this, the answer could arrive first, and a client
+   applied the whole turn as live events: the phone streamed the turn again
+   from its prompt.
 4. **An opening read is one moment.** The host starts the watch first, then
    reads the page and leaves out the turn that the watch replayed (or a turn
    that started after the watch, whose events reached the client live). The

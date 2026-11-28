@@ -5,8 +5,11 @@ import { join } from 'node:path'
 import { compileModule } from 'svelte/compiler'
 import ts from 'typescript'
 
-test('a switched or unmounted composer keeps its transcript until its tab closes', async () => {
-  const root = new URL('../../', import.meta.url)
+const root = new URL('../../', import.meta.url)
+
+/** Runs a scenario against the real dictation and composer voice code, with
+ *  the recorder and the app contexts replaced by small fakes. */
+async function runComposerVoice(scenario: string) {
   const production = [
     'lib/dictation.svelte.ts',
     'components/input/lib/composer-voice.svelte.ts',
@@ -37,10 +40,31 @@ test('a switched or unmounted composer keeps its transcript until its tab closes
     const getClientShellContext = () => ({ visible: true });
     const hosts = { device: {}, transcription: { voiceReady: true, transcribes: true } };
     class VoiceRetryTracker { canRetry() { return false; } reset() {} }
-    const useKeybinding = () => {};
+    const bindings = [];
+    const useKeybinding = (id, handler, opts) => bindings.push({ id, handler, opts });
+    globalThis.document = { activeElement: null };
     const requestInputFocus = () => {};
     const toasts = {};
     ${production}
+${scenario}`
+  const directory = mkdtempSync(join(tmpdir(), 'solus-composer-dictation-'))
+  try {
+    const js = new Bun.Transpiler({ loader: 'ts' }).transformSync(harness)
+    const compiled = compileModule(js, { filename: 'composer-dictation.svelte.js', generate: 'client' }).js.code
+      .replaceAll(/(['"])svelte\/internal\/client\1/g, JSON.stringify(new URL('node_modules/svelte/src/internal/client/index.js', root).href))
+      .replaceAll(/(['"])svelte\1/g, JSON.stringify(new URL('node_modules/svelte/src/index-client.js', root).href))
+    const path = join(directory, 'dictation.mjs')
+    writeFileSync(path, compiled)
+    const child = Bun.spawn([process.execPath, path], { stdout: 'pipe', stderr: 'pipe' })
+    const [stderr, code] = await Promise.all([new Response(child.stderr).text(), child.exited])
+    expect({ code, stderr }).toEqual({ code: 0, stderr: '' })
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+}
+
+test('a switched or unmounted composer keeps its transcript until its tab closes', async () => {
+  await runComposerVoice(`
     const first = $state({ text: 'first' });
     const second = $state({ text: 'second' });
     let shown = $state('first');
@@ -78,19 +102,38 @@ test('a switched or unmounted composer keeps its transcript until its tab closes
     recorder.result('late'); flushSync();
     assert.deepEqual([recorder.state, first.text, second.text], ['idle', 'first recorded returned', 'second']);
     closeSecond();
-  `
-  const directory = mkdtempSync(join(tmpdir(), 'solus-composer-dictation-'))
-  try {
-    const js = new Bun.Transpiler({ loader: 'ts' }).transformSync(harness)
-    const compiled = compileModule(js, { filename: 'composer-dictation.svelte.js', generate: 'client' }).js.code
-      .replaceAll(/(['"])svelte\/internal\/client\1/g, JSON.stringify(new URL('node_modules/svelte/src/internal/client/index.js', root).href))
-      .replaceAll(/(['"])svelte\1/g, JSON.stringify(new URL('node_modules/svelte/src/index-client.js', root).href))
-    const path = join(directory, 'dictation.mjs')
-    writeFileSync(path, compiled)
-    const child = Bun.spawn([process.execPath, path], { stdout: 'pipe', stderr: 'pipe' })
-    const [stderr, code] = await Promise.all([new Response(child.stderr).text(), child.exited])
-    expect({ code, stderr }).toEqual({ code: 0, stderr: '' })
-  } finally {
-    rmSync(directory, { recursive: true, force: true })
-  }
+  `)
+})
+
+test('the voice shortcut records into the draft, not the session bar hidden under it', async () => {
+  // The workspace dock stays mounted and active under a draft that holds the
+  // leading pane; only `isPrimary` moves to the draft. The dock mounted first,
+  // so it answers the shortcut first unless it steps aside.
+  await runComposerVoice(`
+    const session = $state({ text: '' });
+    const draft = $state({ text: '' });
+    let draftOpen = $state(false);
+    function mount(owner, prompt, isPrimary) {
+      return $effect.root(() => useComposerVoice({
+        ownerId: () => 'composer:' + owner, prompt: () => prompt,
+        active: () => true, isPrimary,
+        isReadOnly: () => false, isConnecting: () => false,
+        isBusy: () => false, text: () => prompt.text,
+        editor: () => ({ insertTranscript(text) { prompt.text += text; } }),
+        sendPrompt: () => false,
+      }));
+    }
+    const shortcut = () => bindings.find(binding =>
+      binding.id === 'voice.toggle-recorder' && binding.opts.enabled()).handler();
+    const closeDock = mount('session-tab', session, () => !draftOpen);
+    flushSync();
+    draftOpen = true;
+    const closeDraft = mount('draft', draft, () => draftOpen);
+    flushSync();
+    shortcut(); flushSync();
+    shortcut(); flushSync();
+    recorder.result('spoken in the draft'); flushSync();
+    assert.deepEqual([session.text, draft.text], ['', 'spoken in the draft']);
+    closeDraft(); closeDock();
+  `)
 })

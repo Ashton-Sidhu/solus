@@ -54,7 +54,7 @@
         : "A cloud machine belongs to an organization. Open Solus from your Solus Cloud account, or use the desktop app, to create one."}
     </p>
     {#if accountStore.isAvailable}
-      <Button size="sm" disabled={isSigningIn} onclick={() => void signIn()}>{isSigningIn ? "Waiting for the browser…" : "Sign in"}</Button>
+      <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={isSigningIn} onclick={() => void signIn()}>{isSigningIn ? "Waiting for the browser…" : "Sign in"}</Button>
     {/if}
   </div>
   {#if signInFailed}<p class="mt-2 text-chrome-dense text-(--solus-status-error)" role="alert">Solus could not sign you in. Try again.</p>{/if}
@@ -63,7 +63,7 @@
     <p class="min-w-0 flex-1 basis-60 text-[0.8125rem] text-pretty text-(--solus-text-secondary)">
       A cloud machine belongs to an organization. Create or join one on Solus Cloud, then come back here.
     </p>
-    <Button variant="outline" size="sm" onclick={() => void localApi.openExternal(consolePageUrl(account.consoleUrl, "organizations"))}>Open Solus Cloud</Button>
+    <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" onclick={() => void localApi.openExternal(consolePageUrl(account.consoleUrl, "organizations"))}>Open Solus Cloud</Button>
   </div>
 {:else if !managedHostsStore.canCreate}
   <div class="flex flex-wrap items-center justify-between gap-3">
@@ -89,7 +89,7 @@
     {#if managedHostsStore.error && !isCreating}<p class="text-chrome-dense text-(--solus-status-error)" role="alert">{managedHostsStore.error}</p>{/if}
     <div class="flex items-center justify-between gap-3">
       <p class="text-chrome-dense text-muted-foreground">It is ready in about a minute. A stopped machine costs only its disk.</p>
-      <Button type="submit" size="sm" disabled={!request.ok || isCreating}>{isCreating ? "Creating…" : "Create machine"}</Button>
+      <Button type="submit" size="sm" class="pointer-coarse:min-h-11" disabled={!request.ok || isCreating}>{isCreating ? "Creating…" : "Create machine"}</Button>
     </div>
   </form>
 {/if}

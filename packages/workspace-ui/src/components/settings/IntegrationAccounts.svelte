@@ -131,8 +131,8 @@
     <IntegrationRow name={account.name} logo={account.logo} description={accountConnectionDescription(account.status, account.purpose)}
       isConnected={account.status?.kind === "connected"} testId="connections-row-{id}-account">
       {#snippet action()}
-        <Button variant={account.status?.kind === "connected" ? "ghost" : "outline"} size="sm"
-          class="border-border/70 text-workspace-chrome pointer-coarse:min-h-11" aria-label="{actionLabel} {account.name} on your Solus account"
+        <Button variant="outline" size="sm"
+          class="pointer-coarse:min-h-11" aria-label="{actionLabel} {account.name} on your Solus account"
           onclick={() => void localApi.openExternal(url)}>{actionLabel}<ExternalLink size={14} /></Button>
       {/snippet}
     </IntegrationRow>

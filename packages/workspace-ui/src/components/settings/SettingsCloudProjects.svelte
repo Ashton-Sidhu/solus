@@ -78,16 +78,17 @@
         />
         <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{project.repositoryKey}</span>
         {#if confirmingRemoval === project.id}
-          <Button variant="ghost" size="icon-sm" aria-label="Confirm remove" onclick={() => remove(project.id)}>
-            <CheckIcon size={13} />
-          </Button>
-          <Button variant="ghost" size="icon-sm" aria-label="Cancel remove" onclick={() => (confirmingRemoval = null)}>
+          <Button variant="ghost" size="icon" class="text-muted-foreground pointer-coarse:tap-area" aria-label="Cancel remove" onclick={() => (confirmingRemoval = null)}>
             <XIcon size={13} />
+          </Button>
+          <Button variant="ghost" size="icon" class="text-muted-foreground hover:text-destructive pointer-coarse:tap-area" aria-label="Confirm remove" onclick={() => remove(project.id)}>
+            <CheckIcon size={13} />
           </Button>
         {:else}
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="icon"
+            class="text-muted-foreground hover:text-destructive pointer-coarse:tap-area"
             aria-label="Remove {project.displayName} from Solus Cloud"
             title={canEdit ? undefined : NOT_YOURS_REASON}
             disabled={!online || !canEdit}
@@ -131,13 +132,13 @@
         bind:value={repositoryInput}
         disabled={!online}
       />
-      <Button type="submit" size="sm" disabled={!online || !repositoryInput.trim()}>Add project</Button>
+      <Button type="submit" class="pointer-coarse:min-h-11" disabled={!online || !repositoryInput.trim()}>Add project</Button>
     </div>
     {#if suggestions.length > 0}
       <div class="flex flex-wrap items-center gap-1.5">
         <span class="text-xs text-muted-foreground">From your machines:</span>
         {#each suggestions as suggestion (suggestion.repositoryKey)}
-          <Button variant="outline" size="sm" disabled={!online} onclick={() => add(suggestion.repositoryKey)}>
+          <Button variant="outline" size="sm" class="pointer-coarse:min-h-11" disabled={!online} onclick={() => add(suggestion.repositoryKey)}>
             {suggestion.label}
           </Button>
         {/each}

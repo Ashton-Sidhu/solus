@@ -58,7 +58,7 @@
     size="icon-xs"
     aria-label="Expand {label}"
     title="Expand"
-    class="absolute right-1.5 bottom-1.5 z-10 bg-(--solus-container-bg) text-(--solus-text-tertiary) opacity-0 transition-opacity group-hover/text-field:opacity-100 group-focus-within/text-field:opacity-100 hover:text-(--solus-text-primary) focus-visible:opacity-100 pointer-coarse:tap-area pointer-coarse:opacity-100"
+    class="absolute right-1.5 bottom-1.5 z-10 bg-(--solus-container-bg) text-muted-foreground opacity-0 transition-opacity group-hover/text-field:opacity-100 group-focus-within/text-field:opacity-100 focus-visible:opacity-100 pointer-coarse:tap-area pointer-coarse:opacity-100"
     onpointerdown={(event) => event.preventDefault()}
     onclick={() => setExpanded(true)}
   >
@@ -80,7 +80,7 @@
         <Dialog.Title class="min-w-0 truncate font-medium text-(--solus-text-primary)">{label}</Dialog.Title>
         <Dialog.Close>
           {#snippet child({ props })}
-            <Button {...props} variant="ghost" size="icon-xs" class="pointer-coarse:tap-area" aria-label="Close {label}"><XIcon size={16} /></Button>
+            <Button {...props} variant="ghost" size="icon-sm" class="text-muted-foreground pointer-coarse:tap-area" aria-label="Close {label}"><XIcon size={16} /></Button>
           {/snippet}
         </Dialog.Close>
       </div>

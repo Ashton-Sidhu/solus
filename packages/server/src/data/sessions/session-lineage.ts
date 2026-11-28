@@ -267,6 +267,21 @@ export function replaceSessionLineageThread(
   }
 }
 
+/** A thread that resumes in another directory keeps its id: only the folder of
+ *  the active member changes. A thread that is no longer active is left as it is. */
+export function moveSessionLineageThread(
+  input: { sessionId: string; providerSessionId: string; cwd: string },
+  db: DatabaseSync = getDb(),
+  now = Date.now(),
+): void {
+  forgetLineageReads(db)
+  recordSessionChange(input.sessionId)
+  db.prepare(`UPDATE session_lineage_members SET cwd = ?, updated_at = ?
+    WHERE session_id = ? AND provider_session_id = ?
+      AND position = (SELECT MAX(position) FROM session_lineage_members WHERE session_id = ?)`)
+    .run(input.cwd, now, input.sessionId, input.providerSessionId, input.sessionId)
+}
+
 export function beginSessionHandoff(
   input: BeginSessionHandoffInput,
   db: DatabaseSync = getDb(),

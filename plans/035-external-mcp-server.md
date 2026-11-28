@@ -288,9 +288,19 @@ The rule: an outside app acts directly on records. Anything that needs a live en
 - `request_secret`, `background_wait`, `move_checkout`, `checkout_status`, `attach_folder`, `watch_pull_request`, and `fork_session`.
 - `comment_document`, `reply_comment`, `resolve_comment`, `read_plan`, `publish_work`, `pull_work_upstream`, and `request_work_review`.
 - `delete_project`, `update_codebase`, `delete_codebase`, `read_config`, `update_config`, `read_theme`, and `update_theme`.
-- Every integration tool, the integration resource tools, and the app operation tools.
+- Every integration tool and the integration resource tools.
 
 To add a tool to the list, set `exposeToApps`, make it work with no session (§8), and add a test.
+
+### 7.3 App operations (built, 2026-11-27)
+
+Maintainer decision, 2026-11-27: an outside app can run the operations of the person's apps (`docs/plans/apps.md` §7.1). This changes §7.2, which kept them inside sessions. The reference is Executor (`UsefulSoftwareCo/executor`, branch `v2`, `apps/docs/content/mcp/code-mode.md`). Its `/mcp` keeps one fixed `tools/list` and finds app tools with `search` and `describe`.
+
+1. **Behind the proxy.** When the host runs apps and the person may use them (`hostRunsAppsFor`), the outside app's `tools/list` adds `tool_search` and `tool_call`, also before the first app runs (`deferred-tool-proxy.ts`, with their own descriptions). The operations are the same tools that a session gets (`appOperationAgentTools`), with the same names (`<slug>__<operation>`), searched and called by the proxy. `tools/list` does not change when an app is added, deployed, stopped, or has its agent access turned off, so an app that read it once at start does not need a restart. Only apps with a running version and agent access on are searched and called. An empty query lists the operations (up to 20).
+2. **The grant.** A query reads the app's data, so a read grant runs it. A mutation needs a write grant (`appOperationRefusal` in `tool-access.ts`). Then the operation's own rule (`HOST_USE`) is checked as for every tool.
+3. **Instructions.** An outside app has no `inspect_app`. Each app with instructions gets one more tool through the proxy, `<slug>__app-instructions`, and each operation's description names it. An operation's name has no `-`, so no operation has that name. Sessions still name `inspect_app`.
+4. **The call log.** An outside app's call is `{ kind: 'agent', sessionId: null }`: an agent in no session. The call log does not yet name the app.
+5. **Not done.** Executor's `execute` (code mode), its approval rule for each operation, and its scoped connections. Integration tools stay inside sessions (decision 5), but an operation can use the app's integrations on the host, and its result goes to the outside app.
 
 ## 8. Sessions and ids
 

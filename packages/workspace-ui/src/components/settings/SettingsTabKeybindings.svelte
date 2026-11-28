@@ -287,7 +287,7 @@
           <Button
             variant="ghost"
             size="icon-xs"
-            class="text-(--solus-text-tertiary)"
+            class="text-muted-foreground hover:text-destructive pointer-coarse:tap-area"
             aria-label={`Remove the shortcut for ${def.label}`}
             title="Remove shortcut"
             onclick={() => removeBinding(id)}
@@ -301,7 +301,7 @@
           <Button
             variant="ghost"
             size="icon-xs"
-            class="text-(--solus-text-tertiary)"
+            class="text-muted-foreground pointer-coarse:tap-area"
             aria-label={`Reset ${def.label} to default`}
             title="Reset to default"
             onclick={() => resetBinding(id)}
@@ -351,7 +351,7 @@
       onkeydown={handleSearchKeydown}
       class="max-w-[22rem] basis-auto"
     />
-    <Button variant="ghost" size="sm" class="ml-auto shrink-0" disabled={overrideCount === 0} onclick={resetAll}>Reset all</Button>
+    <Button variant="outline" class="ml-auto shrink-0 pointer-coarse:min-h-11" disabled={overrideCount === 0} onclick={resetAll}>Reset all</Button>
   </div>
 
   {#if !shell.supportsNativeSettings}

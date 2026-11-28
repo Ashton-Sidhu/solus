@@ -124,7 +124,7 @@ describe('voice capture lifecycle', () => {
     await disposePcmCaptureResources()
   })
 
-  test('meter levels arrive every 32 ms without changing 250 ms audio packets', async () => {
+  test('meter levels arrive every 32 ms without changing 80 ms audio packets', async () => {
     let onAudio: ((event: MessageEvent<Float32Array>) => void) | null = null
     class FakeNode {
       port = {
@@ -167,12 +167,13 @@ describe('voice capture lifecycle', () => {
       }
       expect(levels).toHaveLength(31)
       expect(levels.every(level => level === 0.25)).toBe(true)
-      expect(packets.map(samples => samples.length)).toEqual([4000, 4000, 4000, 4000])
+      // 16,000 samples = 12 full 80 ms (1,280-sample) packets with 640 samples buffered.
+      expect(packets.map(samples => samples.length)).toEqual(new Array(12).fill(1_280))
       send(new Float32Array(384))
       expect(levels.at(-1)).toBeCloseTo(0.125)
       capture.stop()
       expect(levels.at(-1)).toBe(0)
-      expect(packets.at(-1)?.length).toBe(384)
+      expect(packets.at(-1)?.length).toBe(640 + 384)
     } finally {
       capture.stop()
       await disposePcmCaptureResources()

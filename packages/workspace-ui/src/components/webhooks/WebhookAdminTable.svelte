@@ -32,7 +32,7 @@
 {:else if view?.kind === "failed"}
   <div class="flex flex-wrap items-center gap-2" role="alert">
     <p class="text-workspace-chrome text-destructive">{WEBHOOK_ADMIN_FAILED_TEXT}</p>
-    <Button size="sm" variant="outline" onclick={() => void store.load(organizationId)}>Retry</Button>
+    <Button size="sm" variant="outline" class="pointer-coarse:min-h-11" onclick={() => void store.load(organizationId)}>Retry</Button>
   </div>
 {:else if rows.length > 0}
   <RowCard>
@@ -49,8 +49,9 @@
       >
         {#snippet trailing()}
           <Button
-            size="xs"
+            size="sm"
             variant="outline"
+            class="pointer-coarse:min-h-11"
             disabled={action?.kind === "busy"}
             onclick={() => void store.setPaused(row.ref, row.action === "pause")}
           >

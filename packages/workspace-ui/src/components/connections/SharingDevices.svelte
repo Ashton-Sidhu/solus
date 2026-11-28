@@ -63,7 +63,7 @@
       <span class="truncate text-[0.8125rem] leading-4 text-(--solus-text-tertiary)">{detail}</span>
     </span>
     {#if deviceId}
-      <Button variant="ghost" size="sm" class="shrink-0 text-(--solus-status-error) hover:text-(--solus-status-error)" aria-label={`Revoke ${label}`} onclick={() => void connections.revokeDevice(serverId, deviceId)}>
+      <Button variant="destructive" size="sm" class="shrink-0 pointer-coarse:min-h-11" aria-label={`Revoke ${label}`} onclick={() => void connections.revokeDevice(serverId, deviceId)}>
         Revoke
       </Button>
     {/if}
@@ -77,7 +77,7 @@
       <p class="text-[0.8125rem] leading-[1.45] text-(--solus-text-tertiary)">Phones and computers that use Solus on this host.</p>
     </div>
     {#if showsPairCode && !pairingLocked}
-      <Button variant="ghost" size="sm" class="shrink-0 bg-muted" onclick={pair}>Pair a device</Button>
+      <Button variant="outline" size="sm" class="shrink-0 pointer-coarse:min-h-11" onclick={pair}>Pair a device</Button>
     {/if}
   </div>
 
@@ -112,7 +112,7 @@
   {/if}
   {#if deviceCount > DEVICE_ROWS_SHOWN}
     <div class="pt-2">
-      <Button variant="ghost" size="sm" class="bg-muted" aria-expanded={isShowingAllDevices} onclick={() => (isShowingAllDevices = !isShowingAllDevices)}>
+      <Button variant="ghost" size="sm" class="text-muted-foreground pointer-coarse:min-h-11" aria-expanded={isShowingAllDevices} onclick={() => (isShowingAllDevices = !isShowingAllDevices)}>
         {isShowingAllDevices ? "Show fewer" : `Show ${deviceCount - DEVICE_ROWS_SHOWN} more`}
       </Button>
     </div>

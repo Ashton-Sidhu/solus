@@ -54,7 +54,7 @@
             <h2 class="text-workspace-chrome font-medium text-foreground">Import from this computer</h2>
             <p class="text-pretty text-chrome-dense text-(--solus-text-secondary)">Adds this computer's skills, subagents, commands, prompts, and MCP servers. Import again to add new ones. An import removes nothing.</p>
           </div>
-          <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome shadow-xs pointer-coarse:min-h-11" disabled={agentProfileStore.importing} onclick={() => void importComputer()} data-testid="agent-profile-import">
+          <Button size="sm" class="shrink-0 pointer-coarse:min-h-11" disabled={agentProfileStore.importing} onclick={() => void importComputer()} data-testid="agent-profile-import">
             {#if agentProfileStore.importing}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Reading…{:else}<HardDriveDownload size={14} />Import{/if}
           </Button>
         </div>

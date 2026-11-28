@@ -1,4 +1,6 @@
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
+import { hostCatalog } from '@solus/client-core/host-catalog'
+import { serverConnections } from '@solus/client-core/server-connections'
 import { pairServer, requestPairApproval } from '@solus/client-core/pairing'
 import type { KnownHost } from '@solus/client-core/known-host'
 import { serversStore } from '../../contexts'
@@ -14,6 +16,37 @@ export async function pairWithCode(url: string, code: string | undefined, report
   const result = await pairServer({ url, pairToken: code, deviceLabel: defaultDeviceLabel(), serverLabel: '', reportedName, onTailnet })
   await serversStore.savePairedServer(result.server)
   return result.server
+}
+
+/** A machine to pair this device with: where it answers, and what it said it is. */
+export interface PairTarget {
+  url: string
+  /** From its `/health`; a host this device reaches can pair it only by this id. */
+  installationId?: string
+  name?: string
+  /** The name the person typed; the host's own name when absent. */
+  label?: string
+  onTailnet?: boolean
+}
+
+/**
+ * Pairs this device with a machine in the ways that need no code and nobody at
+ * that machine, best first (docs/host-map.md): through a host this device
+ * reaches that already paired it, then as a device that its network trusts.
+ * The caller saves the host it returns (`savePairedServer`). Null when neither
+ * works: SSH or a code is next.
+ */
+export async function pairWithoutCode(target: PairTarget): Promise<KnownHost | null> {
+  if (target.installationId && await serverConnections.pairAgain(target.installationId).catch(() => false)) {
+    const host = hostCatalog.find(target.installationId)
+    if (host) return host
+  }
+  try {
+    const result = await pairServer({ url: target.url, deviceLabel: defaultDeviceLabel(), serverLabel: target.label ?? '', reportedName: target.name, onTailnet: target.onTailnet })
+    return result.server
+  } catch {
+    return null
+  }
 }
 
 /** A host that has no approval requests (an older Solus): only a pairing code adds it. Asking again does not help. */

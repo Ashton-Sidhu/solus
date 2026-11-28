@@ -11,7 +11,7 @@
 </script>
 
 {#if url}
-  <Button href={url} variant={mcp ? "link" : "outline"} size="sm" class="self-start"
+  <Button href={url} variant={mcp ? "link" : "outline"} size="sm" class="self-start pointer-coarse:min-h-11"
     onclick={(event) => {
       if (localApi.getPlatform() === "web") return;
       event.preventDefault();

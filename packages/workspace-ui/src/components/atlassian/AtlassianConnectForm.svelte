@@ -108,7 +108,7 @@
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <Button type="submit" disabled={atlassianStore.connecting(serverId) || !siteDraft.trim() || !emailDraft.trim() || !tokenDraft.trim()}>
+        <Button type="submit" size="sm" class="pointer-coarse:min-h-11" disabled={atlassianStore.connecting(serverId) || !siteDraft.trim() || !emailDraft.trim() || !tokenDraft.trim()}>
           {#if atlassianStore.connecting(serverId)}
             <SpinnerGapIcon size={14} class="animate-spin" />
             Checking the token…
@@ -117,18 +117,21 @@
           {/if}
         </Button>
         {#if oauthAvailable}
-          <button
-            type="button"
-            class="h-7 rounded-md text-muted-foreground transition-colors duration-150 hover:text-foreground"
+          <Button
+            variant="ghost"
+            size="sm"
+            class="text-muted-foreground pointer-coarse:min-h-11"
             onclick={() => void chooseApiToken(false)}
           >
             Sign in with a browser instead
-          </button>
+          </Button>
         {/if}
       </div>
     </form>
   {:else if oauthAvailable}
     <Button
+      size="sm"
+      class="pointer-coarse:min-h-11"
       disabled={atlassianStore.connecting(serverId) || atlassianStore.awaitingBrowser(serverId)}
       onclick={() => void atlassianStore.startOAuth(serverId)}
     >
@@ -144,21 +147,23 @@
     {#if atlassianStore.awaitingBrowser(serverId)}
       <!-- Cancelling has to reach the host: the sign-in holds a fixed loopback
            port while it waits, and leaving it bound blocks the next attempt. -->
-      <button
-        type="button"
-        class="h-7 self-start rounded-md text-muted-foreground transition-colors duration-150 hover:text-foreground"
+      <Button
+        variant="ghost"
+        size="sm"
+        class="self-start text-muted-foreground pointer-coarse:min-h-11"
         onclick={() => void atlassianStore.cancelBrowserWait(serverId)}
       >
         Cancel
-      </button>
+      </Button>
     {:else if apiTokenAvailable}
-      <button
-        type="button"
-        class="h-7 self-start rounded-md text-muted-foreground transition-colors duration-150 hover:text-foreground"
+      <Button
+        variant="ghost"
+        size="sm"
+        class="self-start text-muted-foreground pointer-coarse:min-h-11"
         onclick={() => void chooseApiToken(true)}
       >
         Use an API token instead
-      </button>
+      </Button>
     {/if}
   {:else}
     <p class="text-pretty text-xs text-muted-foreground">
