@@ -7,12 +7,14 @@
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import SettingsHostUnsupported from "./SettingsHostUnsupported.svelte";
+  import ShowMoreRow from "./ShowMoreRow.svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { HostApi } from "@solus/client-core/host-api";
   import type { RemoteSkill } from "@solus/contracts/types";
   import { supportsSettingsSurface } from "@solus/client-core/host-capabilities";
   import { skillsForHost, ListWindow, SkillSearch } from "./skills.store.svelte";
+  import { LIST_PAGE_SIZE, pageOf } from "./lib/list-page";
   import { toasts } from "../../lib/toasts";
   import { checkoutPlace, runHost } from "../../contexts/workspace/run-location";
 
@@ -30,14 +32,15 @@
   let isAdding = $state(false);
   let query = $state("");
   let filter = $state("");
+  let showAllInstalledSkills = $state(false);
   let searchEl = $state<HTMLInputElement | null>(null);
   let filterEl = $state<HTMLInputElement | null>(null);
   let confirmRemove = $state<string | null>(null);
   const matchingSkills = $derived(inventory.matching(filter));
-  // A new window per list identity: paging restarts when the filter or results change.
-  const installedWindow = $derived.by(() => { void matchingSkills; return new ListWindow(); });
+  const installedExpanded = $derived(showAllInstalledSkills && matchingSkills.length > LIST_PAGE_SIZE);
+  const installedPage = $derived(pageOf(matchingSkills, installedExpanded));
+  // Paging restarts when the search results change.
   const resultsWindow = $derived.by(() => { void search.results; return new ListWindow(); });
-  const visibleSkills = $derived(installedWindow.slice(matchingSkills));
   const visibleResults = $derived(resultsWindow.slice(search.results));
   // A member's skills are their own, in their seats; the host's reach every agent on it.
   const audience = $derived(inventory.scope === "member" ? `your agents on ${hostLabel}` : `every agent and project on ${hostLabel}`);
@@ -47,7 +50,7 @@
     const targetApi = api;
     const targetInventory = inventory;
     confirmRemove = null;
-    filter = "";
+    setFilter("");
     if (canManage) void targetInventory.load(targetApi);
   });
   $effect(() => {
@@ -68,6 +71,11 @@
     });
   });
   onMount(() => { filterEl?.focus(); });
+
+  function setFilter(value: string) {
+    filter = value;
+    showAllInstalledSkills = false;
+  }
 
   async function openAdd() {
     isAdding = true;
@@ -191,7 +199,7 @@
       {:else}
         {#if inventory.skills.length > 0}
           <div class="flex items-center">
-            <SearchField bind:ref={filterEl} bind:value={filter} placeholder="Filter installed skills…"
+            <SearchField bind:ref={filterEl} bind:value={() => filter, setFilter} placeholder="Filter installed skills…"
               class="min-h-11 rounded-none border-0 px-4 py-2.5 text-workspace-chrome focus-within:border-0 [&_input]:text-workspace-chrome" />
           </div>
         {/if}
@@ -207,7 +215,7 @@
         {#if inventory.loaded && !inventory.error && matchingSkills.length === 0}
           <p class="p-8 text-center text-workspace-chrome text-muted-foreground">{filter.trim() ? `No installed skills match “${filter.trim()}”.` : "No skills installed yet. Use Add skill to install one from skills.sh."}</p>
         {/if}
-        {#each visibleSkills as skill (skill.path)}
+        {#each installedPage.rows as skill (skill.path)}
           <SettingsRow label={skill.name} description={skill.source ?? "Local"} testId="global-skill-row" bodyVisible={confirmRemove === skill.path || inventory.errors.has(skill.name)}>
             {#snippet control()}
               <div class="flex items-center gap-3">
@@ -234,7 +242,8 @@
             {/snippet}
           </SettingsRow>
         {/each}
-        {@render showMore(installedWindow, matchingSkills.length)}
+        <ShowMoreRow hiddenCount={installedPage.hiddenCount} expanded={installedExpanded} noun="skills"
+          onToggle={() => { showAllInstalledSkills = !installedExpanded; }} />
       {/if}
     </SettingsSection>
   {/if}
