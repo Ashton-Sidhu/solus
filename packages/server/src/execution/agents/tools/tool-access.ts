@@ -157,7 +157,10 @@ export const TOOL_ACCESS = {
   device_close: ownSession('drive.devices'),
   device_install: ownSession('drive.devices'),
   // Sessions
-  ask_user: ownSession('drive.prompt'),
+  pending_request: { byAction: (action) => ({
+    action: action === 'respond' ? 'drive.approve' : 'read.transcript',
+    resource: inputId('session', 'session_id'),
+  }) },
   request_secret: ownSession('drive.prompt'),
   list_agent_targets: { permission: 'host.agents.read' },
   search_sessions: { permission: 'host.sessions.read' },

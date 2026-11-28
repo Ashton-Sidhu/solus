@@ -15,6 +15,7 @@ import { taskIdForSession } from '../../../data/tasks/task-sessions'
 import { loadTask } from '../../../data/tasks/task-store'
 import { ANY_ORGANIZATION, type Principal } from '../../../admission/principal'
 import { assertToolMay, toolMayRead, workspaceToolAuthority, type ToolCommand } from '../../../admission/workspace-tool-authority'
+import type { AgentVia } from '../../../admission/actor'
 import type { Exchange } from '../../orchestration/exchange'
 import { MAX_WAIT_MS, type ModelChoice, type RateLimitHold, type RemoteTarget, type SendOrder, type SentMessage, type SpawnOrder } from '../../orchestration/session-orchestrator'
 import { resolveSessionLineageById } from '../../../data/sessions/session-lineage'
@@ -102,6 +103,7 @@ export interface SessionController {
   /** The model the provider last reported running for the session, when it can differ from the requested one. */
   executedModel?(sessionId: string): string | undefined
   pendingInputEvents(sessionId: string): NormalizedEvent[]
+  answerPendingQuestion?(sessionId: string, questionId: string, answers: Record<string, string>, agent: AgentVia): Promise<boolean>
   loadPlanContent(provider: AgentId, sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null>
   listPlans(provider: AgentId, projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]>
   invalidatePlanCaches(sessionId: string): void

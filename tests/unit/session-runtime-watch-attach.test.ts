@@ -56,7 +56,8 @@ class Permissions implements PermissionResponder {
 }
 
 class Backend extends EventEmitter implements AgentBackend {
-  get metadata(): AgentMetadata { return { id: this.id, label: this.id, models: [], defaultModel: 'gpt-test' } }
+  readonly id = 'codex' as const
+  readonly metadata: AgentMetadata = { id: 'codex', label: 'Codex', models: [], defaultModel: 'gpt-test' }
   readonly permissions = new Permissions()
   readonly handles = new Map<string, RunHandle>()
   readonly pending = new Set<RunHandle>()
@@ -65,8 +66,6 @@ class Backend extends EventEmitter implements AgentBackend {
   beforeInit?: Promise<void>
   launchReached?: () => void
   steeredPrompts: string[] = []
-
-  constructor(readonly id: 'codex' | 'claude-code' = 'codex') { super() }
 
   startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     const threadId = (request.conversation?.kind === 'resume' ? request.conversation.threadId : null) ?? `thread-${this.starts + 1}`
@@ -195,59 +194,6 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
     } finally { plane.shutdown() }
   })
 
-  test.each(['codex', 'claude-code'] as const)('%s can ask through MCP and take the answer as a message', async (provider) => {
-    const backend = new Backend(provider)
-    backend.allowSteering = true
-    const plane = new sessionRuntimeModule.SessionRuntime(new Map([[provider, backend]]))
-    plane.on('error', () => {})
-    const sessionId = 'solus-question-session'
-    const { solusToolbox } = await import('@solus/server/execution/agents/tools/solus-toolbox')
-    const toolClient = await runToolClient(Object.values(solusToolbox.sessions), {
-      provider, cwd: dataDir, sessionId: () => sessionId, abortSignal: new AbortController().signal,
-      emit: (event) => backend.emit('normalized', 'thread-1', event),
-    }, { permissionMode: () => 'plan' })
-    try {
-      const lifecycle = await plane.runTurn({
-        target: { kind: 'new-session' }, sessionId, input: { ...input(), provider }, tools: [],
-        options: { prompt: 'inspect it', promptSource: 'typed' },
-      })
-      await lifecycle.agentSessionId
-      expect((await toolClient.listTools()).tools.map((tool) => tool.name)).toContain('ask_user')
-      const ask = (title: string, options?: string[]) => toolClient.callTool({
-        name: 'ask_user', arguments: { questions: [{ title, ...(options ? { options } : {}) }] },
-      })
-      expect((await ask('   ')).isError).toBe(true)
-      expect((await ask('Which package?', ['pnpm', 'npm'])).isError).toBeFalsy()
-      expect(plane.statuses.liveSessionStatus(sessionId)).toBe('running')
-      const [liveQuestion] = plane.watchers.watchSession({ sessionId }, 'live').pendingQuestions ?? []
-      expect(liveQuestion).toMatchObject({
-        responseMode: 'message', questions: [{ id: '0', question: 'Which package?', options: [{ label: 'pnpm' }, { label: 'npm' }] }],
-      })
-      expect(await plane.inputRequests.respondToQuestion('other-session', liveQuestion!.questionId, { '0': 'pnpm' }, HOST_ACTOR)).toBe(false)
-      expect(await plane.inputRequests.respondToQuestion(sessionId, liveQuestion!.questionId, { '0': 'pnpm' }, HOST_ACTOR)).toBe(true)
-      expect(backend.steeredPrompts).toEqual(['Which package?\npnpm'])
-
-      expect((await ask('What name?')).isError).toBeFalsy()
-      expect((await ask('Which branch?')).isError).toBeFalsy()
-      backend.complete('thread-1')
-      await lifecycle.done
-      const pending = plane.watchers.watchSession({ sessionId }, 'reconnected').pendingQuestions ?? []
-      const name = pending.find((request) => request.questions[0]?.question === 'What name?')
-      const branch = pending.find((request) => request.questions[0]?.question === 'Which branch?')
-      expect(name?.questions[0]?.options).toEqual([])
-      expect(branch).toBeDefined()
-      expect(await plane.inputRequests.respondToQuestion(sessionId, name!.questionId, {}, HOST_ACTOR)).toBe(true)
-      expect(backend.starts).toBe(1)
-      expect(await plane.inputRequests.respondToQuestion(sessionId, branch!.questionId, { '0': 'feature' }, HOST_ACTOR)).toBe(true)
-      expect(backend.starts).toBe(2)
-      expect(plane.watchers.watchSession({ sessionId }, 'settled').pendingQuestions).toBeUndefined()
-      backend.complete('thread-1')
-    } finally {
-      await toolClient.close()
-      plane.shutdown()
-    }
-  })
-
   test('native async question survives turn end and its answer resumes Codex', async () => {
     const backend = new Backend()
     const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
@@ -301,6 +247,71 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
       expect(await plane.inputRequests.respondToQuestion('async-question-session', question.questionId, { '0': 'npm' }, HOST_ACTOR)).toBe(false)
       backend.complete('thread-1')
     } finally { plane.shutdown() }
+  })
+
+  test('another session answers a pending question through MCP and is named in its activity', async () => {
+    const { solusToolbox } = await import('@solus/server/execution/agents/tools/solus-toolbox')
+    const { setSessionController } = await import('@solus/server/execution/agents/tools/session-tools')
+    const backend = new Backend()
+    backend.allowSteering = true
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const sessionId = 'asking-session'
+    const trackedActivity = Promise.withResolvers<NormalizedEvent>()
+    plane.on('event', (_sessionId, event: NormalizedEvent) => {
+      if (event.type === 'activity' && event.activity.kind === 'question_answered') trackedActivity.resolve(event)
+    })
+    setSessionController({
+      getSessionInfo: async () => null,
+      loadSessionTail: async () => [],
+      liveStatus: () => null,
+      pendingInputEvents: (target) => plane.inputRequests.pendingInputEventsForSession(target),
+      answerPendingQuestion: (target, id, answers, agent) => plane.inputRequests.respondToQuestion(target, id, answers, HOST_ACTOR, agent),
+      loadPlanContent: async () => null,
+      listPlans: async () => [],
+      invalidatePlanCaches: () => {},
+    })
+    const client = await runToolClient(Object.values(solusToolbox.sessions), {
+      provider: 'claude-code', cwd: dataDir, sessionId: () => 'answering-session',
+      abortSignal: new AbortController().signal, emit: () => {},
+    })
+    try {
+      const lifecycle = await plane.runTurn({
+        target: { kind: 'new-session' }, sessionId, input: input(), tools: [],
+        options: { prompt: 'inspect it', promptSource: 'typed' },
+      })
+      await lifecycle.agentSessionId
+      const questions = [{ id: 'package', question: 'Which package?', options: [{ label: 'pnpm' }], multiSelect: false }]
+      backend.emit('normalized', 'thread-1', { type: 'question_request', questionId: 'standard', responseMode: 'message', questions } satisfies NormalizedEvent)
+      backend.emit('normalized', 'thread-1', { type: 'question_request', questionId: 'form', kind: 'mcp_form', questions } satisfies NormalizedEvent)
+      const call = (action: string, request_id?: string, answers?: Record<string, string>, target = sessionId) => client.callTool({
+        name: 'pending_request', arguments: { action, session_id: target, request_id, answers },
+      })
+      expect((await call('list')).structuredContent).toEqual({ request_ids: ['standard'] })
+      expect((await call('read', 'standard')).structuredContent).toEqual({ request_id: 'standard', questions })
+      expect((await call('respond', 'form', { package: 'pnpm' })).isError).toBe(true)
+      expect((await call('respond', 'standard', { other: 'pnpm' })).isError).toBe(true)
+      expect((await call('respond', 'standard', { package: 'pnpm' }, 'other-session')).isError).toBe(true)
+      // Close the unrelated form so the provider can take the message in its active turn.
+      backend.emit('normalized', 'thread-1', { type: 'permission_resolved', questionId: 'form' } satisfies NormalizedEvent)
+      expect((await call('respond', 'standard', { package: 'pnpm' })).structuredContent).toEqual({ request_id: 'standard', answered: true })
+      expect((await call('respond', 'standard', { package: 'npm' })).isError).toBe(true)
+      expect(backend.steeredPrompts).toEqual(['Which package?\npnpm'])
+      expect(await trackedActivity.promise).toMatchObject({
+        activity: { by: { kind: 'agent', sessionId: 'answering-session', provider: 'claude-code' } },
+      })
+      const respondToBackend = mock(() => true)
+      backend.permissions.respondToQuestion = respondToBackend
+      backend.emit('normalized', 'thread-1', { type: 'question_request', questionId: 'blocking', questions } satisfies NormalizedEvent)
+      expect((await call('respond', 'blocking', { package: 'pnpm' })).structuredContent).toEqual({ request_id: 'blocking', answered: true })
+      expect(respondToBackend).toHaveBeenCalledWith('blocking', { package: 'pnpm' })
+      expect(backend.steeredPrompts).toHaveLength(1)
+      backend.complete('thread-1')
+      await lifecycle.done
+    } finally {
+      await client.close()
+      plane.shutdown()
+    }
   })
 
   test('the status feed says a non-blocking question waits on the person until it is dismissed', async () => {

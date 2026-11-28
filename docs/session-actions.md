@@ -12,13 +12,12 @@ On desktop and web, **Shared with you**, **Working**, **Snoozed**, and **Complet
 
 Open a subagent card to see its commands and replies while it runs. This includes Claude skills that use `context: fork`. The final report stays with the card when you reopen the session.
 
-## Answer agent questions
+## Let an agent answer a question
 
-Codex and Claude can use `ask_user` to open a question card while they work.
-On desktop, web, and mobile, select a suggested answer or enter your own.
-The agent gets the answer as a new message. If the turn has ended, the answer
-starts another turn in the same session.
+Tell your agent which question to answer in another session on the same host.
+Give it the answer or tell it to make that decision for you. The agent uses
+`pending_request` to find and answer the question. The target session records
+which agent sent the answer.
 
-An unanswered card stays open when you reconnect or reopen the session. Use
-**Dismiss** to close the card without sending an answer. On desktop and web,
-the host's **Settings → Tools → Sessions** group controls `ask_user`.
+Use the question card to answer directly. Approvals, plan decisions, and
+requests for secrets still need you.

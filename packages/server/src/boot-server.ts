@@ -356,7 +356,7 @@ import { setFolderToolHost } from './execution/agents/tools/folder-tools'
 import { sessionReadsFor } from './transport/handlers/session-reads'
 import { setProjectToolHost } from './execution/agents/tools/project-tools'
 import { setWorktreeMover } from './execution/agents/tools/worktree-tools'
-import { installToolAccess } from './admission/workspace-tool-authority'
+import { installToolAccess, toolCallActor } from './admission/workspace-tool-authority'
 
 const log = createLogger('main', 'server-boot')
 
@@ -1449,6 +1449,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     liveStatus: (sessionId) => opts.sessionRuntime.statuses.liveSessionStatus(sessionId),
     executedModel: (sessionId) => orchestrator.executedModelOf(sessionId),
     pendingInputEvents: (sessionId) => opts.sessionRuntime.inputRequests.pendingInputEventsForSession(sessionId),
+    answerPendingQuestion: (sessionId, questionId, answers, agent) =>
+      opts.sessionRuntime.inputRequests.respondToQuestion(sessionId, questionId, answers, toolCallActor() ?? HOST_ACTOR, agent),
     loadPlanContent: (provider, sessionId, projectPath, planToolUseId) =>
       opts.sessionRuntime.history.loadPlanContent(provider, sessionId, projectPath, planToolUseId),
     listPlans: (provider, projectPath, allProjects) => opts.sessionRuntime.history.listPlans(provider, projectPath, allProjects),

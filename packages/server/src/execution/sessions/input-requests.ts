@@ -6,8 +6,9 @@ import { captureServerEvent } from '../../analytics'
 import { claimAsyncQuestion, pendingAsyncQuestions, saveAsyncAnswer, settleAsyncQuestion } from '../../data/sessions/async-questions'
 import type { ResolvedInput } from '../orchestration/session-outputs'
 import type { AgentBackend } from '../agents/agent-backend'
-import type { NormalizedEvent, PermissionDecision } from '@solus/contracts/types'
-import { type Actor } from '../../admission/actor'
+import type { NormalizedEvent, PermissionDecision, QuestionAnswer } from '@solus/contracts/types'
+import { attributionOf, type Actor, type AgentVia } from '../../admission/actor'
+import { mayAnswerFor } from './turn-organization'
 import type { SessionRuntime } from '../session-runtime'
 import { declineSecretRequests } from './secret-requests'
 
@@ -47,6 +48,10 @@ function takesFeedback(pendingEvent: NormalizedEvent, optionId: string): boolean
 
 export function eventHasQuestionId(event: NormalizedEvent, questionId: string): boolean {
   return 'questionId' in event && event.questionId === questionId
+}
+
+export function isStandardQuestion(event: NormalizedEvent): event is Extract<NormalizedEvent, { type: 'question_request' }> & { kind?: 'standard' } {
+  return event.type === 'question_request' && (!event.kind || event.kind === 'standard')
 }
 
 /**
@@ -163,8 +168,10 @@ export class InputRequests {
   }
 
   /** Answers a question `askingSessionId` is waiting on; refused like a permission. */
-  async respondToQuestion(askingSessionId: string, questionId: string, answers: Record<string, string>, actor: Actor): Promise<boolean> {
+  async respondToQuestion(askingSessionId: string, questionId: string, answers: Record<string, string>, actor: Actor, agent?: AgentVia): Promise<boolean> {
     const sessionId = askingSessionId
+    const admission = this.rt.dispatch.admission
+    if (agent && admission && !await mayAnswerFor(actor.principal, sessionId, admission)) return false
     const asyncQuestion = claimAsyncQuestion(sessionId, questionId)
     if (asyncQuestion) {
       const answer = { questionId, questions: asyncQuestion.questions, answers }
@@ -177,38 +184,40 @@ export class InputRequests {
       }
       try {
         saveAsyncAnswer(questionId, answers)
-        await this.rt.dispatch.promptSession(sessionId, reply, 'steer', { actor, via: 'question-answer' })
+        const sender = agent && attributionOf(actor, agent)
+        // Steering can interrupt a provider callback. Let any other open blocking card settle first.
+        const delivery = agent && this.rt.activeSessions.get(sessionId)?.hasPendingInput ? 'queue' : 'steer'
+        await this.rt.dispatch.promptSession(sessionId, reply, delivery, {
+          actor, via: 'question-answer', sender: sender?.kind === 'agent' ? sender : undefined,
+        })
       } catch (error) {
         settleAsyncQuestion(questionId, 'pending')
         throw error
       }
       settleAsyncQuestion(questionId, 'answered')
       this.rt.statuses.questionsChanged(asyncQuestion.agentSessionId, sessionId)
-      this.rt.publish(sessionId, {
-        type: 'question_answered',
-        answer,
-        timestamp: Date.now(),
-      })
-      if (actor.user) void this.rt.recordActivity({ kind: 'session', id: sessionId }, actor, { kind: 'question_answered', questionId })
+      this.recordQuestionAnswer(sessionId, answer, actor, agent)
       return true
     }
     const pending = this.pendingQuestion(askingSessionId, questionId)
-    if (!pending || pending.event.type !== 'question_request') return false
+    if (!pending || pending.event.type !== 'question_request' || (agent && !isStandardQuestion(pending.event))) return false
     const { sessionId: pendingSessionId, backend: b, event: question } = pending
     if (!answerToolQuestion(questionId, answers) && !b.permissions.respondToQuestion(questionId, answers)) return false
     this.rt.reportToActiveRun(pendingSessionId, (run) => this.rt.orchestration?.inputResolved(run, { kind: 'question', questions: question.questions, answers }))
     this.rt.sessionEmitter.resolveQuestion(pendingSessionId, questionId)
-    if (!question.kind || question.kind === 'standard') {
-      this.rt.publish(pendingSessionId, {
-        type: 'question_answered',
-        answer: { questionId, questions: question.questions, answers },
-        timestamp: Date.now(),
-      })
-      if (actor.user) void this.rt.recordActivity({ kind: 'session', id: pendingSessionId }, actor, { kind: 'question_answered', questionId })
+    if (isStandardQuestion(question)) {
+      this.recordQuestionAnswer(pendingSessionId, { questionId, questions: question.questions, answers }, actor, agent)
     }
     this.clearPendingInputEvent(questionId)
     this.questionIdToSession.delete(questionId)
     return true
+  }
+
+  private recordQuestionAnswer(sessionId: string, answer: QuestionAnswer, actor: Actor, agent?: AgentVia): void {
+    this.rt.publish(sessionId, { type: 'question_answered', answer, timestamp: Date.now() })
+    if (actor.user || agent) {
+      void this.rt.recordActivity({ kind: 'session', id: sessionId }, actor, { kind: 'question_answered', questionId: answer.questionId }, undefined, agent)
+    }
   }
 
   /**

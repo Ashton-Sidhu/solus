@@ -75,6 +75,18 @@ describe('every tool has an access rule', () => {
 })
 
 describe('a tool call is decided as the RPC call for the same action', () => {
+  test('pending questions use the target session’s read and answer permissions', async () => {
+    const session_id = 'asking-session'
+    roles.set('session:answering-session', 'editor')
+    roles.set(`session:${session_id}`, 'none')
+    expect(await may(member, 'pending_request', { action: 'list', session_id }, 'answering-session')).not.toBe(true)
+    roles.set(`session:${session_id}`, 'viewer')
+    expect(await may(member, 'pending_request', { action: 'read', session_id }, 'answering-session')).toBe(true)
+    expect(await may(member, 'pending_request', { action: 'respond', session_id }, 'answering-session')).not.toBe(true)
+    roles.set(`session:${session_id}`, 'editor')
+    expect(await may(member, 'pending_request', { action: 'respond', session_id }, 'answering-session')).toBe(true)
+  })
+
   test('a work the person cannot edit is not changed through their agent', async () => {
     roles.set('work:w1', 'viewer')
     expect(await may(member, 'update_work', { work_id: 'w1' })).not.toBe(true)
