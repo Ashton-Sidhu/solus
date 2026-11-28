@@ -18,6 +18,23 @@ export default function App() {
 - `appClient<typeof app>()` gives `query`, `mutate`, and `useQuery` with the names, inputs, and outputs of `app.ts`. The import is a type, so no backend code is in the UI.
 - `useQuery` runs again when its input changes and when the app's data changes, from this UI, another open UI, an agent, a schedule, a webhook, or a workflow. `data` stays on screen while a later run loads: show the old data quietly (the starter dims the list), not a spinner in its place.
 - `mutate` resolves when the backend answers. Disable the control while it runs, say what it does ("Saving…"), keep what the user typed when it fails, and show the error's message. The queries run again by themselves after a write; do not refresh them by hand.
+- For immediate feedback before the backend answers, pass `{ optimistic(cache) { ... } }` as the third argument to `api.mutate`. `cache` reads and updates mounted `useQuery` entries with `get(name, input)`, `set(name, input, value)`, `update(name, input, updater)`, and `updateAll(name, updater)` (all typed from `app.ts`). If the mutation fails, the optimistic updates roll back automatically; when it succeeds, they stay in place until `data-changed` refreshes and reconciles with the backend's answer.
+- For a newly created row that needs an ID before the backend assigns one, use a temporary placeholder ID (such as `optimistic-${crypto.randomUUID()}`). Disable row actions that need the real ID (like opening or deleting the row) while the placeholder is pending, and let the `data-changed` refresh replace it with the server's row:
+
+```tsx
+const add = (text: string) =>
+  api.mutate('add', { text }, {
+    optimistic(cache) {
+      const tempId = `optimistic-${crypto.randomUUID()}`
+      cache.updateAll('list', (notes, input) => {
+        if (!notes) return notes
+        if (input.search && !text.toLowerCase().includes(input.search.toLowerCase())) return notes
+        return [{ id: tempId, text, created_at: Date.now() }, ...notes]
+      })
+    },
+  })
+```
+
 - Show a loading state, an empty state, and the error of a failed call with a way to try again.
 - `api.useConfig()` gives the app's config, typed from `app.ts` ([config](config.md)).
 - `storage`, `files`, `tools`, `models` (`useModelCall`, `models.watch`, `models.get`, `models.cancel`), `onDataChanged`, and `desktop` are also in `@solus/app` ([data](data.md), [files](files.md), [access](access.md), [models](models.md), [desktop](desktop.md)).

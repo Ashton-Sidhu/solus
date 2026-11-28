@@ -5,7 +5,7 @@
 // Do not edit. This file holds no protocol: Solus puts `window.solusApp` in
 // the page, and may change how it carries a call without a rebuild.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ModelCall } from './solus-app-backend'
 
 export type { ModelCall }
@@ -36,9 +36,39 @@ export function query<T = Json>(name: string, input: object = {}): Promise<T> {
   return call<T>(`@app/${name}`, input)
 }
 
+/** Shared client cache exposed to optimistic mutation updaters. */
+export interface OptimisticQueryCache {
+  /** The current cached value for one mounted query and input (including active optimistic updates), or undefined. */
+  get<T = Json>(name: string, input?: object): T | undefined
+  /** Optimistically sets the cached value for one mounted query and input until the mutation reconciles or fails. */
+  set<T = Json>(name: string, input: object, value: T): void
+  /** Optimistically transforms the cached value for one mounted query and input. */
+  update<T = Json>(name: string, input: object, updater: (current: T | undefined) => T | undefined): void
+  /** Optimistically transforms every mounted variant of a query, passing each variant's current value and input. */
+  updateAll<T = Json, Input extends object = object>(name: string, updater: (current: T | undefined, input: Input) => T | undefined): void
+}
+
+/** Options for `mutate`. */
+export interface MutateOptions {
+  /** Runs synchronously before the backend answers. Rolls back on failure and reconciles when `data-changed` refreshes queries. */
+  optimistic?: (cache: OptimisticQueryCache) => void
+}
+
 /** Runs one mutation of `app.ts`. When it changes the app's data, every `useQuery` of every open UI runs again. */
-export function mutate<T = Json>(name: string, input: object = {}): Promise<T> {
-  return call<T>(`@app/${name}`, input)
+export function mutate<T = Json>(name: string, input: object = {}, options?: MutateOptions): Promise<T> {
+  if (!options?.optimistic) return call<T>(`@app/${name}`, input)
+  const transaction = beginOptimistic(options.optimistic)
+  if ('error' in transaction) return Promise.reject(transaction.error)
+  return call<T>(`@app/${name}`, input).then(
+    (result) => {
+      transaction.settle()
+      return result
+    },
+    (error: unknown) => {
+      transaction.rollback()
+      throw error
+    },
+  )
 }
 
 /** Calls `listener` when the app's data changed: this UI's own mutation, an agent, a schedule, or a webhook. Returns the way to stop. */
@@ -56,6 +86,226 @@ export interface QueryState<T> {
   refresh(): void
 }
 
+interface QuerySnapshot {
+  data: unknown
+  error: string | null
+  loading: boolean
+}
+
+interface OptimisticPatch {
+  transactionId: number
+  startedAtGeneration: number
+  updater: (current: unknown) => unknown
+  settled: boolean
+  reconcileAtGeneration: number | null
+}
+
+interface CacheEntry {
+  key: string
+  callName: string
+  queryName: string | null
+  input: object
+  serverData: unknown
+  error: string | null
+  loading: boolean
+  requestId: number
+  fetchGeneration: number
+  completedGeneration: number
+  patches: OptimisticPatch[]
+  listeners: Set<() => void>
+  snapshot: QuerySnapshot
+}
+
+const INITIAL_SNAPSHOT: QuerySnapshot = { data: undefined, error: null, loading: true }
+const queryCache = new Map<string, CacheEntry>()
+let nextTransactionId = 1
+let stopCacheDataChanged: (() => void) | null = null
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  const entries = Object.entries(value)
+    .filter(([, entry]) => entry !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`).join(',')}}`
+}
+
+function cacheKey(callName: string, inputKey: string): string {
+  return `${callName}\0${inputKey}`
+}
+
+function recomputeEntry(entry: CacheEntry): void {
+  let data = entry.serverData
+  for (const patch of entry.patches) data = patch.updater(data)
+  if (Object.is(entry.snapshot.data, data) && entry.snapshot.error === entry.error && entry.snapshot.loading === entry.loading) return
+  entry.snapshot = { data, error: entry.error, loading: entry.loading }
+  for (const listener of entry.listeners) listener()
+}
+
+function fetchEntry(entry: CacheEntry): void {
+  const requestId = ++entry.requestId
+  const generation = ++entry.fetchGeneration
+  entry.loading = true
+  recomputeEntry(entry)
+  call<unknown>(entry.callName, entry.input).then(
+    (data) => {
+      if (entry.requestId !== requestId) return
+      entry.serverData = data
+      entry.error = null
+      entry.loading = false
+      entry.completedGeneration = generation
+      entry.patches = entry.patches.filter((patch) => !(patch.settled && patch.reconcileAtGeneration !== null && generation >= patch.reconcileAtGeneration))
+      recomputeEntry(entry)
+    },
+    (error: unknown) => {
+      if (entry.requestId !== requestId) return
+      entry.error = error instanceof Error ? error.message : String(error)
+      entry.loading = false
+      recomputeEntry(entry)
+    },
+  )
+}
+
+function ensureDataChangedSubscription(): void {
+  if (stopCacheDataChanged) return
+  stopCacheDataChanged = onDataChanged(() => {
+    for (const entry of queryCache.values()) fetchEntry(entry)
+  })
+}
+
+function releaseDataChangedSubscription(): void {
+  if (queryCache.size > 0 || !stopCacheDataChanged) return
+  stopCacheDataChanged()
+  stopCacheDataChanged = null
+}
+
+function subscribeQuery(callName: string, inputKey: string, listener: () => void): () => void {
+  const key = cacheKey(callName, inputKey)
+  let entry = queryCache.get(key)
+  const isNew = !entry
+  if (!entry) {
+    entry = {
+      key,
+      callName,
+      queryName: callName.startsWith('@app/') ? callName.slice(5) : null,
+      input: JSON.parse(inputKey) as object,
+      serverData: undefined,
+      error: null,
+      loading: true,
+      requestId: 0,
+      fetchGeneration: 0,
+      completedGeneration: 0,
+      patches: [],
+      listeners: new Set(),
+      snapshot: INITIAL_SNAPSHOT,
+    }
+    queryCache.set(key, entry)
+  }
+  entry.listeners.add(listener)
+  ensureDataChangedSubscription()
+  if (isNew) fetchEntry(entry)
+  return () => {
+    entry.listeners.delete(listener)
+    if (entry.listeners.size === 0) {
+      entry.requestId += 1
+      queryCache.delete(key)
+      releaseDataChangedSubscription()
+    }
+  }
+}
+
+function getQuerySnapshot(key: string): QuerySnapshot {
+  return queryCache.get(key)?.snapshot ?? INITIAL_SNAPSHOT
+}
+
+function refreshQuery(callName: string, inputKey: string): void {
+  const entry = queryCache.get(cacheKey(callName, inputKey))
+  if (entry) fetchEntry(entry)
+}
+
+function beginOptimistic(apply: (cache: OptimisticQueryCache) => void): { settle(): void; rollback(): void } | { error: unknown } {
+  const transactionId = nextTransactionId++
+  const touched = new Set<CacheEntry>()
+
+  const rollback = () => {
+    for (const entry of touched) {
+      const before = entry.patches.length
+      entry.patches = entry.patches.filter((patch) => patch.transactionId !== transactionId)
+      if (entry.patches.length !== before) recomputeEntry(entry)
+    }
+  }
+
+  const settle = () => {
+    for (const entry of touched) {
+      let removed = false
+      const remaining: OptimisticPatch[] = []
+      for (const patch of entry.patches) {
+        if (patch.transactionId !== transactionId) {
+          remaining.push(patch)
+          continue
+        }
+        // A refresh that started after this mutation and already completed carries the server result.
+        if (!entry.loading && entry.completedGeneration > patch.startedAtGeneration) {
+          removed = true
+          continue
+        }
+        patch.settled = true
+        patch.reconcileAtGeneration = entry.loading && entry.fetchGeneration > patch.startedAtGeneration
+          ? entry.fetchGeneration
+          : entry.fetchGeneration + 1
+        remaining.push(patch)
+      }
+      entry.patches = remaining
+      if (removed) recomputeEntry(entry)
+    }
+  }
+
+  const cache: OptimisticQueryCache = {
+    get<T = Json>(name: string, input: object = {}): T | undefined {
+      const entry = queryCache.get(cacheKey(`@app/${name}`, stableStringify(input)))
+      return entry ? (entry.snapshot.data as T | undefined) : undefined
+    },
+    set<T = Json>(name: string, input: object, value: T): void {
+      cache.update<T>(name, input, () => value)
+    },
+    update<T = Json>(name: string, input: object, updater: (current: T | undefined) => T | undefined): void {
+      const entry = queryCache.get(cacheKey(`@app/${name}`, stableStringify(input)))
+      if (!entry) return
+      entry.patches.push({
+        transactionId,
+        startedAtGeneration: entry.fetchGeneration,
+        updater: (current) => updater(current as T | undefined),
+        settled: false,
+        reconcileAtGeneration: null,
+      })
+      touched.add(entry)
+      recomputeEntry(entry)
+    },
+    updateAll<T = Json, Input extends object = object>(name: string, updater: (current: T | undefined, input: Input) => T | undefined): void {
+      for (const entry of queryCache.values()) {
+        if (entry.queryName !== name) continue
+        entry.patches.push({
+          transactionId,
+          startedAtGeneration: entry.fetchGeneration,
+          updater: (current) => updater(current as T | undefined, entry.input as Input),
+          settled: false,
+          reconcileAtGeneration: null,
+        })
+        touched.add(entry)
+        recomputeEntry(entry)
+      }
+    },
+  }
+
+  try {
+    apply(cache)
+  } catch (error) {
+    rollback()
+    return { error }
+  }
+  return { settle, rollback }
+}
+
 /** A query as React state. It runs when its name or input changes, and again each time the app's data changes. */
 export function useQuery<T = Json>(name: string, input: object = {}): QueryState<T> {
   return useCall<T>(`@app/${name}`, input)
@@ -70,21 +320,23 @@ export function useConfig<T = { readonly [name: string]: ConfigValue }>(): Query
 }
 
 function useCall<T>(callName: string, input: object): QueryState<T> {
-  const [state, setState] = useState<{ data: T | undefined; error: string | null; loading: boolean }>({ data: undefined, error: null, loading: true })
-  const [run, setRun] = useState(0)
-  const key = JSON.stringify(input)
-  useEffect(() => {
-    let current = true
-    setState((before) => ({ ...before, loading: true }))
-    call<T>(callName, JSON.parse(key) as object).then(
-      (data) => { if (current) setState({ data, error: null, loading: false }) },
-      (error: unknown) => { if (current) setState((before) => ({ data: before.data, error: error instanceof Error ? error.message : String(error), loading: false })) },
-    )
-    return () => { current = false }
-  }, [callName, key, run])
-  const refresh = useCallback(() => setRun((count) => count + 1), [])
-  useEffect(() => onDataChanged(refresh), [refresh])
-  return { ...state, refresh }
+  const inputKey = stableStringify(input)
+  const key = cacheKey(callName, inputKey)
+  const subscribe = useCallback((listener: () => void) => subscribeQuery(callName, inputKey, listener), [callName, inputKey])
+  const getSnapshot = useCallback(() => getQuerySnapshot(key), [key])
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot)
+  const previous = useRef<{ callName: string; data: T | undefined }>({ callName, data: undefined })
+  useLayoutEffect(() => {
+    if (previous.current.callName !== callName) {
+      previous.current = { callName, data: snapshot.data as T | undefined }
+      return
+    }
+    if (snapshot.data !== undefined) previous.current.data = snapshot.data as T
+  }, [callName, snapshot.data])
+  const previousData = previous.current.callName === callName ? previous.current.data : undefined
+  const data = snapshot.data === undefined && snapshot.loading ? previousData : (snapshot.data as T | undefined)
+  const refresh = useCallback(() => refreshQuery(callName, inputKey), [callName, inputKey])
+  return { data, error: snapshot.error, loading: snapshot.loading, refresh }
 }
 
 type Operations<App> = App extends { operations: infer Declared } ? Declared : never
@@ -92,6 +344,19 @@ type NameOf<App, Kind extends 'query' | 'mutation'> = { [Name in keyof Operation
 type InputOf<App, Name extends keyof Operations<App>> = Operations<App>[Name] extends { readonly inputType?: infer Input } ? Input : never
 type OutputOf<App, Name extends keyof Operations<App>> = Operations<App>[Name] extends { readonly outputType?: infer Output } ? Output : never
 type ConfigOf<App> = App extends { config?: infer Declared } ? { readonly [Name in keyof NonNullable<Declared>]: NonNullable<Declared>[Name] extends { type: 'model' } ? string : NonNullable<Declared>[Name] extends { default: infer Value } ? Value : never } : never
+
+/** Typed client cache exposed to `appClient().mutate(..., { optimistic })`. */
+export interface TypedOptimisticQueryCache<App> {
+  get<Name extends NameOf<App, 'query'>>(name: Name, input: InputOf<App, Name>): OutputOf<App, Name> | undefined
+  set<Name extends NameOf<App, 'query'>>(name: Name, input: InputOf<App, Name>, value: OutputOf<App, Name>): void
+  update<Name extends NameOf<App, 'query'>>(name: Name, input: InputOf<App, Name>, updater: (current: OutputOf<App, Name> | undefined) => OutputOf<App, Name> | undefined): void
+  updateAll<Name extends NameOf<App, 'query'>>(name: Name, updater: (current: OutputOf<App, Name> | undefined, input: InputOf<App, Name>) => OutputOf<App, Name> | undefined): void
+}
+
+/** Typed options for `appClient().mutate`. */
+export interface TypedMutateOptions<App> {
+  optimistic?: (cache: TypedOptimisticQueryCache<App>) => void
+}
 
 /**
  * The same functions with the backend's own types:
@@ -105,7 +370,8 @@ type ConfigOf<App> = App extends { config?: infer Declared } ? { readonly [Name 
 export function appClient<App>() {
   return {
     query: <Name extends NameOf<App, 'query'>>(name: Name, input: InputOf<App, Name>) => query<OutputOf<App, Name>>(name, input as object),
-    mutate: <Name extends NameOf<App, 'mutation'>>(name: Name, input: InputOf<App, Name>) => mutate<OutputOf<App, Name>>(name, input as object),
+    mutate: <Name extends NameOf<App, 'mutation'>>(name: Name, input: InputOf<App, Name>, options?: TypedMutateOptions<App>) =>
+      mutate<OutputOf<App, Name>>(name, input as object, options as MutateOptions | undefined),
     useQuery: <Name extends NameOf<App, 'query'>>(name: Name, input: InputOf<App, Name>) => useQuery<OutputOf<App, Name>>(name, input as object),
     useConfig: () => useConfig<ConfigOf<App>>(),
   }
