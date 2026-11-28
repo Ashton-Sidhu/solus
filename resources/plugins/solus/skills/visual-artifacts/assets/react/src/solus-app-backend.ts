@@ -184,6 +184,7 @@ export interface AnyOperation {
   input: z.ZodType
   output?: z.ZodType
   timeoutSeconds?: number
+  requiresApproval?: boolean
   handler(ctx: Context, input: never): unknown
 }
 
@@ -203,6 +204,8 @@ interface OperationOptions<Schema extends z.ZodType, OutputSchema extends z.ZodT
   output?: OutputSchema
   /** How long one call may take: 60 seconds by default, 900 at most. Use a workflow for longer work. */
   timeoutSeconds?: number
+  /** True when an agent must get user approval before calling this operation. False when omitted. */
+  requiresApproval?: boolean
 }
 
 type EmptyInput = z.ZodObject<{}>
@@ -218,6 +221,7 @@ function operation<Kind extends 'query' | 'mutation', Schema extends z.ZodType, 
     input: options.input ?? z.object({}),
     ...(options.output ? { output: options.output } : {}),
     ...(options.timeoutSeconds ? { timeoutSeconds: options.timeoutSeconds } : {}),
+    ...(options.requiresApproval !== undefined ? { requiresApproval: options.requiresApproval } : {}),
     handler: handler as (ctx: Context, input: never) => unknown,
   }
 }
@@ -445,6 +449,7 @@ export function defineApp<Operations extends OperationMap = {}, Config extends {
         input: z.toJSONSchema(declared.input, { target: 'draft-7', io: 'input' }) as { [key: string]: Json },
         ...(declared.output ? { output: z.toJSONSchema(declared.output, { target: 'draft-7', io: 'output' }) as { [key: string]: Json } } : {}),
         ...(declared.timeoutSeconds ? { timeoutSeconds: declared.timeoutSeconds } : {}),
+        ...(declared.requiresApproval !== undefined ? { requiresApproval: declared.requiresApproval } : {}),
       })),
       schedules: Object.entries(definition.schedules ?? {}).map(([name, schedule]) => ({
         name,

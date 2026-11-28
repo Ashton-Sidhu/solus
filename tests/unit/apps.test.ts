@@ -89,6 +89,24 @@ describe('the app descriptor', () => {
     expect(timed(901)).toBe(false)
   })
 
+  test('an operation may declare requiresApproval as a boolean, or omit it', () => {
+    const parsed = appDescriptorSchema.parse(descriptor({
+      operations: [
+        { name: 'read', kind: 'query', input: {} },
+        { name: 'exportData', kind: 'query', input: {}, requiresApproval: true },
+        { name: 'deleteAll', kind: 'mutation', input: {}, requiresApproval: true },
+        { name: 'touch', kind: 'mutation', input: {}, requiresApproval: false },
+      ],
+    }))
+    expect(parsed.operations.map((operation) => [operation.name, operation.requiresApproval])).toEqual([
+      ['read', undefined],
+      ['exportData', true],
+      ['deleteAll', true],
+      ['touch', false],
+    ])
+    expect(appDescriptorSchema.safeParse(descriptor({ operations: [{ name: 'bad', kind: 'mutation', input: {}, requiresApproval: 'always' }] })).success).toBe(false)
+  })
+
   test('two operations cannot have one name', () => {
     const repeated = appDescriptorSchema.safeParse(descriptor({ operations: [{ name: 'add', kind: 'query', input: {} }, { name: 'add', kind: 'mutation', input: {} }] }))
     expect(repeated.error?.issues[0]?.message).toBe('The name add is used twice.')
