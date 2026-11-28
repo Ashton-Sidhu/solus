@@ -2193,7 +2193,7 @@ export type NormalizedEvent =
    *  form is answered with an extra `__action` entry, so anything answering this
    *  request has to be able to tell the two apart. */
   | { type: 'question_answered'; answer: QuestionAnswer; timestamp: number }
-  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link' | 'cloud-machine' | 'host-providers'; hostLink?: AddMachineAsk; hostProviders?: HostProvidersAsk; cloudMachine?: CloudMachineAsk; turnAuthor?: User }
+  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret' | 'host-link' | 'cloud-machine' | 'host-providers'; hostLink?: AddMachineAsk; hostProviders?: HostProvidersAsk; cloudMachine?: CloudMachineAsk; turnAuthor?: User; agentAnswerableForm?: { requiredFields: string[] } }
   /** Provider context compaction. Claude can report one completed interval by
    *  duration and its token counts; Codex can report start and stop item
    *  boundaries. A stop that is not `failed` draws the compaction divider. */

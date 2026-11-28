@@ -19,5 +19,8 @@ Give it the answer or tell it to make that decision for you. The agent uses
 `pending_request` to find and answer the question. The target session records
 which agent sent the answer.
 
+This includes Antigravity's own `ask_question` forms. An agent can leave
+optional fields blank. Forms from named MCP servers still use their cards.
+
 Use the question card to answer directly. Approvals, plan decisions, and
 requests for secrets still need you.

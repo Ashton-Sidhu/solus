@@ -50,8 +50,12 @@ export function eventHasQuestionId(event: NormalizedEvent, questionId: string): 
   return 'questionId' in event && event.questionId === questionId
 }
 
-export function isStandardQuestion(event: NormalizedEvent): event is Extract<NormalizedEvent, { type: 'question_request' }> & { kind?: 'standard' } {
+function isStandardQuestion(event: NormalizedEvent): event is Extract<NormalizedEvent, { type: 'question_request' }> & { kind?: 'standard' } {
   return event.type === 'question_request' && (!event.kind || event.kind === 'standard')
+}
+
+export function isAgentAnswerableQuestion(event: NormalizedEvent): event is Extract<NormalizedEvent, { type: 'question_request' }> {
+  return isStandardQuestion(event) || (event.type === 'question_request' && event.kind === 'mcp_form' && !!event.agentAnswerableForm)
 }
 
 /**
@@ -174,43 +178,47 @@ export class InputRequests {
     if (agent && admission && !await mayAnswerFor(actor.principal, sessionId, admission)) return false
     const asyncQuestion = claimAsyncQuestion(sessionId, questionId)
     if (asyncQuestion) {
-      const answer = { questionId, questions: asyncQuestion.questions, answers }
-      const reply = questionReply(answer)
-      if (!reply) {
-        settleAsyncQuestion(questionId, 'dismissed')
-        this.rt.publish(sessionId, { type: 'permission_resolved', questionId })
-        this.rt.statuses.questionsChanged(asyncQuestion.agentSessionId, sessionId)
-        return true
-      }
-      try {
-        saveAsyncAnswer(questionId, answers)
-        const sender = agent && attributionOf(actor, agent)
-        // Steering can interrupt a provider callback. Let any other open blocking card settle first.
-        const delivery = agent && this.rt.activeSessions.get(sessionId)?.hasPendingInput ? 'queue' : 'steer'
-        await this.rt.dispatch.promptSession(sessionId, reply, delivery, {
-          actor, via: 'question-answer', sender: sender?.kind === 'agent' ? sender : undefined,
-        })
-      } catch (error) {
-        settleAsyncQuestion(questionId, 'pending')
-        throw error
-      }
-      settleAsyncQuestion(questionId, 'answered')
-      this.rt.statuses.questionsChanged(asyncQuestion.agentSessionId, sessionId)
-      this.recordQuestionAnswer(sessionId, answer, actor, agent)
+      await this.respondToAsyncQuestion(sessionId, asyncQuestion.agentSessionId, { questionId, questions: asyncQuestion.questions, answers }, actor, agent)
       return true
     }
     const pending = this.pendingQuestion(askingSessionId, questionId)
-    if (!pending || pending.event.type !== 'question_request' || (agent && !isStandardQuestion(pending.event))) return false
+    if (!pending || pending.event.type !== 'question_request' || (agent && !isAgentAnswerableQuestion(pending.event))) return false
     const { sessionId: pendingSessionId, backend: b, event: question } = pending
     if (!answerToolQuestion(questionId, answers) && !b.permissions.respondToQuestion(questionId, answers)) return false
     this.rt.reportToActiveRun(pendingSessionId, (run) => this.rt.orchestration?.inputResolved(run, { kind: 'question', questions: question.questions, answers }))
     this.rt.sessionEmitter.resolveQuestion(pendingSessionId, questionId)
-    if (isStandardQuestion(question)) {
+    if (isStandardQuestion(question) || (agent && question.agentAnswerableForm)) {
       this.recordQuestionAnswer(pendingSessionId, { questionId, questions: question.questions, answers }, actor, agent)
     }
     this.clearPendingInputEvent(questionId)
     this.questionIdToSession.delete(questionId)
     return true
+  }
+
+  private async respondToAsyncQuestion(sessionId: string, agentSessionId: string, answer: QuestionAnswer, actor: Actor, agent?: AgentVia): Promise<void> {
+    const { questionId, answers } = answer
+    const reply = questionReply(answer)
+    if (!reply) {
+      settleAsyncQuestion(questionId, 'dismissed')
+      this.rt.publish(sessionId, { type: 'permission_resolved', questionId })
+      this.rt.statuses.questionsChanged(agentSessionId, sessionId)
+      return
+    }
+    try {
+      saveAsyncAnswer(questionId, answers)
+      const sender = agent && attributionOf(actor, agent)
+      // Steering can interrupt a provider callback. Let any other open blocking card settle first.
+      const delivery = agent && this.rt.activeSessions.get(sessionId)?.hasPendingInput ? 'queue' : 'steer'
+      await this.rt.dispatch.promptSession(sessionId, reply, delivery, {
+        actor, via: 'question-answer', sender: sender?.kind === 'agent' ? sender : undefined,
+      })
+    } catch (error) {
+      settleAsyncQuestion(questionId, 'pending')
+      throw error
+    }
+    settleAsyncQuestion(questionId, 'answered')
+    this.rt.statuses.questionsChanged(agentSessionId, sessionId)
+    this.recordQuestionAnswer(sessionId, answer, actor, agent)
   }
 
   private recordQuestionAnswer(sessionId: string, answer: QuestionAnswer, actor: Actor, agent?: AgentVia): void {

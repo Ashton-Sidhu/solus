@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { questionKey } from '@solus/contracts/question-answer'
 import type { QuestionItem } from '@solus/contracts/types'
-import { isStandardQuestion } from '../../sessions/input-requests'
+import { isAgentAnswerableQuestion } from '../../sessions/input-requests'
 import type { AgentTool, AgentToolResult } from './agent-tool'
 import { getSessionController } from './session-tools'
 
@@ -10,15 +10,26 @@ const fields = {
   session_id: z.string().trim().min(1).describe('The session on this host that asked.'),
   request_id: z.string().min(1).optional().describe('The ID from list. Required for read and respond.'),
   answers: z.record(z.string(), z.string().trim().min(1)).optional()
-    .describe('For respond, one answer per question ID from read. Join multiple selections with commas.'),
+    .describe('Use IDs and labels from read. Answer required fields. Join choices with commas.'),
 }
 
+type PendingQuestion = QuestionItem & { id: string; required?: boolean }
+
 type PendingRequestResult = { request_ids: string[] }
-  | { request_id: string; questions: Array<QuestionItem & { id: string }> }
+  | { request_id: string; questions: PendingQuestion[] }
   | { request_id: string; answered: true }
 
 function result(value: PendingRequestResult): AgentToolResult {
   return { ok: true, text: JSON.stringify(value), format: 'json' }
+}
+
+function invalidFormChoice(questions: PendingQuestion[], answers: Record<string, string>): string | undefined {
+  for (const question of questions) {
+    if (!Object.hasOwn(answers, question.id) || question.options.length === 0) continue
+    const answer = answers[question.id]!
+    const choices = question.multiSelect ? answer.split(',').map((choice) => choice.trim()) : [answer]
+    if (!choices.every((choice) => question.options.some((option) => option.label === choice))) return question.id
+  }
 }
 
 export const pendingRequestAgentTool: AgentTool<typeof fields> = {
@@ -33,18 +44,25 @@ export const pendingRequestAgentTool: AgentTool<typeof fields> = {
     if (!callerSessionId || !controller || context.abortSignal.aborted) {
       return { ok: false, text: 'This tool requires an active Solus session.' }
     }
-    const pending = controller.pendingInputEvents(session_id).filter(isStandardQuestion)
+    const pending = controller.pendingInputEvents(session_id).filter(isAgentAnswerableQuestion)
     if (action === 'list') return result({ request_ids: pending.map((request) => request.questionId) })
     if (!request_id) return { ok: false, text: 'Read and respond require a request_id from list.' }
     const request = pending.find((event) => event.questionId === request_id)
     if (!request) return { ok: false, text: 'That question is no longer pending in this session.' }
-    const questions = request.questions.map((question) => ({ ...question, id: questionKey(question) }))
+    const form = request.agentAnswerableForm
+    const questions = request.questions.map((question) => {
+      const id = questionKey(question)
+      return form ? { ...question, id, required: form.requiredFields.includes(id) } : { ...question, id }
+    })
     if (action === 'read') return result({ request_id, questions })
     const questionIds = new Set(questions.map((question) => question.id))
-    if (!answers || questionIds.size === 0 || Object.keys(answers).length !== questionIds.size ||
+    const requiredIds = form?.requiredFields ?? [...questionIds]
+    if (!answers || Object.keys(answers).length === 0 || !requiredIds.every((id) => Object.hasOwn(answers, id)) ||
       !Object.keys(answers).every((id) => questionIds.has(id))) {
-      return { ok: false, text: 'Provide one non-empty answer for each question ID from read.' }
+      return { ok: false, text: 'Use the IDs from read and answer every required field.' }
     }
+    const invalidChoice = form && invalidFormChoice(questions, answers)
+    if (invalidChoice) return { ok: false, text: `Use the offered choices for "${invalidChoice}".` }
     const accepted = await controller.answerPendingQuestion?.(session_id, request_id, answers, {
       sessionId: callerSessionId, provider: context.provider,
     })

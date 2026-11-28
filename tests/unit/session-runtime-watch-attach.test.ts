@@ -306,6 +306,22 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
       expect((await call('respond', 'blocking', { package: 'pnpm' })).structuredContent).toEqual({ request_id: 'blocking', answered: true })
       expect(respondToBackend).toHaveBeenCalledWith('blocking', { package: 'pnpm' })
       expect(backend.steeredPrompts).toHaveLength(1)
+
+      const formQuestions = [...questions, { id: 'package_other', question: 'Other', options: [], multiSelect: false }]
+      backend.emit('normalized', 'thread-1', {
+        type: 'question_request', kind: 'mcp_form', questionId: 'agy-form',
+        questions: formQuestions, agentAnswerableForm: { requiredFields: ['package'] },
+      } satisfies NormalizedEvent)
+      expect((await call('list')).structuredContent).toEqual({ request_ids: ['agy-form'] })
+      expect((await call('read', 'agy-form')).structuredContent).toEqual({
+        request_id: 'agy-form',
+        questions: [{ ...formQuestions[0], required: true }, { ...formQuestions[1], required: false }],
+      })
+      expect((await call('respond', 'agy-form', { package_other: 'yarn' })).isError).toBe(true)
+      expect((await call('respond', 'agy-form', { package: 'pnpm', __action: 'cancel' })).isError).toBe(true)
+      expect((await call('respond', 'agy-form', { package: 'made-up' })).isError).toBe(true)
+      expect((await call('respond', 'agy-form', { package: 'pnpm' })).structuredContent).toEqual({ request_id: 'agy-form', answered: true })
+      expect(respondToBackend).toHaveBeenLastCalledWith('agy-form', { package: 'pnpm' })
       backend.complete('thread-1')
       await lifecycle.done
     } finally {

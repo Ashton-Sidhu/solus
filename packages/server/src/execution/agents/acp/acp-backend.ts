@@ -818,11 +818,17 @@ export class AcpBackend extends BaseAgentBackend implements AgentBackend {
     if (!turn || !threadId || !request.success || request.data.sessionId !== live.agentSessionId || turn.unattended) return { action: 'cancel' }
     const form = normalizeMcpElicitationRequest(params)
     if (form?.request.kind !== 'mcp_form') return { action: 'decline' }
+    // Antigravity's own ask_question uses ACP elicitation. A named server form stays a client action.
+    const agentAnswerableForm = this.id === 'antigravity' && !form.request.serverName && form.requiredFields &&
+      !form.questions.some((question) => question.id === '__action')
+      ? { requiredFields: form.requiredFields }
+      : undefined
     const answers = await this.waitForAnswer<Record<string, string>>(turn, threadId, (finish) => ({ kind: 'form', threadId, toolName: 'AskUserQuestion', finish }), (questionId) => ({
       type: 'question_request',
       questionId,
       questions: form.questions,
       kind: 'mcp_form',
+      agentAnswerableForm,
     }))
     if (!answers) return { action: 'cancel' }
     const result = mcpElicitResult(mcpElicitationResponse(params, answers))

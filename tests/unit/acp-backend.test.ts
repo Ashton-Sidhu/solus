@@ -246,7 +246,7 @@ describe('AcpBackend permissions', () => {
 
 describe('AcpBackend forms', () => {
   // agy's `ask_question` arrives as an MCP-style form: the person answers it on the same card as an MCP server's form.
-  function formTurn(overrides: Partial<AgentRunRequest> = {}) {
+  function formTurn(overrides: Partial<AgentRunRequest> = {}, form?: Json) {
     const answers: Array<Json | undefined> = []
     let initializeParams: Json | undefined
     const setupResult = setup({
@@ -255,7 +255,7 @@ describe('AcpBackend forms', () => {
         return INITIALIZE
       },
       'session/prompt': async (_params, agent) => {
-        answers.push(await agent.request('elicitation/create', {
+        answers.push(await agent.request('elicitation/create', form ?? {
           sessionId: 'thread-1',
           mode: 'form',
           message: 'Which database?',
@@ -280,12 +280,51 @@ describe('AcpBackend forms', () => {
     const asked = await askedForm(events)
     expect(initializeParams()).toMatchObject({ clientCapabilities: { elicitation: { form: {} } } })
     expect(asked.kind).toBe('mcp_form')
+    expect(asked.agentAnswerableForm).toEqual({ requiredFields: ['database'] })
     expect(asked.questions.map((question) => question.id)).toContain('database')
     expect(backend.permissions.respondToQuestion(asked.questionId, { database: 'sqlite' })).toBe(true)
     await handle.runPromise
     expect(answers).toEqual([{ action: 'accept', content: { database: 'sqlite' } }])
     expect(events.some((event) => event.type === 'permission_resolved' && event.questionId === asked.questionId)).toBe(true)
     backend.shutdown()
+  })
+
+  test('Antigravity accepts multiple selections and lets optional fields stay empty', async () => {
+    const { backend, handle, answers, events } = formTurn({}, {
+      sessionId: 'thread-1',
+      mode: 'form',
+      message: 'The agent has one question.',
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          q0: { type: 'array', title: 'Which databases?', items: { type: 'string', anyOf: [{ const: '1', title: 'Postgres' }, { const: '2', title: 'SQLite' }] } },
+          q0_other: { type: 'string', title: 'Other' },
+        },
+      },
+    })
+    try {
+      const asked = await askedForm(events)
+      expect(asked.agentAnswerableForm).toEqual({ requiredFields: [] })
+      expect(asked.questions[0]).toMatchObject({
+        id: 'q0', multiSelect: true, options: [{ label: '1', description: 'Postgres' }, { label: '2', description: 'SQLite' }],
+      })
+      expect(backend.permissions.respondToQuestion(asked.questionId, { q0: '1, 2' })).toBe(true)
+      await handle.runPromise
+      expect(answers).toEqual([{ action: 'accept', content: { q0: ['1', '2'] } }])
+    } finally { backend.shutdown() }
+  })
+
+  test('a named server form keeps its client-only response path', async () => {
+    const { backend, events, handle } = formTurn({}, {
+      sessionId: 'thread-1', mode: 'form', serverName: 'external',
+      requestedSchema: { properties: { confirm: { type: 'boolean' } } },
+    })
+    try {
+      const asked = await askedForm(events)
+      expect(asked.agentAnswerableForm).toBeUndefined()
+      expect(backend.permissions.respondToQuestion(asked.questionId, { __action: 'decline' })).toBe(true)
+      await handle.runPromise
+    } finally { backend.shutdown() }
   })
 
   test('a declined form sends only the action', async () => {

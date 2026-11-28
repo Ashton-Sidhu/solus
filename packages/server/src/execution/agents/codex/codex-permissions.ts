@@ -37,13 +37,16 @@ const mcpVariantSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
 })
-const mcpPropertySchema = z.object({
-  type: z.union([z.string(), z.array(z.string())]).optional(),
-  title: z.string().optional(),
-  description: z.string().optional(),
+const mcpChoiceSchema = z.object({
   enum: z.array(z.json()).optional(),
   oneOf: z.array(mcpVariantSchema).optional(),
   anyOf: z.array(mcpVariantSchema).optional(),
+})
+const mcpPropertySchema = mcpChoiceSchema.extend({
+  type: z.union([z.string(), z.array(z.string())]).optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  items: mcpChoiceSchema.optional(),
 })
 const mcpSchemaSchema = z.object({
   properties: z.record(z.string(), mcpPropertySchema).optional(),
@@ -74,7 +77,7 @@ const questionSchema = z.object({
 })
 
 type McpProperty = z.infer<typeof mcpPropertySchema>
-type McpAnswerValue = string | number | boolean | null
+type McpAnswerValue = string | string[] | number | boolean | null
 type RequestedPermissions = PermissionsRequestApprovalParams['permissions']
 type CommandOrFileApprovalResponse =
   | CodexApprovalDecision
@@ -316,6 +319,7 @@ export function normalizeMcpElicitationRequest(params: any): {
     canCancel: boolean
   }
   questions: QuestionItem[]
+  requiredFields?: string[]
 } | null {
   const payload = mcpElicitationPayload(params)
   const serverName = parsedString(params?.serverName)
@@ -355,7 +359,7 @@ export function normalizeMcpElicitationRequest(params: any): {
         question: prop.title || prop.description || key,
         header: message,
         options: questionOptionsForSchema(prop),
-        multiSelect: false,
+        multiSelect: schemaType(prop) === 'array',
       } satisfies QuestionItem
     })
     : [{
@@ -378,6 +382,7 @@ export function normalizeMcpElicitationRequest(params: any): {
       canCancel: true,
     },
     questions,
+    requiredFields: entries.length > 0 ? [...required] : undefined,
   }
 }
 
@@ -556,15 +561,16 @@ function mcpAction(value: string | undefined): 'accept' | 'decline' | 'cancel' {
 }
 
 function questionOptionsForSchema(prop: McpProperty): Array<{ label: string; description?: string; preview?: string }> {
-  const variants = prop.oneOf ?? prop.anyOf ?? []
-  const enumValues = prop.enum ?? variants
+  const choices = schemaType(prop) === 'array' ? prop.items : prop
+  const variants = choices?.oneOf ?? choices?.anyOf ?? []
+  const enumValues = choices?.enum ?? variants
     .map((item) => item.const ?? item.enum?.[0])
     .filter((value) => value !== undefined)
 
   if (enumValues.length > 0) {
     return enumValues.map((value) => ({
       label: String(value),
-      description: optionDescriptionForSchemaValue(prop, value),
+      description: optionDescriptionForSchemaValue(variants, value),
     }))
   }
 
@@ -578,14 +584,14 @@ function questionOptionsForSchema(prop: McpProperty): Array<{ label: string; des
   return []
 }
 
-function optionDescriptionForSchemaValue<Value>(prop: McpProperty, value: Value): string | undefined {
-  const variants = prop.oneOf ?? prop.anyOf ?? []
+function optionDescriptionForSchemaValue<Value>(variants: z.infer<typeof mcpVariantSchema>[], value: Value): string | undefined {
   const match = variants.find((item) => item.const === value || item.enum?.[0] === value)
   return match?.title || match?.description
 }
 
 function coerceMcpValue(value: string, prop: McpProperty | undefined): McpAnswerValue {
   const type = schemaType(prop)
+  if (type === 'array') return value.split(',').map((item) => item.trim()).filter(Boolean)
   if (type === 'boolean') {
     const normalized = value.trim().toLowerCase()
     return normalized === 'true' || normalized === 'yes' || normalized === '1'
