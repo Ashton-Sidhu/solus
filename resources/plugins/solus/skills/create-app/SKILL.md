@@ -28,7 +28,11 @@ Build whatever the user asked for, at the size they asked for. Do not reduce the
 | Menu-bar page | `menubar.html`, `src/menubar.tsx` | Optional: a small page in a popover under the app's menu-bar item on the desktop ([desktop.md](references/desktop.md#the-menu-bar-page)). |
 | Desktop | `@solus/app` | In the app's own window of the desktop app: a menu-bar item, global shortcuts, notifications, system audio, a badge, and more, each with the person's permission. |
 
-Each part is optional. A to-do list needs only a UI and `storage`. A database browser needs operations, a secret, and a network permission. A digest that posts each morning needs an operation and a schedule, and no UI. An importer needs an app file and a workflow.
+Each part is optional. A to-do list needs only a UI and `storage`. A database browser needs operations and access to its data source. A digest that posts each morning needs an operation and a schedule, and no UI. An importer needs an app file and a workflow.
+
+## Check for an existing connection
+
+If the app uses an external service, look for a Solus integration before you run the initializer. Confirm that an available integration can access the data the app needs, then reuse it. See [Check service access](references/access.md#check-service-access) for how to check the connection and when to use a direct API.
 
 ## Start from the starter
 
@@ -62,7 +66,7 @@ Do not keep a part of Notes that the new app does not need. A larger app gets a 
 
 ## Steps
 
-1. Start the project with the initializer.
+1. After any applicable connection check, start the project with the initializer.
 2. Design the app as a product before you write components: read [design](references/design.md) and write its brief.
 3. Write the backend, the data, and the UI. Read only the topics the app needs (below).
 4. Check it: `preview_app` with `path` (the project folder). The host builds the folder and gives you a screenshot. A build error comes back with the build's own text. Fix what you see. Check each page with `route`, and check about 390px wide and dark mode too.
