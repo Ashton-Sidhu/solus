@@ -1,5 +1,15 @@
 # Schedules, webhooks, and signals
 
+## Choose a trigger
+
+- **On demand.** Use an operation when someone opens a view, clicks a button, or asks an agent to do the work.
+- **Schedule.** Use an interval for periodic checks and cron with a time zone for a calendar time, such as a weekday digest. Use polling when the service cannot send the event you need. Check that the app's host will be available at run time.
+- **Webhook.** Use a webhook when a service can send a specific event, such as a closed issue or completed deploy, to a reachable callback URL. Verify the delivery, do the minimum work needed to accept it, and reply quickly. If missing an event would leave the app's data incorrect, add a periodic check when the service can list what changed.
+- **Workflow.** Start one from the operation that accepts the request if the work needs retries, waits, or progress across a restart. A button, schedule, or webhook can all start the same job. See [Workflows](workflows.md).
+- **Signal.** Emit a signal when the app has a result or change to report. Use it for an outbound notification or agent handoff.
+
+For unattended work, check which [app connection](access.md#integrations) provides service access and how the user can see or stop the work. If the task only asks for on-demand behavior, leave it on demand.
+
 ## Schedules
 
 ```ts
@@ -36,7 +46,7 @@ webhooks: {
 },
 ```
 
-A deploy makes a webhook for each declaration. Solus checks the signature before the mutation runs, drops a second delivery with the same `replayKey`, and keeps a log of deliveries. The mutation gets `{ headers, query, body }`: header names are lower case, and `body` is JSON when the request was JSON. Answer fast: store the event, or start a workflow, and return.
+A deploy makes a webhook for each declaration. Solus checks the signature before the mutation runs, drops a second delivery with the same `replayKey`, and keeps a log of deliveries. Use the provider's stable delivery ID for the key. The mutation gets `{ headers, query, body }`: header names are lower case, and `body` is JSON when the request was JSON. Validate the event type and the fields you use. Store the event or start a workflow and return.
 
 The app's Manage page shows each webhook's URL and its signing secret. Tell the user to copy both into the other service. When the other service gives its own secret, the user sets it in Settings → Webhooks. The verification schemes are the ones of `manage_webhooks`: `hmac`, `public_key`, `token`, `jwt`, `standard_webhooks`, and `none` with a reason.
 

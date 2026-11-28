@@ -20,6 +20,11 @@ CREATE INDEX notes_created ON notes (created_at);
 
 Try an operation's SQL before you deploy: `sqlite3` or `node:sqlite` in a scratch file is faster than a deploy.
 
+## Writes and retries
+
+- Bind values with `?` parameters. Use a transaction when a read and write must agree, or a single conditional update when it can enforce the same rule. Use a unique constraint for facts that must only be written once, such as a provider event ID.
+- Keep network calls outside SQLite transactions. A remote action can succeed while saving its response fails. For an action that must be recoverable, record it with a stable ID, use that ID for the remote service's idempotency key when supported, and save the outcome. For longer jobs, use [workflow steps](workflows.md#how-a-run-stays-alive).
+
 ## Storage
 
 `storage` from `@solus/app` is key-value data for a UI with no backend: `storage.get`, `set`, `delete`, `keys`. A value is at most 1 MiB and the whole app holds 8 MiB. It belongs to the app, not to one viewer. Use the database for anything a schedule or an agent also reads.

@@ -1,6 +1,6 @@
 ---
 name: create-app
-description: Build, change, and repair an app that lives in Solus — a tool, a tracker, a browser for the user's data, or something that runs on a schedule or a webhook — with a backend on the host, its own SQLite data and files, a UI in its own window, and operations that agents can call. Starts from a checked starter app. Read before you create or change an app.
+description: Build, change, verify, or repair a Solus app with agent tools, a UI, data, integrations, or background work. Use for tools, trackers, data browsers, and apps that run on a schedule or webhook. Start new apps from the checked starter.
 ---
 
 # Build an app
@@ -29,6 +29,10 @@ Build whatever the user asked for, at the size they asked for. Do not reduce the
 | Desktop | `@solus/app` | In the app's own window of the desktop app: a menu-bar item, global shortcuts, notifications, system audio, a badge, and more, each with the person's permission. |
 
 Each part is optional. A to-do list needs only a UI and `storage`. A database browser needs operations and access to its data source. A digest that posts each morning needs an operation and a schedule, and no UI. An importer needs an app file and a workflow.
+
+## Choose what runs
+
+Use an operation for work a person or agent starts. Add a schedule when time starts the work or a webhook when another service sends an event. Have the operation start a workflow when the job needs retries, a wait, or progress that survives a restart. Emit a signal when the app has something to report. Before you choose a background trigger, check [how it runs](references/triggers.md#choose-a-trigger) and [whose connection it uses](references/access.md#integrations).
 
 ## Check for an existing connection
 
@@ -64,19 +68,15 @@ Do not keep a part of Notes that the new app does not need. A larger app gets a 
 
 `@solus/app` and `@solus/app/backend` are files of the project (`src/solus-app.ts`, `src/solus-app-backend.ts`), not npm packages: import them, do not install them, and do not edit them.
 
-## Steps
+## Build, verify, and deploy
 
-1. After any applicable connection check, start the project with the initializer.
-2. Design the app as a product before you write components: read [design](references/design.md) and write its brief.
-3. Write the backend, the data, and the UI. Read only the topics the app needs (below).
-4. Check it: `preview_app` with `path` (the project folder). The host builds the folder and gives you a screenshot. A build error comes back with the build's own text. Fix what you see. Check each page with `route`, and check about 390px wide and dark mode too.
-5. Save it: `save_app` with `path`. A save commits the source as a revision and changes nothing that runs. The receipt says the app's slug.
-6. Deploy it: `deploy_app` with `app: "<slug>"`. The host builds the revision and makes the version run at once. It links the app to this session.
-7. Tell the user what the app does, what needs them (a secret, a webhook to register), and one thing to ask their agents to do with it ([deploy](references/deploy.md)).
+1. For a new app, check access when applicable and run the initializer. For an existing app, use its current project folder or `checkout_app` and `npm install`. Read the current source and its [SDK types](references/backend.md#check-the-contract) before changing it. For a repair, [read the failed call or run](references/deploy.md#repair-an-app) first.
+2. Read only the references that apply. Make the app's operations and data model fit its callers. For a UI, read [design](references/design.md) and write its brief before you build components.
+3. Run `npm run check` and any focused behavior checks. Check the UI with `preview_app`, including its routes, a narrow window, and dark mode. Fix problems before you save.
+4. Use `save_app` with the project path, then `deploy_app` with the app slug. Saving creates a revision. Deploying makes it active and links the app to the session. See [deployment](references/deploy.md#save-and-deploy) for version and publishing behavior.
+5. [Verify the active app](references/deploy.md#verify-the-active-app) through its normal entry point when possible. Give the user the app, what it does, an example request for their agent, and any setup or behavior still to verify.
 
-To change an app later, edit the same folder, then `save_app` and `deploy_app` again. In a later session, get the source first with `checkout_app`, then `npm install`. To repair an app, read [deploy](references/deploy.md#repair-an-app) before you change code.
-
-Do not use `render_artifact` for an app. `npm run bundle` checks the types and the build in your own shell, but the host builds what it runs: no tool reads the `dist/` it writes.
+Use `preview_app` for app previews. The host builds the source it runs.
 
 ## Read only the topics you need
 
@@ -87,8 +87,8 @@ Do not use `render_artifact` for an app. `npm run bundle` checks the types and t
 | Keep data: migrations, and `storage` for a UI with no backend | [data.md](references/data.md) |
 | Write the UI: the client, pages, the window, the network | [ui.md](references/ui.md) |
 | Take files from the user, or give the user a file | [files.md](references/files.md) |
-| Run long or durable work: workflows | [workflows.md](references/workflows.md) |
-| Run on a timer or on a call from another service, or tell the user that something happened | [triggers.md](references/triggers.md) |
+| Choose or configure a schedule, webhook, or signal | [triggers.md](references/triggers.md) |
+| Run a job with retries, waits, or progress that survives a restart | [workflows.md](references/workflows.md) |
 | Let the user change a setting: config | [config.md](references/config.md) |
 | Ask a model: a summary, a classification, an analysis | [models.md](references/models.md) |
 | Use a secret, a connected service, the network, or the host's files | [access.md](references/access.md) |

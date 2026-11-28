@@ -1,4 +1,12 @@
-# app.ts: the backend
+# Write app operations
+
+## Check the contract
+
+- For app code, read the current project's `src/solus-app-backend.ts` and `src/solus-app.ts`. They define the app's own SDK. If a feature is absent from an older project, see [upgrade the app SDK](deploy.md#an-app-from-an-older-template).
+- For an integration, discover the available tool and read its input before writing the call. Check the returned shape with a small authorized read when possible. A TypeScript type argument on `ctx.tools` does not validate service data. Parse the fields the app uses at the boundary.
+- For a deployed app, use `list_apps` to find its slug and operations, then read the discovered tool's input schema and the app's instructions from `inspect_app` before calling it.
+
+## Declare operations
 
 `app.ts` next to `package.json` makes the project an app. The starter's `app.ts` is a complete example.
 
@@ -27,17 +35,17 @@ export default defineApp({
 })
 ```
 
-- A **query** reads. It gets a read-only database, so a write in a query fails. It may still call a service.
-- A **mutation** writes. When it changes the database, every open UI of the app runs its queries again.
+- A **query** reads from the app or an external service. It gets a read-only database. Keep external writes out of queries too, since the UI can run a query again without a user action.
+- A **mutation** changes app data or performs an external action. When it changes the database, every open UI of the app runs its queries again.
 - `input` is a Zod object schema. Solus refuses input it does not accept, for every caller. Omit it for an operation that takes nothing.
 - `output` is a Zod schema of what the operation answers. Solus refuses a result it does not accept, and an agent reads its shape before it calls the tool. Give one to each operation an agent uses.
 - `description` is what an agent reads to choose the tool. Write one sentence for each operation.
-- `instructions` on the app is what an agent must know to use the app well, in a few sentences. An agent reads it with `inspect_app`.
+- Use the app's `instructions` for call order, the meaning of IDs or results, and any action an agent needs to confirm with the user. An agent reads it with `inspect_app`.
 - Put a row schema that the UI also uses in a file of its own under `src/` (the starter's `src/schema.ts`), with no backend code in it.
 - A handler takes `(ctx, input)` and returns a JSON value, at most 1 MiB. Page large results.
 - A call has 60 seconds. `timeoutSeconds` on an operation gives it up to 900. For longer work, or work that must not be lost, use a [workflow](workflows.md).
 - A thrown error reaches the caller as its message. Write messages a person can act on.
-- An operation never asks the user first. Do not build a confirm step into the backend; put it in the UI where it matters.
+- An operation runs when called. For an action that needs confirmation, the UI asks before calling it and the app instructions tell agents when to ask. Enforce caller access in the operation where it matters. A hidden button cannot enforce access to a tool.
 - `console.log`, `console.warn`, and `console.error` write the call's log lines. The user and an agent read them on the app's Manage page and with `inspect_app`. Log what a person needs to repair a call that failed. Never log a secret.
 
 For an app with no UI, set `ui: false` in `defineApp`. It opens on its Manage page, where the user runs its operations.

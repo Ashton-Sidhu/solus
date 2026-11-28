@@ -1,5 +1,7 @@
 # Preview, deploy, and repair
 
+Run `npm run check` in the app project. Use a focused check for app logic, data changes, or service response parsing when those affect the outcome. Run `npm run bundle` if you need to diagnose the local UI bundle. The host builds the saved source itself.
+
 ## Preview
 
 `preview_app` builds the project folder on the host, opens the UI in a window 800px tall, at the width you ask for (1100px by default), answers its calls, and takes a picture of the window. `route` opens one page. Nothing is saved or deployed, and it needs no approval.
@@ -7,12 +9,14 @@
 - A build error comes back with the end of the build log: a type error, an import that does not resolve, a native add-on, an `icon.svg` that is not a plain SVG (the error says what to remove), or a `menubar.html` without its `src/menubar.tsx` (or the other way). Fix it and preview again.
 - Operations run for real, against a new, empty database with the project's migrations. So the first picture shows the state of a first open. Sample rows that a migration adds are there; the user's own data is not. To see the app with real data, deploy; from your next turn each operation is a tool you can call.
 - A preview is a picture of one route. It does not click or type. Give each state that matters a route (a page, a tab, an open detail view) so that you can check it, and say which behavior you did not check.
-- A secret is not set in a preview, an integration is not called, a workflow does not start, and there is no app file. Design those states from the known shapes, and say that the live view was not checked.
+- Preview has no secrets or app files. It skips integration calls and workflows. Use it to verify the layout and setup states. Check authenticated behavior separately on the active app.
 - `storage` works in memory.
 
 ## Save and deploy
 
-A project folder names its app and the revision it came from in `.solus/app.json`. `checkout_app` and `save_app` write that file; do not edit it. When another session saved the app after your checkout, `save_app` refuses your save and says so: check the app out into a new folder, make your change there, and save that folder. Never copy your old files over the new checkout without a look at what changed.
+Use `save_app` with the project path to create a source revision. Use `deploy_app` with its slug to build and run that revision. Use the returned revision explicitly if other sessions could save the app before you deploy. A failed build keeps the previous version active. App data stays with the app across deployments. See [migrations](data.md#migrations) before changing the schema.
+
+A project folder names its app and the revision it came from in `.solus/app.json`. `checkout_app` and `save_app` write that file. When another session saves the app after your checkout, `save_app` refuses the stale save. Check out the latest source in a new folder and apply your change to it.
 
 ## Publish
 
@@ -30,13 +34,15 @@ A project folder names its app and the revision it came from in `.solus/app.json
 - A public app has no user accounts and no rate limit from Solus. Build what the app needs into the app.
 - `unpublish_app` removes the copy with its data. Ask the user first.
 
-## After the deploy
+## Verify the active app
 
-- Each operation is a tool named `<slug>__<operation>` from the next turn of any session on the host. Tell the user that their agents can now use the app, and name one thing to ask for. The user can turn that off on the Manage page.
-- `list_apps` says what the host has: each app's slug, its active version, its operations, and what needs the user.
-- When the receipt says a secret is not set, tell the user to set it on the app's Manage page, under Secrets.
-- When the receipt says the version failed, the version before it still runs. The receipt has the end of the build log, or the error of the migration or the start. Fix the cause, save, and deploy again.
-- Tell the user where the app's Manage page is (the Manage switch above the app): its calls, its runs, its files, its signals, and its versions are there.
+Check the deploy receipt for the active version and required setup. Verify the behavior from the entry point the user will use. Choose checks that fit the task:
+
+- **App window.** Open the active app with the intended signed-in account when interactive verification is available and permitted. Check that it shows the expected data and that the action works. A connector call made outside the app proves service access only.
+- **Agent tool.** From the next turn, the active operations are discoverable as `<slug>__<operation>`. Check the input schema and call a representative safe operation. Use `list_apps` to check the active version and operation names.
+- **Background work.** Check schedules, webhooks, workflows, and signals on Manage. For an authorized test, verify the actual delivery, call, or run and its result. For workflow runs or signal actions, use `inspect_app` to see the recorded outcome. A manual UI call uses a different caller from a scheduled or webhook call.
+
+If setup or access prevents a live check, report which path you tested and what remains. Give the user the next setup action, such as setting a secret in Manage or registering a webhook with its provider. Name one thing to ask their agent to do with the app. The Manage switch above the app opens its settings, calls, runs, and versions.
 
 ## Repair an app
 

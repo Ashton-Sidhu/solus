@@ -6,6 +6,8 @@
 2. When the task authorizes a read, make a small read-only call against the relevant data to confirm access. If the connection state is unclear or sign-in is needed, use `connection_status` with the integration slug. It can ask the user to connect. If access still needs setup, continue with the parts you can build and say which live behavior you could not verify.
 3. Use the existing connection if it supports the required operations and callers. If no integration meets the app's needs, use a direct API. Declare an app secret only if that API requires a credential.
 
+An account can be signed in and still lack access to a particular repository, database, or workspace. If the read fails, explain whether the caller must connect an account, select a different source, or grant access to that source. Retry a temporary service failure without asking the user to sign in again.
+
 ## Secrets
 
 ```ts
@@ -24,6 +26,8 @@ Name each integration the app calls, by the slug `connection_status` shows. The 
 
 - `integrations`: a **user connection**. Each call runs with the caller's own connection. A call with no person cannot use it: a schedule, a webhook, a workflow, and a visitor of a published app.
 - `appIntegrations`: an **app connection**. Each call runs with the owner's connection, whoever calls, and the app's background work uses it too. Use it for what the app itself needs, such as a team's tracker. In a published app, each visitor acts with it through your code, so expose only what a visitor may do.
+
+Choose the scope from the real entry point. An interactive review can use the person's own account. A scheduled digest or webhook handler that reads the same service needs the app's connection. Check the account's access from that entry point after deploy.
 
 ```ts
 integrations: ['linear'],        // the caller's own Linear

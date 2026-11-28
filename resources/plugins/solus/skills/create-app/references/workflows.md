@@ -2,6 +2,8 @@
 
 A call has a limit of time, and a call that fails is over. A workflow is a function that Solus runs to its end: across a deploy, a stop, and a restart of the host.
 
+Use a workflow for a job such as an import that must resume or retry in parts. Use a regular operation for a read or a short write that can finish in one call. Keep the [trigger](triggers.md#choose-a-trigger) separate from the job so it can be started and tested through the same operation.
+
 ```ts
 import { defineApp, mutation, workflow, NonRetryableError } from '@solus/app/backend'
 
@@ -41,6 +43,6 @@ Solus keeps the result of each step. When a run starts again, the function runs 
 - Put time, random values, and I/O inside a step, and branch on what the steps returned. Code between steps runs again each time.
 - A step that was in progress when the host stopped runs again. Make a step safe to run twice: pass `step.idempotencyKey` to a service that takes one, and use `INSERT ... ON CONFLICT` in the mutation a step runs.
 - A run continues on the version that is active when it starts again. Do not rename a step of a workflow that has runs in progress.
-- Start a run with a `key` when the caller can call twice (a webhook, a double click): the same key and input give the same run.
+- Start a run with a `key` when the caller can call twice (a webhook, a double click): the same key and input give the same run. Use a stable ID for the requested job, such as a provider delivery ID. The run key prevents duplicate starts. The step's idempotency key protects an external write if that step runs again.
 
 The user sees each run with its steps on the Manage page, can end one, and can start a failed run again from the failed step. In the UI, show a run's state from `ctx.workflows.get(runId)` through a query, not a spinner that guesses.
