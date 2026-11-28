@@ -45,6 +45,8 @@ await ctx.tools.atlassian.request({ path: '/rest/api/3/search/jql', query: { jql
 await ctx.tools.google.request({ path: '/drive/v3/files', query: { q: "name contains 'Q3'" } })              // www.googleapis.com
 ```
 
+In `preview_app`, declared integrations (`integrations` and `appIntegrations`) allow authenticated read-only calls using the caller's connection (`GET`/`HEAD` on built-in connections, and MCP tools marked read-only); mutating and undeclared calls are refused.
+
 ## Permissions
 
 ```ts

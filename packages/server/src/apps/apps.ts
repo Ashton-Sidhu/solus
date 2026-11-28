@@ -226,10 +226,10 @@ interface LoadedBuild {
   menuBar: string | null | undefined
 }
 
-/** Why a preview does not answer a call that reaches past the project: an integration or a model. */
+/** Why a preview does not answer a call that reaches past the project. */
 function previewRefusal(name: string, target: AppCallTarget | null): string {
   if (!target) return `A preview cannot call ${name}.`
-  return target.kind === 'models' ? 'A preview does not call a model.' : 'A preview does not call an integration.'
+  return target.kind === 'models' ? 'A preview does not call a model.' : `A preview cannot call ${name}.`
 }
 
 /** The name `app.ts` gives the app, read from its text: a save makes the app's record before any build. */
@@ -782,7 +782,9 @@ export class Apps {
    * the frame's network hosts are the project's own. A preview changes
    * nothing: storage and files are in memory, an operation runs against a new
    * database with the project's migrations, no secret, and the default of
-   * each config field, and no integration is called.
+   * each config field. Read-only calls to declared integrations run with the
+   * preview caller's authority; mutating integration calls, workflows, app
+   * file writes, and model calls are refused.
    */
   async previewHost(authority: AppAuthority, build: AppBuild, scratch: { appFolder: string; filesDir: string }): Promise<{ host: AppPreviewHost; dispose(): void }> {
     assertMayUse(authority.principal)
@@ -794,10 +796,20 @@ export class Apps {
       secrets: {}, config: resolveAppConfig(build.descriptor.config, {}), migrations: build.migrations, operations: operationKinds(build.descriptor), workflows: build.descriptor.workflows.map((workflow) => workflow.name),
     }
     const refuse = (what: string) => Promise.reject(new Error(`A preview does not ${what}.`))
+    const callPreviewTool = (slug: string, tool: string, input: CallInput): Promise<StoredValue> => {
+      if (this.deps.remoteTools) return refuse('call an integration')
+      return this.integrationCalls.callReadOnly(build.descriptor, slug, tool, input, authority)
+    }
     const host: AppRunnerHost = {
       log: () => {},
       span: () => {},
-      request: (method) => refuse(method === 'tool' ? 'call an integration' : method.startsWith('files.') ? 'keep an app file' : method.startsWith('models.') ? 'call a model' : 'start a workflow'),
+      request: (method, request) => {
+        if (method === 'tool') {
+          const parsed = toolRequestSchema.parse(request)
+          return callPreviewTool(parsed.slug, parsed.tool, inputSchema.parse(parsed.input))
+        }
+        return refuse(method.startsWith('files.') ? 'keep an app file' : method.startsWith('models.') ? 'call a model' : 'start a workflow')
+      },
     }
     const call = async (name: string, input: AppPreviewArguments): Promise<AppPreviewValue> => {
       const target = parseAppCallName(name)
@@ -816,6 +828,7 @@ export class Apps {
         if (!run) throw new Error('This app has no backend.')
         return (await this.deps.runners.call(run, { name: target.name, input, caller: { kind: 'ui' }, host })).value
       }
+      if (target?.kind === 'tool') return callPreviewTool(target.slug, target.tool, inputSchema.parse(input))
       throw new Error(previewRefusal(name, target))
     }
     return { host: { network: build.descriptor.permissions.network, call }, dispose: () => this.deps.runners.stop(previewId) }

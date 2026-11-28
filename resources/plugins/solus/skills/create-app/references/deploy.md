@@ -9,7 +9,8 @@ Run `npm run check` in the app project. Use a focused check for app logic, data 
 - A build error comes back with the end of the build log: a type error, an import that does not resolve, a native add-on, an `icon.svg` that is not a plain SVG (the error says what to remove), or a `menubar.html` without its `src/menubar.tsx` (or the other way). Fix it and preview again.
 - Operations run for real, against a new, empty database with the project's migrations. So the first picture shows the state of a first open. Sample rows that a migration adds are there; the user's own data is not. To see the app with real data, deploy; from your next turn each operation is a tool you can call.
 - A preview is a picture of one route. It does not click or type. Give each state that matters a route (a page, a tab, an open detail view) so that you can check it, and say which behavior you did not check.
-- Preview has no secrets or app files. It refuses integration calls, workflows, and model calls with an error. Use it to verify the layout and setup or error states. Check authenticated behavior separately on the active app.
+- Preview has no secrets or app files, and refuses workflows, app file writes, and model calls with an error.
+- Declared integrations (`integrations` and `appIntegrations`) allow authenticated read-only calls in preview using the caller's own connection: `GET` and `HEAD` requests on built-in connections (`github`, `atlassian`, `google`), and MCP tools annotated `readOnlyHint: true` (and not `destructiveHint: true`). Mutating integration calls and undeclared integrations are refused with an error. Check writes, secrets, workflows, and background callers on the active app.
 - `storage` works in memory.
 
 ## Save and deploy
