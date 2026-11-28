@@ -56,7 +56,7 @@ If setup or access prevents a live check, report which path you tested and what 
 
 Then `checkout_app`, fix the cause, `preview_app`, `save_app`, `deploy_app`, and read the call log again.
 
-A deploy does not start a failed workflow run again. When `deploy_app` lists runs that failed on an older version, start each one that the new version fixes with `retry_app_run`, then read it with `inspect_app` (`view: "run"`). Tell the user the app is fixed only after the run succeeds. Do not retry a run that the fix does not touch.
+A deploy does not switch in-progress or sleeping workflow runs to the new version (each stays pinned to the version that started it), and it does not start a failed workflow run again. When `deploy_app` lists runs that failed on an older version, start each one that the new version fixes with `retry_app_run` (which moves the run onto the current active version), then read it with `inspect_app` (`view: "run"`). Tell the user the app is fixed only after the run succeeds. Do not retry a run that the fix does not touch.
 
 ## An app from an older template
 

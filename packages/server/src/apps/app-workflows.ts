@@ -59,13 +59,19 @@ export interface AppRunnable {
   run: AppRun
 }
 
+/** Result of looking up the runnable version for a workflow run. */
+export type AppRunnableLookup =
+  | { kind: 'ready'; target: AppRunnable }
+  | { kind: 'waiting' }
+  | { kind: 'missing'; version: number }
+
 /** What the workflows part needs of the Apps service. */
 export interface AppWorkflowHost {
   record(authority: AppAuthority, idOrSlug: string): Promise<AppRecord>
-  /** The app with its active version; null when it is stopped, gone, or has no version that runs. */
-  runnable(appId: string): Promise<AppRunnable | null>
-  /** One call of an operation for a step, as the app's owner. */
-  callOperation(appId: string, operation: string, input: StoredValue, caller: AppCaller, authority: null): Promise<StoredValue>
+  /** The app with the requested pinned version (or active version when null/omitted). */
+  runnable(appId: string, version?: number | null): Promise<AppRunnableLookup>
+  /** One call of an operation for a step, as the app's owner, on the run's version when given. */
+  callOperation(appId: string, operation: string, input: StoredValue, caller: AppCaller, authority: null, version?: AppVersionRecord): Promise<StoredValue>
   /** What a step asks that is not a receipt: an integration tool, an app file. */
   hostRequest(app: AppRecord, version: AppVersionRecord, method: string, input: StoredValue, caller: AppCaller): Promise<StoredValue>
   /** Gives the signals of a step that succeeded to their signal actions. */
@@ -130,7 +136,7 @@ export class AppWorkflows implements AppLifecyclePart {
     this.timer = null
   }
 
-  /** The active version changed, so the runner started again: the runs it had in progress start again on the new version. */
+  /** The active version changed: drive any open runs that are not already in flight (each stays on its pinned version). */
   async activated(app: AppRecord): Promise<void> {
     await this.resume(app.id)
   }
@@ -147,7 +153,8 @@ export class AppWorkflows implements AppLifecyclePart {
 
   // ─── What an operation of the app does (`ctx.workflows`) ───
 
-  async startRun(app: AppRecord, descriptor: AppDescriptor, workflow: string, input: StoredValue, key: string | null, startedBy: AppCaller): Promise<AppWorkflowRunFace> {
+  async startRun(app: AppRecord, version: AppVersionRecord, workflow: string, input: StoredValue, key: string | null, startedBy: AppCaller): Promise<AppWorkflowRunFace> {
+    const { descriptor } = version
     if (!descriptor.workflows.some((declared) => declared.name === workflow)) {
       throw new Error(`This app has no workflow named ${workflow}. It has: ${descriptor.workflows.map((declared) => declared.name).join(', ') || 'none'}.`)
     }
@@ -163,7 +170,7 @@ export class AppWorkflows implements AppLifecyclePart {
     const at = this.now()
     const run: AppRunRecord = {
       id: randomUUID(), appId: app.id, workflow, input, state: 'running', key, result: null, error: null, wakeAt: null, startedBy,
-      interruptions: 0, startedAt: at, updatedAt: at, finishedAt: null, version: null, dismissedAt: null,
+      interruptions: 0, startedAt: at, updatedAt: at, finishedAt: null, version: version.number, dismissedAt: null,
     }
     await insertRun(run)
     emitAppActivity(app.id, 'runs')
@@ -211,13 +218,13 @@ export class AppWorkflows implements AppLifecyclePart {
     return this.detail(await this.required(app, runId))
   }
 
-  /** Starts a failed run again: its failed step runs again, and its finished steps answer from their receipts. */
+  /** Starts a failed run again on the current active version: its failed step runs again, and its finished steps answer from their receipts. */
   async retry(authority: AppAuthority, idOrSlug: string, runId: string): Promise<AppRunDetail> {
     const app = await this.host.record(authority, idOrSlug)
     const run = await this.required(app, runId)
     if (run.state !== 'failed') throw new Error('Only a run that failed can run again.')
     await deleteUnfinishedSteps(run.id)
-    await saveRun({ ...run, state: 'running', error: null, result: null, wakeAt: null, interruptions: 0, updatedAt: this.now(), finishedAt: null, dismissedAt: null })
+    await saveRun({ ...run, state: 'running', error: null, result: null, wakeAt: null, interruptions: 0, updatedAt: this.now(), finishedAt: null, version: app.activeVersion, dismissedAt: null })
     emitAppActivity(app.id, 'runs')
     this.host.runsChanged(app.id)
     void this.drive(run.id)
@@ -309,10 +316,16 @@ export class AppWorkflows implements AppLifecyclePart {
     if (!loaded || (loaded.state !== 'running' && loaded.state !== 'sleeping')) return
     if (loaded.state === 'sleeping' && (loaded.wakeAt ?? 0) > this.now()) return
     // A run of a stopped app waits: Start drives it again.
-    const target = await this.host.runnable(loaded.appId)
-    if (!target) return
+    const lookup = await this.host.runnable(loaded.appId, loaded.version)
+    if (lookup.kind === 'waiting') return
+    if (lookup.kind === 'missing') {
+      await this.finish(loaded, 'failed', null, `Version ${lookup.version} of this app is no longer available.`)
+      return
+    }
+    const { target } = lookup
     if (!target.version.descriptor.workflows.some((declared) => declared.name === loaded.workflow)) {
-      await this.finish({ ...loaded, version: target.version.number }, 'failed', null, `The active version of the app does not declare the workflow ${loaded.workflow}.`)
+      const which = loaded.version === null ? 'The active version' : `Version ${target.version.number}`
+      await this.finish({ ...loaded, version: target.version.number }, 'failed', null, `${which} of the app does not declare the workflow ${loaded.workflow}.`)
       return
     }
     const run: AppRunRecord = { ...loaded, state: 'running', wakeAt: null, updatedAt: this.now(), version: target.version.number }
@@ -434,7 +447,7 @@ export class AppWorkflows implements AppLifecyclePart {
         await receipt(step.name, step.kind, { attempts: 1 })
         execution.extend(OPERATION_STEP_MS + RUN_QUIET_MS)
         try {
-          const value = await this.host.callOperation(run.appId, step.operation, step.input, { kind: 'workflow', runId: run.id, workflow: run.workflow, step: step.name }, null)
+          const value = await this.host.callOperation(run.appId, step.operation, step.input, { kind: 'workflow', runId: run.id, workflow: run.workflow, step: step.name }, null, target.version)
           await receipt(step.name, step.kind, { state: 'done', result: value, finishedAt: this.now() })
           execution.extend(RUN_QUIET_MS)
           return value

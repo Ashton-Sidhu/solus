@@ -326,6 +326,37 @@ describeWithNode('an app\'s runner', () => {
     expect((await runners.call({ ...first, signature: '2', code: 'exports.default = { operations: { version: { handler: () => 2 } } }' }, call('version'))).value).toBe(2)
   })
 
+  test('distinct versions of one app run concurrently, stopIdle keeps busy pinned runners, and stop stops all of them', async () => {
+    const runners = start()
+    const v1 = run({
+      version: 1,
+      signature: '1:a',
+      code: 'exports.default = { operations: { who: { handler: () => 1 }, wait: { handler: () => new Promise((r) => setTimeout(() => r("v1-done"), 150)) } } }',
+      operations: [{ name: 'who', kind: 'query' }, { name: 'wait', kind: 'query' }],
+      workflows: [],
+      migrations: [],
+    })
+    const v2 = {
+      ...v1,
+      version: 2,
+      signature: '2:a',
+      code: 'exports.default = { operations: { who: { handler: () => 2 } } }',
+      operations: [{ name: 'who', kind: 'query' as const }],
+    }
+    expect((await runners.call(v1, call('who'))).value).toBe(1)
+    // Start an in-flight call on v1, then start v2 and stop idle other versions: v1 must finish.
+    const inFlight = runners.call(v1, call('wait'))
+    expect((await runners.call(v2, call('who'))).value).toBe(2)
+    runners.stopIdle(v1.appId, 2)
+    expect((await inFlight).value).toBe('v1-done')
+    // Now v1 is idle, so stopIdle stops v1 while v2 keeps running.
+    runners.stopIdle(v1.appId, 2)
+    expect(runners.status(v1.appId).running).toBe(true)
+    // Stopping the app stops all runners for that app.
+    runners.stop(v1.appId)
+    expect(runners.status(v1.appId)).toMatchObject({ running: false, inFlight: 0 })
+  })
+
   test('a build keeps the `ctx` of its protocol when the host has a newer one', async () => {
     // WHY (decision 22): the host makes `ctx`, not the build. In protocol 2
     // `ctx.files` is a path; in protocol 3 it is an object. A host update must

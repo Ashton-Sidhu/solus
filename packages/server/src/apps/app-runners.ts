@@ -34,6 +34,8 @@ const MAX_RESULT_BYTES = 1024 * 1024
 /** What one app's runner runs: the backend of one version, under its permissions. */
 export interface AppRun {
   appId: string
+  /** The version this run is for. Different versions of one app keep runners of their own so a pinned workflow finishes on its version. */
+  version?: number
   /** Changes when the runner must start again: another version, other secrets, or another config. */
   signature: string
   /** The backend module: CommonJS for Node. */
@@ -206,7 +208,8 @@ class Runner {
 
   constructor(
     readonly signature: string,
-    private readonly appId: string,
+    readonly appId: string,
+    readonly version: number | undefined,
     private readonly child: ChildProcess,
     load: RunnerLoad,
     private readonly idleMs: number,
@@ -261,6 +264,11 @@ class Runner {
   /** False from the moment the runner is told to stop: a new call needs a new runner. */
   get isRunning(): boolean {
     return this.stopReason === null && !this.hasEnded
+  }
+
+  /** True when no operation or workflow is currently in flight on this runner. */
+  get isIdle(): boolean {
+    return this.pending.size === 0
   }
 
   /** The runner's state for the app's owner. */
@@ -393,14 +401,35 @@ export class AppRunners {
     return runner.run(workflow)
   }
 
-  /** The state of an app's runner; an app with no process now is not running. */
+  /** The state of an app's runners; an app with no process now is not running. */
   status(appId: string): AppRuntimeView {
-    return this.runners.get(appId)?.status ?? { running: false, startedAt: null, inFlight: 0, rssBytes: null }
+    let running = false
+    let startedAt: number | null = null
+    let inFlight = 0
+    let rssBytes: number | null = null
+    for (const runner of this.runners.values()) {
+      if (runner.appId !== appId || !runner.isRunning) continue
+      const view = runner.status
+      running = true
+      startedAt = startedAt === null ? view.startedAt : Math.min(startedAt, view.startedAt ?? startedAt)
+      inFlight += view.inFlight
+      if (view.rssBytes !== null) rssBytes = (rssBytes ?? 0) + view.rssBytes
+    }
+    return { running, startedAt, inFlight, rssBytes }
   }
 
-  /** Stops an app's runner, if it has one: the app was stopped, or it is gone. */
+  /** Stops every runner of an app, if it has any: the app was stopped, or it is gone. */
   stop(appId: string, reason?: string): void {
-    this.runners.get(appId)?.stop(reason)
+    for (const runner of this.runners.values()) {
+      if (runner.appId === appId) runner.stop(reason)
+    }
+  }
+
+  /** Stops idle runners of an app for versions other than `keepVersion`, while letting busy pinned-version runners finish. */
+  stopIdle(appId: string, keepVersion?: number, reason?: string): void {
+    for (const runner of this.runners.values()) {
+      if (runner.appId === appId && runner.version !== keepVersion && runner.isIdle) runner.stop(reason)
+    }
   }
 
   dispose(): void {
@@ -421,22 +450,23 @@ export class AppRunners {
   }
 
   private async runnerFor(run: AppRun): Promise<Runner> {
-    const current = this.runners.get(run.appId)
+    const key = run.version === undefined ? run.appId : `${run.appId}:v${run.version}`
+    const current = this.runners.get(key)
     if (current?.signature === run.signature && current.isRunning) return current
-    // Another version, other secrets, or another config: the old process must not answer for them.
+    // Another build, other secrets, or another config for this slot: the old process must not answer for them.
     current?.stop('The app changed. Call it again.')
     const launch = launchedProcess({ env: runnerEnvironment() }, this.node(), runnerArguments(run.permissions, run.appFolder, await this.hasNetworkPermission()))
-    const raced = this.runners.get(run.appId)
+    const raced = this.runners.get(key)
     if (raced?.signature === run.signature && raced.isRunning) return raced
     const child = spawn(launch.file, launch.args, { env: launch.env, cwd: run.filesDir, stdio: ['pipe', 'pipe', 'pipe'] })
-    const runner: Runner = new Runner(run.signature, run.appId, child, {
+    const runner: Runner = new Runner(run.signature, run.appId, run.version, child, {
       code: run.code, protocol: run.protocol, network: run.permissions.network, appFolder: run.appFolder, filesDir: run.filesDir,
       secrets: run.secrets, config: run.config, migrations: run.migrations, operations: run.operations, workflows: run.workflows,
     }, this.options.idleMs ?? IDLE_MS, () => {
-      if (this.runners.get(run.appId) === runner) this.runners.delete(run.appId)
+      if (this.runners.get(key) === runner) this.runners.delete(key)
     })
-    this.runners.set(run.appId, runner)
-    log.info('app_runner_started', { appId: run.appId, pid: child.pid })
+    this.runners.set(key, runner)
+    log.info('app_runner_started', { appId: run.appId, version: run.version ?? null, pid: child.pid })
     return runner
   }
 }
